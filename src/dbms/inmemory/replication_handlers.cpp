@@ -28,6 +28,9 @@
 #include "utils/file.hpp"
 #include "utils/on_scope_exit.hpp"
 #include "utils/readable_size.hpp"
+#ifdef MG_ENTERPRISE
+#include "versioning/version_store.hpp"
+#endif
 
 #include <spdlog/spdlog.h>
 #include <optional>
@@ -193,6 +196,18 @@ void DrainAndRejectPrepareCommit(storage::replication::Decoder &decoder, uint64_
   }
   const storage::replication::PrepareCommitRes res{false};
   rpc::SendFinalResponse(res, request_version, res_builder, fmt::format("db: {}", db_name));
+}
+
+// A resync wipes the tenant; branches forked from the state being discarded must not outlive it. Called before
+// main_lock_ is taken because dropping branches does blocking file I/O. A failure must not block the resync.
+void DropBranchesBeforeClear([[maybe_unused]] dbms::Database &db) {
+#ifdef MG_ENTERPRISE
+  auto *const store = db.version_store();
+  if (!store) return;
+  if (auto const dropped = store->FreezeAndDropAll(); !dropped) {
+    spdlog::error("Failed to drop the branches of database {} before a replica resync: {}", db.name(), dropped.error());
+  }
+#endif
 }
 
 std::optional<DatabaseAccess> GetDatabaseAccessor(dbms::DbmsHandler *dbms_handler, const utils::UUID &uuid) {
@@ -724,6 +739,7 @@ void InMemoryReplicationHandlers::SnapshotHandler(rpc::FileReplicationHandler co
   auto const dst_snapshot_file = current_snapshot_dir / active_files[0].filename();
 
   {
+    DropBranchesBeforeClear(*db_acc->get());
     auto storage_guard = std::unique_lock{storage->main_lock_, std::defer_lock};
     if (!storage_guard.try_lock_for(kWaitForMainLockTimeout)) {
       spdlog::error("Failed to acquire main lock in {}s", kWaitForMainLockTimeout.count());
@@ -947,6 +963,7 @@ void InMemoryReplicationHandlers::WalFilesHandler(
     // advancing when we are not.
     record_progress();
     {
+      DropBranchesBeforeClear(*db_acc->get());
       auto storage_guard = std::unique_lock{storage->main_lock_, std::defer_lock};
       if (!storage_guard.try_lock_for(kWaitForMainLockTimeout)) {
         spdlog::error("Failed to acquire main lock in {}s", kWaitForMainLockTimeout.count());
@@ -1115,6 +1132,7 @@ void InMemoryReplicationHandlers::CurrentWalHandler(
     // advancing when we are not.
     record_progress();
     {
+      DropBranchesBeforeClear(*db_acc->get());
       auto storage_guard = std::unique_lock{storage->main_lock_, std::defer_lock};
       if (!storage_guard.try_lock_for(kWaitForMainLockTimeout)) {
         spdlog::error("Failed to acquire main lock in {}s", kWaitForMainLockTimeout.count());
@@ -1229,6 +1247,32 @@ InMemoryReplicationHandlers::LoadWalStatus InMemoryReplicationHandlers::LoadWal(
     spdlog::trace("WAL file {} finalized successfully", wal_path);
   }
 
+  return ApplyWalDeltas(wal_path, wal_info, storage, heartbeat, /*on_txn_begin*/ nullptr);
+}
+
+bool InMemoryReplicationHandlers::ReplayWalFile(std::filesystem::path const &wal_path,
+                                                storage::InMemoryStorage *storage, rpc::ProgressHeartbeat &heartbeat,
+                                                std::function<void(uint64_t)> const *on_txn_begin) {
+  storage::durability::WalInfo wal_info{};
+  try {
+    wal_info = storage::durability::ReadWalContents(wal_path);
+  } catch (const utils::BasicException &e) {
+    spdlog::error("Loading WAL info from {} failed because of {}.", wal_path, e.what());
+    return false;
+  }
+
+  if (wal_info.to_timestamp <= storage->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_) {
+    spdlog::trace("WAL file {} holds nothing newer than the recovered state.", wal_path);
+    return true;
+  }
+  return ApplyWalDeltas(wal_path, wal_info, storage, heartbeat, on_txn_begin).success;
+}
+
+// Decodes and applies the transactions of one WAL file, shared by LoadWal and ReplayWalFile.
+InMemoryReplicationHandlers::LoadWalStatus InMemoryReplicationHandlers::ApplyWalDeltas(
+    std::filesystem::path const &wal_path, storage::durability::WalInfo const &wal_info,
+    storage::InMemoryStorage *storage, rpc::ProgressHeartbeat &heartbeat,
+    std::function<void(uint64_t)> const *on_txn_begin) {
   spdlog::trace("Loading WAL deltas from {}", wal_path);
   storage::durability::Decoder wal_decoder;
   const auto version = wal_decoder.Initialize(wal_path, storage::durability::kWalMagic);
@@ -1259,7 +1303,8 @@ InMemoryReplicationHandlers::LoadWalStatus InMemoryReplicationHandlers::LoadWal(
                                                *version,
                                                heartbeat,
                                                /*two_phase_commit*/ false,
-                                               /*loading_wal*/ true);
+                                               /*loading_wal*/ true,
+                                               on_txn_begin);
     } catch (const utils::BasicException &e) {
       spdlog::error("Aborting WAL file {} at delta {} and skipping the rest of the chain because of: {}",
                     wal_path,
@@ -1295,7 +1340,8 @@ InMemoryReplicationHandlers::LoadWalStatus InMemoryReplicationHandlers::LoadWal(
 // The number of applied deltas also includes skipped deltas.
 std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandlers::ReadAndApplyDeltasSingleTxn(
     storage::InMemoryStorage *storage, storage::durability::BaseDecoder *decoder, const uint64_t version,
-    rpc::ProgressHeartbeat &heartbeat, bool const two_phase_commit, bool const loading_wal) {
+    rpc::ProgressHeartbeat &heartbeat, bool const two_phase_commit, bool const loading_wal,
+    std::function<void(uint64_t)> const *const on_txn_begin) {
   constexpr auto kSharedAccess = storage::StorageAccessType::WRITE;
   constexpr auto kUniqueAccess = storage::StorageAccessType::UNIQUE;
 
@@ -1418,6 +1464,7 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
   };
 
   decoder->ResetCrcAcc();
+  bool txn_begin_notified{false};
   // A DDL delta below can occupy the handler for minutes on its own, so index population and constraint validation
   // report progress per vertex through this. Returning true also abandons that work once the main is gone, instead of
   // finishing a build whose result can no longer be delivered.
@@ -1445,6 +1492,11 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
     if (delta_timestamp <= current_durable_commit_timestamp) {
       ++skipped_deltas;
       continue;
+    }
+
+    if (on_txn_begin && !txn_begin_notified) {
+      txn_begin_notified = true;
+      (*on_txn_begin)(delta_timestamp);
     }
 
     // NOLINTNEXTLINE (google-build-using-namespace)
@@ -2192,6 +2244,9 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
             default:
               break;
           }
+        },
+        [&](WalOverlayPut const &) {
+          throw utils::BasicException("Overlay record received on replication; it belongs to branch WALs only.");
         },
         [&](WalDescriptionDelete const &data) {
           spdlog::trace("   Delta {}. Delete description (kind={})", current_delta_idx, static_cast<int>(data.kind));

@@ -18,6 +18,7 @@
 #include <ranges>
 #include <thread>
 
+#include "dbms/constants.hpp"
 #include "dbms/dbms_handler.hpp"
 #include "dbms/inmemory/replication_handlers.hpp"
 #include "dbms/rpc.hpp"
@@ -187,6 +188,14 @@ void RenameDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system
     spdlog::debug("RenameDatabaseHandler: bad expected timestamp {},{}",
                   req.expected_group_timestamp,
                   system_state_access.LastCommitedTS());
+    rpc::SendFinalResponse(res, request_version, res_builder);
+    return;
+  }
+
+  if (IsReservedDatabaseName(req.new_name)) {
+    spdlog::error("Refusing to rename database '{}' to '{}': '@' is reserved for branch addressing (database@branch).",
+                  req.old_name,
+                  req.new_name);
     rpc::SendFinalResponse(res, request_version, res_builder);
     return;
   }

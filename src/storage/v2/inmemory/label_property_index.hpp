@@ -297,6 +297,16 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
 
       VertexAccessor const &operator*() const { return current_vertex_accessor_; }
 
+#ifdef MG_ENTERPRISE
+      // Zero-copy access to the CURRENT entry's already-resolved index key (no MVCC/property
+      // re-read): `AdvanceUntilValid` only ever parks `index_iterator_` on an entry once
+      // `CurrentVersionHasLabelProperties` has confirmed the view-visible property values (nested
+      // paths included) equal this stored `values` -- so this is bit-for-bit what a
+      // `GetProperty`-based re-read at the same view would produce, without the per-property MVCC
+      // walk. Precondition: same as `operator*` (not at `end()`).
+      auto CurrentValues() const -> IndexOrderedValuesView { return index_iterator_->values.as_view(); }
+#endif
+
       bool operator==(const Iterator &other) const { return index_iterator_ == other.index_iterator_; }
 
       bool operator!=(const Iterator &other) const { return index_iterator_ != other.index_iterator_; }
@@ -428,6 +438,9 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
     bool IndexExists(LabelId label, std::span<PropertyPath const> properties) const override;
 
     bool IndexReady(LabelId label, std::span<PropertyPath const> properties) const override;
+#ifdef MG_ENTERPRISE
+    bool IndexVisibleAt(LabelId label, std::span<PropertyPath const> properties, uint64_t timestamp) const override;
+#endif
 
     auto RelevantLabelPropertiesIndicesInfo(std::span<LabelId const> labels,
                                             std::span<PropertyPath const> properties) const

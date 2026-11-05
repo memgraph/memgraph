@@ -58,11 +58,29 @@ struct Vertex {
 
   void set_has_uncommitted_non_sequential_deltas(bool b) { delta_.Set<kNonSeqDeltasBit>(b ? 1 : 0); }
 
+#ifdef MG_ENTERPRISE
+  // Monotonic, never cleared: an over-set bit only costs a missed fast path, clearing early would be a bug.
+  // Invariant (upheld by callers, see BranchContext::MarkMainObjectBranched): false => labels, properties and
+  // incident edges match every branch's fork-state view of this vertex.
+  //
+  // Read lock-free; every write to the packed word (Set, SetPtr, SetRelaxed) goes through std::atomic_ref, but
+  // writers must still hold `lock` for mutual exclusion. Relaxed: no ordering with the writer's prior stores.
+  bool branched() const { return delta_.GetRelaxed<kBranchedBit>(); }
+
+  // Caller MUST hold `lock`.
+  void SetBranched(bool b) { delta_.SetRelaxed<kBranchedBit>(b); }
+#endif
+
  private:
   static constexpr int kDeletedBit = 0;
   static constexpr int kNonSeqDeltasBit = 1;
+#ifdef MG_ENTERPRISE
+  static constexpr int kBranchedBit = 2;
 
+  utils::PointerPack<Delta, 3> delta_;
+#else
   utils::PointerPack<Delta, 2> delta_;
+#endif
 };
 
 static constexpr std::size_t kEdgeTypeIdPos = 0U;

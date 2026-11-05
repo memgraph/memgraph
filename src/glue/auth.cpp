@@ -84,6 +84,10 @@ auth::Permission PrivilegeToPermission(query::AuthQuery::Privilege privilege) {
       return auth::Permission::COORDINATOR_READ;
     case query::AuthQuery::Privilege::COORDINATOR_WRITE:
       return auth::Permission::COORDINATOR_WRITE;
+    case query::AuthQuery::Privilege::BRANCH_USE:
+      return auth::Permission::BRANCH_USE;
+    case query::AuthQuery::Privilege::BRANCH_EDIT:
+      return auth::Permission::BRANCH_EDIT;
   }
 }
 

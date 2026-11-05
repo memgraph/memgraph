@@ -427,6 +427,12 @@ struct LabelPropertyIndexActiveIndices {
 
   virtual bool IndexReady(LabelId label, std::span<PropertyPath const> properties) const = 0;
 
+#ifdef MG_ENTERPRISE
+  virtual bool IndexVisibleAt(LabelId label, std::span<PropertyPath const> properties, uint64_t timestamp) const {
+    return IndexReady(label, properties);
+  }
+#endif
+
   virtual bool IndexExists(LabelId label, std::span<PropertyPath const> properties) const = 0;
 
   virtual auto RelevantLabelPropertiesIndicesInfo(std::span<LabelId const> labels,

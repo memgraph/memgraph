@@ -83,6 +83,109 @@ add_unit_test(crc_accumulator
         LINK_TARGETS mg-utils
 )
 
+if (MG_ENTERPRISE)
+add_unit_test(versioning_gate
+        SOURCES versioning_gate.cpp
+        LINK_TARGETS mg::versioning mg-flags
+)
+
+add_unit_test(versioning_name
+        SOURCES versioning_name.cpp
+        LINK_TARGETS mg::versioning
+)
+
+add_unit_test(versioning_version_store
+        SOURCES versioning_version_store.cpp
+        LINK_TARGETS mg::versioning mg-kvstore
+)
+
+add_unit_test(versioning_ledger
+        SOURCES versioning_ledger.cpp
+        LINK_TARGETS mg::versioning mg::storage mg-dbms mg-kvstore
+)
+
+add_unit_test(versioning_branch_engine
+        SOURCES versioning_branch_engine.cpp
+        LINK_TARGETS mg::versioning mg::storage mg-memory-utils
+)
+
+add_unit_test(versioning_stub_index
+        SOURCES versioning_stub_index.cpp
+        LINK_TARGETS mg::versioning mg::storage
+)
+
+add_unit_test(versioning_vertex_overlay_store
+        SOURCES versioning_vertex_overlay_store.cpp
+        LINK_TARGETS mg::versioning mg::storage
+)
+
+add_unit_test(versioning_durability_restart
+        SOURCES versioning_durability_restart.cpp
+        LINK_TARGETS mg::versioning mg::storage mg-dbms
+)
+
+add_unit_test(versioning_branch_wal
+        SOURCES versioning_branch_wal.cpp
+        LINK_TARGETS mg::versioning mg::storage mg-dbms
+)
+
+add_unit_test(versioning_branch_recovery
+        SOURCES versioning_branch_recovery.cpp
+        LINK_TARGETS mg::versioning mg::storage mg-dbms
+)
+
+add_unit_test(versioning_crash_recovery
+        SOURCES versioning_crash_recovery.cpp
+        LINK_TARGETS mg::versioning mg::storage mg-dbms
+)
+
+add_unit_test(versioning_history_replay
+        SOURCES versioning_history_replay.cpp
+        LINK_TARGETS mg::versioning mg::storage mg-dbms storage_test_utils
+)
+
+add_unit_test(versioning_bounded_recovery
+        SOURCES versioning_bounded_recovery.cpp
+        LINK_TARGETS mg::storage mg-dbms storage_test_utils
+)
+
+add_unit_test(versioning_history_hooks
+        SOURCES versioning_history_hooks.cpp
+        LINK_TARGETS mg::storage mg-dbms storage_test_utils
+)
+
+add_unit_test(versioning_interpreter
+        SOURCES versioning_interpreter.cpp ${CMAKE_SOURCE_DIR}/src/glue/communication.cpp
+        LINK_TARGETS mg-communication mg-query mg-glue mg::versioning
+)
+
+add_unit_test(versioning_info
+        SOURCES versioning_info.cpp ${CMAKE_SOURCE_DIR}/src/glue/communication.cpp
+        LINK_TARGETS mg-communication mg-query mg-glue mg::versioning
+)
+
+add_unit_test(versioning_stress
+        SOURCES versioning_stress.cpp ${CMAKE_SOURCE_DIR}/src/glue/communication.cpp
+        LINK_TARGETS mg-communication mg-query mg-glue mg::versioning
+)
+
+add_unit_test(versioning_subgraph
+        SOURCES versioning_subgraph.cpp ${CMAKE_SOURCE_DIR}/src/glue/communication.cpp
+        LINK_TARGETS mg-communication mg-query mg-glue mg::versioning
+)
+
+add_unit_test(versioning_dump
+        SOURCES versioning_dump.cpp ${CMAKE_SOURCE_DIR}/src/glue/communication.cpp
+        LINK_TARGETS mg-communication mg-query mg-glue mg::versioning
+)
+
+add_unit_test(versioning_mgp
+        SOURCES versioning_mgp.cpp ${CMAKE_SOURCE_DIR}/src/glue/communication.cpp
+        LINK_TARGETS mg-communication mg-query mg-glue mg::versioning
+        INCLUDE_DIRS ${CMAKE_SOURCE_DIR}/include
+)
+endif()
+
 add_unit_test(kshortest_fine_grained
     SOURCES kshortest_fine_grained.cpp
     LINK_TARGETS mg-query mg-glue disk_test_utils
@@ -528,6 +631,13 @@ add_unit_test(hot_cold_resume
     LINK_TARGETS mg-query mg-auth mg-glue mg-dbms
 )
 
+if (MG_ENTERPRISE)
+add_unit_test(versioning_cold_replica_resume
+    SOURCES versioning_cold_replica_resume.cpp
+    LINK_TARGETS mg::versioning mg-query mg-auth mg-glue mg-dbms mg-replication_handler
+)
+endif()
+
 
 add_unit_test(utils_aws
     SOURCES utils_aws.cpp
@@ -956,6 +1066,11 @@ add_unit_test(storage_v2_gc_index_sweep
 add_unit_test(storage_v2_index_arming
     SOURCES storage_v2_index_arming.cpp
     LINK_TARGETS mg::storage
+)
+
+add_unit_test(versioning_historical_access
+    SOURCES versioning_historical_access.cpp
+    LINK_TARGETS mg::storage storage_test_utils
 )
 
 add_unit_test(storage_v2_non_sequential_isolation

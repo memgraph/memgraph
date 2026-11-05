@@ -96,6 +96,7 @@ static constexpr std::array kMarkersAll = {
     Marker::DELTA_TEXT_EDGE_INDEX_CREATE,
     Marker::DELTA_DESCRIPTION_SET,
     Marker::DELTA_DESCRIPTION_DELETE,
+    Marker::DELTA_OVERLAY_PUT,
     Marker::VALUE_FALSE,
     Marker::VALUE_TRUE,
 };

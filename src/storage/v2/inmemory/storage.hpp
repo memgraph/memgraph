@@ -15,11 +15,13 @@
 #include <concepts>
 #include <cstdint>
 #include <deque>
+#include <functional>
 #include <list>
 #include <memory>
 #include <mutex>
 #include <optional>
 #include <ranges>
+#include <set>
 #include <string_view>
 #include <utility>
 #include "memory/db_arena_fwd.hpp"
@@ -150,12 +152,28 @@ class InMemoryStorage final : public Storage {
 
   /// @throw std::system_error
   /// @throw std::bad_alloc
+#ifdef MG_ENTERPRISE
+  ///
+  /// `shared_name_id_mapper`: forwarded to the Storage base ctor; lets the versioning diff engine share main's
+  /// NameIdMapper. nullptr (the default) gives the storage its own mapper.
+#endif
   explicit InMemoryStorage(Config config = Config(), std::optional<free_mem_fn> free_mem_fn_override = std::nullopt,
                            PlanInvalidatorPtr invalidator = std::make_unique<PlanInvalidatorDefault>(),
                            metrics::DatabaseMetricHandles metric_handles = {},
                            std::function<storage::DatabaseProtectorPtr()> database_protector_factory = nullptr,
                            memgraph::memory::ArenaPool *db_arena = nullptr,
-                           utils::MemoryTracker *db_embedding_memory_tracker = nullptr);
+                           utils::MemoryTracker *db_embedding_memory_tracker = nullptr
+#ifdef MG_ENTERPRISE
+                           ,
+                           std::shared_ptr<storage::NameIdMapper> shared_name_id_mapper = nullptr
+#endif
+  );
+
+#ifdef MG_ENTERPRISE
+  /// The embedding tracker this storage was built with (nullptr if none); lets a derived engine (the versioning diff
+  /// engine) charge its vector indices to the same tenant.
+  utils::MemoryTracker *DbEmbeddingMemoryTracker() const noexcept { return db_embedding_memory_tracker_; }
+#endif
 
   InMemoryStorage(const InMemoryStorage &) = delete;
   InMemoryStorage(InMemoryStorage &&) = delete;
@@ -180,6 +198,13 @@ class InMemoryStorage final : public Storage {
     /// Takes ownership of a hold the caller acquired; see Accessor's constructor.
     explicit InMemoryAccessor(InMemoryStorage *storage, std::optional<IsolationLevel> override_isolation_level,
                               utils::ResourceLockGuard guard);
+#ifdef MG_ENTERPRISE
+    // Read-only via the `Transaction::is_historical_` write assert, not lock mode (plain SHARED guard).
+    // `build_transaction` runs from the base ctor, after storage_guard_ is already held.
+    explicit InMemoryAccessor(HistoricalAccess tag, InMemoryStorage *storage,
+                              std::function<Transaction()> build_transaction,
+                              std::optional<std::chrono::milliseconds> timeout = std::nullopt);
+#endif
 
     std::expected<void, ConstraintViolation> ExistenceConstraintsViolation() const;
 
@@ -423,7 +448,13 @@ class InMemoryStorage final : public Storage {
                                          VertexAccessor *to_vertex) override;
 
     bool LabelIndexReady(LabelId label) const override {
+#ifdef MG_ENTERPRISE
+      return transaction_.is_historical_
+                 ? transaction_.active_indices_->label_->IndexVisibleAt(label, transaction_.start_timestamp)
+                 : transaction_.active_indices_->label_->IndexReady(label);
+#else
       return transaction_.active_indices_->label_->IndexReady(label);
+#endif
     }
 
     bool LabelPropertyIndexExists(LabelId label, std::span<PropertyPath const> properties) const override {
@@ -431,15 +462,35 @@ class InMemoryStorage final : public Storage {
     }
 
     bool LabelPropertyIndexReady(LabelId label, std::span<PropertyPath const> properties) const override {
+#ifdef MG_ENTERPRISE
+      return transaction_.is_historical_
+                 ? transaction_.active_indices_->label_properties_->IndexVisibleAt(
+                       label, properties, transaction_.start_timestamp)
+                 : transaction_.active_indices_->label_properties_->IndexReady(label, properties);
+#else
       return transaction_.active_indices_->label_properties_->IndexReady(label, properties);
+#endif
     }
 
     bool EdgeTypeIndexReady(EdgeTypeId edge_type) const override {
+#ifdef MG_ENTERPRISE
+      return transaction_.is_historical_
+                 ? transaction_.active_indices_->edge_type_->IndexVisibleAt(edge_type, transaction_.start_timestamp)
+                 : transaction_.active_indices_->edge_type_->IndexReady(edge_type);
+#else
       return transaction_.active_indices_->edge_type_->IndexReady(edge_type);
+#endif
     }
 
     bool EdgeTypePropertyIndexReady(EdgeTypeId edge_type, PropertyId property) const override {
+#ifdef MG_ENTERPRISE
+      return transaction_.is_historical_
+                 ? transaction_.active_indices_->edge_type_properties_->IndexVisibleAt(
+                       edge_type, property, transaction_.start_timestamp)
+                 : transaction_.active_indices_->edge_type_properties_->IndexReady(edge_type, property);
+#else
       return transaction_.active_indices_->edge_type_properties_->IndexReady(edge_type, property);
+#endif
     }
 
     bool EdgePropertyIndexExists(PropertyId property) const override {
@@ -447,7 +498,13 @@ class InMemoryStorage final : public Storage {
     }
 
     bool EdgePropertyIndexReady(PropertyId property) const override {
+#ifdef MG_ENTERPRISE
+      return transaction_.is_historical_
+                 ? transaction_.active_indices_->edge_property_->IndexVisibleAt(property, transaction_.start_timestamp)
+                 : transaction_.active_indices_->edge_property_->IndexReady(property);
+#else
       return transaction_.active_indices_->edge_property_->IndexReady(property);
+#endif
     }
 
     bool VertexPropertyIndexExists(PropertyId property) const override {
@@ -455,7 +512,13 @@ class InMemoryStorage final : public Storage {
     }
 
     bool VertexPropertyIndexReady(PropertyId property) const override {
+#ifdef MG_ENTERPRISE
+      return transaction_.is_historical_ ? transaction_.active_indices_->vertex_property_->IndexVisibleAt(
+                                               property, transaction_.start_timestamp)
+                                         : transaction_.active_indices_->vertex_property_->IndexReady(property);
+#else
       return transaction_.active_indices_->vertex_property_->IndexReady(property);
+#endif
     }
 
     bool PointIndexExists(LabelId label, PropertyId property) const override;
@@ -736,13 +799,13 @@ class InMemoryStorage final : public Storage {
             // Use non-blocking async indexer
             auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
             // Async index creation -> happens in separate transaction
-            mem_storage->async_indexer_.Enqueue(ttl_label, std::vector<storage::PropertyPath>{{ttl_property}});
+            mem_storage->async_indexer_.Enqueue(ttl_label, std::vector<storage::PropertyPath>{{ ttl_property }});
             if (ttl_info.should_run_edge_ttl) {
               mem_storage->async_indexer_.Enqueue(ttl_property);
             }
           } else {
             // Create index with unique access in same transaction
-            (void)CreateIndex(ttl_label, std::vector<storage::PropertyPath>{{ttl_property}});
+            (void)CreateIndex(ttl_label, std::vector<storage::PropertyPath>{{ ttl_property }});
             // Create edge index if needed based on TTL configuration
             if (ttl_info.should_run_edge_ttl) {
               (void)CreateGlobalEdgeIndex(ttl_property);
@@ -771,7 +834,7 @@ class InMemoryStorage final : public Storage {
         // Only if MAIN, do we proactivly drop indexes
         // REPLICA will recieve deltas from MAIN that will drop the indexes
         // Drop indices (silently fail if index already dropped )
-        (void)DropIndex(ttl_label, std::vector<storage::PropertyPath>{{ttl_property}});
+        (void)DropIndex(ttl_label, std::vector<storage::PropertyPath>{{ ttl_property }});
         // Check if edge TTL was enabled and drop edge index if needed (silently fail if index already dropped)
         if (ttl.Config().should_run_edge_ttl) {
           (void)DropGlobalEdgeIndex(ttl_property);
@@ -788,6 +851,12 @@ class InMemoryStorage final : public Storage {
 #endif
 
     void DowngradeToReadIfValid();
+
+#ifdef MG_ENTERPRISE
+    /// Finds out-edge `edge_gid` by scanning `from_vertex`'s adjacency (for versioning stubs, which the vertex-skiplist
+    /// scan in FindEdge misses). Returns nullopt if absent or properties_on_edges is off.
+    std::optional<EdgeAccessor> FindEdgeFrom(Gid edge_gid, Vertex *from_vertex, View view);
+#endif
 
    protected:
     // TODO Better naming
@@ -848,6 +917,33 @@ class InMemoryStorage final : public Storage {
 
   void FreeMemory(utils::ResourceLockGuard main_guard, bool periodic) override;
 
+#ifdef MG_ENTERPRISE
+  // Captures the current timestamp as a branch fork point and pins GC at it; returns it.
+  // Lock order: engine_lock_ then version_fork_pin_lock_.
+  uint64_t RegisterForkPin();
+
+  // RegisterForkPin that also lowers the retention floor to `fork_ts - 1` atomically with a snapshot's retention
+  // pass, so the files that rebuild the fork base survive. Lock order: retention_floor_mutex_, then engine_lock_.
+  uint64_t RegisterBranchForkPin();
+
+  // Call exactly once per pin (RegisterForkPin or a HistoricalAccess self-pin); an unregistered fork_ts MG_ASSERTs.
+  // Removes one instance of the multiset key, not all equal ones.
+  void ReleaseForkPin(uint64_t fork_ts);
+
+  // Oldest live fork pin, or nullopt if none; mirrors the GC horizon clamp in CollectGarbage.
+  std::optional<uint64_t> OldestForkPin() const;
+
+  enum class HistoricalAccessError : uint8_t {
+    // `fork_ts` is not a live pin: never registered, or already released.
+    ForkTimestampNotPinned
+  };
+
+  // Opens a read-only accessor snapshotted at `fork_ts`, which must be a live pin (else ForkTimestampNotPinned);
+  // self-pins it until finalize. Always SNAPSHOT_ISOLATION and a plain SHARED lock (main stays writable); writes
+  // are refused by `Transaction::is_historical_`. Uses the CURRENT active indices, not fork-era ones.
+  std::expected<std::unique_ptr<Storage::Accessor>, HistoricalAccessError> HistoricalAccess(uint64_t fork_ts);
+#endif
+
   utils::FileRetainer::FileLockerAccessor::ret_type IsPathLocked();
   utils::FileRetainer::FileLockerAccessor::ret_type LockPath();
   utils::FileRetainer::FileLockerAccessor::ret_type UnlockPath();
@@ -887,8 +983,21 @@ class InMemoryStorage final : public Storage {
 
   Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode) override;
 
+#ifdef MG_ENTERPRISE
+  // `under_unique_access`, if set, runs once the UNIQUE hold is taken and before anything changes; it may throw to
+  // refuse the switch, which then has no side effect.
+  void SetStorageMode(StorageMode storage_mode, const std::function<void()> &under_unique_access = {});
+
+ private:
+  // Like CreateTransaction but with `start_timestamp = fork_ts`, `timestamp_` untouched, SNAPSHOT_ISOLATION and
+  // `is_historical_` set. Only called via `build_transaction`, i.e. after storage_guard_ is already held.
+  Transaction CreateHistoricalTransaction(uint64_t fork_ts);
+
+ public:
+#else
   void SetStorageMode(StorageMode storage_mode);
 
+#endif
   const durability::Recovery &GetRecovery() const noexcept { return recovery_; }
 
   auto GetAsyncIndexer() -> AsyncIndexer & { return async_indexer_; }
@@ -920,6 +1029,50 @@ class InMemoryStorage final : public Storage {
   [[nodiscard]] uint64_t EdgeStoreSize() const { return edges_.size(); }
 
   [[nodiscard]] uint64_t VertexStoreSize() const { return vertices_.size(); }
+
+#ifdef MG_ENTERPRISE
+  /// Files left out of the recovered state by `config.durability.recovery_history_bound`. Moves them out: the second
+  /// call, and any call without a bound, returns nullopt.
+  [[nodiscard]] std::optional<durability::RecoveryTail> TakeRecoveryTail() { return std::exchange(recovery_tail_, {}); }
+#endif
+
+#ifdef MG_ENTERPRISE
+  /// While alive, commits skip the WAL append (but still advance the last durable timestamp). For replaying
+  /// transactions that are already in existing WAL files; the caller must ensure no other writer commits meanwhile.
+  class SuppressWalScope {
+   public:
+    explicit SuppressWalScope(InMemoryStorage &storage) : storage_{storage} {
+      MG_ASSERT(!storage_.suppress_wal_.exchange(true, std::memory_order_acq_rel), "WAL suppression is not nestable");
+    }
+
+    ~SuppressWalScope() { storage_.suppress_wal_.store(false, std::memory_order_release); }
+
+    SuppressWalScope(SuppressWalScope const &) = delete;
+    SuppressWalScope &operator=(SuppressWalScope const &) = delete;
+    SuppressWalScope(SuppressWalScope &&) = delete;
+    SuppressWalScope &operator=(SuppressWalScope &&) = delete;
+
+   private:
+    InMemoryStorage &storage_;
+  };
+
+  /// Moves the transaction clock to at least max(last durable timestamp + 1, `min_next`) when it trails it (commits
+  /// that carry a durable timestamp, e.g. a replay, do not advance the clock). Skipped ids are marked finished in the
+  /// commit log.
+  void BumpClockPastDurable(uint64_t min_next = 0);
+
+  /// Continues the WAL file numbering at `seq_num`, as main's recovery does after the last file it read. Only for a
+  /// storage that replays existing WAL files itself (versioning branch recovery) before anything commits.
+  void SetNextWalSeqNum(uint64_t seq_num);
+
+  /// Writes a WAL transaction at `commit_ts` that holds only the records `writer` appends, and advances the last
+  /// durable timestamp. For commits with no deltas of their own; writes nothing when the WAL is off or suppressed.
+  /// The caller holds engine_lock_ and took `commit_ts` from the clock under it, so WAL order is commit order.
+  void AppendWalOnlyTransaction(uint64_t commit_ts, std::function<void(durability::WalFile &, uint64_t)> const &writer);
+
+  /// Smallest transaction id that may still be active.
+  [[nodiscard]] uint64_t OldestActiveTimestamp();
+#endif
 
   // The highest fully-published commit timestamp; under the experiment this is what a snapshot
   // isolation reader freezes as its own boundary at BEGIN.
@@ -1022,6 +1175,9 @@ class InMemoryStorage final : public Storage {
   // Database-owned arena pool for per-thread arena management.
   // Database must outlive Storage; Database member declaration order guarantees that.
   memgraph::memory::ArenaPool *db_arena_{nullptr};
+#ifdef MG_ENTERPRISE
+  utils::MemoryTracker *db_embedding_memory_tracker_{nullptr};
+#endif
 
   // Main object storage — DbAwareAllocator routes node allocations through the
   // current DB TLS scope, while long-lived DB work establishes that scope at
@@ -1086,6 +1242,13 @@ class InMemoryStorage final : public Storage {
 
   memory::ArenaAwareUniquePtr<durability::WalFile> wal_file_;
   uint64_t wal_unsynced_transactions_{0};
+
+#ifdef MG_ENTERPRISE
+  // Set by SuppressWalScope; read by InitializeWalFile.
+  std::atomic<bool> suppress_wal_{false};
+
+  std::optional<durability::RecoveryTail> recovery_tail_;
+#endif
 
   utils::FileRetainer file_retainer_;
 
@@ -1234,6 +1397,13 @@ class InMemoryStorage final : public Storage {
   uint64_t last_processed_commit_ts_{0};
 
   void ProcessPendingSchemaUpdates(uint64_t up_to_commit_ts);
+
+#ifdef MG_ENTERPRISE
+  // Live branch fork points; GC's horizon is clamped to the oldest. A multiset: branches and historical readers
+  // may share a fork_ts. Lock order: engine_lock_ then version_fork_pin_lock_ (see RegisterForkPin).
+  mutable utils::SpinLock version_fork_pin_lock_;
+  std::multiset<uint64_t> version_fork_pins_;
+#endif
 };
 
 class ReplicationAccessor final : public InMemoryStorage::InMemoryAccessor {

@@ -318,6 +318,47 @@ TEST_F(TestPrivilegeExtractor, ShowQueryCallableMappingsQuery) {
   EXPECT_THAT(GetRequiredPrivileges(query), UnorderedElementsAre(AuthQuery::Privilege::CONFIG));
 }
 
+namespace {
+VersioningQuery *MakeVersioningQuery(AstStorage &storage, VersioningQuery::Action action, bool force = false) {
+  auto *query = storage.Create<VersioningQuery>();
+  query->action_ = action;
+  query->force_ = force;
+  return query;
+}
+}  // namespace
+
+TEST_F(TestPrivilegeExtractor, BranchEditQueries) {
+  using Action = VersioningQuery::Action;
+  for (auto const action : {Action::CREATE_BRANCH, Action::DROP_BRANCH}) {
+    EXPECT_THAT(GetRequiredPrivileges(MakeVersioningQuery(storage, action)),
+                UnorderedElementsAre(AuthQuery::Privilege::BRANCH_EDIT));
+  }
+}
+
+TEST_F(TestPrivilegeExtractor, BranchUseQueries) {
+  using Action = VersioningQuery::Action;
+  for (auto const action : {Action::USE_BRANCH, Action::SHOW_BRANCH, Action::SHOW_BRANCHES}) {
+    EXPECT_THAT(GetRequiredPrivileges(MakeVersioningQuery(storage, action)),
+                UnorderedElementsAre(AuthQuery::Privilege::BRANCH_USE));
+  }
+  auto *show_for_db = MakeVersioningQuery(storage, Action::SHOW_BRANCHES);
+  show_for_db->for_database_ = "other_db";
+  EXPECT_THAT(GetRequiredPrivileges(show_for_db), UnorderedElementsAre(AuthQuery::Privilege::BRANCH_USE));
+}
+
+TEST_F(TestPrivilegeExtractor, DropBranchForceNeedsTransactionManagement) {
+  auto *query = MakeVersioningQuery(storage, VersioningQuery::Action::DROP_BRANCH, /*force=*/true);
+  EXPECT_THAT(GetRequiredPrivileges(query),
+              UnorderedElementsAre(AuthQuery::Privilege::BRANCH_EDIT, AuthQuery::Privilege::TRANSACTION_MANAGEMENT));
+}
+
+TEST_F(TestPrivilegeExtractor, UsingBranchNeedsBranchUse) {
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN("n")));
+  query->pre_query_directives_.branch_target_ = LITERAL("feature");
+  EXPECT_THAT(GetRequiredPrivileges(query),
+              UnorderedElementsAre(AuthQuery::Privilege::MATCH, AuthQuery::Privilege::BRANCH_USE));
+}
+
 // The coordinator auth-query gate permits exactly CREATE/DROP/SHOW ROLE, GRANT/REVOKE of the coordinator READ/WRITE
 // privileges on a role, and SHOW PRIVILEGES FOR a role; every other auth query (and any grant of a non-coordinator
 // privilege or against a USER) is rejected on a coordinator. This exercises the predicate the interpreter gate uses.

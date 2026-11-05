@@ -16,6 +16,8 @@
 #include <optional>
 #include <set>
 #include <string>
+#include <utility>
+#include <vector>
 
 #include "storage/v2/access_type.hpp"
 #include "storage/v2/config.hpp"
@@ -452,6 +454,20 @@ struct WalDescriptionDelete {
   ExternalPropertyValue value;
 };
 
+// Full-state record of a main object changed on a versioning branch. Only in branch WALs; LoadWal rejects it in a main
+// WAL. Names (not ids) are stored so the record survives name-id remapping.
+struct WalOverlayPut {
+  friend bool operator==(const WalOverlayPut &, const WalOverlayPut &) = default;
+  uint64_t key;  //!< Vertex gid, or edge gid with bit 63 set
+  bool deleted;
+  std::vector<std::string> added_labels;
+  std::vector<std::string> removed_labels;
+  std::vector<std::string> removed_properties;
+  std::vector<std::pair<std::string, ExternalPropertyValue>> properties;
+  uint64_t from_gid;  //!< Edge keys only; 0 for vertex keys
+  uint64_t to_gid;    //!< Edge keys only; 0 for vertex keys
+};
+
 // Single TTL WAL structure that encompasses all TTL operations
 struct WalTtlOperation {
   friend bool operator==(const WalTtlOperation &, const WalTtlOperation &) = default;
@@ -477,7 +493,8 @@ struct WalDeltaData {
                WalUniqueConstraintCreate, WalUniqueConstraintDrop, WalTypeConstraintCreate, WalTypeConstraintDrop,
                WalTextIndexCreate, WalTextIndexDrop, WalTextEdgeIndexCreate, WalEnumCreate, WalEnumAlterAdd,
                WalEnumAlterUpdate, WalVectorIndexCreate, WalVectorIndexDrop, WalVectorEdgeIndexCreate, WalTtlOperation,
-               WalDescriptionSet, WalDescriptionDelete, WalVertexPropertyIndexCreate, WalVertexPropertyIndexDrop>
+               WalDescriptionSet, WalDescriptionDelete, WalVertexPropertyIndexCreate, WalVertexPropertyIndexDrop,
+               WalOverlayPut>
       data_ = WalTransactionEnd{};
 };
 
@@ -596,7 +613,28 @@ void EncodeTtlOperation(BaseEncoder &encoder, TtlOperationType operation_type,
 
 void EncodeOperationPreamble(BaseEncoder &encoder, StorageMetadataOperation Op, uint64_t timestamp);
 
+#ifdef MG_ENTERPRISE
+/// Id-based input for EncodeOverlayPut; mirrors WalOverlayPut. Defined here so storage does not depend on versioning.
+struct OverlayPutData {
+  uint64_t key{0};  //!< Vertex gid, or edge gid with bit 63 set
+  bool deleted{false};
+  std::vector<LabelId> added_labels;
+  std::vector<LabelId> removed_labels;
+  std::vector<PropertyId> removed_properties;
+  std::vector<std::pair<PropertyId, PropertyValue>> properties;
+  uint64_t from_gid{0};
+  uint64_t to_gid{0};
+};
+
+/// Encodes a whole DELTA_OVERLAY_PUT delta, header included. Branch WALs only.
+void EncodeOverlayPut(BaseEncoder &encoder, NameIdMapper &name_id_mapper, OverlayPutData const &data,
+                      uint64_t timestamp);
+#endif
+
 /// Function used to load the WAL data into the storage.
+#ifdef MG_ENTERPRISE
+/// Deltas with a timestamp above `max_delta_timestamp` (when set) are skipped.
+#endif
 /// @throw RecoveryFailure
 std::optional<RecoveryInfo> LoadWal(
     std::filesystem::path const &path, RecoveredIndicesAndConstraints *indices_constraints,
@@ -604,7 +642,12 @@ std::optional<RecoveryInfo> LoadWal(
     utils::SkipListDb<Edge> *edges, NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
     SalientConfig::Items items, EnumStore *enum_store, SharedSchemaTracking *schema_info,
     std::function<std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>>(Gid)> find_edge,
-    memgraph::storage::ttl::TTL *ttl, memgraph::storage::DescriptionStore *description_store);
+    memgraph::storage::ttl::TTL *ttl, memgraph::storage::DescriptionStore *description_store
+#ifdef MG_ENTERPRISE
+    ,
+    std::optional<uint64_t> max_delta_timestamp = std::nullopt
+#endif
+);
 
 /// WalFile class used to append deltas and operations to the WAL file.
 class WalFile {
@@ -623,6 +666,11 @@ class WalFile {
   void AppendDelta(const Delta &delta, Vertex *vertex, uint64_t timestamp, Storage *storage);
   void AppendDelta(const Delta &delta, Edge *edge, uint64_t timestamp, Storage *storage, Gid in_vertex_gid,
                    EdgeTypeId edge_type_id);
+
+#ifdef MG_ENTERPRISE
+  /// Branch WALs only.
+  void AppendOverlayPut(OverlayPutData const &data, uint64_t timestamp);
+#endif
 
   // True means storage should use deltas associated with this txn, false means skip until
   // you find the next txn.

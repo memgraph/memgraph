@@ -14,6 +14,7 @@
 #include <atomic>
 #include <cassert>
 #include <cstdint>
+#include <map>
 #include <memory>
 #include <optional>
 #include <string>
@@ -134,6 +135,16 @@ struct InterpreterContext {
 
   static std::vector<uint64_t> ShowTransactionsUsingDBName(const std::unordered_set<Interpreter *> &interpreters,
                                                            std::string_view db_name);
+
+#ifdef MG_ENTERPRISE
+  /// Ids of the open transactions of sessions on branch `branch_number` of database `db_name`.
+  static std::vector<uint64_t> ShowTransactionsUsingBranch(const std::unordered_set<Interpreter *> &interpreters,
+                                                           std::string_view db_name, uint64_t branch_number);
+
+  /// Sessions per branch number (0 is main) of database `db_name`.
+  static std::map<uint64_t, size_t> CountSessionsPerBranch(const std::unordered_set<Interpreter *> &interpreters,
+                                                           std::string_view db_name);
+#endif
 
   // Hooks into the DbmsHandler's deferred-drop worker: while a FORCE drop is draining, Bolt sessions whose current
   // database is being dropped are closed, so the database can drain. Unregister before this context is destroyed;

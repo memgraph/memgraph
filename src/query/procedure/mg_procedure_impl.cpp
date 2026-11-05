@@ -403,11 +403,20 @@ mgp_value_type FromTypedValueType(memgraph::query::TypedValue::Type type) {
 
 bool IsDeleted(const mgp_vertex *vertex) {
   if (vertex->IsVirtual()) return false;
-  return vertex->getImpl().impl_.vertex_->deleted();
+  return vertex->getImpl().IsDeleted();
 }
 
 bool IsDeleted(const mgp_edge *edge) {
-  return std::visit(memgraph::utils::Overloaded{[](const memgraph::query::EdgeAccessor &ea) { return ea.IsDeleted(); },
+  return std::visit(memgraph::utils::Overloaded{[](const memgraph::query::EdgeAccessor &ea) {
+#ifdef MG_ENTERPRISE
+                                                  if (auto *ctx = ea.branch_ctx_;
+                                                      ctx != nullptr && ctx->current_diff_txn() != nullptr &&
+                                                      ctx->IsForkEdgeHidden(ea.impl_, memgraph::storage::View::NEW)) {
+                                                    return true;
+                                                  }
+#endif
+                                                  return ea.IsDeleted();
+                                                },
                                                 [](const memgraph::query::VirtualEdge &) { return false; }},
                     edge->impl);
 }
@@ -3319,9 +3328,24 @@ mgp_error mgp_graph_get_vertex_by_id(mgp_graph *graph, mgp_vertex_id id, mgp_mem
       result);
 }
 
+namespace {
+// mgp schema DDL would act on the branch's diff engine (indexes silently lost on branch exit, constraints checked only
+// against sparse stubs), so it is rejected like the Cypher on-branch DDL rail.
+void RejectSchemaDdlOnBranch([[maybe_unused]] const mgp_graph &graph) {
+#ifdef MG_ENTERPRISE
+  auto *impl = graph.TryGetImpl();
+  if (impl != nullptr && impl->branch_context() != nullptr) {
+    throw ImmutableObjectException{
+        "Schema and storage-global operations are not allowed on a branch. Run USE BRANCH main first."};
+  }
+#endif
+}
+}  // namespace
+
 mgp_error mgp_create_label_index(mgp_graph *graph, const char *label, int *result) {
   return WrapExceptions(
       [graph, label]() {
+        RejectSchemaDdlOnBranch(*graph);
         const auto label_id =
             std::visit([label](auto *impl) { return impl->NameToLabel(label); }, graph->CheckedImpl());
         const auto index_res = std::visit(
@@ -3343,6 +3367,7 @@ mgp_error mgp_create_label_index(mgp_graph *graph, const char *label, int *resul
 mgp_error mgp_drop_label_index(mgp_graph *graph, const char *label, int *result) {
   return WrapExceptions(
       [graph, label]() {
+        RejectSchemaDdlOnBranch(*graph);
         const auto label_id =
             std::visit([label](auto *impl) { return impl->NameToLabel(label); }, graph->CheckedImpl());
         const auto index_res =
@@ -3395,6 +3420,7 @@ mgp_error mgp_list_all_label_indices(mgp_graph *graph, mgp_memory *memory, mgp_l
 mgp_error mgp_create_label_property_index(mgp_graph *graph, const char *label, const char *property, int *result) {
   return WrapExceptions(
       [graph, label, property]() {
+        RejectSchemaDdlOnBranch(*graph);
         const auto label_id =
             std::visit([label](auto *impl) { return impl->NameToLabel(label); }, graph->CheckedImpl());
         const auto property_path = std::visit(
@@ -3426,6 +3452,7 @@ mgp_error mgp_create_label_property_index(mgp_graph *graph, const char *label, c
 mgp_error mgp_drop_label_property_index(mgp_graph *graph, const char *label, const char *property, int *result) {
   return WrapExceptions(
       [graph, label, property]() {
+        RejectSchemaDdlOnBranch(*graph);
         const auto label_id =
             std::visit([label](auto *impl) { return impl->NameToLabel(label); }, graph->CheckedImpl());
         const auto property_path = std::visit(
@@ -3527,6 +3554,7 @@ mgp_error mgp_list_all_label_property_indices(mgp_graph *graph, mgp_memory *memo
 mgp_error mgp_create_vertex_property_index(mgp_graph *graph, const char *property, int *result) {
   return WrapExceptions(
       [graph, property]() {
+        RejectSchemaDdlOnBranch(*graph);
         const auto property_id =
             std::visit([property](auto *impl) { return impl->NameToProperty(property); }, graph->CheckedImpl());
         const auto index_res = std::visit(
@@ -3549,6 +3577,7 @@ mgp_error mgp_create_vertex_property_index(mgp_graph *graph, const char *propert
 mgp_error mgp_drop_vertex_property_index(mgp_graph *graph, const char *property, int *result) {
   return WrapExceptions(
       [graph, property]() {
+        RejectSchemaDdlOnBranch(*graph);
         const auto property_id =
             std::visit([property](auto *impl) { return impl->NameToProperty(property); }, graph->CheckedImpl());
         const auto index_res = std::visit(
@@ -3607,6 +3636,7 @@ mgp_error mgp_list_all_vertex_property_indices(mgp_graph *graph, mgp_memory *mem
 mgp_error mgp_create_existence_constraint(mgp_graph *graph, const char *label, const char *property, int *result) {
   return WrapExceptions(
       [graph, label, property]() {
+        RejectSchemaDdlOnBranch(*graph);
         const auto label_id =
             std::visit([label](auto *impl) { return impl->NameToLabel(label); }, graph->CheckedImpl());
         const auto property_id =
@@ -3632,6 +3662,7 @@ mgp_error mgp_create_existence_constraint(mgp_graph *graph, const char *label, c
 mgp_error mgp_drop_existence_constraint(mgp_graph *graph, const char *label, const char *property, int *result) {
   return WrapExceptions(
       [graph, label, property]() {
+        RejectSchemaDdlOnBranch(*graph);
         const auto label_id =
             std::visit([label](auto *impl) { return impl->NameToLabel(label); }, graph->CheckedImpl());
         const auto property_id =
@@ -3690,6 +3721,7 @@ mgp_error mgp_list_all_existence_constraints(mgp_graph *graph, mgp_memory *memor
 mgp_error mgp_create_unique_constraint(mgp_graph *graph, const char *label, mgp_list *properties, int *result) {
   return WrapExceptions(
       [graph, label, properties]() {
+        RejectSchemaDdlOnBranch(*graph);
         const auto label_id =
             std::visit([label](auto *impl) { return impl->NameToLabel(label); }, graph->CheckedImpl());
         std::set<memgraph::storage::PropertyId> property_ids;
@@ -3721,6 +3753,7 @@ mgp_error mgp_create_unique_constraint(mgp_graph *graph, const char *label, mgp_
 mgp_error mgp_drop_unique_constraint(mgp_graph *graph, const char *label, mgp_list *properties, int *result) {
   return WrapExceptions(
       [graph, label, properties]() {
+        RejectSchemaDdlOnBranch(*graph);
         const auto label_id =
             std::visit([label](auto *impl) { return impl->NameToLabel(label); }, graph->CheckedImpl());
         std::set<memgraph::storage::PropertyId> property_ids;
@@ -5119,29 +5152,52 @@ mgp_error mgp_graph_iter_vertices(mgp_graph *graph, mgp_memory *memory, mgp_vert
   return WrapExceptions([graph, memory] { return NewRawMgpObject<mgp_vertices_iterator>(memory, graph); }, result);
 }
 
+namespace {
+// On a branch the diff engine holds only touched/created objects, so its counts are meaningless for pre-sizing.
+// Report main@fork's approximate count instead (a lower bound: branch-native creates are not added, deletes not
+// subtracted -- the API is approximate by contract).
+int64_t ApproximateVertexCountOf(memgraph::query::DbAccessor *impl) {
+#ifdef MG_ENTERPRISE
+  if (auto *ctx = impl->branch_context(); ctx != nullptr && ctx->current_diff_txn() != nullptr) {
+    return ctx->historical().ApproximateVertexCount();
+  }
+#endif
+  return impl->VerticesCount();
+}
+
+int64_t ApproximateEdgeCountOf(memgraph::query::DbAccessor *impl) {
+#ifdef MG_ENTERPRISE
+  if (auto *ctx = impl->branch_context(); ctx != nullptr && ctx->current_diff_txn() != nullptr) {
+    return ctx->historical().ApproximateEdgeCount();
+  }
+#endif
+  return impl->EdgesCount();
+}
+}  // namespace
+
 mgp_error mgp_graph_approximate_vertex_count(mgp_graph *graph, size_t *result) {
   return WrapExceptions([graph, result] {
-    *result =
-        std::visit(memgraph::utils::Overloaded{
-                       [](memgraph::query::DbAccessor *impl) { return impl->VerticesCount(); },
-                       [](memgraph::query::SubgraphDbAccessor *impl) { return impl->GetAccessor()->VerticesCount(); },
-                       [](memgraph::query::VirtualGraphDbAccessor *impl) -> int64_t {
-                         return static_cast<int64_t>(impl->getGraph()->nodes().size());
-                       }},
-                   graph->CheckedImpl());
+    *result = std::visit(
+        memgraph::utils::Overloaded{
+            [](memgraph::query::DbAccessor *impl) { return ApproximateVertexCountOf(impl); },
+            [](memgraph::query::SubgraphDbAccessor *impl) { return ApproximateVertexCountOf(impl->GetAccessor()); },
+            [](memgraph::query::VirtualGraphDbAccessor *impl) -> int64_t {
+              return static_cast<int64_t>(impl->getGraph()->nodes().size());
+            }},
+        graph->CheckedImpl());
   });
 }
 
 mgp_error mgp_graph_approximate_edge_count(mgp_graph *graph, size_t *result) {
   return WrapExceptions([graph, result] {
-    *result =
-        std::visit(memgraph::utils::Overloaded{
-                       [](memgraph::query::DbAccessor *impl) { return impl->EdgesCount(); },
-                       [](memgraph::query::SubgraphDbAccessor *impl) { return impl->GetAccessor()->EdgesCount(); },
-                       [](memgraph::query::VirtualGraphDbAccessor *impl) -> int64_t {
-                         return static_cast<int64_t>(impl->getGraph()->edges().size());
-                       }},
-                   graph->CheckedImpl());
+    *result = std::visit(
+        memgraph::utils::Overloaded{
+            [](memgraph::query::DbAccessor *impl) { return ApproximateEdgeCountOf(impl); },
+            [](memgraph::query::SubgraphDbAccessor *impl) { return ApproximateEdgeCountOf(impl->GetAccessor()); },
+            [](memgraph::query::VirtualGraphDbAccessor *impl) -> int64_t {
+              return static_cast<int64_t>(impl->getGraph()->edges().size());
+            }},
+        graph->CheckedImpl());
   });
 }
 
@@ -5919,15 +5975,22 @@ struct mgp_execution_result::pImplMgpExecutionResult {
   std::unique_ptr<mgp_execution_headers> headers;
 };
 
-mgp_execution_result::mgp_execution_result(mgp_graph *graph, allocator_type alloc)
+mgp_execution_result::mgp_execution_result([[maybe_unused]] mgp_graph *graph, allocator_type alloc)
     : pImpl(std::make_unique<pImplMgpExecutionResult>()), alloc(alloc) {
   auto &instance = memgraph::query::InterpreterContextHolder::GetInstance();
-  pImpl->interpreter = std::make_unique<memgraph::query::Interpreter>(&instance,
-                                                                      instance.dbms_handler->Get(
 #ifdef MG_ENTERPRISE
-                                                                          graph->getImpl()->DatabaseName()
+  auto *outer_dba = graph->getImpl();
+  auto db_acc = instance.dbms_handler->Get(outer_dba->DatabaseName());
+  auto *version_store = db_acc->version_store();
+  pImpl->interpreter = std::make_unique<memgraph::query::Interpreter>(&instance, std::move(db_acc));
+  // The caller's DbAccessor has a branch context only if its query really runs on the branch, so a `USING BRANCH main`
+  // caller nests onto main.
+  if (auto *branch_ctx = outer_dba->branch_context(); branch_ctx != nullptr) {
+    pImpl->interpreter->current_db_.AttachBranchOf(version_store, *branch_ctx);
+  }
+#else
+  pImpl->interpreter = std::make_unique<memgraph::query::Interpreter>(&instance, instance.dbms_handler->Get());
 #endif
-                                                                              ));
 }
 
 void mgp_execution_result_destroy(mgp_execution_result *exec_result) { DeleteRawMgpObject(exec_result); }

@@ -187,6 +187,13 @@ class DbmsHandler {
    * @return NewResultT context on success, error on failure
    */
   NewResultT Update(const storage::SalientConfig &config) {
+    // '@' is reserved for database@branch addressing; an older MAIN can still replicate such a name. Refused as an
+    // ordinary failure (the caller answers FAILURE / aborts the recovery) instead of creating an unaddressable tenant.
+    if (const auto requested = config.name.str(); IsReservedDatabaseName(requested)) {
+      spdlog::error("Refusing database '{}' from MAIN: '@' is reserved for branch addressing (database@branch).",
+                    requested);
+      return std::unexpected{NewError::GENERIC};
+    }
     auto wr = std::lock_guard{lock_};
     const auto name_view = config.name.str_view();
     auto new_db = New_(*name_view, config.uuid);
@@ -1032,8 +1039,12 @@ class DbmsHandler {
       Get(kDefaultDB);
     } catch (const UnknownDatabaseException &) {
       // No default DB restored, create it
-      MG_ASSERT(New_(kDefaultDB, {/* random UUID */}, nullptr, ".").has_value(),
-                "Failed while creating the default database");
+      try {
+        MG_ASSERT(New_(kDefaultDB, {/* random UUID */}, nullptr, ".").has_value(),
+                  "Failed while creating the default database");
+      } catch (const std::exception &e) {
+        LOG_FATAL("Failed while creating the default database ({}); aborting.", e.what());
+      }
     }
 
     // For back-compatibility...

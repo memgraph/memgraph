@@ -39,6 +39,10 @@ memgraphCypherKeyword : cypherKeyword
                       | BOLT_SERVER
                       | BOOLEAN
                       | BOOTSTRAP_SERVERS
+                      | BRANCH
+                      | BRANCH_EDIT
+                      | BRANCH_USE
+                      | BRANCHES
                       | BUILD
                       | CALL
                       | CALLABLE
@@ -315,6 +319,7 @@ query : cypherQuery
       | descriptionQuery
       | reloadSSLQuery
       | showMemoryInfo
+      | versioningQuery
       ;
 
 cypherQuery : ( preQueryDirectives )? singleQuery ( cypherUnion )* ( queryMemoryLimit )? ;
@@ -411,9 +416,11 @@ foreach :  FOREACH '(' variable IN expression '|' updateClause+  ')' ;
 
 preQueryDirectives: USING preQueryDirective ( ',' preQueryDirective )* ;
 
-preQueryDirective: hopsLimit | indexHints  | periodicCommit  | parallelExecution ;
+preQueryDirective: hopsLimit | indexHints  | periodicCommit  | parallelExecution | branchDirective ;
 
 hopsLimit: HOPS LIMIT literal ;
+
+branchDirective : BRANCH branchName ;
 
 indexHints: INDEX indexHint ( ',' indexHint )* ;
 
@@ -614,6 +621,8 @@ privilege : CREATE
           | PARALLEL_EXECUTION
           | SERVER_SIDE_PARAMETERS
           | RELOAD_TLS
+          | BRANCH_USE
+          | BRANCH_EDIT
           | COORDINATOR_READ
           | COORDINATOR_WRITE
           ;
@@ -846,6 +855,30 @@ renameDatabase : RENAME DATABASE databaseName TO databaseName ;
 suspendDatabase : SUSPEND DATABASE databaseName ;
 
 resumeDatabase : RESUME DATABASE databaseName ;
+
+/* Graph Versioning (branches). */
+versioningQuery : createBranch
+                 | dropBranch
+                 | useBranch
+                 | showBranch
+                 | showBranches
+                 ;
+
+/* A branch name is either a bare identifier or a quoted string (never a general literal —
+ * numbers/booleans/maps/lists make no sense as branch names). */
+branchName : symbolicName
+           | StringLiteral
+           ;
+
+createBranch : CREATE BRANCH branchName ;
+
+dropBranch : DROP BRANCH branchName ( FORCE )? ;
+
+useBranch : USE BRANCH branchName ;
+
+showBranch : SHOW BRANCH ( branchName )? ;
+
+showBranches : SHOW BRANCHES ( FOR DATABASE databaseName )? ;
 
 useDatabase : USE DATABASE databaseName ;
 

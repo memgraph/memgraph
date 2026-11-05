@@ -1365,6 +1365,36 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitResumeDatabase(MemgraphCypher::ResumeDatabaseContext *ctx) override;
 
   /**
+   * @return Expression* -- PrimitiveLiteral, or ParameterLookup for a StringLiteral on a cached AST
+   */
+  antlrcpp::Any visitBranchName(MemgraphCypher::BranchNameContext *ctx) override;
+
+  /**
+   * @return VersioningQuery* (action=CREATE_BRANCH)
+   */
+  antlrcpp::Any visitCreateBranch(MemgraphCypher::CreateBranchContext *ctx) override;
+
+  /**
+   * @return VersioningQuery* (action=DROP_BRANCH)
+   */
+  antlrcpp::Any visitDropBranch(MemgraphCypher::DropBranchContext *ctx) override;
+
+  /**
+   * @return VersioningQuery* (action=USE_BRANCH)
+   */
+  antlrcpp::Any visitUseBranch(MemgraphCypher::UseBranchContext *ctx) override;
+
+  /**
+   * @return VersioningQuery* (action=SHOW_BRANCH)
+   */
+  antlrcpp::Any visitShowBranch(MemgraphCypher::ShowBranchContext *ctx) override;
+
+  /**
+   * @return VersioningQuery* (action=SHOW_BRANCHES)
+   */
+  antlrcpp::Any visitShowBranches(MemgraphCypher::ShowBranchesContext *ctx) override;
+
+  /**
    * @return UseDatabaseQuery*
    */
   antlrcpp::Any visitUseDatabase(MemgraphCypher::UseDatabaseContext *ctx) override;
@@ -1526,6 +1556,9 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   LabelIx AddLabel(const std::string &name);
   PropertyIx AddProperty(const std::string &name);
   EdgeTypeIx AddEdgeType(const std::string &name);
+  // Mirrors visitLiteral() for a StringLiteral: ParameterLookup under a cached AST, else PrimitiveLiteral.
+  // Never use parameters_->AtTokenPosition here: stripped literals are not in parameters_ at parse time.
+  Expression *MakeStringLiteralExpression(antlr4::tree::TerminalNode *string_literal);
 
   /// The labels one `labelName` leaf stands for. A `$param` bound to a list stands for several, read as a
   /// conjunction, which is what the colon form has always done with such a parameter.
