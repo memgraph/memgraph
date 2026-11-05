@@ -11,6 +11,7 @@
 
 module;
 
+#include <algorithm>
 #include <cassert>
 
 #include "utils/small_vector.hpp"
@@ -383,8 +384,24 @@ struct EGraph : private detail::EGraphBase {
       // Both the class's own e-nodes and the e-nodes reading it: a new class
       // holds facts only `update` can establish, and a merged class can make
       // its readers' facts derivable.
-      for (auto const id : analysis_dirty_) {
-        auto const it = classes_.find(find(id));
+      //
+      // Canonicalise and dedupe before queueing any of it. The change set holds
+      // the root each merge produced, so a congruence cascade leaves an entry
+      // per merge having collapsed them into far fewer surviving classes, and
+      // queueing per entry pushes a class's e-nodes once for every merge that
+      // reached it. Sorted rather than hashed, reusing the scratch congruence
+      // dedupes through for the same reason: a hash table sized to the change
+      // set costs more than it saves where a class has many readers.
+      auto &canonical_ids = ctx.canonical_eclass_ids;
+      canonical_ids.clear();
+      canonical_ids.reserve(analysis_dirty_.size());
+      for (auto const id : analysis_dirty_) canonical_ids.push_back(find(id).value_of());
+      std::ranges::sort(canonical_ids);
+      auto const [duplicates_first, duplicates_last] = std::ranges::unique(canonical_ids);
+      canonical_ids.erase(duplicates_first, duplicates_last);
+
+      for (auto const raw_id : canonical_ids) {
+        auto const it = classes_.find(EClassId{raw_id});
         if (it == classes_.end()) continue;
         auto const &eclass = *it->second;
         worklist.insert(worklist.end(), eclass.nodes().begin(), eclass.nodes().end());
