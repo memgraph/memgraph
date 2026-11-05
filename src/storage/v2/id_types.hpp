@@ -71,6 +71,10 @@ constexpr EdgeTypeId kInvalidEdgeTypeId = EdgeTypeId::FromUint(-1);
 /// densely by id must skip reserved ids.
 inline constexpr uint32_t kReservedIdBit = uint32_t{1} << 31U;
 
+/// The one id of the marker that says an object was deleted. It sits above every marker of a real id, and labels and
+/// properties share it because they share one name mapper.
+inline constexpr uint32_t kDeleteId = 0xFFFFFFFEU;
+
 constexpr bool IsReservedId(uint32_t id) noexcept { return (id & kReservedIdBit) != 0; }
 
 constexpr bool IsReservedId(LabelId id) noexcept { return IsReservedId(id.AsUint()); }
