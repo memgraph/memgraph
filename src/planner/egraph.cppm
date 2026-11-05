@@ -420,6 +420,15 @@ struct EGraph : private detail::EGraphBase {
 
       if (!update_node(get_enode(enode_id), eclass.analysis_for_refresh())) continue;
 
+      // What the walk's termination rests on: `update` is a pure function of
+      // the children's facts, so applying it again adds nothing the first
+      // application did not. An update that answers yes a second time reported
+      // a change it never made, and the walk would revisit this e-node without
+      // bound once a merge has made its class its own ancestor. The rewrite
+      // loop's limits sit outside this loop and cannot see that.
+      assert(!update_node(get_enode(enode_id), eclass.analysis_for_refresh()) &&
+             "an analysis update reported a change without widening the facts");
+
       ++changed_total;
       // Announced to arming only. The e-nodes reading this class are queued
       // right here, so re-dirtying it would buy a repeat walk finding nothing.

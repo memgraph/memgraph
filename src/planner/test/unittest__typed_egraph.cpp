@@ -137,6 +137,24 @@ struct fact_traits<FactOp::Sum> {
 using FactEGraph =
     TypedEGraph<FactOp, FactAnalysis, SymbolSequence<FactOp, FactOp::Leaf, FactOp::Opaque, FactOp::Sum>, fact_traits>;
 
+using FactCore = EGraph<FactOp, FactAnalysis>;
+
+// Traits whose update() is a near miss, for the negative concept checks. Each
+// is wrong in one way a trait author could plausibly write by accident.
+struct UpdateReturnsVoid {
+  static void update(FactCore const & /*eg*/, std::span<EClassId const> /*children*/, FactAnalysis & /*out*/) {}
+};
+
+struct UpdateTakesAnalysisByValue {
+  static auto update(FactCore const & /*eg*/, std::span<EClassId const> /*children*/, FactAnalysis /*out*/) -> bool {
+    return false;
+  }
+};
+
+struct UpdateOmitsTheChildren {
+  static auto update(FactCore const & /*eg*/, FactAnalysis & /*out*/) -> bool { return false; }
+};
+
 }  // namespace
 
 // === Make: lowering parity with the core e-graph (S1) ===
@@ -199,6 +217,26 @@ TEST(TypedEGraph, StorageReflectsInternedEntries) {
 static_assert(SymbolMakeTraits<toy_traits<ToyOp::Symbol>, ToyAnalysis, std::string_view>,
               "a well-formed interning trait satisfies the protocol");
 static_assert(!SymbolMakeTraits<BadTraits, ToyAnalysis>, "make() not returning a MakeResult is rejected");
+
+// === SymbolUpdatesAnalysis: the optional half of the protocol ===
+
+// An update the concept declines is replaced by a no-op, so every shape below
+// that fails to be rejected is a symbol whose facts silently stop being
+// recomputed. There is no error to read: the graph simply derives less.
+static_assert(SymbolUpdatesAnalysis<fact_traits<FactOp::Sum>, FactAnalysis, FactCore>,
+              "a well-formed update satisfies the protocol");
+static_assert(!SymbolUpdatesAnalysis<fact_traits<FactOp::Leaf>, FactAnalysis, FactCore>,
+              "a symbol offering no update is not required to have one");
+static_assert(!SymbolUpdatesAnalysis<UpdateReturnsVoid, FactAnalysis, FactCore>,
+              "an update that reports no change is rejected");
+static_assert(!SymbolUpdatesAnalysis<UpdateTakesAnalysisByValue, FactAnalysis, FactCore>,
+              "an update that widens a copy of the facts is rejected");
+static_assert(!SymbolUpdatesAnalysis<UpdateOmitsTheChildren, FactAnalysis, FactCore>,
+              "an update that cannot read its children is rejected");
+
+// The consequence a near miss carries: not a diagnostic, but the no-op.
+static_assert(!AnalysisUpdate<FactAnalysis, FactCore, UpdateReturnsVoid>::updates);
+static_assert(AnalysisUpdate<FactAnalysis, FactCore, fact_traits<FactOp::Sum>>::updates);
 
 // === RewritableGraph: only the interning wrapper is rewritable ===
 
@@ -277,6 +315,26 @@ TEST(TypedEGraph, RefreshRederivesAFactAMergeEnabled) {
   eg.refresh_analysis(refresh_ctx);
   ASSERT_TRUE(eg.core().analysis_of(sum).known.has_value());
   EXPECT_EQ(*eg.core().analysis_of(sum).known, 6);
+}
+
+TEST(TypedEGraph, RefreshPropagatesThroughTwoLevelsInOneCall) {
+  FactEGraph eg;
+  auto refresh_ctx = BaseProcessingContext{};
+
+  auto const one = eg.Make<FactOp::Leaf>(1).eclass_id;
+  auto const opaque = eg.Make<FactOp::Opaque>().eclass_id;
+  auto const inner = eg.Make<FactOp::Sum>(one, opaque).eclass_id;
+  auto const outer = eg.Make<FactOp::Sum>(inner, one).eclass_id;
+
+  auto const five = eg.Make<FactOp::Leaf>(5).eclass_id;
+  eg.core().merge(opaque, five);
+
+  // Only the inner sum reads the merged class. The outer sum is reached because
+  // the inner sum's own facts moved during the walk, so a single call settles
+  // both levels instead of leaving the outer fact to a later pass.
+  ASSERT_EQ(eg.refresh_analysis(refresh_ctx), 2U);
+  ASSERT_TRUE(eg.core().analysis_of(outer).known.has_value());
+  EXPECT_EQ(*eg.core().analysis_of(outer).known, 7);
 }
 
 TEST(TypedEGraph, RefreshMarksTheClassesItChangedTouched) {

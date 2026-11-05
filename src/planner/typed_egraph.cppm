@@ -79,29 +79,30 @@ concept SymbolMakeTraits =
 /// the children's analyses, so that two e-classes with the same children agree.
 /// And it must only ever add a fact, never retract one: that is what makes the
 /// refresh terminate, and what lets a rewrite trust a fact it has already read.
+///
+/// A trait that declines the protocol keeps its seed, so a near miss - a
+/// misspelled name, a swapped parameter, a void return - costs no error and
+/// stops the symbol's facts being recomputed. The second requirement below is
+/// what pins the one near miss that would otherwise satisfy the first: taking
+/// `out` by value compiles, widens a copy, and discards it. Only a reference
+/// parameter refuses a temporary.
 template <typename T, typename Analysis, typename EGraphT>
 concept SymbolUpdatesAnalysis = requires(EGraphT const &eg, std::span<EClassId const> children, Analysis &out) {
   { T::update(eg, children, out) } -> std::same_as<bool>;
-};
+} && !requires(EGraphT const &eg, std::span<EClassId const> children) { T::update(eg, children, Analysis{}); };
 
 /// A symbol's update, or a no-op for one that offers none, so the refresh can
 /// call every symbol alike.
 template <typename Analysis, typename EGraphT, typename TraitT>
 struct AnalysisUpdate {
-  static constexpr bool updates = false;
-
-  static auto apply(EGraphT const & /*eg*/, std::span<EClassId const> /*children*/, Analysis & /*out*/) -> bool {
-    return false;
-  }
-};
-
-template <typename Analysis, typename EGraphT, typename TraitT>
-  requires SymbolUpdatesAnalysis<TraitT, Analysis, EGraphT>
-struct AnalysisUpdate<Analysis, EGraphT, TraitT> {
-  static constexpr bool updates = true;
+  static constexpr bool updates = SymbolUpdatesAnalysis<TraitT, Analysis, EGraphT>;
 
   static auto apply(EGraphT const &eg, std::span<EClassId const> children, Analysis &out) -> bool {
-    return TraitT::update(eg, children, out);
+    if constexpr (updates) {
+      return TraitT::update(eg, children, out);
+    } else {
+      return false;
+    }
   }
 };
 

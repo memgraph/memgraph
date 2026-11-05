@@ -91,17 +91,6 @@ struct EClass : private detail::EClassBase {
   /// fact, so a reader never sees one it was told about withdrawn.
   [[nodiscard]] auto analysis() const -> Analysis const & { return analysis_data; }
 
-  /// Mutable access to the facts, for the analysis refresh and nothing else.
-  /// The refresh writes in place and reports what it changed, rather than
-  /// building a second analysis and diffing against a copy: an analysis holding
-  /// a string, list or map allocates on every such copy, and the refresh runs
-  /// per e-class per pass.
-  ///
-  /// The caller owes what merge would otherwise have guaranteed - a fact may be
-  /// added but never retracted. Retracting one would unsay something a rewrite
-  /// has already been allowed to rely on.
-  auto analysis_for_refresh() -> Analysis & { return analysis_data; }
-
   using EClassBase::add_parent;
   using EClassBase::nodes;
   using EClassBase::parents;
@@ -122,6 +111,22 @@ struct EClass : private detail::EClassBase {
   }
 
  private:
+  /// Mutable access to the facts, for the analysis refresh and nothing else.
+  /// The refresh writes in place and reports what it changed, rather than
+  /// building a second analysis and diffing against a copy: an analysis holding
+  /// a string, list or map allocates on every such copy, and the refresh runs
+  /// per e-class per pass.
+  ///
+  /// The caller owes what merge would otherwise have guaranteed - a fact may be
+  /// added but never retracted. Retracting one would unsay something a rewrite
+  /// has already been allowed to rely on. Granted to the e-graph rather than
+  /// published, because anyone holding a mutable graph reaches every e-class
+  /// through it, and that is too wide a set to owe a promise this quiet.
+  auto analysis_for_refresh() -> Analysis & { return analysis_data; }
+
+  template <typename S, typename A>
+  friend struct EGraph;
+
   Analysis analysis_data;
 };
 
