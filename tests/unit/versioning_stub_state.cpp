@@ -394,9 +394,9 @@ TEST(StubReads, ALabelIsDecidedByTheStubOrLeftToTheFork) {
   s.RemoveLabel(L(2));
   ASSERT_FALSE(stub::Apply(v, StubState{}, s).has_value());
 
-  EXPECT_EQ(**stub::DecidesLabel(v, L(1), ms::View::NEW), true);
-  EXPECT_EQ(**stub::DecidesLabel(v, L(2), ms::View::NEW), false);
-  EXPECT_FALSE(stub::DecidesLabel(v, L(3), ms::View::NEW)->has_value());
+  EXPECT_EQ(**stub::DecidesLabel(v, L(1), true, ms::View::NEW), true);
+  EXPECT_EQ(**stub::DecidesLabel(v, L(2), true, ms::View::NEW), false);
+  EXPECT_FALSE(stub::DecidesLabel(v, L(3), true, ms::View::NEW)->has_value());
   acc->Abort();
 }
 

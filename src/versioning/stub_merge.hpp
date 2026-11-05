@@ -63,12 +63,15 @@ storage::Result<Decided> ReadDecided(const Stub &stub, storage::PropertyId key, 
 }  // namespace detail
 
 // nullopt: the stub does not decide, defer to the fork vertex. The marker is asked first: a stub may hold a copy of a
-// fork label (a mirrored index key) and then the marker of its removal, and the marker wins.
+// fork label (a mirrored index key) and then the marker of its removal, and the marker wins. The marker is read only
+// if the branch ever marked the label.
 inline storage::Result<std::optional<bool>> DecidesLabel(const storage::VertexAccessor &stub, storage::LabelId label,
-                                                         storage::View view) {
-  auto removed = stub.HasLabel(Mark(label), view);
-  if (!removed) return std::unexpected(removed.error());
-  if (*removed) return std::optional<bool>{false};
+                                                         bool may_be_marked, storage::View view) {
+  if (may_be_marked) {
+    auto removed = stub.HasLabel(Mark(label), view);
+    if (!removed) return std::unexpected(removed.error());
+    if (*removed) return std::optional<bool>{false};
+  }
   auto added = stub.HasLabel(label, view);
   if (!added) return std::unexpected(added.error());
   if (*added) return std::optional<bool>{true};
@@ -93,15 +96,15 @@ inline storage::VertexKey MergeLabels(const storage::VertexKey &stub_labels, sto
 template <typename Fork>
 storage::Result<std::map<storage::PropertyId, storage::PropertyValue>> MergeProperties(
     const std::map<storage::PropertyId, storage::PropertyValue> &stub_properties, const Fork &fork) {
-  return fork.Properties(storage::View::OLD).transform([&](auto merged) {
-    for (auto const &entry : stub_properties) {
-      if (storage::IsReservedId(entry.first)) merged.erase(Strip(entry.first));
-    }
-    for (auto const &[pid, value] : stub_properties) {
-      if (!storage::IsReservedId(pid)) merged.insert_or_assign(pid, value);
-    }
-    return merged;
-  });
+  auto merged = fork.Properties(storage::View::OLD);
+  if (!merged) return merged;
+  for (auto const &entry : stub_properties) {
+    if (storage::IsReservedId(entry.first)) merged->erase(Strip(entry.first));
+  }
+  for (auto const &[pid, value] : stub_properties) {
+    if (!storage::IsReservedId(pid)) merged->insert_or_assign(pid, value);
+  }
+  return merged;
 }
 
 // The property as the branch sees it: the stub's value, else null when the stub removed it, else the fork's.

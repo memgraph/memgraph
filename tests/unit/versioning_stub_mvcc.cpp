@@ -515,14 +515,14 @@ TEST_F(StubMvccTest, AMarkedLabelReadsAsAbsentWhateverTheStubAlsoHoldsOfIt) {
   ASSERT_TRUE(v.has_value());
   ASSERT_TRUE(v->AddLabel(L(1)).has_value());
   {
-    auto decided = stub::DecidesLabel(*v, L(1), ms::View::NEW);
+    auto decided = stub::DecidesLabel(*v, L(1), true, ms::View::NEW);
     ASSERT_TRUE(decided.has_value());
     ASSERT_TRUE(decided->has_value());
     EXPECT_TRUE(**decided) << "the label alone decides present";
   }
   ASSERT_TRUE(v->AddLabel(stub::Mark(L(1))).has_value());
   {
-    auto decided = stub::DecidesLabel(*v, L(1), ms::View::NEW);
+    auto decided = stub::DecidesLabel(*v, L(1), true, ms::View::NEW);
     ASSERT_TRUE(decided.has_value());
     ASSERT_TRUE(decided->has_value());
     EXPECT_FALSE(**decided) << "the marker wins over the label";
