@@ -57,7 +57,15 @@
   /* only the explicit exposed_sym children become visible to the outer scope. */      \
   X(Subquery)                                                                          \
   /* WHERE filter: 2 children [input, predicate_expr]; introduces no binding. */       \
-  X(Filter)
+  X(Filter)                                                                            \
+  /* DISTINCT: variadic [input, value_sym...]; dedup columns. See child_layout. */     \
+  X(Distinct)                                                                          \
+  /* SKIP: 2 children [input, count_expr]. */                                          \
+  X(Skip)                                                                              \
+  /* LIMIT: 2 children [input, count_expr]. */                                         \
+  X(Limit)                                                                             \
+  /* ORDER BY: variadic [input, sort_key..., value_sym...]. See child_layout. */       \
+  X(OrderBy)
 
 #define EGRAPH_ALL_SYMBOLS(X) \
   EGRAPH_LEAF_SYMBOLS(X)      \
@@ -77,7 +85,11 @@
   X(Output)                        \
   X(Unwind)                        \
   X(Subquery)                      \
-  X(Filter)
+  X(Filter)                        \
+  X(Distinct)                      \
+  X(Skip)                          \
+  X(Limit)                         \
+  X(OrderBy)
 
 // Symbol: e-class denotes a binding. Singleton by invariant.
 #define EGRAPH_SYMBOL_KIND_SYMBOLS(X) X(Symbol)
@@ -100,7 +112,10 @@
 // to being exhaustive.
 
 // Reads a binding: the Symbol child is dereferenced for its value.
-#define EGRAPH_SYM_READING_SYMBOLS(X) X(Identifier)
+#define EGRAPH_SYM_READING_SYMBOLS(X) \
+  X(Identifier)                       \
+  X(Distinct)                         \
+  X(OrderBy)
 
 // Does not read a binding: either it has no Symbol child, or it introduces the
 // binding (Bind, Unwind) or labels an output with it (NamedOutput).
@@ -119,6 +134,8 @@
   X(Function)                             \
   X(Unwind)                               \
   X(Subquery)                             \
-  X(Filter)
+  X(Filter)                               \
+  X(Skip)                                 \
+  X(Limit)
 
 // NOLINTEND(cppcoreguidelines-macro-usage)
