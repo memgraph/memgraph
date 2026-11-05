@@ -19,7 +19,9 @@
 #include <mutex>
 #include <shared_mutex>
 #include <tuple>
+#include <type_traits>
 #include <utility>
+#include <variant>
 #include <vector>
 
 #include "absl/container/inlined_vector.h"
@@ -74,6 +76,13 @@ std::string HistoricalOpenFailure(storage::InMemoryStorage::HistoricalAccessErro
       return fmt::format("{}: graph versioning requires IN_MEMORY_TRANSACTIONAL storage mode.", what);
   }
   std::unreachable();
+}
+
+// Whether a (periodic) commit that returned `result` committed its batch: a replication warning still did.
+bool BatchCommitted(const std::expected<void, storage::StorageManipulationError> &result) {
+  if (result) return true;
+  auto const *replication = std::get_if<storage::ReplicationError>(&result.error());
+  return replication != nullptr && replication->transaction_committed;
 }
 
 }  // namespace
@@ -191,7 +200,18 @@ BranchCore::BranchCore(storage::InMemoryStorage *main, uint64_t fork_ts,
 // destroyed before the teardown scope but after this reset).
 BranchCore::~BranchCore() {
   teardown_scope_.emplace(main_->DbArenaPool());
+  const bool light_edges = diff_engine_->config_.salient.items.storage_light_edge;
   diff_engine_.reset();
+  // The engine frees the light edges linked from its own vertices; those a native edge hangs on a stub (an edge out of
+  // a fork vertex) are linked from the stub, which the engine does not know.
+  if (light_edges) {
+    stub_index_.ForEachStub([](storage::Vertex *stub) {
+      for (const auto &[edge_type, to_vertex, edge_ref] : stub->out_edges) {
+        storage::InMemoryStorage::LightEdgePool::Destroy(edge_ref.ptr);
+      }
+      return true;
+    });
+  }
 }
 
 void BranchCore::RecordVertexDeleted(storage::Gid gid) {
@@ -283,6 +303,33 @@ void BranchContext::SetCurrentDiffTxn(storage::Storage::Accessor *diff_txn) {
   MG_ASSERT(txn_ && txn_->diff == nullptr,
             "BranchContext::SetCurrentDiffTxn: OpenHistorical must run first, once per transaction.");
   txn_->diff = diff_txn;
+}
+
+// ---- Commit
+
+// The callback runs inside the diff commit's publication, after it can no longer fail: only a committed batch's counts
+// are published.
+void BranchContext::PublishForkDeletes() {
+  auto &t = txn();
+  if (t.fork_deletes == ObjectCounts{}) return;
+  t.diff->GetTransaction()->commit_callbacks_.Add(
+      [core = core_.get(), deleted = t.fork_deletes](uint64_t /*commit_ts*/) { core->AddForkDeletes(deleted); });
+}
+
+std::expected<void, storage::StorageManipulationError> BranchContext::CommitTransaction(
+    storage::CommitArgs commit_args) {
+  PublishForkDeletes();
+  return txn().diff->PrepareForCommitPhase(std::move(commit_args));
+}
+
+std::expected<void, storage::StorageManipulationError> BranchContext::PeriodicCommitTransaction(
+    storage::CommitArgs commit_args) {
+  PublishForkDeletes();
+  auto result = txn().diff->PeriodicCommit(std::move(commit_args));
+  // The transaction goes on in a new batch only if this one committed (a replication warning still counts as
+  // committed).
+  if (BatchCommitted(result)) txn().fork_deletes = {};
+  return result;
 }
 
 // ---- Stubs
@@ -585,11 +632,12 @@ namespace {
 using PropertyMap = std::map<storage::PropertyId, storage::PropertyValue>;
 using PropertyChange = std::tuple<storage::PropertyId, storage::PropertyValue, storage::PropertyValue>;
 
-// Main's `branched()` bit is a monotonic hint, so marking a vertex the branch then does not change is safe.
-void MarkBranched(storage::Vertex *main_vertex) {
-  if (main_vertex->branched()) return;
-  auto guard = std::unique_lock{main_vertex->lock};
-  main_vertex->SetBranched(true);
+// Main's `branched()` bit is a monotonic hint, so marking an object the branch then does not change is safe.
+template <typename MainObject>
+void MarkBranched(MainObject *main_object) {
+  if (main_object->branched()) return;
+  auto guard = std::unique_lock{main_object->lock};
+  main_object->SetBranched(true);
 }
 
 // A write of several stub keys is not atomic. Unless Done() is reached, whether by an error return or an exception,
@@ -616,60 +664,14 @@ std::string DeletedMessage(storage::Gid gid) {
   return fmt::format("Cannot modify vertex {}: it was deleted on this branch.", gid.AsUint());
 }
 
-}  // namespace
-
-storage::VertexAccessor BranchContext::MaterializeStub(const storage::VertexAccessor &fork) {
-  // Before the stub exists, and so before any write of it (reads gate on this bit).
-  MarkBranched(fork.vertex_);
-  // The stub index keeps main's Vertex* for the fork vertex. It stays valid because main's GC horizon is clamped to the
-  // oldest fork pin (oldest_fork_pin_), so a vertex visible at fork_ts is never freed while the branch lives.
-  return StubAccessor(stubs().GetOrCreateStub(fork.Gid().AsUint(), fork.vertex_));
-}
-
-storage::Result<storage::VertexAccessor> BranchContext::StubForWrite(const storage::VertexAccessor &fork) {
-  DMG_ASSERT(!IsNative(fork), "a native vertex has no stub.");
-  if (IsVertexDeleted(fork.Gid(), storage::View::NEW)) return std::unexpected(storage::Error::DELETED_OBJECT);
-  return MaterializeStub(fork);
-}
-
-std::expected<storage::VertexAccessor, BranchContext::BranchWriteError> BranchContext::EnsureDiffVertex(
-    storage::Gid gid) {
-  if (!IsForkCandidateVertex(gid)) {
-    // A native vertex the caller resolved and that is not visible now was deleted on the branch.
-    if (auto native = txn().diff->FindVertex(gid, storage::View::NEW)) return *native;
-    return std::unexpected(BranchWriteError{DeletedMessage(gid)});
-  }
-  if (IsVertexDeleted(gid, storage::View::NEW)) return std::unexpected(BranchWriteError{DeletedMessage(gid)});
-  auto fork = FindForkVertex(gid);
-  if (!fork) {
-    return std::unexpected(
-        BranchWriteError{fmt::format("Cannot modify vertex {}: it is not in the branch's fork state -- this should be "
-                                     "unreachable (callers resolve a vertex before mutating it).",
-                                     gid.AsUint())});
-  }
-  return MaterializeStub(*fork);
-}
-
-storage::VertexAccessor BranchContext::CreateNativeVertex() {
-  auto const gid = storage::Gid::FromUint(main().vertex_id_.fetch_add(1, std::memory_order_acq_rel));
-  auto created = static_cast<storage::ReplicationAccessor &>(diff()).CreateVertexEx(gid);
-  MG_ASSERT(created.has_value(),
-            "BranchContext::CreateNativeVertex: gid {} already exists in the diff engine.",
-            gid.AsUint());
-  return *created;
-}
-
-bool BranchContext::TouchStub(const storage::VertexAccessor &stub) {
-  auto guard = std::shared_lock{stub.vertex_->lock};
-  return storage::PrepareForWrite(txn().diff->GetTransaction(), stub.vertex_);
-}
-
-bool BranchContext::CanDeleteAnchor(const storage::VertexAccessor &stub) {
-  auto *const transaction = txn().diff->GetTransaction();
-  auto guard = std::shared_lock{stub.vertex_->lock};
-  // The marker just written is the head, so the head cannot conflict; non-sequential edge deltas can sit under it, a
-  // committed older head over a delta this snapshot cannot see. The chain is intact while this transaction is active.
-  for (const storage::Delta *delta = stub.vertex_->delta(); delta != nullptr;
+// False (poisoning the transaction) if a delta in the chain of `stub` belongs to a transaction this one cannot write
+// over: one in flight or committed after this one started. The head alone is not enough, since non-sequential edge
+// deltas can leave a committed older head over a delta this snapshot cannot see. The chain is intact while this
+// transaction is active.
+template <typename Stub>
+bool NoForeignDelta(storage::Transaction *transaction, Stub *stub) {
+  auto guard = std::shared_lock{stub->lock};
+  for (const storage::Delta *delta = stub->delta(); delta != nullptr;
        delta = delta->next.load(std::memory_order_acquire)) {
     auto const ts = delta->commit_info->timestamp.load(std::memory_order_acquire);
     if (ts != transaction->transaction_id && ts >= transaction->start_timestamp) {
@@ -680,20 +682,20 @@ bool BranchContext::CanDeleteAnchor(const storage::VertexAccessor &stub) {
   return true;
 }
 
-void BranchContext::RecordPropertyWrite(storage::Gid gid, storage::PropertyId key) {
-  core_->RecordPropertyFieldChange(gid, key);
-  core_->RecordPropertyTouched(key, gid);
-}
-
-namespace {
-
 // ---- Key-part copies
 //
-// The diff engine's stock index insert reads the stub's own labels and properties, and a stub holds only what the branch
-// changed. So a write that moves one part of a mirrored label+property key first copies the other parts the fork has
-// onto the stub as base state, with no delta: a copy equals the fork's value, so no read changes (a reader finds it
-// either on the stub or, as before, on the fork), and an abort, GC or the WAL never see it. Parts the stub already holds
-// or has removed are the branch's own state and are never overwritten.
+// The diff engine's stock index insert reads the stub's own labels and properties, and a stub holds only what the
+// branch changed. So a write that moves one part of a mirrored label+property key first copies the other parts the fork
+// has onto the stub as base state, with no delta: a copy equals the fork's value, so no read changes (a reader finds it
+// either on the stub or, as before, on the fork), and an abort, GC or the WAL never see it. Parts the stub already
+// holds or has removed are the branch's own state and are never overwritten.
+
+// A vertex stub whose writes keep the keys of `parts` complete; default: no copies (edges, and writes that never move a
+// key).
+struct IndexedStub {
+  const IndexKeyParts *parts{nullptr};
+  storage::Vertex *vertex{nullptr};
+};
 
 using WantedLabels = absl::InlinedVector<storage::LabelId, 4>;
 using WantedProperties = absl::InlinedVector<storage::PropertyId, 4>;
@@ -752,10 +754,11 @@ std::optional<storage::Error> CopyKeyParts(storage::Transaction *transaction, co
                                        wanted.labels.end(),
                                        [&](storage::LabelId label) { return LabelDecided(stub, label); }),
                         wanted.labels.end());
-    wanted.properties.erase(std::remove_if(wanted.properties.begin(),
-                                           wanted.properties.end(),
-                                           [&](storage::PropertyId property) { return PropertyDecided(stub, property); }),
-                            wanted.properties.end());
+    wanted.properties.erase(
+        std::remove_if(wanted.properties.begin(),
+                       wanted.properties.end(),
+                       [&](storage::PropertyId property) { return PropertyDecided(stub, property); }),
+        wanted.properties.end());
   }
   if (wanted.empty()) return std::nullopt;
 
@@ -787,7 +790,166 @@ std::optional<storage::Error> CopyKeyParts(storage::Transaction *transaction, co
   return std::nullopt;
 }
 
+// One property written through its stub, in the per-key order the reads rest on (stub_merge.hpp): a removal marker goes
+// on before the value is dropped and off after the value is set. Returns the old merged value. `fork` is the fork
+// object, `stub` its vertex or edge stub; either way the writes are single-key stock mutators. A vertex stub under
+// mirrored index keys (`indexed`) first gets the other parts of the keys the write moves.
+template <typename Fork, typename Stub>
+storage::Result<storage::PropertyValue> WriteStubProperty(storage::Transaction *transaction, const Fork &fork,
+                                                          Stub &stub, storage::PropertyId key,
+                                                          const storage::PropertyValue &value,
+                                                          const IndexedStub &indexed = {}) {
+  auto const own = stub::ReadKey(stub, key, storage::View::NEW);
+  if (!own) return std::unexpected(own.error());
+  // A removal marker means the fork's value is hidden, so the fork is consulted only when the stub does not decide.
+  storage::PropertyValue fork_value;
+  if (!own->removed) {
+    auto read = fork.GetProperty(key, storage::View::OLD);
+    if (!read) return std::unexpected(read.error());
+    fork_value = std::move(*read);
+  }
+  storage::PropertyValue old_value = own->value.IsNull() ? fork_value : own->value;
+
+  PartialWriteGuard guard{transaction};
+  // Removing a value nobody holds moves no key.
+  if constexpr (std::is_same_v<Fork, storage::VertexAccessor>) {
+    if (indexed.parts != nullptr && !indexed.parts->empty() && !(value.IsNull() && old_value.IsNull())) {
+      if (auto around = PartsAroundProperty(*indexed.parts, key, value.IsNull()); !around.empty()) {
+        if (auto error = CopyKeyParts(transaction, fork, *indexed.vertex, std::move(around))) {
+          return std::unexpected(*error);
+        }
+      }
+    }
+  }
+  if (value.IsNull()) {
+    if (!fork_value.IsNull()) {
+      if (auto marked = stub.SetProperty(stub::Mark(key), storage::PropertyValue{true}); !marked) {
+        return std::unexpected(marked.error());
+      }
+    }
+    if (auto dropped = stub.SetProperty(key, storage::PropertyValue{}); !dropped) {
+      return std::unexpected(dropped.error());
+    }
+  } else {
+    if (auto set = stub.SetProperty(key, value); !set) return std::unexpected(set.error());
+    if (own->removed) {
+      if (auto unmarked = stub.SetProperty(stub::Mark(key), storage::PropertyValue{}); !unmarked) {
+        return std::unexpected(unmarked.error());
+      }
+    }
+  }
+  guard.Done();
+  return old_value;
+}
+
 }  // namespace
+
+storage::VertexAccessor BranchContext::MaterializeStub(const storage::VertexAccessor &fork) {
+  // Before the stub exists, and so before any write of it (reads gate on this bit).
+  MarkBranched(fork.vertex_);
+  // The stub index keeps main's Vertex* for the fork vertex. It stays valid because main's GC horizon is clamped to the
+  // oldest fork pin (oldest_fork_pin_), so a vertex visible at fork_ts is never freed while the branch lives.
+  return StubAccessor(stubs().GetOrCreateStub(fork.Gid().AsUint(), fork.vertex_));
+}
+
+storage::Result<storage::VertexAccessor> BranchContext::StubForWrite(const storage::VertexAccessor &fork) {
+  DMG_ASSERT(!IsNative(fork), "a native vertex has no stub.");
+  if (IsVertexDeleted(fork.Gid(), storage::View::NEW)) return std::unexpected(storage::Error::DELETED_OBJECT);
+  return MaterializeStub(fork);
+}
+
+storage::EdgeAccessor BranchContext::MaterializeEdgeStub(const storage::EdgeAccessor &fork_edge) {
+  // Before the stub exists, and so before any write of it (reads gate on this bit). With properties_on_edges off on
+  // main the fork edge is a bare gid, there is no Edge to mark, and reads fall back to the filters.
+  if (main().config_.salient.items.properties_on_edges) MarkBranched(fork_edge.edge_.ptr);
+  auto *stub = edge_stubs().GetOrCreate(fork_edge.Gid().AsUint());
+  return storage::EdgeAccessor{storage::EdgeRef{stub},
+                               fork_edge.EdgeType(),
+                               fork_edge.from_vertex_,
+                               fork_edge.to_vertex_,
+                               &diff_engine(),
+                               txn().diff->GetTransaction()};
+}
+
+storage::Result<storage::EdgeAccessor> BranchContext::StubForWrite(const storage::EdgeAccessor &fork_edge) {
+  DMG_ASSERT(!IsNative(fork_edge), "a native edge has no stub.");
+  // The diff engine's own config is always properties_on_edges: it is main's that the user's edge properties follow.
+  if (!main().config_.salient.items.properties_on_edges) return std::unexpected(storage::Error::PROPERTIES_DISABLED);
+  if (IsForkEdgeHidden(fork_edge, storage::View::NEW)) return std::unexpected(storage::Error::DELETED_OBJECT);
+  return MaterializeEdgeStub(fork_edge);
+}
+
+std::expected<storage::VertexAccessor, BranchContext::BranchWriteError> BranchContext::EnsureDiffVertex(
+    storage::Gid gid) {
+  if (!IsForkCandidateVertex(gid)) {
+    // A native vertex the caller resolved and that is not visible now was deleted on the branch.
+    if (auto native = txn().diff->FindVertex(gid, storage::View::NEW)) return *native;
+    return std::unexpected(BranchWriteError{DeletedMessage(gid)});
+  }
+  if (IsVertexDeleted(gid, storage::View::NEW)) return std::unexpected(BranchWriteError{DeletedMessage(gid)});
+  auto fork = FindForkVertex(gid);
+  if (!fork) {
+    return std::unexpected(
+        BranchWriteError{fmt::format("Cannot modify vertex {}: it is not in the branch's fork state -- this should be "
+                                     "unreachable (callers resolve a vertex before mutating it).",
+                                     gid.AsUint())});
+  }
+  return MaterializeStub(*fork);
+}
+
+storage::VertexAccessor BranchContext::CreateNativeVertex() {
+  auto const gid = storage::Gid::FromUint(main().vertex_id_.fetch_add(1, std::memory_order_acq_rel));
+  auto created = static_cast<storage::ReplicationAccessor &>(diff()).CreateVertexEx(gid);
+  MG_ASSERT(created.has_value(),
+            "BranchContext::CreateNativeVertex: gid {} already exists in the diff engine.",
+            gid.AsUint());
+  return *created;
+}
+
+storage::Result<storage::EdgeAccessor> BranchContext::CreateNativeEdge(storage::VertexAccessor &from,
+                                                                       storage::VertexAccessor &to,
+                                                                       storage::EdgeTypeId edge_type) {
+  // The stock call refuses a deleted vertex by its deleted bit, which a stub never carries: a delete earlier in this
+  // transaction is the marker. Another transaction's delete is ordered by the stub's MVCC.
+  for (auto const *endpoint : {&from, &to}) {
+    if (IsStub(*endpoint) && IsVertexDeleted(endpoint->Gid(), storage::View::NEW)) {
+      return std::unexpected(storage::Error::DELETED_OBJECT);
+    }
+  }
+  // The edge changes both endpoints' adjacency: turns off their unchanged-adjacency fast path.
+  core_->RecordEdgeChange(from.Gid());
+  core_->RecordEdgeChange(to.Gid());
+  auto const gid = storage::Gid::FromUint(main().edge_id_.fetch_add(1, std::memory_order_acq_rel));
+  return static_cast<storage::ReplicationAccessor &>(diff()).CreateEdgeEx(&from, &to, edge_type, gid);
+}
+
+bool BranchContext::TouchStub(const storage::VertexAccessor &stub) {
+  auto guard = std::shared_lock{stub.vertex_->lock};
+  return storage::PrepareForWrite(txn().diff->GetTransaction(), stub.vertex_);
+}
+
+bool BranchContext::TouchStub(const storage::EdgeAccessor &stub) {
+  auto guard = std::shared_lock{stub.edge_.ptr->lock};
+  return storage::PrepareForWrite(txn().diff->GetTransaction(), stub.edge_.ptr);
+}
+
+bool BranchContext::CanDeleteAnchor(const storage::VertexAccessor &stub) {
+  return NoForeignDelta(txn().diff->GetTransaction(), stub.vertex_);
+}
+
+void BranchContext::RecordPropertyWrite(const storage::VertexAccessor &vertex, storage::PropertyId key) {
+  core_->RecordPropertyFieldChange(vertex.Gid(), key);
+  core_->RecordPropertyTouched(key, vertex.Gid());
+}
+
+void BranchContext::RecordPropertyWrite(const storage::EdgeAccessor &edge, storage::PropertyId key) {
+  core_->RecordForkEdgeProperty(edge.Gid(), key);
+  core_->RecordEdgePropertyTouched(key, edge.Gid(), edge.from_vertex_->gid);
+}
+
+void BranchContext::RecordPropertiesWrite(const storage::VertexAccessor &vertex) {
+  core_->RecordPropertyChange(vertex.Gid());
+}
 
 storage::Result<bool> BranchContext::ToggleLabel(storage::VertexAccessor &vertex, storage::LabelId label, bool add) {
   if (IsNative(vertex)) {
@@ -849,100 +1011,66 @@ storage::Result<bool> BranchContext::RemoveLabel(storage::VertexAccessor &vertex
   return ToggleLabel(vertex, label, false);
 }
 
-storage::Result<storage::PropertyValue> BranchContext::WriteStubProperty(const storage::VertexAccessor &fork,
-                                                                         storage::VertexAccessor &stub,
-                                                                         storage::PropertyId key,
-                                                                         const storage::PropertyValue &value,
-                                                                         bool copy_key_parts) {
-  auto const own = stub::ReadKey(stub, key, storage::View::NEW);
-  if (!own) return std::unexpected(own.error());
-  // A removal marker means the fork's value is hidden, so the fork is consulted only when the stub does not decide.
-  storage::PropertyValue fork_value;
-  if (!own->removed) {
-    auto read = fork.GetProperty(key, storage::View::OLD);
-    if (!read) return std::unexpected(read.error());
-    fork_value = std::move(*read);
+template <typename Object>
+storage::Result<storage::PropertyValue> BranchContext::SetPropertyAt(Object &object, storage::PropertyId key,
+                                                                     const storage::PropertyValue &value) {
+  if (IsNative(object)) {
+    DMG_ASSERT(!IsStub(object), "a stub reached a branch write.");
+    if (PropertyWritesDisabled(object)) return std::unexpected(storage::Error::PROPERTIES_DISABLED);
+    return object.SetProperty(key, value);
   }
-  storage::PropertyValue old_value = own->value.IsNull() ? fork_value : own->value;
-
-  PartialWriteGuard guard{txn().diff->GetTransaction()};
-  if (copy_key_parts && !core_->key_parts().empty()) {
-    if (auto around = PartsAroundProperty(core_->key_parts(), key, value.IsNull()); !around.empty()) {
-      if (auto error = CopyKeyParts(txn().diff->GetTransaction(), fork, *stub.vertex_, std::move(around))) {
-        return std::unexpected(*error);
-      }
-    }
-  }
-  // Per key, the marker goes on before the value is dropped and off after the value is set, so that a READ_COMMITTED
-  // reader holding a prefix of this commit sees the old or the new value (stub_merge.hpp).
-  if (value.IsNull()) {
-    if (!fork_value.IsNull()) {
-      if (auto marked = stub.SetProperty(stub::Mark(key), storage::PropertyValue{true}); !marked) {
-        return std::unexpected(marked.error());
-      }
-    }
-    if (auto dropped = stub.SetProperty(key, storage::PropertyValue{}); !dropped) {
-      return std::unexpected(dropped.error());
-    }
-  } else {
-    if (auto set = stub.SetProperty(key, value); !set) return std::unexpected(set.error());
-    if (own->removed) {
-      if (auto unmarked = stub.SetProperty(stub::Mark(key), storage::PropertyValue{}); !unmarked) {
-        return std::unexpected(unmarked.error());
-      }
-    }
-  }
-  guard.Done();
-  return old_value;
+  auto stub = StubForWrite(object);
+  if (!stub) return std::unexpected(stub.error());
+  RecordPropertiesWrite(object);
+  RecordPropertyWrite(object, key);
+  IndexedStub indexed;
+  if constexpr (std::is_same_v<std::remove_const_t<Object>, storage::VertexAccessor>)
+    indexed = {&core_->key_parts(), stub->vertex_};
+  return WriteStubProperty(txn().diff->GetTransaction(), object, *stub, key, value, indexed);
 }
 
-storage::Result<storage::PropertyValue> BranchContext::SetProperty(storage::VertexAccessor &vertex,
-                                                                   storage::PropertyId key,
-                                                                   const storage::PropertyValue &value) {
-  if (IsNative(vertex)) {
-    DMG_ASSERT(!IsStub(vertex), "a stub reached a branch write.");
-    return vertex.SetProperty(key, value);
+template <typename Object>
+storage::Result<bool> BranchContext::InitPropertiesAt(Object &object, PropertyMap &properties) {
+  if (IsNative(object)) {
+    DMG_ASSERT(!IsStub(object), "a stub reached a branch write.");
+    if (PropertyWritesDisabled(object)) return std::unexpected(storage::Error::PROPERTIES_DISABLED);
+    return object.InitProperties(properties);
   }
-  auto stub = StubForWrite(vertex);
+  auto stub = StubForWrite(object);
   if (!stub) return std::unexpected(stub.error());
-  core_->RecordPropertyChange(vertex.Gid());
-  RecordPropertyWrite(vertex.Gid(), key);
-  return WriteStubProperty(vertex, *stub, key, value);
-}
-
-storage::Result<bool> BranchContext::InitProperties(storage::VertexAccessor &vertex, PropertyMap &properties) {
-  if (IsNative(vertex)) {
-    DMG_ASSERT(!IsStub(vertex), "a stub reached a branch write.");
-    return vertex.InitProperties(properties);
-  }
-  auto stub = StubForWrite(vertex);
-  if (!stub) return std::unexpected(stub.error());
-  auto existing = Properties(vertex, storage::View::NEW);
+  auto existing = Properties(object, storage::View::NEW);
   if (!existing) return std::unexpected(existing.error());
   if (!existing->empty()) {
     if (!TouchStub(*stub)) return std::unexpected(storage::Error::SERIALIZATION_ERROR);
     return false;
   }
-  auto const gid = vertex.Gid();
-  core_->RecordPropertyChange(gid);
-  for (auto const &entry : properties) RecordPropertyWrite(gid, entry.first);
-  PartialWriteGuard guard{txn().diff->GetTransaction()};
+  RecordPropertiesWrite(object);
+  for (auto const &entry : properties) RecordPropertyWrite(object, entry.first);
+  auto *const transaction = txn().diff->GetTransaction();
+  IndexedStub indexed;
+  if constexpr (std::is_same_v<std::remove_const_t<Object>, storage::VertexAccessor>)
+    indexed = {&core_->key_parts(), stub->vertex_};
+  PartialWriteGuard guard{transaction};
   for (auto const &[key, value] : properties) {
-    if (auto written = WriteStubProperty(vertex, *stub, key, value); !written) return std::unexpected(written.error());
+    if (auto written = WriteStubProperty(transaction, object, *stub, key, value, indexed); !written) {
+      return std::unexpected(written.error());
+    }
   }
   guard.Done();
   return true;
 }
 
-storage::Result<std::vector<PropertyChange>> BranchContext::UpdateProperties(storage::VertexAccessor &vertex,
-                                                                             PropertyMap &properties) {
-  if (IsNative(vertex)) {
-    DMG_ASSERT(!IsStub(vertex), "a stub reached a branch write.");
-    return vertex.UpdateProperties(properties);
+template <typename Object>
+storage::Result<std::vector<PropertyChange>> BranchContext::UpdatePropertiesAt(Object &object,
+                                                                               PropertyMap &properties) {
+  if (IsNative(object)) {
+    DMG_ASSERT(!IsStub(object), "a stub reached a branch write.");
+    if (PropertyWritesDisabled(object)) return std::unexpected(storage::Error::PROPERTIES_DISABLED);
+    return object.UpdateProperties(properties);
   }
-  auto stub = StubForWrite(vertex);
+  auto stub = StubForWrite(object);
   if (!stub) return std::unexpected(stub.error());
-  auto existing = Properties(vertex, storage::View::NEW);
+  auto existing = Properties(object, storage::View::NEW);
   if (!existing) return std::unexpected(existing.error());
   std::vector<PropertyChange> changes;
   changes.reserve(properties.size());
@@ -950,12 +1078,17 @@ storage::Result<std::vector<PropertyChange>> BranchContext::UpdateProperties(sto
     auto const old = existing->find(key);
     changes.emplace_back(key, old != existing->end() ? old->second : storage::PropertyValue{}, value);
   }
-  auto const gid = vertex.Gid();
-  core_->RecordPropertyChange(gid);
-  for (auto const &entry : properties) RecordPropertyWrite(gid, entry.first);
-  PartialWriteGuard guard{txn().diff->GetTransaction()};
+  RecordPropertiesWrite(object);
+  for (auto const &entry : properties) RecordPropertyWrite(object, entry.first);
+  auto *const transaction = txn().diff->GetTransaction();
+  IndexedStub indexed;
+  if constexpr (std::is_same_v<std::remove_const_t<Object>, storage::VertexAccessor>)
+    indexed = {&core_->key_parts(), stub->vertex_};
+  PartialWriteGuard guard{transaction};
   for (auto const &[key, value] : properties) {
-    if (auto written = WriteStubProperty(vertex, *stub, key, value); !written) return std::unexpected(written.error());
+    if (auto written = WriteStubProperty(transaction, object, *stub, key, value, indexed); !written) {
+      return std::unexpected(written.error());
+    }
   }
   guard.Done();
   // As storage's UpdateProperties: the properties the update left alone come back in the caller's map.
@@ -963,26 +1096,27 @@ storage::Result<std::vector<PropertyChange>> BranchContext::UpdateProperties(sto
   return changes;
 }
 
-storage::Result<PropertyMap> BranchContext::ClearProperties(storage::VertexAccessor &vertex) {
-  if (IsNative(vertex)) {
-    DMG_ASSERT(!IsStub(vertex), "a stub reached a branch write.");
-    return vertex.ClearProperties();
+template <typename Object>
+storage::Result<PropertyMap> BranchContext::ClearPropertiesAt(Object &object) {
+  if (IsNative(object)) {
+    DMG_ASSERT(!IsStub(object), "a stub reached a branch write.");
+    if (PropertyWritesDisabled(object)) return std::unexpected(storage::Error::PROPERTIES_DISABLED);
+    return object.ClearProperties();
   }
-  auto stub = StubForWrite(vertex);
+  auto stub = StubForWrite(object);
   if (!stub) return std::unexpected(stub.error());
-  auto existing = Properties(vertex, storage::View::NEW);
+  auto existing = Properties(object, storage::View::NEW);
   if (!existing) return std::unexpected(existing.error());
   if (existing->empty()) {
     if (!TouchStub(*stub)) return std::unexpected(storage::Error::SERIALIZATION_ERROR);
     return existing;
   }
-  auto const gid = vertex.Gid();
-  core_->RecordPropertyChange(gid);
-  for (auto const &entry : *existing) RecordPropertyWrite(gid, entry.first);
-  PartialWriteGuard guard{txn().diff->GetTransaction()};
+  RecordPropertiesWrite(object);
+  for (auto const &entry : *existing) RecordPropertyWrite(object, entry.first);
+  auto *const transaction = txn().diff->GetTransaction();
+  PartialWriteGuard guard{transaction};
   for (auto const &entry : *existing) {
-    // Every property goes, so no key keeps a part: nothing is copied.
-    if (auto removed = WriteStubProperty(vertex, *stub, entry.first, storage::PropertyValue{}, false); !removed) {
+    if (auto removed = WriteStubProperty(transaction, object, *stub, entry.first, storage::PropertyValue{}); !removed) {
       return std::unexpected(removed.error());
     }
   }
@@ -990,18 +1124,112 @@ storage::Result<PropertyMap> BranchContext::ClearProperties(storage::VertexAcces
   return existing;
 }
 
+storage::Result<storage::PropertyValue> BranchContext::SetProperty(storage::VertexAccessor &vertex,
+                                                                   storage::PropertyId key,
+                                                                   const storage::PropertyValue &value) {
+  return SetPropertyAt(vertex, key, value);
+}
+
+storage::Result<bool> BranchContext::InitProperties(storage::VertexAccessor &vertex, PropertyMap &properties) {
+  return InitPropertiesAt(vertex, properties);
+}
+
+storage::Result<std::vector<PropertyChange>> BranchContext::UpdateProperties(storage::VertexAccessor &vertex,
+                                                                             PropertyMap &properties) {
+  return UpdatePropertiesAt(vertex, properties);
+}
+
+storage::Result<PropertyMap> BranchContext::ClearProperties(storage::VertexAccessor &vertex) {
+  return ClearPropertiesAt(vertex);
+}
+
+storage::Result<storage::PropertyValue> BranchContext::SetProperty(storage::EdgeAccessor &edge, storage::PropertyId key,
+                                                                   const storage::PropertyValue &value) {
+  return SetPropertyAt(edge, key, value);
+}
+
+storage::Result<bool> BranchContext::InitProperties(storage::EdgeAccessor &edge, PropertyMap &properties) {
+  return InitPropertiesAt(edge, properties);
+}
+
+storage::Result<std::vector<PropertyChange>> BranchContext::UpdateProperties(const storage::EdgeAccessor &edge,
+                                                                             PropertyMap &properties) {
+  return UpdatePropertiesAt(edge, properties);
+}
+
+storage::Result<PropertyMap> BranchContext::ClearProperties(storage::EdgeAccessor &edge) {
+  return ClearPropertiesAt(edge);
+}
+
+std::vector<storage::EdgeAccessor> BranchContext::VisibleForkEdges(const storage::VertexAccessor &fork) {
+  auto const gid = fork.Gid();
+  bool const edges_may_be_deleted = core_->MayHaveEdgeChange(gid);
+  std::vector<storage::EdgeAccessor> visible;
+  for (auto const direction : {storage::EdgeDirection::OUT, storage::EdgeDirection::IN}) {
+    auto expanded =
+        direction == storage::EdgeDirection::OUT ? fork.OutEdges(storage::View::OLD) : fork.InEdges(storage::View::OLD);
+    // The accessor is a resolved fork vertex, so it is visible and not deleted at the fork.
+    DMG_ASSERT(expanded.has_value(), "expanding a fork vertex failed.");
+    if (!expanded) continue;
+    for (auto const &edge : expanded->edges) {
+      // A self-loop is in both lists; it was taken as an out-edge.
+      if (direction == storage::EdgeDirection::IN && edge.IsCycle()) continue;
+      if (!IsForkEdgeHiddenWith(edge, storage::View::NEW, edges_may_be_deleted, gid)) {
+        visible.push_back(edge);
+      }
+    }
+  }
+  return visible;
+}
+
+// Like main's DETACH DELETE, the delete writes every edge it hides, so a writer of one of those edges, or a delete of
+// the edge's other endpoint, meets it as an ordinary stub conflict whichever comes first. The edge markers go first:
+// the stub's own marker is the one write left to conflict on the vertex.
 storage::Result<bool> BranchContext::DeleteForkVertex(storage::Gid gid) {
   if (IsVertexDeleted(gid, storage::View::NEW)) return false;
   auto fork = FindForkVertex(gid);
   if (!fork) return std::unexpected(storage::Error::NONEXISTENT_OBJECT);
+  // The edges the delete hides, taken before the markers hide them all.
+  auto const hidden_edges = VisibleForkEdges(*fork);
   // The branched bit is set before RecordVertexDeleted publishes the any-deleted flag, which in turn comes before the
   // marker is written: every read that can see the marker is gated on the filter.
   auto stub = MaterializeStub(*fork);
+  for (auto const &edge : hidden_edges) {
+    if (auto marked = MarkForkEdgeDeleted(edge); !marked) return std::unexpected(marked.error());
+  }
   core_->RecordVertexDeleted(gid);
   auto written = stub.AddLabel(stub::kDeleteLabel);
   if (!written) return std::unexpected(written.error());
   if (!CanDeleteAnchor(stub)) return std::unexpected(storage::Error::SERIALIZATION_ERROR);
+  if (*written) {
+    auto &deleted = txn().fork_deletes;
+    ++deleted.vertices;
+    deleted.edges += hidden_edges.size();
+  }
   return *written;
+}
+
+// The filters go before the stub write, so every read that can see the marker is gated on them; the delete hides the
+// edge from both endpoints' adjacency.
+storage::Result<void> BranchContext::MarkForkEdgeDeleted(const storage::EdgeAccessor &fork_edge) {
+  core_->RecordEdgeChange(fork_edge.from_vertex_->gid);
+  core_->RecordEdgeChange(fork_edge.to_vertex_->gid);
+  core_->RecordForkEdgeDeleted(fork_edge.Gid());
+  auto stub = MaterializeEdgeStub(fork_edge);
+  if (auto marked = stub.SetProperty(stub::kEdgeDeletePid, storage::PropertyValue{true}); !marked) {
+    return std::unexpected(marked.error());
+  }
+  return {};
+}
+
+// The one write is the marker: the stub is not decoded, and neither endpoint is written. A delete of an endpoint
+// writes this marker too, so it is that write which conflicts.
+storage::Result<bool> BranchContext::DeleteForkEdge(const storage::EdgeAccessor &fork_edge) {
+  DMG_ASSERT(!IsNative(fork_edge), "a native edge is deleted by the diff engine.");
+  if (IsForkEdgeHidden(fork_edge, storage::View::NEW)) return false;
+  if (auto marked = MarkForkEdgeDeleted(fork_edge); !marked) return std::unexpected(marked.error());
+  ++txn().fork_deletes.edges;
+  return true;
 }
 
 // ---- Adjacency
