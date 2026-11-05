@@ -1633,8 +1633,13 @@ def test_multiple_old_mains_single_failover(test_name):
         execute_and_fetch_all(instance_1_cursor, "CREATE ();")
         vertex_count += 1
 
-        assert vertex_count == execute_and_fetch_all(instance_1_cursor, "MATCH (n) RETURN count(n);")[0][0]
-        assert vertex_count == execute_and_fetch_all(instance_2_cursor, "MATCH (n) RETURN count(n);")[0][0]
+        # The main answers for itself, so it has the write as soon as the write returns.
+        assert vertex_count == get_vertex_count(instance_1_cursor)
+        # The replica is registered SYNC, which ships and applies the deltas within the commit but
+        # treats a failure to do so as neither fatal nor reported: the main commits anyway and the
+        # replica catches up afterwards. Reading the count once would therefore fail on a commit
+        # that took that path, while STRICT_SYNC is the mode that would make a single read sound.
+        mg_sleep_and_assert(vertex_count, partial(get_vertex_count, instance_2_cursor))
         time.sleep(0.1)
         time_slept += 0.1
 
