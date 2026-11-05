@@ -56,8 +56,8 @@ enum class Op : uint8_t {
 struct NoAnalysis {
   void merge(NoAnalysis const & /*other*/) {}
 
-  /// Comparable so the rewriter's debug-only audit of "facts move only on merge"
-  /// runs over these graphs instead of silently skipping them.
+  /// Comparable so the rewriter's debug-only audit that a moved fact was
+  /// announced runs over these graphs instead of silently skipping them.
   auto operator==(NoAnalysis const &) const -> bool = default;
 };
 

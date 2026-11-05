@@ -307,10 +307,12 @@ class Rewriter {
     return snapshot;
   }
 
-  /// Checks the requirement EClass states of a conforming analysis: that facts
-  /// move only when a merge moves them. Checked per pass, where the touched-set
-  /// holds this pass's touches. A merged-away id canonicalises to its survivor,
-  /// which the merge touched, so a legitimate merge cannot trip this.
+  /// Checks the requirement EClass states of a conforming analysis: that a fact
+  /// never moves without its e-class being announced as touched, which is what
+  /// incremental arming reads. A merge announces its survivor and the refresh
+  /// announces each e-class it widens, so neither can trip this. Checked per
+  /// pass, where the touched-set holds this pass's touches, and a merged-away id
+  /// canonicalises to the survivor that was announced.
   void audit_moved_facts_were_touched(AnalysisSnapshot const &before) const {
     if constexpr (kSupportsAnalysisAudit) {
       boost::unordered_flat_set<EClassId> touched;

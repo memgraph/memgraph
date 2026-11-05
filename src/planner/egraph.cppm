@@ -148,10 +148,10 @@ struct EGraphBase {
   /**
    * @brief Canonical e-classes changed since the last clear_touched().
    *
-   * Every newly-inserted e-class and every merge target, canonicalized and
-   * de-duplicated on read. Cascade merges during rebuild go through merge()/
-   * merge_all(), which also record here, so the set is complete - including for
-   * analysis, which moves only on merge. Survives rebuild(); drain per pass with
+   * Every newly-inserted e-class, every merge target, and every e-class whose
+   * facts an analysis refresh widened, canonicalized and de-duplicated on read.
+   * Cascade merges during rebuild go through merge()/merge_all(), which also
+   * record here, so the set is complete. Survives rebuild(); drain per pass with
    * clear_touched().
    */
   void touched_eclasses_into(boost::unordered_flat_set<EClassId> &out) const {
