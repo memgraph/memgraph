@@ -5494,6 +5494,17 @@ EdgeInfo InMemoryStorage::FindEdge(Gid edge_gid, Gid from_vertex_gid) {
   return ExtractEdgeInfo(&(*vertex_it), edge_ptr);
 }
 
+#ifdef MG_ENTERPRISE
+std::optional<EdgeAccessor> InMemoryStorage::InMemoryAccessor::FindEdgeFrom(Gid edge_gid, const VertexAccessor &from,
+                                                                            View view) {
+  if (!config_.properties_on_edges) return std::nullopt;
+  const auto maybe_edge_info = ScanOutEdgesForGid(from.vertex_, edge_gid);
+  if (!maybe_edge_info) return std::nullopt;
+  const auto &[edge_ref, edge_type, from_vertex, to_vertex] = *maybe_edge_info;
+  return EdgeAccessor::Create(edge_ref, edge_type, from_vertex, to_vertex, storage_, &transaction_, view);
+}
+#endif
+
 Result<size_t> InMemoryStorage::InMemoryAccessor::DeleteEdgesEx(std::span<EdgeDeleteSpec const> edges) {
   if (edges.empty()) return size_t{0};
 
