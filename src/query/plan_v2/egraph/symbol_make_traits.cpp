@@ -74,10 +74,78 @@ auto symbol_make_traits<Function>::storage_type::intern(std::string_view name, b
 }
 
 auto symbol_make_traits<Function>::make(storage_type &s, std::string_view name,
-                                        utils::small_vector<planner::core::EClassId> args, ExpressionAnalysis seed,
-                                        bool is_pure) -> seeded_node {
+                                        utils::small_vector<planner::core::EClassId> args, bool is_pure)
+    -> seeded_node {
   return {.lowered = {.children = std::move(args), .disambiguator = s.intern(name, is_pure)},
-          .seed = analysis{std::move(seed)}};
+          .seed = default_analysis_seed<Function>()};
+}
+
+namespace {
+
+/// The provably-exact length of `range(start, end)` when both bounds are
+/// statically-known integers (`nullopt` otherwise). Cypher range is inclusive
+/// on both ends; reversed bounds give an empty list.
+///
+/// Integer bounds only, which `known_int` already enforces: `range()` rejects a
+/// non-integer bound at runtime, so claiming a length off an integral double
+/// (e.g. 5.0) would elide an evaluation that is supposed to throw.
+auto ProvableRangeLength(planner::core::EGraph<symbol, analysis> const &eg,
+                         std::span<planner::core::EClassId const> args) -> std::optional<std::size_t> {
+  if (args.size() != 2) return std::nullopt;
+  auto const a = eg.analysis_of(args[0]).known_int();
+  auto const b = eg.analysis_of(args[1]).known_int();
+  if (!a || !b) return std::nullopt;
+  if (*b < *a) return std::size_t{0};
+  // Difference in unsigned to avoid signed-overflow UB for extreme bounds; +1
+  // for the inclusive end. A full-int64-span range can't fit, so decline it.
+  auto const span = static_cast<std::uint64_t>(*b) - static_cast<std::uint64_t>(*a);
+  if (span == UINT64_MAX) return std::nullopt;
+  return static_cast<std::size_t>(span + 1);
+}
+
+}  // namespace
+
+auto symbol_make_traits<Function>::update(planner::core::EGraph<symbol, analysis> const &eg, storage_type const &s,
+                                          std::span<planner::core::EClassId const> args, std::uint64_t function_id,
+                                          analysis &out) -> bool {
+  auto *expr = out.expression_for_update();
+  if (expr == nullptr || function_id >= s.info.size()) return false;
+  auto const &info = s.info[function_id];
+  // Only a pure function's output is a statically-known fact, so an impure call
+  // establishes nothing regardless of kind.
+  if (!info.is_pure) return false;
+
+  switch (info.kind) {
+    case BuiltinKind::Range: {
+      if (expr->known_list_length) return false;
+      auto const length = ProvableRangeLength(eg, args);
+      if (!length) return false;
+      expr->known_list_length = length;
+      return true;
+    }
+    case BuiltinKind::Size: {
+      if (expr->known_constant_value || args.size() != 1) return false;
+      auto const length = eg.analysis_of(args[0]).known_list_length();
+      if (!length) return false;
+      expr->known_constant_value = storage::ExternalPropertyValue{static_cast<int64_t>(*length)};
+      return true;
+    }
+    case BuiltinKind::Unknown:
+      return false;
+  }
+  return false;
+}
+
+auto symbol_make_traits<Add>::update(planner::core::EGraph<symbol, analysis> const &eg, storage_type const & /*s*/,
+                                     std::span<planner::core::EClassId const> children, std::uint64_t /*disambiguator*/,
+                                     analysis &out) -> bool {
+  auto *expr = out.expression_for_update();
+  if (expr == nullptr || expr->known_list_length || children.size() != 2) return false;
+  auto const lhs = eg.analysis_of(children[0]).known_list_length();
+  auto const rhs = eg.analysis_of(children[1]).known_list_length();
+  if (!lhs || !rhs) return false;
+  expr->known_list_length = *lhs + *rhs;
+  return true;
 }
 
 auto symbol_make_traits<Unwind>::make(storage_type & /*s*/, planner::core::EClassId input, planner::core::EClassId sym,

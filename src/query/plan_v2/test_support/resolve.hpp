@@ -35,7 +35,7 @@ namespace memgraph::query::plan::v2::test {
 /// resolved views reference, so it must not be moved while in use.
 class ResolveHarness {
  public:
-  ResolveHarness(egraph const &e, eclass root) : in_{e} {
+  ResolveHarness(egraph &e, eclass root) : in_{e} {
     namespace extract = planner::core::extract;
     (void)extract::ComputeFrontiers(in_.core, in_.cost_ctx(), to_core(root), ctx_.frontier_context);
     extract::Resolve<symbol, analysis, CostFrontier>(

@@ -28,8 +28,12 @@ namespace memgraph::query::plan::v2::test {
 /// declaration order (`syms` holds a reference into `pre`); construct on the
 /// stack and do not move while in use.
 struct ExtractionInputs {
-  explicit ExtractionInputs(egraph const &e)
-      : core{impl_of(e).graph.core()},
+  /// Takes the graph mutably so it can refresh the analysis first, which is what
+  /// saturation does before a real extraction: a builtin's result facts are
+  /// derived from its arguments' on refresh rather than fixed when the call was
+  /// built, so a graph assembled by hand has none of them yet.
+  explicit ExtractionInputs(egraph &e)
+      : core{refreshed_core(e)},
         estimator{e},
         pre{BuildPreExtractionData(core)},
         syms{.egraph = core,
@@ -46,6 +50,13 @@ struct ExtractionInputs {
   /// The cost model the frontier pass is driven with.
   [[nodiscard]] auto cost_ctx() const -> CostCtx { return CostCtx{.estimator = estimator, .syms = syms}; }
 
+ private:
+  static auto refreshed_core(egraph &e) -> EGraph const & {
+    e.RefreshAnalysis();
+    return impl_of(e).graph.core();
+  }
+
+ public:
   // NOLINTBEGIN(cppcoreguidelines-avoid-const-or-ref-data-members)
   EGraph const &core;
   // NOLINTEND(cppcoreguidelines-avoid-const-or-ref-data-members)

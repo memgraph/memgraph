@@ -31,7 +31,7 @@ namespace memgraph::query::plan::v2::test {
 /// frontier views reference, so it must not be moved while in use.
 class CostHarness {
  public:
-  CostHarness(egraph const &e, eclass root) : in_{e} {
+  CostHarness(egraph &e, eclass root) : in_{e} {
     (void)planner::core::extract::ComputeFrontiers(in_.core, in_.cost_ctx(), to_core(root), frontier_context_);
   }
 

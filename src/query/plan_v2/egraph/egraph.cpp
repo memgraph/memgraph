@@ -73,61 +73,8 @@ auto egraph::MakeNamedOutput(std::string_view name, eclass sym, eclass expr) -> 
   return from_core(pimpl_->graph.Make<NamedOutput>(name, to_core(sym), to_core(expr)).eclass_id);
 }
 
-namespace {
-
-// The provably-exact length of `range(start, end)` when both bounds are
-// statically-known integers (`nullopt` otherwise).  Cypher range is inclusive
-// on both ends; reversed bounds give an empty list.  Computed once here, at the
-// make-time seed; the search plane reads the resulting fact rather than
-// recomputing.
-//
-// Integer bounds only, which `known_int` already enforces: `range()` rejects a
-// non-integer bound at runtime, so seeding a length off an integral double
-// (e.g. 5.0) would elide an evaluation that is supposed to throw.
-auto ProvableRangeLength(EGraph const &eg, std::span<planner::core::EClassId const> args)
-    -> std::optional<std::size_t> {
-  if (args.size() != 2) return std::nullopt;
-  auto const a = eg.analysis_of(args[0]).known_int();
-  auto const b = eg.analysis_of(args[1]).known_int();
-  if (!a || !b) return std::nullopt;
-  if (*b < *a) return std::size_t{0};
-  // Difference in unsigned to avoid signed-overflow UB for extreme bounds; +1
-  // for the inclusive end. A full-int64-span range can't fit, so decline it.
-  auto const span = static_cast<std::uint64_t>(*b) - static_cast<std::uint64_t>(*a);
-  if (span == UINT64_MAX) return std::nullopt;
-  return static_cast<std::size_t>(span + 1);
-}
-
-// Analysis facts a builtin's semantics establish at plan time. `range` over
-// constant integer bounds has a known length; `size` of a known-length list
-// folds to that length as a constant, with no evaluation or materialisation.
-// Purity gate: only a pure function's output is a statically-known fact, so an
-// impure call seeds nothing regardless of kind.
-auto BuiltinAnalysis(EGraph const &eg, std::string_view name, std::span<planner::core::EClassId const> args,
-                     bool is_pure) -> ExpressionAnalysis {
-  if (!is_pure) return {};
-  switch (BuiltinKindFor(name)) {
-    case BuiltinKind::Range:
-      return {.known_list_length = ProvableRangeLength(eg, args)};
-    case BuiltinKind::Size:
-      if (args.size() == 1) {
-        if (auto const length = eg.analysis_of(args[0]).known_list_length()) {
-          return {.known_constant_value = storage::ExternalPropertyValue{static_cast<int64_t>(*length)}};
-        }
-      }
-      return {};
-    case BuiltinKind::Unknown:
-      return {};
-  }
-  return {};
-}
-
-}  // namespace
-
 auto egraph::MakeFunction(std::string_view name, std::span<eclass const> args, bool is_pure) -> eclass {
-  auto core_args = to_core(args);
-  auto seed = BuiltinAnalysis(pimpl_->graph.core(), name, core_args, is_pure);
-  return from_core(pimpl_->graph.Make<Function>(name, std::move(core_args), std::move(seed), is_pure).eclass_id);
+  return from_core(pimpl_->graph.Make<Function>(name, to_core(args), is_pure).eclass_id);
 }
 
 auto egraph::MakeUnwind(eclass input, eclass sym, eclass list_expr) -> eclass {
@@ -143,6 +90,11 @@ auto egraph::MakeSubquery(eclass outer_input, eclass inner_root, std::span<eclas
   return from_core(pimpl_->graph.Make<Subquery>(std::move(children)).eclass_id);
 }
 
+auto egraph::RefreshAnalysis() -> std::size_t {
+  auto ctx = planner::core::BaseProcessingContext{};
+  return pimpl_->graph.refresh_analysis(ctx);
+}
+
 auto egraph::FunctionInfoById(std::uint64_t id) const -> FunctionInfo const * {
   auto const &info = pimpl_->graph.storage<Function>().info;
   if (id >= info.size()) return nullptr;
@@ -150,35 +102,10 @@ auto egraph::FunctionInfoById(std::uint64_t id) const -> FunctionInfo const * {
 }
 
 // Binary / unary public-API definitions - generated from EGRAPH_*_OPS.
-namespace {
-/// Length a binary operator's result is statically known to have, or nullopt.
-/// Most operators contribute none; the primary template is that default.
-template <symbol S>
-auto BinaryKnownListLength(EGraph const & /*eg*/, planner::core::EClassId /*lhs*/, planner::core::EClassId /*rhs*/)
-    -> std::optional<std::size_t> {
-  return std::nullopt;
-}
-
-/// List concatenation of two known-length lists has a known length: their sum.
-/// `known_list_length` is set only for lists, so both operands carrying it means
-/// list + list (Cypher concatenation), not numeric addition.
-template <>
-auto BinaryKnownListLength<symbol::Add>(EGraph const &eg, planner::core::EClassId lhs, planner::core::EClassId rhs)
-    -> std::optional<std::size_t> {
-  return eg.analysis_of(lhs).known_list_length().and_then([&](std::size_t lhs_length) {
-    return eg.analysis_of(rhs).known_list_length().transform(
-        [lhs_length](std::size_t rhs_length) { return lhs_length + rhs_length; });
-  });
-}
-}  // namespace
-
 // NOLINTBEGIN(cppcoreguidelines-macro-usage)
-#define MG_DEFN_MAKE_BINARY(Name, ...)                                                                      \
-  auto egraph::Make##Name(eclass lhs, eclass rhs)->eclass {                                                 \
-    auto const l = to_core(lhs);                                                                            \
-    auto const r = to_core(rhs);                                                                            \
-    return from_core(                                                                                       \
-        pimpl_->graph.Make<Name>(l, r, BinaryKnownListLength<Name>(pimpl_->graph.core(), l, r)).eclass_id); \
+#define MG_DEFN_MAKE_BINARY(Name, ...)                                                \
+  auto egraph::Make##Name(eclass lhs, eclass rhs)->eclass {                           \
+    return from_core(pimpl_->graph.Make<Name>(to_core(lhs), to_core(rhs)).eclass_id); \
   }
 EGRAPH_BINARY_OPS(MG_DEFN_MAKE_BINARY)
 #undef MG_DEFN_MAKE_BINARY

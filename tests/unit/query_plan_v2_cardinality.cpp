@@ -12,9 +12,12 @@
 // Cardinality estimation tests for plan_v2.
 //
 // A builtin's statically-known list size (e.g. range(0, 5) -> 6) is carried as
-// a known_list_length analysis fact, seeded at make time; the cost model reads
-// it for the Function's cardinality and falls back to the estimator only for
-// the unknown case.  Cardinality - the number of rows an operator pulls - is an
+// a known_list_length analysis fact, derived from the call's arguments on every
+// analysis refresh; the cost model reads it for the Function's cardinality and
+// falls back to the estimator only for the unknown case.  Deriving it on refresh
+// rather than when the call is built is what lets a bound that only becomes
+// constant under saturation still fix the length.
+// Cardinality - the number of rows an operator pulls - is an
 // operator-level concept: a known list size becomes a known cardinality only at
 // Unwind, which emits one row per element; Output (scalar RETURN) collapses to
 // one row regardless.
@@ -31,12 +34,24 @@
 #include "query/plan_v2/egraph/egraph.hpp"
 #include "query/plan_v2/egraph/egraph_internal.hpp"
 #include "query/plan_v2/frontend/egraph_converter.hpp"
+#include "query/plan_v2/rewrite/rewrites.hpp"
 #include "query/plan_v2/test_support/cost.hpp"
 #include "query/plan_v2/test_support/literals.hpp"
 #include "storage/v2/property_value.hpp"
 
 namespace memgraph::query::plan::v2 {
 namespace {
+
+// Extraction as a real query reaches it: the analysis is refreshed first,
+// standing in for the saturation that runs between conversion and extraction.
+// That is where a builtin's result facts are derived from its arguments', so a
+// graph assembled by hand has none of them yet. CostHarness does the same for
+// the cost pass, which is why only this path spells it out.
+auto Extract(egraph &eg, eclass root) -> ExtractionResult {
+  eg.RefreshAnalysis();
+  auto ctx = QueryPlannerContext{};
+  return ConvertToLogicalOperator(eg, root, ctx);
+}
 
 // The cardinality the cost model derives for a Function e-class: a known list
 // length read from the analysis fact when present (range over constant bounds),
@@ -104,6 +119,18 @@ TEST(FunctionCardinality, UnknownFunctionFallsBackToDefault) {
   EXPECT_DOUBLE_EQ(FunctionCardinality(eg, fn), kDefaultListSize);
 }
 
+TEST(FunctionCardinality, RangeOverABoundFoldingToAConstantReadsKnownLength) {
+  // A bound that is constant only once the folder has reached it fixes the
+  // range's length just as a literal bound does. The two spellings must agree:
+  // a fact that depends on when its operand became constant would make the plan
+  // for range(1, 2 + 3) differ from the plan for range(1, 5).
+  egraph eg;
+  auto const bound = eg.MakeAdd(IntLit(eg, 2), IntLit(eg, 3));
+  auto fn = eg.MakeFunction("range", {IntLit(eg, 1), bound}, /*is_pure=*/true);
+  ApplyAllRewrites(eg, RewriteConfig::Unlimited());
+  EXPECT_DOUBLE_EQ(FunctionCardinality(eg, fn), 5.0);
+}
+
 // ============================================================================
 // Unwind cost composition end-to-end
 // ============================================================================
@@ -124,8 +151,7 @@ TEST(UnwindCostShape, ProducesUnwindOperator) {
   auto named_output = eg.MakeNamedOutput("x", out_sym, x_ref);
   auto root = eg.MakeOutput(unwind, {named_output});
 
-  auto ctx = QueryPlannerContext{};
-  auto result = ConvertToLogicalOperator(eg, root, ctx);
+  auto result = Extract(eg, root);
 
   ASSERT_NE(result.plan, nullptr);
 
@@ -169,8 +195,7 @@ TEST(DeadUnwind, UnreferencedSymOverConstListBuildsCardinalityScale) {
   auto named_output = eg.MakeNamedOutput("r", r_sym, two);
   auto root = eg.MakeOutput(unwind, {named_output});
 
-  auto ctx = QueryPlannerContext{};
-  auto result = ConvertToLogicalOperator(eg, root, ctx);
+  auto result = Extract(eg, root);
 
   ASSERT_NE(result.plan, nullptr);
   auto const &produce = dynamic_cast<plan::Produce const &>(*result.plan);
@@ -197,8 +222,7 @@ TEST(DeadUnwind, UnreferencedSymOverRangeBuildsCardinalityScale) {
   auto named_output = eg.MakeNamedOutput("r", r_sym, one);
   auto root = eg.MakeOutput(unwind, {named_output});
 
-  auto ctx = QueryPlannerContext{};
-  auto result = ConvertToLogicalOperator(eg, root, ctx);
+  auto result = Extract(eg, root);
 
   ASSERT_NE(result.plan, nullptr);
   auto const &produce = dynamic_cast<plan::Produce const &>(*result.plan);
@@ -221,8 +245,7 @@ TEST(DeadUnwind, ReferencedSymStaysUnwind) {
   auto named_output = eg.MakeNamedOutput("x", out_sym, x_ref);
   auto root = eg.MakeOutput(unwind, {named_output});
 
-  auto ctx = QueryPlannerContext{};
-  auto result = ConvertToLogicalOperator(eg, root, ctx);
+  auto result = Extract(eg, root);
 
   ASSERT_NE(result.plan, nullptr);
   auto const &produce = dynamic_cast<plan::Produce const &>(*result.plan);
@@ -245,8 +268,7 @@ TEST(OutputCardinality, ScalarReturnIsOneRowEvenWhenValueIsList) {
   auto named_output = eg.MakeNamedOutput("r", r_sym, range);
   auto root = eg.MakeOutput(once, {named_output});
 
-  auto ctx = QueryPlannerContext{};
-  auto result = ConvertToLogicalOperator(eg, root, ctx);
+  auto result = Extract(eg, root);
 
   ASSERT_NE(result.plan, nullptr);
   EXPECT_DOUBLE_EQ(result.cardinality, 1.0);

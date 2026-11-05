@@ -30,8 +30,9 @@ struct ExpressionAnalysis {
 
   void merge(ExpressionAnalysis const &other);
 
-  /// Equality is what lets the rewriter audit, in a debug build, that facts move
-  /// only on merge. See EClass's note on a conforming analysis.
+  /// Equality is what lets the rewriter audit, in a debug build, that a fact
+  /// never moves without the e-class being announced as touched. See EClass's
+  /// note on a conforming analysis.
   auto operator==(ExpressionAnalysis const &) const -> bool = default;
 };
 
@@ -61,6 +62,11 @@ struct analysis : analysis_variant {
   /// Reading one fact goes through the readers below, which fold the arm check
   /// and the fact's own absence into a single answer.
   [[nodiscard]] auto expression() const -> ExpressionAnalysis const * { return std::get_if<ExpressionAnalysis>(this); }
+
+  /// The ExpressionAnalysis arm for a symbol's `update` to widen, or nullptr if
+  /// this e-class is not an Expression. The caller owes what merge guarantees: a
+  /// fact may be added, never retracted.
+  [[nodiscard]] auto expression_for_update() -> ExpressionAnalysis * { return std::get_if<ExpressionAnalysis>(this); }
 
   /// The constant value this e-class is statically known to hold, or nullptr
   /// when that is unknown or the e-class is not an Expression. Borrows from the

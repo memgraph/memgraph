@@ -51,7 +51,7 @@ struct egraph {
 
   auto MakeNamedOutput(std::string_view name, eclass sym, eclass expr) -> eclass;
   /// `is_pure` is the function's purity, resolved by the caller from the
-  /// executor's authoritative table; it gates seeding the call's output as a
+  /// executor's authoritative table; it gates treating the call's output as a
   /// statically-known fact and is cached on the FunctionInfo.
   auto MakeFunction(std::string_view name, std::span<eclass const> args, bool is_pure) -> eclass;
 
@@ -65,6 +65,15 @@ struct egraph {
   auto MakeSubquery(eclass outer_input, eclass inner_root, std::initializer_list<eclass> exposed_syms) -> eclass {
     return MakeSubquery(outer_input, inner_root, std::span<eclass const>{exposed_syms});
   }
+
+  /// Derive the analysis facts an e-class's own e-nodes establish from their
+  /// children, and answer how many facts that widened. A builtin's result length
+  /// or folded value is derived here rather than when the e-node is built,
+  /// because an argument can be proved constant long after the call was made.
+  ///
+  /// Saturation does this itself once per pass. A caller that reads a fact off a
+  /// graph it assembled by hand owes one call first.
+  auto RefreshAnalysis() -> std::size_t;
 
   /// Look up the FunctionInfo (name + cached BuiltinKind) for a function id
   /// previously assigned by MakeFunction.  Used by the cost-model estimator

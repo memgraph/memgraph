@@ -14,6 +14,7 @@
 #include <cstdint>
 #include <map>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -62,6 +63,11 @@ auto default_analysis_seed() -> analysis {
 //   - static auto make(storage_type&, user_args...) -> seeded_node:
 //     lowers user arguments to (children, optional disambiguator) and the
 //     analysis seed for the new e-class.
+//   - optionally static auto update(...) -> bool: the facts an e-node's children
+//     imply, recomputed on every analysis refresh. A fact belongs here rather
+//     than in the seed whenever it reads a child's analysis, because a child can
+//     be proved constant long after this e-node was built, and a seed is fixed
+//     when the e-node is built and dropped on a hash-cons hit.
 //
 // The protocol talks in raw planner::core::EClassId; the plan_v2 strong-typed
 // `eclass` is converted at the facade boundary in egraph.cpp.
@@ -177,13 +183,18 @@ struct symbol_make_traits<symbol::Function> {
     auto intern(std::string_view name, bool is_pure) -> uint64_t;
   };
 
-  /// args is the complete children list (the function arguments).
-  /// `seed` carries any analysis facts the caller can establish from the
-  /// builtin's semantics (e.g. `range`'s known length, or `size`'s known
-  /// constant value); empty for opaque functions.  `is_pure` is cached on the
-  /// FunctionInfo (see its doc); the caller has already gated `seed` on it.
+  /// args is the complete children list (the function arguments). `is_pure` is
+  /// cached on the FunctionInfo (see its doc).
   static auto make(storage_type &s, std::string_view name, utils::small_vector<planner::core::EClassId> args,
-                   ExpressionAnalysis seed, bool is_pure) -> seeded_node;
+                   bool is_pure) -> seeded_node;
+
+  /// What a builtin's semantics establish about its result from its arguments:
+  /// `range` over constant integer bounds has a known length, and `size` of a
+  /// known-length list is that length as a constant. Which of those applies is
+  /// decided by the interned name, so this needs the function id and the store
+  /// that holds it; the arguments' facts alone do not say.
+  static auto update(planner::core::EGraph<symbol, analysis> const &eg, storage_type const &s,
+                     std::span<planner::core::EClassId const> args, std::uint64_t function_id, analysis &out) -> bool;
 };
 
 /// Unwind: no storage, mirrors Bind's [input, sym, list_expr] shape so the
@@ -213,14 +224,28 @@ template <symbol S>
 struct symbol_make_traits<S> {
   struct storage_type {};
 
-  /// `known_list_length` seeds the result when the operator's semantics fix the
-  /// produced list's length over its operands (list concatenation over two
-  /// known-length lists); nullopt leaves the e-class without the fact.
-  static auto make(storage_type & /*s*/, planner::core::EClassId lhs, planner::core::EClassId rhs,
-                   std::optional<std::size_t> known_list_length = std::nullopt) -> seeded_node {
+  static auto make(storage_type & /*s*/, planner::core::EClassId lhs, planner::core::EClassId rhs) -> seeded_node {
     return {.lowered = {.children = utils::small_vector{lhs, rhs}, .disambiguator = std::nullopt},
-            .seed = analysis{ExpressionAnalysis{.known_list_length = known_list_length}}};
+            .seed = default_analysis_seed<S>()};
   }
+};
+
+/// Add carries what list concatenation fixes: concatenating two known-length
+/// lists gives their sum. `known_list_length` is carried only for lists, so both
+/// operands holding one means list + list rather than numeric addition. Spelled
+/// out rather than extending the primary, whose other operators fix no length.
+template <>
+struct symbol_make_traits<symbol::Add> {
+  struct storage_type {};
+
+  static auto make(storage_type & /*s*/, planner::core::EClassId lhs, planner::core::EClassId rhs) -> seeded_node {
+    return {.lowered = {.children = utils::small_vector{lhs, rhs}, .disambiguator = std::nullopt},
+            .seed = default_analysis_seed<symbol::Add>()};
+  }
+
+  static auto update(planner::core::EGraph<symbol, analysis> const &eg, storage_type const & /*s*/,
+                     std::span<planner::core::EClassId const> children, std::uint64_t /*disambiguator*/, analysis &out)
+      -> bool;
 };
 
 /// Unary operator: no storage, just one child

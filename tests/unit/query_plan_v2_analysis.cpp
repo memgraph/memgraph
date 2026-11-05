@@ -288,5 +288,66 @@ TEST_F(MakeAnalysis, NaNInternsOnce) {
   EXPECT_EQ(a.value_of(), b.value_of());
 }
 
+// --- The refresh derives what an e-node's children imply -------------------
+// A fact an e-node's own arguments fix is derived on refresh, not when the node
+// is built, so it is established however late its arguments became known. Make
+// seeds only what an e-node's identity alone settles, which is why each of these
+// asserts the fact is absent until the refresh runs.
+
+class RefreshAnalysis : public MakeAnalysis {
+ protected:
+  auto ListLiteral(std::size_t n) -> eclass {
+    auto elements = ExternalPropertyValue::list_t{};
+    for (std::size_t i = 0; i < n; ++i) elements.emplace_back(ExternalPropertyValue{static_cast<int64_t>(i)});
+    return eg_.MakeLiteral(ExternalPropertyValue{std::move(elements)});
+  }
+};
+
+TEST_F(RefreshAnalysis, ConcatenatingTwoKnownLengthListsSumsTheirLengths) {
+  auto const concat = eg_.MakeAdd(ListLiteral(2), ListLiteral(3));
+  ASSERT_NE(Expression(concat), nullptr);
+  EXPECT_FALSE(Expression(concat)->known_list_length.has_value());
+
+  eg_.RefreshAnalysis();
+  ASSERT_TRUE(Expression(concat)->known_list_length.has_value());
+  EXPECT_EQ(*Expression(concat)->known_list_length, 5U);
+}
+
+TEST_F(RefreshAnalysis, AddingTwoIntegersFixesNoListLength) {
+  // known_list_length is carried only for lists, so numeric addition must not
+  // claim one: the operands hold none, and a length here would also assert that
+  // the sum is a list.
+  auto const sum = eg_.MakeAdd(eg_.MakeLiteral(ExternalPropertyValue{int64_t{2}}),
+                               eg_.MakeLiteral(ExternalPropertyValue{int64_t{3}}));
+  eg_.RefreshAnalysis();
+  ASSERT_NE(Expression(sum), nullptr);
+  EXPECT_FALSE(Expression(sum)->known_list_length.has_value());
+}
+
+TEST_F(RefreshAnalysis, SizeOfAKnownLengthListFoldsToThatLength) {
+  auto const size = eg_.MakeFunction("size", {ListLiteral(3)}, /*is_pure=*/true);
+  ASSERT_NE(Expression(size), nullptr);
+  EXPECT_FALSE(Expression(size)->known_constant_value.has_value());
+
+  eg_.RefreshAnalysis();
+  ExpectConstant(Arm(size), ExternalPropertyValue{int64_t{3}});
+}
+
+TEST_F(RefreshAnalysis, SizeOfAnImpureCallFoldsToNothing) {
+  // Purity gates the fact: an impure call's result is not statically known
+  // however much is known about its argument.
+  auto const size = eg_.MakeFunction("size", {ListLiteral(3)}, /*is_pure=*/false);
+  eg_.RefreshAnalysis();
+  ASSERT_NE(Expression(size), nullptr);
+  EXPECT_FALSE(Expression(size)->known_constant_value.has_value());
+}
+
+TEST_F(RefreshAnalysis, AConcatenationOverAnUnknownListFixesNoLength) {
+  auto const concat = eg_.MakeAdd(ListLiteral(2), eg_.MakeParameterLookup(0));
+  eg_.RefreshAnalysis();
+  ASSERT_NE(Expression(concat), nullptr);
+  EXPECT_FALSE(Expression(concat)->known_list_length.has_value());
+}
+
 }  // namespace
 }  // namespace memgraph::query::plan::v2
