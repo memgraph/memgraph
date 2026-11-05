@@ -210,6 +210,14 @@ class Rewriter {
     result.rewrites_per_rule.resize(num_rules(), 0);  // Initialize per-rule counters
     auto const start_time = std::chrono::steady_clock::now();
 
+    // Facts the graph as handed over already implies, but which no refresh has
+    // derived yet: a caller can build a term whose fact only `update` can
+    // establish. Deriving them before the first arm is what lets a rule gated
+    // on one fire in the first pass, since a pass derives facts at its end, too
+    // late to arm anything for itself. A caller capping the pass count would
+    // otherwise spend its whole budget before the rule was ever enabled.
+    graph_->refresh_analysis(proc_ctx_);
+
     driver.begin(graph_->core());
 
     for (std::size_t iter = 0; iter < config.max_iterations; ++iter) {
@@ -230,14 +238,19 @@ class Rewriter {
 #ifndef NDEBUG
       auto const analysis_before = snapshot_analysis_for_audit();
 #endif
-      auto const rewrites_this_iter = apply_once_with_stats(result.rewrites_per_rule, driver.armed(), driver.active());
+      auto const pass = apply_once_with_stats(result.rewrites_per_rule, driver.armed(), driver.active());
 #ifndef NDEBUG
       audit_moved_facts_were_touched(analysis_before);
 #endif
 
-      result.rewrites_applied += rewrites_this_iter;
+      result.rewrites_applied += pass.rewrites;
 
-      if (rewrites_this_iter == 0) {
+      // A pass that rewrote nothing is a fixpoint only if it also learned
+      // nothing. Its refresh can still derive a fact, and the rules gated on
+      // that fact are armed for the pass after, which stopping here would never
+      // run. Facts only widen, so the passes this keeps alive are bounded by
+      // what is left to learn.
+      if (pass.rewrites == 0 && pass.facts_moved == 0) {
         result.stop_reason = RewriteResult::StopReason::Saturated;
         return result;
       }
@@ -327,6 +340,13 @@ class Rewriter {
   }
 #endif
 
+  /// What one pass changed. Both halves gate the loop's fixpoint test, because
+  /// either can enable a rule for the pass after.
+  struct PassOutcome {
+    std::size_t rewrites;
+    std::size_t facts_moved;
+  };
+
   /**
    * @brief Apply all rules once and accumulate per-rule statistics
    *
@@ -334,10 +354,9 @@ class Rewriter {
    * Uses VM-based pattern matching for improved performance on single-pattern rules.
    *
    * @param per_rule_stats Vector to accumulate per-rule counts (must be sized to rules_.size())
-   * @return Total number of rewrites applied across all rules
    */
   auto apply_once_with_stats(std::vector<std::size_t> &per_rule_stats, std::vector<std::uint8_t> const *armed = nullptr,
-                             RootRestriction active = RootRestriction::MatchAll()) -> std::size_t {
+                             RootRestriction active = RootRestriction::MatchAll()) -> PassOutcome {
     assert(!graph_->core().needs_rebuild() && "E-graph must be clean at start of rewrite iteration");
 
     ctx_.clear_new_eclasses();
@@ -362,8 +381,8 @@ class Rewriter {
 
     // Recompute facts the merges above enabled, inside the pass rather than
     // after the last one: a fact learned here still has a pass left in which to
-    // arm the rules gated on it.
-    graph_->refresh_analysis(proc_ctx_);
+    // arm the rules gated on it, which the loop's fixpoint test preserves.
+    auto const facts_moved = graph_->refresh_analysis(proc_ctx_);
 
     // Incremental matcher rebuild for new e-classes only
     // rebuild_index handles canonicalization and duplicates internally
@@ -371,7 +390,7 @@ class Rewriter {
       matcher_.rebuild_index(std::span<EClassId const>{ctx_.new_eclasses()});
     }
 
-    return total_rewrites;
+    return {.rewrites = total_rewrites, .facts_moved = facts_moved};
   }
 
  public:

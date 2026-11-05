@@ -176,6 +176,30 @@ struct UpdateOmitsTheNodeIdentity {
   }
 };
 
+using FactPattern = pattern::Pattern<FactOp>;
+using FactRule = rewrite::RewriteRule<FactEGraph>;
+using FactRuleCtx = rewrite::RuleContext<FactEGraph>;
+using FactRuleSet = rewrite::RuleSet<FactEGraph>;
+using FactRewriter = rewrite::Rewriter<FactEGraph>;
+
+constexpr pattern::PatternVar kRoot{0};
+
+/// Replaces a Sum with the leaf of its value. Gated on the fact rather than on
+/// the operands' shape, the way a constant fold is: it matches every Sum and
+/// acts only once the value is known. Declines once it has, so saturation
+/// settles.
+auto fold_known_sum() -> FactRule {
+  return FactRule::Builder{"fold_known_sum"}
+      .pattern(FactPattern::build(kRoot, FactOp::Sum, {pattern::Wildcard{}, pattern::Wildcard{}}))
+      .apply([](FactRuleCtx &ctx, pattern::Match const &match) {
+        auto const known = ctx.analysis(match[kRoot]).known;
+        if (!known) return;
+        auto const folded = ctx.Make<FactOp::Leaf>(*known);
+        if (ctx.find(match[kRoot]) == ctx.find(folded)) return;
+        ctx.merge(match[kRoot], folded);
+      });
+}
+
 }  // namespace
 
 // === Make: lowering parity with the core e-graph (S1) ===
@@ -367,25 +391,49 @@ TEST(TypedEGraph, RefreshMarksTheClassesItChangedTouched) {
   auto const five = eg.Make<FactOp::Leaf>(5).eclass_id;
   eg.core().merge(opaque, five);
 
-  // The touched set is what the refresh propagates from, so it cannot be
-  // cleared first. The sum is not among what the merge touched - it was never
-  // merged - so finding it there afterwards can only be the refresh's doing.
+  // Building each e-class and merging announced those classes already, so the
+  // set has to be drained for what it holds next to be the refresh's own doing.
+  // The refresh propagates from its separate change set, which draining leaves
+  // alone - the reason the two sets are not one.
+  eg.core().clear_touched();
   ASSERT_EQ(eg.refresh_analysis(refresh_ctx), 1U);
 
-  // A fact that moves without touching leaves a rule gated on it unarmed.
+  // A fact that moves without being announced leaves every rule gated on it
+  // unarmed. The sum is the one class whose facts the refresh widened, so it is
+  // exactly what the set should now hold.
   auto touched = boost::unordered_flat_set<EClassId>{};
   eg.core().touched_eclasses_into(touched);
   EXPECT_TRUE(touched.contains(eg.core().find(sum)));
+  EXPECT_EQ(touched.size(), 1U);
+}
+
+// === clear(): pending work does not outlive the graph it belonged to ===
+
+TEST(TypedEGraph, ClearDropsThePendingAnalysisWork) {
+  FactEGraph eg;
+  auto const one = eg.Make<FactOp::Leaf>(1).eclass_id;
+  auto const opaque = eg.Make<FactOp::Opaque>().eclass_id;
+  eg.Make<FactOp::Sum>(one, opaque);
+
+  eg.core().clear();
+
+  // Any e-class id a refresh still had queued now names nothing, and the
+  // union-find it would canonicalise through has been emptied as well, so
+  // carrying one over reads a vacated slot rather than finding no work.
+  auto refresh_ctx = BaseProcessingContext{};
+  EXPECT_EQ(eg.refresh_analysis(refresh_ctx), 0U);
+
+  // Ids restart from zero after a clear, so a carried-over id would not merely
+  // dangle: it would name one of these fresh e-classes.
+  auto const two = eg.Make<FactOp::Leaf>(2).eclass_id;
+  auto const three = eg.Make<FactOp::Leaf>(3).eclass_id;
+  auto const sum = eg.Make<FactOp::Sum>(two, three).eclass_id;
+  EXPECT_EQ(eg.refresh_analysis(refresh_ctx), 1U);
+  ASSERT_TRUE(eg.core().analysis_of(sum).known.has_value());
+  EXPECT_EQ(*eg.core().analysis_of(sum).known, 5);
 }
 
 TEST(TypedEGraph, SaturationFiresARuleTheRefreshEnabled) {
-  using FactPattern = pattern::Pattern<FactOp>;
-  using FactRule = rewrite::RewriteRule<FactEGraph>;
-  using FactRuleCtx = rewrite::RuleContext<FactEGraph>;
-  using FactRuleSet = rewrite::RuleSet<FactEGraph>;
-  using FactRewriter = rewrite::Rewriter<FactEGraph>;
-  static constexpr pattern::PatternVar kRoot{0};
-
   FactEGraph eg;
   auto const one = eg.Make<FactOp::Leaf>(1).eclass_id;
   auto const opaque = eg.Make<FactOp::Opaque>().eclass_id;
@@ -401,19 +449,7 @@ TEST(TypedEGraph, SaturationFiresARuleTheRefreshEnabled) {
                       ctx.merge(match[kRoot], ctx.Make<FactOp::Leaf>(5));
                     });
 
-  // Gated on the fact rather than on the operands' shape, the way a constant
-  // fold is: it matches every Sum and acts only once the value is known.
-  auto fold = FactRule::Builder{"fold_known_sum"}
-                  .pattern(FactPattern::build(kRoot, FactOp::Sum, {pattern::Wildcard{}, pattern::Wildcard{}}))
-                  .apply([](FactRuleCtx &ctx, pattern::Match const &match) {
-                    auto const known = ctx.analysis(match[kRoot]).known;
-                    if (!known) return;
-                    auto const folded = ctx.Make<FactOp::Leaf>(*known);
-                    if (ctx.find(match[kRoot]) == ctx.find(folded)) return;
-                    ctx.merge(match[kRoot], folded);
-                  });
-
-  FactRewriter rewriter{eg, FactRuleSet::Build(std::move(reveal), std::move(fold))};
+  FactRewriter rewriter{eg, FactRuleSet::Build(std::move(reveal), fold_known_sum())};
   rewriter.saturate_incremental(rewrite::RewriteConfig::Unlimited());
 
   // On the pass that revealed the operand, the sum's fact was still unknown and
@@ -424,14 +460,52 @@ TEST(TypedEGraph, SaturationFiresARuleTheRefreshEnabled) {
   EXPECT_EQ(eg.core().find(sum), eg.core().find(eg.Make<FactOp::Leaf>(6).eclass_id));
 }
 
-TEST(TypedEGraph, SaturationClaimsAFactWhenNoMergePrompted) {
-  using FactPattern = pattern::Pattern<FactOp>;
-  using FactRule = rewrite::RewriteRule<FactEGraph>;
-  using FactRuleCtx = rewrite::RuleContext<FactEGraph>;
-  using FactRuleSet = rewrite::RuleSet<FactEGraph>;
-  using FactRewriter = rewrite::Rewriter<FactEGraph>;
-  static constexpr pattern::PatternVar kRoot{0};
+// A fact nothing in the rewrite had to establish: both operands were known
+// before the rewriter was handed the graph, so the fold's gate is shut only
+// because no refresh has run yet. The first pass therefore rewrites nothing,
+// and a loop that reads that as a fixpoint strands the fold behind a fact the
+// very same pass went on to derive. Driven under both drivers, since the stop
+// condition belongs to the loop they share.
+TEST(TypedEGraph, SaturationFoldsAFactNoRewriteHadToDerive) {
+  for (auto const incremental : {false, true}) {
+    FactEGraph eg;
+    auto const one = eg.Make<FactOp::Leaf>(1).eclass_id;
+    auto const five = eg.Make<FactOp::Leaf>(5).eclass_id;
+    auto const sum = eg.Make<FactOp::Sum>(one, five).eclass_id;
+    ASSERT_FALSE(eg.core().analysis_of(sum).known.has_value());
 
+    FactRewriter rewriter{eg, FactRuleSet::Build(fold_known_sum())};
+    auto const config = rewrite::RewriteConfig::Unlimited();
+    auto const result = incremental ? rewriter.saturate_incremental(config) : rewriter.saturate_full(config);
+
+    EXPECT_TRUE(result.saturated()) << "incremental=" << incremental;
+    ASSERT_TRUE(eg.core().analysis_of(sum).known.has_value()) << "incremental=" << incremental;
+    EXPECT_EQ(*eg.core().analysis_of(sum).known, 6) << "incremental=" << incremental;
+    EXPECT_EQ(eg.core().find(sum), eg.core().find(eg.Make<FactOp::Leaf>(6).eclass_id))
+        << "the fold never ran, incremental=" << incremental;
+  }
+}
+
+// The same facts under a one-pass budget, which a caller capping iterations
+// gets. A rule gated on a fact the graph arrived with has to be armed and fired
+// within that pass, so the facts have to be settled before the pass opens
+// rather than at its end.
+TEST(TypedEGraph, OnePassFiresARuleGatedOnAFactTheGraphArrivedWith) {
+  FactEGraph eg;
+  auto const one = eg.Make<FactOp::Leaf>(1).eclass_id;
+  auto const five = eg.Make<FactOp::Leaf>(5).eclass_id;
+  auto const sum = eg.Make<FactOp::Sum>(one, five).eclass_id;
+
+  FactRewriter rewriter{eg, FactRuleSet::Build(fold_known_sum())};
+  auto config = rewrite::RewriteConfig::Unlimited();
+  config.max_iterations = 1;
+  auto const result = rewriter.saturate_incremental(config);
+
+  EXPECT_EQ(result.rewrites_applied, 1U);
+  EXPECT_EQ(eg.core().find(sum), eg.core().find(eg.Make<FactOp::Leaf>(6).eclass_id));
+}
+
+TEST(TypedEGraph, SaturationClaimsAFactWhenNoMergePrompted) {
   FactEGraph eg;
   auto const one = eg.Make<FactOp::Leaf>(1).eclass_id;
   auto const five = eg.Make<FactOp::Leaf>(5).eclass_id;
@@ -463,6 +537,33 @@ TEST(TypedEGraph, SaturationClaimsAFactWhenNoMergePrompted) {
   // Saturation reporting itself done means no fact is still derivable.
   auto refresh_ctx = BaseProcessingContext{};
   EXPECT_EQ(eg.refresh_analysis(refresh_ctx), 0U);
+}
+
+// The same pass that mints content without merging, with a rule gated on the
+// fact that content yields. Minting is not counted as a rewrite, so the pass
+// reports nothing done while having moved a fact, and only a fixpoint test that
+// reads both leaves the gated rule a pass to run in.
+TEST(TypedEGraph, SaturationFiresARuleGatedOnAFactAMintedTermYielded) {
+  FactEGraph eg;
+  auto const one = eg.Make<FactOp::Leaf>(1).eclass_id;
+  auto const five = eg.Make<FactOp::Leaf>(5).eclass_id;
+  eg.Make<FactOp::Opaque>();
+
+  auto fired = false;
+  auto build = FactRule::Builder{"build_a_sum"}
+                   .pattern(FactPattern::build(kRoot, FactOp::Opaque))
+                   .apply([&fired, one, five](FactRuleCtx &ctx, pattern::Match const & /*match*/) {
+                     if (fired) return;
+                     fired = true;
+                     ctx.Make<FactOp::Sum>(one, five);
+                   });
+
+  FactRewriter rewriter{eg, FactRuleSet::Build(std::move(build), fold_known_sum())};
+  rewriter.saturate_incremental(rewrite::RewriteConfig::Unlimited());
+  ASSERT_TRUE(fired);
+
+  auto const sum = eg.Make<FactOp::Sum>(one, five).eclass_id;
+  EXPECT_EQ(eg.core().find(sum), eg.core().find(eg.Make<FactOp::Leaf>(6).eclass_id));
 }
 
 }  // namespace memgraph::planner::core

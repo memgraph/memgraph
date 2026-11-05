@@ -412,13 +412,16 @@ struct EGraph : private detail::EGraphBase {
         worklist.insert(worklist.end(), eclass.nodes().begin(), eclass.nodes().end());
         worklist.insert(worklist.end(), eclass.parents().begin(), eclass.parents().end());
       }
-      analysis_dirty_.clear();
     } else {
       for (auto const id : canonical_eclass_ids()) {
         auto const &eclass = this->eclass(id);
         worklist.insert(worklist.end(), eclass.nodes().begin(), eclass.nodes().end());
       }
     }
+    // Either scope leaves nothing pending: the sweep covers every class the
+    // change set names, so keeping the set would buy a later walk that revisits
+    // what this one settled, and nothing would ever bound its size.
+    analysis_dirty_.clear();
 
     // Per e-node rather than per e-class is what keeps a change cheap: an
     // e-class gathers every equivalent form of an expression, and only the form
@@ -699,6 +702,7 @@ void EGraph<Symbol, Analysis>::clear() {
   union_find_.Clear();
   rebuild_worklist_.clear();
   touched_.clear();
+  analysis_dirty_.clear();
   classes_.clear();
   hashcons_.clear();
   enode_storage_.clear();

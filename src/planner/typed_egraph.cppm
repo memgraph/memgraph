@@ -201,8 +201,9 @@ class TypedEGraph {
   static constexpr bool updates_analysis = detail::AnySymbolUpdates<Analysis, egraph_type, Traits>(SymbolSeq{});
 
   /// Recompute the facts a change this pass can reach, and report how many
-  /// e-classes moved. The core owns the propagation; this supplies only the
-  /// per-symbol meaning.
+  /// updates widened the class they were asked about - a caller only asks
+  /// whether anything moved at all. The core owns the propagation; this
+  /// supplies only the per-symbol meaning.
   ///
   /// A make-time seed reads the children's facts as they stood when the e-node
   /// was built. A later merge can establish a fact the seed could not derive,
