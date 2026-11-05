@@ -1060,6 +1060,10 @@ class InMemoryStorage final : public Storage {
   /// in the commit log.
   void BumpClockPastDurable(uint64_t min_next = 0);
 
+  /// Continues the WAL file numbering at `seq_num`, as main's recovery does after the last file it read. Only for a
+  /// storage that replays existing WAL files itself (versioning branch recovery) before anything commits.
+  void SetNextWalSeqNum(uint64_t seq_num);
+
   /// Smallest transaction id that may still be active.
   [[nodiscard]] uint64_t OldestActiveTimestamp();
 #endif

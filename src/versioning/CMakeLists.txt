@@ -9,6 +9,7 @@ target_sources(mg-versioning
         branch_engine.hpp
         branch_info.hpp
         branch_ledger.hpp
+        branch_recovery.hpp
         edge_stub_index.hpp
         gate.hpp
         index_key_parts.hpp
@@ -22,6 +23,7 @@ target_sources(mg-versioning
         PRIVATE
         branch_engine.cpp
         branch_ledger.cpp
+        branch_recovery.cpp
         gate.cpp
         name.cpp
         version_store.cpp

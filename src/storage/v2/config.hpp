@@ -129,6 +129,11 @@ struct Config {
     // Durable timestamp that snapshot/WAL retention keeps recoverable from the start, before anything lowers it.
     // Unlike recovery_history_bound it does not alter recovery.
     std::optional<uint64_t> retention_floor{std::nullopt};  // PER DATABASE
+
+    // When set, files an earlier run left in the snapshot and WAL directories stay in place instead of being moved to
+    // .backup because recover_on_startup is off. For an owner that reads them itself before use (a branch diff engine
+    // replaying its own WAL).
+    bool keep_existing_files{false};  // PER DATABASE
 #endif
     friend bool operator==(const Durability &lrh, const Durability &rhs) = default;
   } durability;

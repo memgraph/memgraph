@@ -76,7 +76,8 @@ class BranchCore {
     std::string message;
   };
 
-  // Gid floors recorded before a restart; Build uses them instead of main's current counters.
+  // Gid floors recorded before a restart. Passing them to Build also means the branch's WAL directory holds its own
+  // history: Build keeps those files for the replay to read.
   struct RecordedFloors {
     uint64_t vertex_gid_floor;
     uint64_t edge_gid_floor;
@@ -466,12 +467,20 @@ class BranchContext {
   // Creates a branch-native vertex in the diff engine at a gid taken from main's counter.
   storage::VertexAccessor CreateNativeVertex();
 
+  // Recreates a branch-native vertex at the gid its WAL record names (recovery; takes nothing from main's counter).
+  // Null if the diff engine already has that gid.
+  std::optional<storage::VertexAccessor> CreateNativeVertexAt(storage::Gid gid);
+
   // Creates a branch-native edge at a gid taken from main's counter. The endpoints are native vertices or the stubs
   // EnsureDiffVertex returned; an edge between them is the stock CreateEdge, ordered against a concurrent delete of a
   // fork endpoint by that endpoint's stub. DELETED_OBJECT if an endpoint's fork vertex was deleted earlier in this
   // transaction (the stock call cannot see the delete marker).
   storage::Result<storage::EdgeAccessor> CreateNativeEdge(storage::VertexAccessor &from, storage::VertexAccessor &to,
                                                           storage::EdgeTypeId edge_type);
+
+  // CreateNativeEdge at the gid its WAL record names (recovery); the same refusals and filter records.
+  storage::Result<storage::EdgeAccessor> CreateNativeEdgeAt(storage::Gid gid, storage::VertexAccessor &from,
+                                                            storage::VertexAccessor &to, storage::EdgeTypeId edge_type);
 
   // ---- Point lookups
 
