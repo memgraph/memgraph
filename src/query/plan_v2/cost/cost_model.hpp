@@ -27,14 +27,13 @@ struct CostFrontier
   using CostResultBase::CostResultBase;
 };
 
-/// Read-only state the cost model reads while scoring an e-node.
-/// Row count assumed for a list whose size is not statically known. A small
-/// guess on purpose: an unknown list is assumed short so it does not dominate
-/// the row cardinality an Unwind derives from it. The exact figure is not
-/// empirically tuned - any small constant serves until estimates are backed by
-/// stored statistics.
+/// Row count assumed for a list whose size is not statically known. Small on
+/// purpose: an unknown list is assumed short so it does not dominate the row
+/// cardinality an Unwind derives from it. The figure is not empirically tuned -
+/// any small constant serves until estimates are backed by stored statistics.
 inline constexpr double kDefaultListSize = 12.0;
 
+/// Read-only state the cost model reads while scoring an e-node.
 struct CostCtx {
   using CostResult = CostFrontier;
 

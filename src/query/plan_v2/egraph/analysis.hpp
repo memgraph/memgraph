@@ -22,9 +22,8 @@ namespace memgraph::query::plan::v2 {
 
 /// What a proved length measures. Length arithmetic is not shared between
 /// these: concatenating two lists adds their lengths, while `+` over a list and
-/// a string appends the string as a single element. A new enumerator therefore
-/// has to be answered for at every switch over this, which is the point of
-/// naming the measured thing rather than storing a bare count.
+/// a string appends the string as one element. A new enumerator therefore has
+/// to be answered for at every switch over this.
 enum class LengthOf : std::uint8_t {
   List,
 };
@@ -53,8 +52,8 @@ struct ExpressionAnalysis {
   auto operator==(ExpressionAnalysis const &) const -> bool = default;
 };
 
-/// Analysis facts about an operator's output. Empty for now; future facts
-/// (distinctness, ordering, cardinality bounds, ...) land here.
+/// Analysis facts about an operator's output. Carries none: distinctness,
+/// ordering and cardinality bounds would belong here.
 struct OperatorAnalysis {
   auto operator==(OperatorAnalysis const &) const -> bool = default;
 };

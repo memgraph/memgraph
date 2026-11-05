@@ -93,10 +93,8 @@
 // Symbol-read partition, orthogonal to both above. A symbol *reads* a binding
 // when evaluating it needs the bound value; it merely *names* one when it
 // introduces the binding or labels an output with it. Eliding a binder nothing
-// reads turns entirely on this distinction, so the partition is checked
-// exhaustive against EGRAPH_ALL_SYMBOLS in symbol.hpp: a new symbol left out of
-// both lists is a compile error rather than a binding elided out from under a
-// reader.
+// reads turns on that distinction, which is why symbol.hpp holds the partition
+// to being exhaustive.
 
 // Reads a binding: the Symbol child is dereferenced for its value.
 #define EGRAPH_SYM_READING_SYMBOLS(X) X(Identifier)

@@ -30,12 +30,8 @@ struct PreExtractionData {
 };
 
 /// One walk of canonical eclass ids: assign VariableIndex bits to Symbol
-/// e-classes and collect the symbols read by any e-node that reads one.
-/// O(num_enodes).
-///
-/// Which symbols read a binding is the `reads_symbol_v` partition, checked
-/// exhaustive in symbol.hpp, so a symbol added without declaring itself cannot
-/// be mistaken here for one that reads nothing.
+/// e-classes and collect the symbols read by any e-node that reads one, as
+/// `reads_symbol_v` declares. O(num_enodes).
 inline auto BuildPreExtractionData(EGraph const &core) -> PreExtractionData {
   using enum symbol;
   PreExtractionData out;

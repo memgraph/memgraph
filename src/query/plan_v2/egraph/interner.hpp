@@ -30,9 +30,7 @@ namespace memgraph::query::plan::v2 {
 /// `Payload` may borrow from the key - a pointer or a view, so a large constant
 /// is not duplicated - in which case `Map` must keep its keys at a stable
 /// address, because the reverse entry outlives the insertion that made it. An
-/// owned payload places no such requirement on `Map`. The accompanying test
-/// interns past any initial bucket count and reads every entry back, which is
-/// what distinguishes a node-stable map from a flat one.
+/// owned payload places no such requirement on `Map`.
 template <typename Map, typename Payload>
 class Interner {
  public:
