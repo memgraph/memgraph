@@ -11,6 +11,10 @@
 
 #pragma once
 
+#include <array>
+#include <cstdint>
+#include <string_view>
+
 #include <prometheus/counter.h>
 #include <prometheus/gauge.h>
 #include <prometheus/histogram.h>
@@ -41,6 +45,22 @@ struct GaugeHandle {
     return gauge;
   }
 };
+
+// A value of a counter's label, and the name its counter has in SHOW METRICS INFO and the JSON endpoint.
+struct CounterLabelValue {
+  std::string_view label;
+  std::string_view info_name;
+};
+
+enum class AbortedQueryReason : uint8_t { MEMORY_LIMIT, TIMEOUT, TERMINATED, SHUTDOWN };
+
+// Indexed by AbortedQueryReason.
+inline constexpr std::array<CounterLabelValue, 4> kAbortedQueryReasons{{
+    {.label = "memory_limit", .info_name = "AbortedQueriesMemoryLimit"},
+    {.label = "timeout", .info_name = "AbortedQueriesTimeout"},
+    {.label = "terminated", .info_name = "AbortedQueriesTerminated"},
+    {.label = "shutdown", .info_name = "AbortedQueriesShutdown"},
+}};
 
 struct CounterHandle {
   prometheus::Counter *counter{nullptr};
@@ -177,6 +197,8 @@ struct DatabaseMetricHandles {
   CounterHandle successful_query;
   CounterHandle write_write_conflicts;
   CounterHandle transient_errors;
+  // Indexed by AbortedQueryReason.
+  std::array<CounterHandle, kAbortedQueryReasons.size()> aborted_queries;
   GaugeHandle unreleased_delta_objects;
 
   // Query type
