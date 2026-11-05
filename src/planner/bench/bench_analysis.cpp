@@ -68,8 +68,8 @@ struct mask_traits<Op::Add> {
     return {.lowered = {.children = utils::small_vector<EClassId>{lhs, rhs}, .disambiguator = std::nullopt}};
   }
 
-  static auto update(core::EGraph<Op, MaskAnalysis> const &eg, std::span<EClassId const> children, MaskAnalysis &out)
-      -> bool {
+  static auto update(core::EGraph<Op, MaskAnalysis> const &eg, storage_type const & /*s*/,
+                     std::span<EClassId const> children, std::uint64_t /*disambiguator*/, MaskAnalysis &out) -> bool {
     auto mask = out.mask;
     for (auto const child : children) mask |= eg.analysis_of(child).mask;
     if (mask == out.mask) return false;

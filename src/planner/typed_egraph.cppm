@@ -70,24 +70,31 @@ concept SymbolMakeTraits =
 /// when theirs move. Optional: a symbol without `update` keeps whatever its
 /// make-time seed established.
 ///
-/// `update` widens `out` in place from the children's current analyses and
-/// answers whether it changed anything.
+/// `update` widens `out` in place from one e-node and answers whether it
+/// changed anything. It is given that e-node's children and disambiguator, and
+/// the symbol's side-data, because what the children's facts imply can depend
+/// on which e-node is asking: an interned name or arity decides the rule to
+/// apply, and only the disambiguator and the storage recover it.
 ///
 /// Two requirements the signature cannot state. It must be a pure function of
-/// the children's analyses, so that two e-classes with the same children agree.
-/// And it must only ever add a fact, never retract one: that is what makes the
-/// refresh terminate, and what lets a rewrite trust a fact it has already read.
+/// its arguments, so that two e-nodes of equal identity agree. And it must only
+/// ever add a fact, never retract one: that is what makes the refresh
+/// terminate, and what lets a rewrite trust a fact it has already read.
 ///
 /// A trait that declines the protocol keeps its seed, so a near miss - a
-/// misspelled name, a swapped parameter, a void return - costs no error and
-/// quietly stops the symbol's facts being recomputed. Hence the second
-/// requirement below, which pins the one near miss that satisfies the first:
-/// taking `out` by value compiles, widens a copy and discards it, and only a
-/// reference parameter refuses a temporary.
+/// misspelled name, a swapped parameter, a void return, the wrong arity - costs
+/// no error and quietly stops the symbol's facts being recomputed. Hence the
+/// second requirement below, which pins the one near miss that satisfies the
+/// first: taking `out` by value compiles, widens a copy and discards it, and
+/// only a reference parameter refuses a temporary.
 template <typename T, typename Analysis, typename EGraphT>
-concept SymbolUpdatesAnalysis = requires(EGraphT const &eg, std::span<EClassId const> children, Analysis &out) {
-  { T::update(eg, children, out) } -> std::same_as<bool>;
-} && !requires(EGraphT const &eg, std::span<EClassId const> children) { T::update(eg, children, Analysis{}); };
+concept SymbolUpdatesAnalysis =
+    requires(EGraphT const &eg, typename T::storage_type const &storage, std::span<EClassId const> children,
+             std::uint64_t disambiguator, Analysis &out) {
+      { T::update(eg, storage, children, disambiguator, out) } -> std::same_as<bool>;
+    } &&
+    !requires(EGraphT const &eg, typename T::storage_type const &storage, std::span<EClassId const> children,
+              std::uint64_t disambiguator) { T::update(eg, storage, children, disambiguator, Analysis{}); };
 
 /// A symbol's update, or a no-op for one that offers none, so the refresh can
 /// call every symbol alike.
@@ -95,9 +102,10 @@ template <typename Analysis, typename EGraphT, typename TraitT>
 struct AnalysisUpdate {
   static constexpr bool updates = SymbolUpdatesAnalysis<TraitT, Analysis, EGraphT>;
 
-  static auto apply(EGraphT const &eg, std::span<EClassId const> children, Analysis &out) -> bool {
+  static auto apply(EGraphT const &eg, typename TraitT::storage_type const &storage, std::span<EClassId const> children,
+                    std::uint64_t disambiguator, Analysis &out) -> bool {
     if constexpr (updates) {
-      return TraitT::update(eg, children, out);
+      return TraitT::update(eg, storage, children, disambiguator, out);
     } else {
       return false;
     }
@@ -212,7 +220,8 @@ class TypedEGraph {
     return [this](auto const &enode, Analysis &facts) {
       return detail::DispatchSymbol(SymbolSeq{}, enode.symbol(), [&]<Symbol S>() {
         using Update = AnalysisUpdate<Analysis, egraph_type, Traits<S>>;
-        return Update::apply(core_, std::span<EClassId const>{enode.children()}, facts);
+        return Update::apply(
+            core_, storage<S>(), std::span<EClassId const>{enode.children()}, enode.disambiguator(), facts);
       });
     };
   }

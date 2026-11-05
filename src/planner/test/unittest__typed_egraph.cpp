@@ -123,8 +123,8 @@ struct fact_traits<FactOp::Sum> {
   /// The value a Sum's own children establish. Answering false is the normal
   /// case: an operand whose value is unknown leaves the sum unknown, and a sum
   /// already carrying its value has nothing to add.
-  static auto update(EGraph<FactOp, FactAnalysis> const &eg, std::span<EClassId const> children, FactAnalysis &out)
-      -> bool {
+  static auto update(EGraph<FactOp, FactAnalysis> const &eg, storage_type const & /*s*/,
+                     std::span<EClassId const> children, std::uint64_t /*disambiguator*/, FactAnalysis &out) -> bool {
     if (out.known || children.size() != 2) return false;
     auto const lhs = eg.analysis_of(children[0]).known;
     auto const rhs = eg.analysis_of(children[1]).known;
@@ -142,17 +142,38 @@ using FactCore = EGraph<FactOp, FactAnalysis>;
 // Traits whose update() is a near miss, each wrong in one way a trait author
 // could plausibly write by accident.
 struct UpdateReturnsVoid {
-  static void update(FactCore const & /*eg*/, std::span<EClassId const> /*children*/, FactAnalysis & /*out*/) {}
+  struct storage_type {};
+
+  static void update(FactCore const & /*eg*/, storage_type const & /*s*/, std::span<EClassId const> /*children*/,
+                     std::uint64_t /*disambiguator*/, FactAnalysis & /*out*/) {}
 };
 
 struct UpdateTakesAnalysisByValue {
-  static auto update(FactCore const & /*eg*/, std::span<EClassId const> /*children*/, FactAnalysis /*out*/) -> bool {
+  struct storage_type {};
+
+  static auto update(FactCore const & /*eg*/, storage_type const & /*s*/, std::span<EClassId const> /*children*/,
+                     std::uint64_t /*disambiguator*/, FactAnalysis /*out*/) -> bool {
     return false;
   }
 };
 
 struct UpdateOmitsTheChildren {
-  static auto update(FactCore const & /*eg*/, FactAnalysis & /*out*/) -> bool { return false; }
+  struct storage_type {};
+
+  static auto update(FactCore const & /*eg*/, storage_type const & /*s*/, std::uint64_t /*disambiguator*/,
+                     FactAnalysis & /*out*/) -> bool {
+    return false;
+  }
+};
+
+/// A trait carrying the children-only shape, which reads as complete on its own
+/// and cannot recover which e-node is asking.
+struct UpdateOmitsTheNodeIdentity {
+  struct storage_type {};
+
+  static auto update(FactCore const & /*eg*/, std::span<EClassId const> /*children*/, FactAnalysis & /*out*/) -> bool {
+    return false;
+  }
 };
 
 }  // namespace
@@ -233,6 +254,8 @@ static_assert(!SymbolUpdatesAnalysis<UpdateTakesAnalysisByValue, FactAnalysis, F
               "an update that widens a copy of the facts is rejected");
 static_assert(!SymbolUpdatesAnalysis<UpdateOmitsTheChildren, FactAnalysis, FactCore>,
               "an update that cannot read its children is rejected");
+static_assert(!SymbolUpdatesAnalysis<UpdateOmitsTheNodeIdentity, FactAnalysis, FactCore>,
+              "an update that cannot tell which e-node is asking is rejected");
 
 static_assert(!AnalysisUpdate<FactAnalysis, FactCore, UpdateReturnsVoid>::updates);
 static_assert(AnalysisUpdate<FactAnalysis, FactCore, fact_traits<FactOp::Sum>>::updates);

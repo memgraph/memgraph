@@ -116,8 +116,8 @@ struct fuzz_traits<FuzzSymbol::Plus> {
     return {.lowered = {.children = utils::small_vector<EClassId>{lhs, rhs}, .disambiguator = std::nullopt}};
   }
 
-  static auto update(EGraph<FuzzSymbol, FuzzAnalysis> const &eg, std::span<EClassId const> children, FuzzAnalysis &out)
-      -> bool {
+  static auto update(EGraph<FuzzSymbol, FuzzAnalysis> const &eg, storage_type const & /*s*/,
+                     std::span<EClassId const> children, std::uint64_t /*disambiguator*/, FuzzAnalysis &out) -> bool {
     auto mask = out.known_leaves;
     for (auto const child : children) {
       mask = static_cast<std::uint16_t>(mask | eg.analysis_of(child).known_leaves);
