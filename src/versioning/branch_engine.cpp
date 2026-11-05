@@ -323,6 +323,7 @@ std::optional<storage::VertexAccessor> BranchContext::FindForkVertex(storage::Gi
 }
 
 storage::Vertex *BranchContext::FindForkVertexPtr(storage::Gid gid) {
+  core_->CountForkVertexRead();
   auto const fork = FindForkVertex(gid);
   return fork ? fork->vertex_ : nullptr;
 }

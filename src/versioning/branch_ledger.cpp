@@ -149,6 +149,7 @@ std::string Serialize(const LedgerContents &contents) {
       b["fork_vertex_count"] = info.fork_counts->vertices;
       b["fork_edge_count"] = info.fork_counts->edges;
     }
+    if (info.fork_durable_ts) b["fork_durable_ts"] = *info.fork_durable_ts;
     branches.push_back(std::move(b));
   }
   const nlohmann::json root{{"next_number", contents.next_number}, {"branches", std::move(branches)}};
@@ -172,6 +173,7 @@ std::expected<LedgerContents, std::string> Deserialize(std::string_view payload)
                                        .vertex_gid_ceiling = OptionalUnsigned(b, "vertex_gid_ceiling"),
                                        .edge_gid_ceiling = OptionalUnsigned(b, "edge_gid_ceiling"),
                                        .created_at_us = OptionalUnsigned(b, "created_at_us")}});
+      out.branches.back().info.fork_durable_ts = OptionalUnsigned(b, "fork_durable_ts");
       if (b.contains("fork_vertex_count") && b.contains("fork_edge_count")) {
         out.branches.back().info.fork_counts =
             ObjectCounts{.vertices = Unsigned(b.at("fork_vertex_count"), "fork_vertex_count"),

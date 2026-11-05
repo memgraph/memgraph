@@ -35,10 +35,12 @@ std::optional<uint64_t> BranchRecoveryBound(const versioning::LedgerContents &le
 // last durable ts and to at least the newest `fork_ts`. Returns the pins (local MVCC timestamps, not durable ones) in
 // `fork_ts` order, caller-owned. `fork_ts` must be ascending (duplicates allowed) and past `tail.reached_timestamp`.
 // Nothing else may write to `storage` until it returns. On failure no pin is held and `storage` is partially
-// replayed, so it must be discarded.
+// replayed, so it must be discarded. When `durable_at_fork` is given it receives, per `fork_ts` and in the same order,
+// the durable ts of the last commit recovered below that fork.
 std::expected<std::vector<uint64_t>, std::string> ReplayHistoryTail(storage::InMemoryStorage &storage,
                                                                     const storage::durability::RecoveryTail &tail,
-                                                                    std::span<const uint64_t> fork_ts);
+                                                                    std::span<const uint64_t> fork_ts,
+                                                                    std::vector<uint64_t> *durable_at_fork = nullptr);
 
 }  // namespace memgraph::dbms
 
