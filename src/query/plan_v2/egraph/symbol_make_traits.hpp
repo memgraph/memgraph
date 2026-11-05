@@ -231,9 +231,10 @@ struct symbol_make_traits<S> {
 };
 
 /// Add carries what list concatenation fixes: concatenating two known-length
-/// lists gives their sum. `known_list_length` is carried only for lists, so both
-/// operands holding one means list + list rather than numeric addition. Spelled
-/// out rather than extending the primary, whose other operators fix no length.
+/// lists gives their sum. Only a list's length answers `known_list_length`, so
+/// both operands answering means list + list rather than numeric addition or an
+/// append, which produce a different length. Spelled out rather than extending
+/// the primary, whose other operators fix no length.
 template <>
 struct symbol_make_traits<symbol::Add> {
   struct storage_type {};

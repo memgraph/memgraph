@@ -141,17 +141,17 @@ TEST(AnalysisMerge, AgreeingConstantsAreKept) {
 
 TEST(AnalysisMerge, OneSidedListLengthIsTaken) {
   analysis lhs{ExpressionAnalysis{}};
-  analysis rhs{ExpressionAnalysis{.known_list_length = std::size_t{3}}};
+  analysis rhs{ExpressionAnalysis{.known_length = KnownLength{.of = LengthOf::List, .value = 3}}};
   lhs.merge(rhs);
   auto const *e = lhs.expression();
   ASSERT_NE(e, nullptr);
-  ASSERT_TRUE(e->known_list_length.has_value());
-  EXPECT_EQ(*e->known_list_length, 3U);
+  ASSERT_TRUE(e->known_length.has_value());
+  EXPECT_EQ(e->known_length->value, 3U);
 }
 
 TEST(AnalysisMerge, ConflictingListLengthsThrow) {
-  analysis lhs{ExpressionAnalysis{.known_list_length = std::size_t{3}}};
-  analysis rhs{ExpressionAnalysis{.known_list_length = std::size_t{4}}};
+  analysis lhs{ExpressionAnalysis{.known_length = KnownLength{.of = LengthOf::List, .value = 3}}};
+  analysis rhs{ExpressionAnalysis{.known_length = KnownLength{.of = LengthOf::List, .value = 4}}};
   EXPECT_THROW(lhs.merge(rhs), PlannerBug);
 }
 
@@ -239,7 +239,7 @@ TEST_F(MakeAnalysis, LiteralCarriesConstant) {
 TEST_F(MakeAnalysis, ScalarLiteralHasNoListLength) {
   auto const *e = Expression(eg_.MakeLiteral(ExternalPropertyValue{int64_t{7}}));
   ASSERT_NE(e, nullptr);
-  EXPECT_FALSE(e->known_list_length.has_value());
+  EXPECT_FALSE(e->known_length.has_value());
 }
 
 TEST_F(MakeAnalysis, ListLiteralCarriesLength) {
@@ -247,8 +247,8 @@ TEST_F(MakeAnalysis, ListLiteralCarriesLength) {
       ExternalPropertyValue{int64_t{1}}, ExternalPropertyValue{int64_t{2}}, ExternalPropertyValue{int64_t{3}}}};
   auto const *e = Expression(eg_.MakeLiteral(list));
   ASSERT_NE(e, nullptr);
-  ASSERT_TRUE(e->known_list_length.has_value());
-  EXPECT_EQ(*e->known_list_length, 3U);
+  ASSERT_TRUE(e->known_length.has_value());
+  EXPECT_EQ(e->known_length->value, 3U);
 }
 
 TEST_F(MakeAnalysis, OperatorSymbolGetsOperatorArm) {
@@ -306,11 +306,11 @@ class RefreshAnalysis : public MakeAnalysis {
 TEST_F(RefreshAnalysis, ConcatenatingTwoKnownLengthListsSumsTheirLengths) {
   auto const concat = eg_.MakeAdd(ListLiteral(2), ListLiteral(3));
   ASSERT_NE(Expression(concat), nullptr);
-  EXPECT_FALSE(Expression(concat)->known_list_length.has_value());
+  EXPECT_FALSE(Expression(concat)->known_length.has_value());
 
   eg_.RefreshAnalysis();
-  ASSERT_TRUE(Expression(concat)->known_list_length.has_value());
-  EXPECT_EQ(*Expression(concat)->known_list_length, 5U);
+  ASSERT_TRUE(Expression(concat)->known_length.has_value());
+  EXPECT_EQ(Expression(concat)->known_length->value, 5U);
 }
 
 TEST_F(RefreshAnalysis, AddingTwoIntegersFixesNoListLength) {
@@ -321,7 +321,7 @@ TEST_F(RefreshAnalysis, AddingTwoIntegersFixesNoListLength) {
                                eg_.MakeLiteral(ExternalPropertyValue{int64_t{3}}));
   eg_.RefreshAnalysis();
   ASSERT_NE(Expression(sum), nullptr);
-  EXPECT_FALSE(Expression(sum)->known_list_length.has_value());
+  EXPECT_FALSE(Expression(sum)->known_length.has_value());
 }
 
 TEST_F(RefreshAnalysis, SizeOfAKnownLengthListFoldsToThatLength) {
@@ -342,11 +342,21 @@ TEST_F(RefreshAnalysis, SizeOfAnImpureCallFoldsToNothing) {
   EXPECT_FALSE(Expression(size)->known_constant_value.has_value());
 }
 
+TEST_F(RefreshAnalysis, AppendingANonListFixesNoLength) {
+  // `'ab' + [1,2]` appends the string as a single element, so its length is 3,
+  // not 2+2. Summing the operands' lengths is sound only for list + list, which
+  // is why only a list's length answers known_list_length().
+  auto const appended = eg_.MakeAdd(eg_.MakeLiteral(ExternalPropertyValue{"ab"}), ListLiteral(2));
+  eg_.RefreshAnalysis();
+  ASSERT_NE(Expression(appended), nullptr);
+  EXPECT_FALSE(Expression(appended)->known_length.has_value());
+}
+
 TEST_F(RefreshAnalysis, AConcatenationOverAnUnknownListFixesNoLength) {
   auto const concat = eg_.MakeAdd(ListLiteral(2), eg_.MakeParameterLookup(0));
   eg_.RefreshAnalysis();
   ASSERT_NE(Expression(concat), nullptr);
-  EXPECT_FALSE(Expression(concat)->known_list_length.has_value());
+  EXPECT_FALSE(Expression(concat)->known_length.has_value());
 }
 
 }  // namespace

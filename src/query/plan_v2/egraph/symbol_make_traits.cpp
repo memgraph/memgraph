@@ -32,7 +32,9 @@ auto symbol_make_traits<Literal>::make(storage_type &s, storage::ExternalPropert
   return {.lowered = {.children = {}, .disambiguator = it->second},
           .seed = analysis{ExpressionAnalysis{
               .known_constant_value = value,
-              .known_list_length = value.IsAnyList() ? std::optional{value.ListSize()} : std::nullopt}}};
+              .known_length = value.IsAnyList()
+                                  ? std::optional{KnownLength{.of = LengthOf::List, .value = value.ListSize()}}
+                                  : std::nullopt}}};
 }
 
 auto symbol_make_traits<ParamLookup>::make(storage_type & /*s*/, int32_t pos) -> seeded_node {
@@ -117,10 +119,10 @@ auto symbol_make_traits<Function>::update(planner::core::EGraph<symbol, analysis
 
   switch (info.kind) {
     case BuiltinKind::Range: {
-      if (expr->known_list_length) return false;
+      if (expr->known_length) return false;
       auto const length = ProvableRangeLength(eg, args);
       if (!length) return false;
-      expr->known_list_length = length;
+      expr->known_length = KnownLength{.of = LengthOf::List, .value = *length};
       return true;
     }
     case BuiltinKind::Size: {
@@ -140,11 +142,13 @@ auto symbol_make_traits<Add>::update(planner::core::EGraph<symbol, analysis> con
                                      std::span<planner::core::EClassId const> children, std::uint64_t /*disambiguator*/,
                                      analysis &out) -> bool {
   auto *expr = out.expression_for_update();
-  if (expr == nullptr || expr->known_list_length || children.size() != 2) return false;
+  if (expr == nullptr || expr->known_length || children.size() != 2) return false;
+  // Both reads answer only for a list's length, so this sums two list lengths
+  // rather than inferring list-ness from the presence of a count.
   auto const lhs = eg.analysis_of(children[0]).known_list_length();
   auto const rhs = eg.analysis_of(children[1]).known_list_length();
   if (!lhs || !rhs) return false;
-  expr->known_list_length = *lhs + *rhs;
+  expr->known_length = KnownLength{.of = LengthOf::List, .value = *lhs + *rhs};
   return true;
 }
 

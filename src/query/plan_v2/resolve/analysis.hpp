@@ -20,13 +20,30 @@
 
 namespace memgraph::query::plan::v2 {
 
+/// What a proved length measures. Length arithmetic is not shared between
+/// these: concatenating two lists adds their lengths, while `+` over a list and
+/// a string appends the string as a single element. A new enumerator therefore
+/// has to be answered for at every switch over this, which is the point of
+/// naming the measured thing rather than storing a bare count.
+enum class LengthOf : std::uint8_t {
+  List,
+};
+
+/// A statically proved length, carrying what it is the length of.
+struct KnownLength {
+  LengthOf of;
+  std::size_t value;
+
+  auto operator==(KnownLength const &) const -> bool = default;
+};
+
 /// Per-e-class analysis facts about an expression's output. Each fact is
 /// `nullopt` when unknown. Merged field-wise on e-class union: agreeing facts
 /// are kept, a one-sided fact is taken, and a genuine disagreement is a planner
 /// bug (sound rewrites cannot equate two different constants).
 struct ExpressionAnalysis {
   std::optional<storage::ExternalPropertyValue> known_constant_value;
-  std::optional<std::size_t> known_list_length;
+  std::optional<KnownLength> known_length;
 
   void merge(ExpressionAnalysis const &other);
 
@@ -87,12 +104,17 @@ struct analysis : analysis_variant {
   }
 
   /// The provably exact length of the list this e-class holds, or nullopt when
-  /// that is unknown. Carried only for lists, so a length here also proves the
-  /// e-class holds one.
+  /// that is unknown or the length proved is not a list's. An answer here is
+  /// therefore also a proof that the e-class holds a list, which is what lets a
+  /// caller sum two of them or use one as a row count.
   [[nodiscard]] auto known_list_length() const -> std::optional<std::size_t> {
     auto const *expr = expression();
-    if (expr == nullptr) return std::nullopt;
-    return expr->known_list_length;
+    if (expr == nullptr || !expr->known_length) return std::nullopt;
+    switch (expr->known_length->of) {
+      case LengthOf::List:
+        return expr->known_length->value;
+    }
+    return std::nullopt;
   }
 };
 
