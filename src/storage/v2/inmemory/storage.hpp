@@ -159,7 +159,12 @@ class InMemoryStorage final : public Storage {
                            metrics::DatabaseMetricHandles metric_handles = {},
                            std::function<storage::DatabaseProtectorPtr()> database_protector_factory = nullptr,
                            memgraph::memory::ArenaPool *db_arena = nullptr,
-                           utils::MemoryTracker *db_embedding_memory_tracker = nullptr);
+                           utils::MemoryTracker *db_embedding_memory_tracker = nullptr
+#ifdef MG_ENTERPRISE
+                           ,
+                           std::shared_ptr<storage::NameIdMapper> shared_name_id_mapper = nullptr
+#endif
+  );
 
   InMemoryStorage(const InMemoryStorage &) = delete;
   InMemoryStorage(InMemoryStorage &&) = delete;

@@ -6,20 +6,23 @@ target_sources(mg-versioning
         BASE_DIRS ..
         FILES
         branch_change_filter.hpp
+        branch_engine.hpp
         branch_info.hpp
         branch_ledger.hpp
         edge_stub_index.hpp
         gate.hpp
+        index_key_parts.hpp
         name.hpp
         stub_state.hpp
         stub_index.hpp
         version_store.hpp
 
         PRIVATE
+        branch_engine.cpp
         branch_ledger.cpp
         gate.cpp
         name.cpp
         version_store.cpp
 )
 
-target_link_libraries(mg-versioning PUBLIC mg-utils mg-storage-v2 mg-metrics)
+target_link_libraries(mg-versioning PUBLIC mg-utils mg-storage-v2 mg-metrics mg-memory-utils)

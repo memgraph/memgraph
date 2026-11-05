@@ -77,7 +77,12 @@ utils::ResourceLockGuard AcquireGuardOrThrow(Storage *storage, StorageAccessType
 Storage::Storage(Config config, StorageMode storage_mode, PlanInvalidatorPtr invalidator,
                  metrics::DatabaseMetricHandles metric_handles, memory::ArenaPool *db_arena_pool,
                  utils::MemoryTracker *db_embedding_memory_tracker,
-                 std::function<std::unique_ptr<DatabaseProtector>()> database_protector_factory)
+                 std::function<std::unique_ptr<DatabaseProtector>()> database_protector_factory
+#ifdef MG_ENTERPRISE
+                 ,
+                 std::shared_ptr<NameIdMapper> shared_name_id_mapper
+#endif
+                 )
     : name_id_mapper_(std::invoke([config, storage_mode]() -> std::unique_ptr<NameIdMapper> {
         if (storage_mode == StorageMode::ON_DISK_TRANSACTIONAL) {
           return std::make_unique<DiskNameIdMapper>(config.disk.name_id_mapper_directory,
@@ -108,6 +113,8 @@ Storage::Storage(Config config, StorageMode storage_mode, PlanInvalidatorPtr inv
         return std::make_unique<DefaultDatabaseProtector>();
       }} {
 #ifdef MG_ENTERPRISE
+  // Versioning diff engines share main's mapper; swap before any member or derived-class code can see the own one.
+  if (shared_name_id_mapper) name_id_mapper_ = std::move(shared_name_id_mapper);
   MG_ASSERT(!config_.durability.recovery_history_bound || !config_.durability.retention_floor,
             "recovery_history_bound and retention_floor are mutually exclusive");
   // The bound seeds the floor: what was just recovered must stay recoverable.
