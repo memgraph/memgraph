@@ -365,7 +365,7 @@ TEST_F(LicenseLogTest, RejectedEnvBesideValidCliIsNotALoss) {
 
   CheckLicenseValidity(true);
   EXPECT_EQ(Logged("Running in community mode"), 0);
-  EXPECT_EQ(Logged("Ignoring a rejected license source. [ENV]"), 1);
+  EXPECT_EQ(Logged("Ignoring a license source. [ENV]"), 1);
 }
 
 TEST_F(LicenseLogTest, ExpiryNotLoggedForPerpetualLicense) {

@@ -292,7 +292,7 @@ void LicenseChecker::RevalidateLicense(utils::Settings &settings) {
   });
 
   if (failures_changed && !failures.empty()) {
-    spdlog::warn("Ignoring a rejected license source. {}", utils::Join(failures, " "));
+    spdlog::warn("Ignoring a license source. {}", utils::Join(failures, " "));
   }
 
   // Persist winner to Settings so it survives restarts where CLI/ENV are absent.
