@@ -31,6 +31,7 @@
 #include "spdlog/async_logger.h"
 #include "spdlog/common.h"
 #include "spdlog/logger.h"
+#include "spdlog/pattern_formatter.h"
 #include "spdlog/sinks/daily_file_sink.h"
 #include "spdlog/sinks/dist_sink.h"
 #include "spdlog/spdlog.h"
@@ -41,9 +42,11 @@
 #include "utils/file.hpp"
 #include "utils/file_owner.hpp"
 #include "utils/flag_validation.hpp"
+#include "utils/json_log_formatter.hpp"
 #include "utils/logging.hpp"
 #include "utils/startup_failure.hpp"
 #include "utils/string.hpp"
+#include "utils/structured_logging.hpp"
 
 using namespace std::string_view_literals;
 
@@ -85,6 +88,16 @@ std::optional<std::string> LogFileOwnerHint(std::filesystem::path const &log_fil
 // Logging flags
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_string(log_file, "", "Path to where the log should be stored.");
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_VALIDATED_string(log_format, "text",
+                        "Format for file and stderr log records. Options: text, json. Does not affect the monitoring "
+                        "WebSocket.",
+                        {
+                          if (value == "text" || value == "json") return true;
+                          std::cerr << "Expected --" << flagname << " to be 'text' or 'json'\n";
+                          return false;
+                        });
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_VALIDATED_string(logger_type, "sync",
@@ -173,6 +186,14 @@ void InitializeLogger() {
     }
   }
 
+  for (const auto &sink : sub_sinks) {
+    if (FLAGS_log_format == "json") {
+      sink->set_formatter(std::make_unique<logging::JsonLogFormatter>());
+    } else {
+      sink->set_formatter(std::make_unique<spdlog::pattern_formatter>());
+    }
+  }
+
   auto dist_sink = std::make_shared<spdlog::sinks::dist_sink_mt>(std::move(sub_sinks));
 
   auto logger = std::invoke([dist_sink_local = std::move(dist_sink)]() mutable -> std::shared_ptr<spdlog::logger> {
@@ -190,6 +211,7 @@ void InitializeLogger() {
 
   logger->set_level(ParseLogLevel());
   logger->flush_on(spdlog::level::trace);
+  if (FLAGS_log_format == "json") logger = logging::EnableStructuredEvents(std::move(logger));
   spdlog::set_default_logger(std::move(logger));
 }
 
@@ -197,6 +219,7 @@ void InitializeLogger() {
 // Main thread can execute this while the other thread is logging
 void AddLoggerSink(spdlog::sink_ptr new_sink) {
   auto default_logger = spdlog::default_logger();
+  if (logging::AddStructuredLogSink(*default_logger, new_sink)) return;
   auto dist_sink = std::dynamic_pointer_cast<spdlog::sinks::dist_sink_mt>(*(default_logger->sinks().begin()));
   dist_sink->add_sink(std::move(new_sink));
 }

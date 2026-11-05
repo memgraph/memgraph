@@ -14,6 +14,22 @@ slow_failed_query_log: &slow_failed_query_log
       setup_queries: []
       validation_queries: []
 
+structured_events_log: &structured_events_log
+  cluster:
+    main:
+      args: ["--bolt-port", "7687", "--log-level=INFO", "--log-format=json", "--logger-type=sync"]
+      log_file: "structured_events.log"
+      setup_queries: []
+      validation_queries: []
+
+structured_events_async_log: &structured_events_async_log
+  cluster:
+    main:
+      args: ["--bolt-port", "7687", "--log-level=INFO", "--log-format=json", "--logger-type=async"]
+      log_file: "structured_events.log"
+      setup_queries: []
+      validation_queries: []
+
 workloads:
   - name: "Session trace log"
     binary: "tests/e2e/pytest_runner.sh"
@@ -23,3 +39,11 @@ workloads:
     binary: "tests/e2e/pytest_runner.sh"
     args: ["logging/slow_failed_query.py"]
     <<: *slow_failed_query_log
+  - name: "Structured diagnostic events"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["logging/structured_events.py"]
+    <<: *structured_events_log
+  - name: "Asynchronous structured diagnostic events"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["logging/structured_events.py"]
+    <<: *structured_events_async_log

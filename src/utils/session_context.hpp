@@ -25,6 +25,14 @@
 
 namespace memgraph::logging {
 
+struct QueryLogContext {
+  std::string_view session_id{};
+  std::optional<uint64_t> transaction_id{};
+  std::optional<int> query_id{};
+  std::string_view phase{};
+  std::string_view error_type{};
+};
+
 // Per-session log state. Only the bolt dispatcher thread touches this; the TLS
 // guard (ScopedSessionLog) is installed there and workers never inherit it.
 class SessionLogContext {
@@ -45,6 +53,12 @@ class SessionLogContext {
   void ClearTxId() noexcept { tx_id_ = 0; }
 
   std::string_view session_uuid() const noexcept { return session_uuid_; }
+
+  QueryLogContext QueryContext(std::optional<int> query_id = {}) const noexcept {
+    return {.session_id = session_uuid_,
+            .transaction_id = tx_id_ == 0 ? std::nullopt : std::optional{tx_id_},
+            .query_id = query_id};
+  }
 
   // Effective auth user (empty when unauthenticated); shared with the trace tags.
   std::string_view user() const noexcept { return user_; }
@@ -161,10 +175,11 @@ inline void EmitSessionTraceEvent(std::string_view msg) {
 // so plan rendering is never paid for under the threshold. Defined in the .cpp
 // to keep this widely-included header light.
 void EmitSlowQueryLog(std::string_view user, std::string_view db, std::string_view query, int64_t duration_ms,
-                      std::optional<std::string_view> plan);
+                      std::optional<std::string_view> plan, QueryLogContext context = {});
 
 // Emit a [failed-query] line at ERROR. Caller gates on session attachment and the
 // log.failed_queries flag first.
-void EmitFailedQueryLog(std::string_view user, std::string_view db, std::string_view query, std::string_view error);
+void EmitFailedQueryLog(std::string_view user, std::string_view db, std::string_view query, std::string_view error,
+                        QueryLogContext context = {});
 
 }  // namespace memgraph::logging
