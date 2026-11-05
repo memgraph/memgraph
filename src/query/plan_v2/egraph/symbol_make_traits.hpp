@@ -23,6 +23,7 @@
 #include <boost/unordered/unordered_node_map.hpp>
 
 #include "query/plan_v2/egraph/builtin_functions.hpp"
+#include "query/plan_v2/egraph/interner.hpp"
 #include "query/plan_v2/egraph/symbol.hpp"
 #include "query/plan_v2/resolve/analysis.hpp"
 #include "query/plan_v2/resolve/constant_identity.hpp"
@@ -96,21 +97,21 @@ struct symbol_make_traits<symbol::Symbol> {
   static auto make(storage_type &s, int32_t pos, std::string_view name) -> seeded_node;
 };
 
-/// Literal: value <-> id mapping.  `store` (value -> id) is the hash-consing
-/// direction used by `make`; `info` (id -> value, indexed by disambiguator)
-/// is the reverse used by the Builder.  `info` holds
-/// pointers into `store`'s node-stable keys -- no key duplication, valid as
-/// long as `store` outlives the reads.  Kept in lockstep by `make`.
+/// Literal: the value is interned and its id is the disambiguator; the Builder
+/// recovers the value from the reverse table. The reverse entry points at the
+/// interned key rather than copying it, so a large list or map constant is
+/// stored once.
 template <>
 struct symbol_make_traits<symbol::Literal> {
   struct storage_type {
-    // Hash-consed value -> id. Node-stable (not flat) so `info`'s pointers stay
-    // valid; O(1) hashing vs the ordered map's operator<=> chain. Keyed on
-    // constant identity, the relation the analysis merge uses: finer than
+    // Node-stable (not flat) because the reverse entries point into the keys;
+    // O(1) hashing vs the ordered map's operator<=> chain. Keyed on constant
+    // identity, the relation the analysis merge uses: finer than
     // `operator<=>`, whose coercion would intern `1` and `1.0` as one literal,
     // and where NaN is one constant rather than never-equal-to-itself.
-    boost::unordered_node_map<storage::ExternalPropertyValue, uint64_t, ConstantIdentityHash, ConstantIdentityEq> store;
-    std::vector<storage::ExternalPropertyValue const *> info;
+    using map_type =
+        boost::unordered_node_map<storage::ExternalPropertyValue, uint64_t, ConstantIdentityHash, ConstantIdentityEq>;
+    Interner<map_type, storage::ExternalPropertyValue const *> values;
   };
 
   static auto make(storage_type &s, storage::ExternalPropertyValue const &value) -> seeded_node;
@@ -149,16 +150,13 @@ struct symbol_make_traits<symbol::Output> {
   static auto make(storage_type &, utils::small_vector<planner::core::EClassId> children) -> seeded_node;
 };
 
-/// NamedOutput: name <-> id mapping + children.  `store` (name -> id) is the
-/// hash-consing direction; `info` (id -> name, indexed by disambiguator) is
-/// the reverse used by the Builder.  `info` holds string_views into `store`'s
-/// node-stable keys -- no name duplication, valid as long as `store` outlives
-/// the reads.  Kept in lockstep by `make`.
+/// NamedOutput: the output name is interned and its id is the disambiguator.
+/// The reverse entry views the interned key rather than copying the name, which
+/// is why the map is an ordered one - its nodes keep their address.
 template <>
 struct symbol_make_traits<symbol::NamedOutput> {
   struct storage_type {
-    std::map<std::string, uint64_t> store;
-    std::vector<std::string_view> info;
+    Interner<std::map<std::string, uint64_t>, std::string_view> names;
   };
 
   static auto make(storage_type &s, std::string_view name, planner::core::EClassId sym, planner::core::EClassId expr)
@@ -172,15 +170,10 @@ struct symbol_make_traits<symbol::NamedOutput> {
 template <>
 struct symbol_make_traits<symbol::Function> {
   struct storage_type {
-    /// name -> stable id.
-    boost::unordered::unordered_flat_map<std::string, uint64_t> store;
-    /// id -> FunctionInfo, parallel to `store`. `intern` is the sole writer of
-    /// both, keeping them in lockstep; do not insert directly.
-    std::vector<FunctionInfo> info;
-
-    /// Intern a name to its stable id, classifying BuiltinKind and caching
-    /// `is_pure` on first sight.  The same name always returns the same id.
-    auto intern(std::string_view name, bool is_pure) -> uint64_t;
+    /// Flat is enough here: the reverse entry owns its name rather than
+    /// borrowing the key, since the Builder needs the user's own spelling and
+    /// the record carries the classification beside it.
+    Interner<boost::unordered::unordered_flat_map<std::string, uint64_t>, FunctionInfo> functions;
   };
 
   /// args is the complete children list (the function arguments). `is_pure` is

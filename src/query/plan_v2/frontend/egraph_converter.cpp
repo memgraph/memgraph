@@ -118,10 +118,10 @@ auto BuildOperatorTree(auto const &impl, QueryPlannerContext::Impl &ctx) -> Buil
   // Dense build cache indexed by `build_order` position. The resolver's
   // `seen` map guarantees each ResolverKey is emitted exactly once.
   auto build_state = BuildState{
-      .literal_info = impl.graph.template storage<Literal>().info,
-      .named_output_info = impl.graph.template storage<NamedOutput>().info,
+      .literal_info = impl.graph.template storage<Literal>().values.reverse(),
+      .named_output_info = impl.graph.template storage<NamedOutput>().names.reverse(),
       .symbol_store = impl.graph.template storage<Symbol>().store,
-      .function_info = impl.graph.template storage<Function>().info,
+      .function_info = impl.graph.template storage<Function>().functions.reverse(),
       .egraph = impl.graph.core(),
   };
   auto const resolved_entries = ctx.build.resolved_entries();

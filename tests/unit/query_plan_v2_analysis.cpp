@@ -288,6 +288,53 @@ TEST_F(MakeAnalysis, NaNInternsOnce) {
   EXPECT_EQ(a.value_of(), b.value_of());
 }
 
+// --- Interning: the reverse table survives the map growing -----------------
+// A reverse entry that points at an interned key outlives the insertion that
+// made it, so the key must keep its address as the map grows. Interning past
+// any plausible initial bucket count and reading every entry back is what tells
+// a node-stable map from a flat one; a flat one passes every other test here.
+
+TEST_F(MakeAnalysis, InternedLiteralsSurviveMapGrowth) {
+  constexpr std::size_t kCount = 2000;
+  std::vector<eclass> ids;
+  ids.reserve(kCount);
+  for (std::size_t i = 0; i < kCount; ++i) {
+    ids.push_back(eg_.MakeLiteral(ExternalPropertyValue{static_cast<int64_t>(i)}));
+  }
+
+  // Forward direction: each e-class still carries the constant it was made with.
+  for (std::size_t i = 0; i < kCount; ++i) {
+    auto const *e = Expression(ids[i]);
+    ASSERT_NE(e, nullptr) << "entry " << i;
+    ASSERT_TRUE(e->known_constant_value.has_value()) << "entry " << i;
+    EXPECT_EQ(e->known_constant_value->ValueInt(), static_cast<int64_t>(i)) << "entry " << i;
+  }
+
+  // Reverse direction: the table the Builder reads agrees for every id.
+  auto const &reverse = impl_of(eg_).graph.storage<symbol::Literal>().values.reverse();
+  ASSERT_EQ(reverse.size(), kCount);
+  for (std::size_t i = 0; i < kCount; ++i) {
+    ASSERT_NE(reverse[i], nullptr) << "reverse entry " << i;
+    ASSERT_TRUE(reverse[i]->IsInt()) << "reverse entry " << i;
+    EXPECT_EQ(reverse[i]->ValueInt(), static_cast<int64_t>(i)) << "reverse entry " << i;
+  }
+}
+
+TEST_F(MakeAnalysis, InternedOutputNamesSurviveMapGrowth) {
+  constexpr std::size_t kCount = 2000;
+  auto const sym = eg_.MakeSymbol(0, "s");
+  auto const expr = eg_.MakeLiteral(ExternalPropertyValue{int64_t{1}});
+  for (std::size_t i = 0; i < kCount; ++i) {
+    eg_.MakeNamedOutput("name_" + std::to_string(i), sym, expr);
+  }
+
+  auto const &reverse = impl_of(eg_).graph.storage<symbol::NamedOutput>().names.reverse();
+  ASSERT_EQ(reverse.size(), kCount);
+  for (std::size_t i = 0; i < kCount; ++i) {
+    EXPECT_EQ(reverse[i], "name_" + std::to_string(i)) << "reverse entry " << i;
+  }
+}
+
 // --- The refresh derives what an e-node's children imply -------------------
 // A fact an e-node's own arguments fix is derived on refresh, not when the node
 // is built, so it is established however late its arguments became known. Make
