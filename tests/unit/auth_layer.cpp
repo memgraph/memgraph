@@ -556,7 +556,6 @@ class LegacyRawProfileAuthLayerTest : public ::testing::Test {
     memgraph::utils::EnsureDir(test_folder_);
     memgraph::license::global_license_checker.EnableTesting();
     {
-      // Written by a pre-fix binary: the durable membership keeps the raw spelling.
       memgraph::kvstore::KVStore store{auth_folder_};
       ASSERT_TRUE(store.Put("user_profile:limited", R"({"limits":{"sessions":1},"usernames":["TestUser"]})"));
     }
