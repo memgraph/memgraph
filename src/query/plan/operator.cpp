@@ -8145,7 +8145,7 @@ class UnwindCursor : public Cursor {
         ExpressionEvaluator evaluator = ExpressionEvaluator{&frame, context, storage::View::OLD};
 
         TypedValue input_value = self_.input_expression_->Accept(evaluator);
-        if (input_value.type() != TypedValue::Type::List)
+        if (!input_value.IsList())
           throw QueryRuntimeException("Argument of UNWIND must be a list, but '{}' was provided.", input_value.type());
         // Move the evaluted input_value_list to our vector.
         input_value_ = std::move(input_value.ValueList());
