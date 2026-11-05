@@ -13,8 +13,11 @@
 
 #include <filesystem>
 #include <optional>
+#include <sstream>
 #include <string>
 
+#include <spdlog/sinks/ostream_sink.h>
+#include <spdlog/spdlog.h>
 #include <nlohmann/json.hpp>
 
 #include "auth/auth.hpp"
@@ -597,4 +600,42 @@ TEST_F(LegacyRawProfileAuthLayerTest, LegacyRawProfileJsonFoldsOnLoadAndRestores
   EXPECT_EQ(json.at("usernames").size(), 1U);
   EXPECT_EQ(json.at("usernames"), nlohmann::json::array({"testuser"}));
   EXPECT_EQ(json.at("limits").at("sessions"), 1);
+}
+
+TEST(LegacyDuplicateProfileMembershipTest, DuplicateMembershipAfterFoldIsLoggedAndResolvedBySetProfile) {
+  const fs::path test_folder{fs::temp_directory_path() / "MG_tests_unit_auth_layer_legacy_dup"};
+  const fs::path auth_folder{test_folder / "auth"};
+  memgraph::utils::EnsureDir(test_folder);
+  memgraph::license::global_license_checker.EnableTesting();
+  {
+    memgraph::kvstore::KVStore store{auth_folder};
+    ASSERT_TRUE(store.Put("user_profile:p1", R"({"limits":{"sessions":1},"usernames":["Alice"]})"));
+    ASSERT_TRUE(store.Put("user_profile:p2", R"({"limits":{"sessions":2},"usernames":["alice"]})"));
+  }
+
+  std::ostringstream captured;
+  auto sink = std::make_shared<spdlog::sinks::ostream_sink_mt>(captured);
+  sink->set_level(spdlog::level::err);
+  auto &sinks = spdlog::default_logger()->sinks();
+  sinks.push_back(sink);
+
+  memgraph::utils::ResourceMonitoring resources;
+  std::optional<SynchedAuth> auth;
+  auth.emplace(auth_folder, Auth::Config{}, &resources);
+  std::erase(sinks, sink);
+
+  const auto log = captured.str();
+  EXPECT_NE(log.find("alice"), std::string::npos) << log;
+  EXPECT_NE(log.find("p1"), std::string::npos) << log;
+  EXPECT_NE(log.find("p2"), std::string::npos) << log;
+
+  AuthLayer layer{*auth};
+  ASSERT_TRUE(layer.Lock()->SetProfile("p2", "ALICE").has_value());
+  EXPECT_TRUE(layer.Lock()->GetUsernamesForProfile("p1").empty());
+  const auto members = layer.Lock()->GetUsernamesForProfile("p2");
+  EXPECT_EQ(members.size(), 1U);
+  EXPECT_TRUE(members.contains("alice"));
+
+  auth.reset();
+  fs::remove_all(test_folder);
 }
