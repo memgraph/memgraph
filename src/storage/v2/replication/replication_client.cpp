@@ -982,10 +982,10 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, S
           },
           recovery_step);
     } catch (const rpc::RpcFailedException &) {
-      auto update_func = [replica_last_commit_ts](CommitTsInfo const &commit_ts_info) -> CommitTsInfo {
-        return {.ldt_ = replica_last_commit_ts, .num_committed_txns_ = commit_ts_info.num_committed_txns_};
-      };
-      atomic_struct_update<CommitTsInfo>(commit_ts_info_, std::move(update_func));
+      // The recorded position is left alone: a recovery that threw learned nothing about where the
+      // replica is, and replica_last_commit_ts still holds whatever the last step that answered
+      // reported, or the zero this function was called with. Writing either in would move the
+      // recorded position backwards, which is what the heartbeat's merge exists to prevent.
       replica_state_.WithLock([](auto &val) { val = ReplicaState::MAYBE_BEHIND; });
       LogRpcFailure();
       metrics::Metrics().global.replica_recovery_fail->Increment();
@@ -994,10 +994,7 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, S
     // If recovery failed, set the state to MAYBE_BEHIND because replica for sure didn't recover completely
     if (recovery_failed) {
       spdlog::debug("One of recovery steps failed, setting replica state to MAYBE_BEHIND");
-      auto update_func = [replica_last_commit_ts](CommitTsInfo const &commit_ts_info) -> CommitTsInfo {
-        return {.ldt_ = replica_last_commit_ts, .num_committed_txns_ = commit_ts_info.num_committed_txns_};
-      };
-      atomic_struct_update<CommitTsInfo>(commit_ts_info_, std::move(update_func));
+      // As above: a failed step is not news about the replica's position, so the record stands.
       replica_state_.WithLock([](auto &val) { val = ReplicaState::MAYBE_BEHIND; });
       metrics::Metrics().global.replica_recovery_fail->Increment();
       return;
