@@ -20,12 +20,16 @@
 
 #include <cstdint>
 #include <map>
+#include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
 
 #include <gtest/gtest.h>
+#include <boost/unordered/unordered_flat_set.hpp>
 
+#include "planner/rewrite/rewriter.hpp"
 #include "planner/rewrite/rule_context.hpp"
 #include "test_support/op_make_traits.hpp"
 #include "utils/small_vector.hpp"
@@ -70,6 +74,68 @@ struct BadTraits {
 
   static auto make(storage_type &) -> int { return 0; }
 };
+
+// A symbol set that carries a real fact, for the analysis-refresh tests. `Leaf`
+// knows its own value; `Opaque` knows nothing; `Sum` derives its value from
+// both operands, so its fact depends on facts held by other e-classes.
+enum class FactOp : std::uint8_t { Leaf, Opaque, Sum };
+
+struct FactAnalysis {
+  std::optional<int> known;
+
+  void merge(FactAnalysis const &other) {
+    if (!known) known = other.known;
+  }
+
+  auto operator==(FactAnalysis const &) const -> bool = default;
+};
+
+template <FactOp S>
+struct fact_traits;
+
+template <>
+struct fact_traits<FactOp::Leaf> {
+  struct storage_type {};
+
+  static auto make(storage_type & /*s*/, int value) -> MakeResult<FactAnalysis> {
+    return {.lowered = {.children = {}, .disambiguator = static_cast<std::uint64_t>(value)},
+            .seed = FactAnalysis{.known = value}};
+  }
+};
+
+template <>
+struct fact_traits<FactOp::Opaque> {
+  struct storage_type {};
+
+  static auto make(storage_type & /*s*/) -> MakeResult<FactAnalysis> {
+    return {.lowered = {.children = {}, .disambiguator = std::nullopt}};
+  }
+};
+
+template <>
+struct fact_traits<FactOp::Sum> {
+  struct storage_type {};
+
+  static auto make(storage_type & /*s*/, EClassId lhs, EClassId rhs) -> MakeResult<FactAnalysis> {
+    return {.lowered = {.children = utils::small_vector<EClassId>{lhs, rhs}, .disambiguator = std::nullopt}};
+  }
+
+  /// The value a Sum's own children establish. Answering false is the normal
+  /// case: an operand whose value is unknown leaves the sum unknown, and a sum
+  /// already carrying its value has nothing to add.
+  static auto update(EGraph<FactOp, FactAnalysis> const &eg, std::span<EClassId const> children, FactAnalysis &out)
+      -> bool {
+    if (out.known || children.size() != 2) return false;
+    auto const lhs = eg.analysis_of(children[0]).known;
+    auto const rhs = eg.analysis_of(children[1]).known;
+    if (!lhs || !rhs) return false;
+    out.known = *lhs + *rhs;
+    return true;
+  }
+};
+
+using FactEGraph =
+    TypedEGraph<FactOp, FactAnalysis, SymbolSequence<FactOp, FactOp::Leaf, FactOp::Opaque, FactOp::Sum>, fact_traits>;
 
 }  // namespace
 
@@ -148,5 +214,139 @@ concept CtxCanMakeVar = requires(Ctx ctx) { ctx.template Make<test::Op::Var>(); 
 
 // A rule's context over a TypedEGraph offers Make<S> to intern new nodes.
 static_assert(CtxCanMakeVar<rewrite::RuleContext<test::TypedTestEGraph>>);
+
+TEST(TypedEGraph, RefreshDerivesAFactForAFreshlyMadeNode) {
+  FactEGraph eg;
+  auto refresh_ctx = BaseProcessingContext{};
+
+  auto const one = eg.Make<FactOp::Leaf>(1).eclass_id;
+  auto const five = eg.Make<FactOp::Leaf>(5).eclass_id;
+
+  // Both operands are known when the Sum is made, and no merge is involved.
+  // Only `update` can say 1 + 5, since `make` seeds a Sum with nothing - so a
+  // new e-class has to be visited on its own account, not merely when a merge
+  // reaches it.
+  auto const sum = eg.Make<FactOp::Sum>(one, five).eclass_id;
+  ASSERT_EQ(eg.refresh_analysis(refresh_ctx), 1U);
+  ASSERT_TRUE(eg.core().analysis_of(sum).known.has_value());
+  EXPECT_EQ(*eg.core().analysis_of(sum).known, 6);
+}
+
+// === refresh_analysis: the phase costs nothing when no symbol updates ===
+
+// The walk itself, not just the per-symbol body, is dropped for a symbol set
+// with no update. Without this the refresh would visit every e-class and
+// every e-node of every graph each pass to establish that it has no work.
+static_assert(!test::TypedTestEGraph::updates_analysis);
+static_assert(FactEGraph::updates_analysis);
+
+TEST(TypedEGraph, RefreshIsANoOpWithoutAnUpdate) {
+  test::TypedTestEGraph eg;
+  auto refresh_ctx = BaseProcessingContext{};
+  auto const x = eg.Make<test::Op::Var>().eclass_id;
+  eg.Make<test::Op::Add>(x, eg.Make<test::Op::Const>().eclass_id);
+  EXPECT_EQ(eg.refresh_analysis(refresh_ctx), 0U);
+}
+
+// === refresh_analysis: a fact that only becomes derivable later ===
+
+TEST(TypedEGraph, RefreshRederivesAFactAMergeEnabled) {
+  FactEGraph eg;
+  auto refresh_ctx = BaseProcessingContext{};
+
+  auto const one = eg.Make<FactOp::Leaf>(1).eclass_id;
+  auto const opaque = eg.Make<FactOp::Opaque>().eclass_id;
+
+  // Sum derives from both operands, and one of them knows nothing, so the
+  // make-time seed declines.
+  auto const sum = eg.Make<FactOp::Sum>(one, opaque).eclass_id;
+  EXPECT_FALSE(eg.core().analysis_of(sum).known.has_value());
+
+  // Proving the opaque operand equal to a known leaf gives that e-class a
+  // fact. Merging leaves needs no rebuild: congruence is not what is under
+  // test, only whose analysis the merge reaches.
+  auto const five = eg.Make<FactOp::Leaf>(5).eclass_id;
+  eg.core().merge(opaque, five);
+  ASSERT_EQ(eg.core().analysis_of(opaque).known, 5);
+
+  // The merge refined the analysis of the class it merged, and nothing
+  // revisited the parent whose own fact was derived from it.
+  EXPECT_FALSE(eg.core().analysis_of(sum).known.has_value());
+
+  // Refreshing recomputes every e-class whose children's facts have moved.
+  eg.refresh_analysis(refresh_ctx);
+  ASSERT_TRUE(eg.core().analysis_of(sum).known.has_value());
+  EXPECT_EQ(*eg.core().analysis_of(sum).known, 6);
+}
+
+TEST(TypedEGraph, RefreshMarksTheClassesItChangedTouched) {
+  FactEGraph eg;
+  auto refresh_ctx = BaseProcessingContext{};
+
+  auto const one = eg.Make<FactOp::Leaf>(1).eclass_id;
+  auto const opaque = eg.Make<FactOp::Opaque>().eclass_id;
+  auto const sum = eg.Make<FactOp::Sum>(one, opaque).eclass_id;
+  auto const five = eg.Make<FactOp::Leaf>(5).eclass_id;
+  eg.core().merge(opaque, five);
+
+  // The touched set is what the refresh propagates from, so it cannot be
+  // cleared first. The sum is not among what the merge touched - it was never
+  // merged - so finding it there afterwards can only be the refresh's doing.
+  ASSERT_EQ(eg.refresh_analysis(refresh_ctx), 1U);
+
+  // Incremental arming learns that a class changed from the touched set alone.
+  // A fact that moves without touching leaves a rule gated on that fact
+  // unarmed, which is the unsoundness the rewriter's own pass audit asserts
+  // against.
+  auto touched = boost::unordered_flat_set<EClassId>{};
+  eg.core().touched_eclasses_into(touched);
+  EXPECT_TRUE(touched.contains(eg.core().find(sum)));
+}
+
+TEST(TypedEGraph, SaturationFiresARuleTheRefreshEnabled) {
+  using FactPattern = pattern::Pattern<FactOp>;
+  using FactRule = rewrite::RewriteRule<FactEGraph>;
+  using FactRuleCtx = rewrite::RuleContext<FactEGraph>;
+  using FactRuleSet = rewrite::RuleSet<FactEGraph>;
+  using FactRewriter = rewrite::Rewriter<FactEGraph>;
+  static constexpr pattern::PatternVar kRoot{0};
+
+  FactEGraph eg;
+  auto const one = eg.Make<FactOp::Leaf>(1).eclass_id;
+  auto const opaque = eg.Make<FactOp::Opaque>().eclass_id;
+  auto const sum = eg.Make<FactOp::Sum>(one, opaque).eclass_id;
+  ASSERT_FALSE(eg.core().analysis_of(sum).known.has_value());
+
+  // Proves the opaque operand equal to a known leaf, which is what makes the
+  // sum's own fact derivable. Declines once it has, so saturation settles.
+  auto reveal = FactRule::Builder{"reveal_opaque"}
+                    .pattern(FactPattern::build(kRoot, FactOp::Opaque))
+                    .apply([](FactRuleCtx &ctx, pattern::Match const &match) {
+                      if (ctx.analysis(match[kRoot]).known) return;
+                      ctx.merge(match[kRoot], ctx.Make<FactOp::Leaf>(5));
+                    });
+
+  // Gated on the fact rather than on the operands' shape, the way a constant
+  // fold is: it matches every Sum and acts only once the value is known.
+  auto fold = FactRule::Builder{"fold_known_sum"}
+                  .pattern(FactPattern::build(kRoot, FactOp::Sum, {pattern::Wildcard{}, pattern::Wildcard{}}))
+                  .apply([](FactRuleCtx &ctx, pattern::Match const &match) {
+                    auto const known = ctx.analysis(match[kRoot]).known;
+                    if (!known) return;
+                    auto const folded = ctx.Make<FactOp::Leaf>(*known);
+                    if (ctx.find(match[kRoot]) == ctx.find(folded)) return;
+                    ctx.merge(match[kRoot], folded);
+                  });
+
+  FactRewriter rewriter{eg, FactRuleSet::Build(std::move(reveal), std::move(fold))};
+  rewriter.saturate_incremental(rewrite::RewriteConfig::Unlimited());
+
+  // On the pass that revealed the operand, the sum's fact was still unknown and
+  // the fold declined. It can only have fired if the refresh ran inside the
+  // pass loop and announced the new fact in time to arm it.
+  ASSERT_TRUE(eg.core().analysis_of(sum).known.has_value());
+  EXPECT_EQ(*eg.core().analysis_of(sum).known, 6);
+  EXPECT_EQ(eg.core().find(sum), eg.core().find(eg.Make<FactOp::Leaf>(6).eclass_id));
+}
 
 }  // namespace memgraph::planner::core

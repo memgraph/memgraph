@@ -12,8 +12,10 @@
 module;
 
 #include <concepts>
+#include <cstddef>
 #include <cstdint>
 #include <optional>
+#include <span>
 #include <type_traits>
 #include <utility>
 
@@ -64,10 +66,71 @@ concept SymbolMakeTraits =
       { T::make(s, std::forward<Args>(args)...) } -> std::same_as<MakeResult<Analysis>>;
     };
 
+/// A symbol whose facts depend on its children's, and so must be recomputed
+/// when theirs move. Optional: a symbol without `update` keeps whatever its
+/// make-time seed established.
+///
+/// `update` widens `out` from the children's current analyses and answers
+/// whether it changed anything. It writes in place so that recomputing a fact
+/// costs no copy of the analysis, which for a fact holding a string or a list
+/// would allocate.
+///
+/// Two requirements the signature cannot state. It must be a pure function of
+/// the children's analyses, so that two e-classes with the same children agree.
+/// And it must only ever add a fact, never retract one: that is what makes the
+/// refresh terminate, and what lets a rewrite trust a fact it has already read.
+template <typename T, typename Analysis, typename EGraphT>
+concept SymbolUpdatesAnalysis = requires(EGraphT const &eg, std::span<EClassId const> children, Analysis &out) {
+  { T::update(eg, children, out) } -> std::same_as<bool>;
+};
+
+/// A symbol's update, or a no-op for one that offers none, so the refresh can
+/// call every symbol alike.
+template <typename Analysis, typename EGraphT, typename TraitT>
+struct AnalysisUpdate {
+  static constexpr bool updates = false;
+
+  static auto apply(EGraphT const & /*eg*/, std::span<EClassId const> /*children*/, Analysis & /*out*/) -> bool {
+    return false;
+  }
+};
+
+template <typename Analysis, typename EGraphT, typename TraitT>
+  requires SymbolUpdatesAnalysis<TraitT, Analysis, EGraphT>
+struct AnalysisUpdate<Analysis, EGraphT, TraitT> {
+  static constexpr bool updates = true;
+
+  static auto apply(EGraphT const &eg, std::span<EClassId const> children, Analysis &out) -> bool {
+    return TraitT::update(eg, children, out);
+  }
+};
+
 /// Compile-time list of Symbol values. Used to derive the combined storage
 /// type for a `TypedEGraph` instance.
 template <typename SymbolT, SymbolT... Ss>
 struct SymbolSequence {};
+
+namespace detail {
+
+/// Call `f` with the symbol as a template argument and answer what it answers.
+/// The fold expands to a direct call per symbol, so the compiler sees an
+/// ordinary branch chain and can inline through it; nothing is dispatched
+/// through a pointer. A symbol outside the sequence answers false, which cannot
+/// arise while the sequence lists every symbol its graph can hold.
+template <typename SymbolT, SymbolT... Ss, typename F>
+auto DispatchSymbol(SymbolSequence<SymbolT, Ss...> /*seq*/, SymbolT s, F &&f) -> bool {
+  auto answer = false;
+  (void)(... || (s == Ss ? (answer = f.template operator()<Ss>(), true) : false));
+  return answer;
+}
+
+/// Whether any symbol in the set recomputes facts from its children.
+template <typename Analysis, typename EGraphT, template <auto> class Traits, typename SymbolT, SymbolT... Ss>
+constexpr auto AnySymbolUpdates(SymbolSequence<SymbolT, Ss...> /*seq*/) -> bool {
+  return (AnalysisUpdate<Analysis, EGraphT, Traits<Ss>>::updates || ...);
+}
+
+}  // namespace detail
 
 /// Bag of per-symbol storages combined via inheritance, so a static_cast
 /// recovers any individual storage by type. Mirrors the "overloads" trick.
@@ -109,7 +172,8 @@ class TypedEGraph {
   using analysis_type = Analysis;
   using egraph_type = EGraph<Symbol, Analysis>;
 
-  TypedEGraph() = default;
+  TypedEGraph() { core_.set_tracks_analysis(updates_analysis); }
+
   TypedEGraph(TypedEGraph &&) noexcept = default;
   TypedEGraph &operator=(TypedEGraph &&) noexcept = default;
 
@@ -124,6 +188,38 @@ class TypedEGraph {
     return core_.emplace(S, std::move(made.lowered.children), disambiguator, std::move(made.seed));
   }
 
+  /// Whether this graph has any facts to recompute. False leaves
+  /// `refresh_analysis` with nothing it could find, so the walk is dropped
+  /// rather than run to no effect; a consumer that declares no update pays
+  /// nothing for the phase existing.
+  static constexpr bool updates_analysis = detail::AnySymbolUpdates<Analysis, egraph_type, Traits>(SymbolSeq{});
+
+  /// Recompute the facts a change this pass can reach, and report how many
+  /// e-classes moved. The core owns the propagation, which follows the same
+  /// parent edges congruence does; this supplies only the per-symbol meaning.
+  ///
+  /// A make-time seed reads the children's facts as they stood when the e-node
+  /// was built. A later merge can establish a fact the seed could not derive,
+  /// and merging widens only the class it merged - never a parent whose own
+  /// facts came from it. This is the pass that closes that gap.
+  template <egraph_type::AnalysisScope Scope = egraph_type::AnalysisScope::Changed>
+  auto refresh_analysis(BaseProcessingContext &ctx) -> std::size_t {
+    if constexpr (!updates_analysis) return 0;
+    return core_.template refresh_analysis<Scope>(ctx, node_updater());
+  }
+
+ private:
+  /// What one e-node contributes to its e-class's facts, by symbol.
+  auto node_updater() {
+    return [this](auto const &enode, Analysis &facts) {
+      return detail::DispatchSymbol(SymbolSeq{}, enode.symbol(), [&]<Symbol S>() {
+        using Update = AnalysisUpdate<Analysis, egraph_type, Traits<S>>;
+        return Update::apply(core_, std::span<EClassId const>{enode.children()}, facts);
+      });
+    };
+  }
+
+ public:
   /// Typed read/write access to one symbol's side-data. Callers use this
   /// to look up interned data by id (names, literals, function info, ...).
   template <Symbol S>

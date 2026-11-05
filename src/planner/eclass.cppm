@@ -13,6 +13,7 @@ module;
 
 #include <algorithm>
 #include <cassert>
+#include <concepts>
 #include <span>
 #include <type_traits>
 #include <utility>
@@ -85,10 +86,21 @@ struct EClass : private detail::EClassBase {
   EClass(ENodeId initial_enode_id, Analysis analysis)
       : EClassBase(initial_enode_id), analysis_data(std::move(analysis)) {}
 
-  /// The e-class's analysis facts. Set once at construction (the make half) and
-  /// thereafter only by merge; there is deliberately no mutable accessor, so
-  /// the variant arm cannot be changed out from under the merge soundness guard.
+  /// The e-class's analysis facts. Set at construction (the make half), then
+  /// widened by merge and by the analysis refresh below. Both only ever add a
+  /// fact, so a reader never sees one it was told about withdrawn.
   [[nodiscard]] auto analysis() const -> Analysis const & { return analysis_data; }
+
+  /// Mutable access to the facts, for the analysis refresh and nothing else.
+  /// The refresh writes in place and reports what it changed, rather than
+  /// building a second analysis and diffing against a copy: an analysis holding
+  /// a string, list or map allocates on every such copy, and the refresh runs
+  /// per e-class per pass.
+  ///
+  /// The caller owes what merge would otherwise have guaranteed - a fact may be
+  /// added but never retracted. Retracting one would unsay something a rewrite
+  /// has already been allowed to rely on.
+  auto analysis_for_refresh() -> Analysis & { return analysis_data; }
 
   using EClassBase::add_parent;
   using EClassBase::nodes;

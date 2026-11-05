@@ -163,11 +163,38 @@ struct EGraphBase {
   void clear_touched() { touched_.clear(); }
 
  protected:
+  /// Record that `id` is new or newly merged. Arming wants both: either is
+  /// content a pattern could now match. The analysis refresh wants both too - a
+  /// merge can make a parent's fact derivable, and a new e-class has facts of
+  /// its own that only `update` can establish, since a seed need not derive
+  /// them. One entry point so neither consumer can be left out of a change
+  /// site.
+  void mark_changed(EClassId id) {
+    touched_.insert(id);
+    // Skipped unless some symbol recomputes facts. Nothing reads the set
+    // otherwise, and this runs on every e-class created and every merge, so a
+    // graph with no derived facts would be paying a hash insert per e-node to
+    // build a set no one looks at.
+    if (tracks_analysis_) analysis_dirty_.insert(id);
+  }
+
+ public:
+  /// Declare whether any symbol recomputes facts from its children. Set once by
+  /// the typed wrapper, which is the layer that knows the symbols' traits.
+  void set_tracks_analysis(bool tracks) { tracks_analysis_ = tracks; }
+
+ protected:
   mutable UnionFind union_find_;
   boost::unordered_flat_set<EClassId> rebuild_worklist_;
   // Raw (pre-canonicalization) ids of e-classes changed since clear_touched();
   // see touched_eclasses_into() for the read contract.
   boost::unordered_flat_set<EClassId> touched_;
+  // Changes awaiting an analysis refresh. Separate from the touched set because
+  // it drains on its own schedule: a driver may hold the touched set across
+  // passes or clear it each one, which would otherwise leave the refresh's
+  // result depending on the driver in use.
+  boost::unordered_flat_set<EClassId> analysis_dirty_;
+  bool tracks_analysis_ = false;
   size_t num_dead_nodes_ = 0;
 };
 }  // namespace detail
@@ -207,6 +234,16 @@ struct BaseProcessingContext {
 
   /// Deferred duplicate removals for repair_hashcons_eclass.
   std::vector<ENodeId> pending_duplicate_removals;
+
+  /// The analysis refresh's worklist, kept here so a pass reuses the storage a
+  /// previous one grew instead of building the buffer again each time.
+  auto analysis_worklist_container() -> std::vector<ENodeId> & {
+    analysis_worklist.clear();
+    return analysis_worklist;
+  }
+
+ private:
+  std::vector<ENodeId> analysis_worklist;
 };
 
 /**
@@ -254,6 +291,7 @@ struct EGraph : private detail::EGraphBase {
   using EGraphBase::num_dead_nodes;
   using EGraphBase::num_live_nodes;
   using EGraphBase::num_nodes;
+  using EGraphBase::set_tracks_analysis;
   using EGraphBase::touched_eclasses_into;
   using EGraphBase::worklist_size;
 
@@ -317,6 +355,79 @@ struct EGraph : private detail::EGraphBase {
    * takes the arm it needs off the returned Analysis.
    */
   auto analysis_of(EClassId id) const -> Analysis const & { return eclass(find(id)).analysis(); }
+
+  /// Which e-classes an analysis refresh starts from. `Everything` reaches the
+  /// same fixpoint by definition, so it is the reference a harness holds the
+  /// incremental walk to; too costly for a pass, which is why `Changed` exists.
+  enum class AnalysisScope : std::uint8_t {
+    Changed,
+    Everything,
+  };
+
+  /**
+   * @brief Recompute analysis facts, reporting how many updates widened a
+   *        class - a caller only asks whether anything moved at all.
+   *
+   * `update_node(enode, facts)` widens `facts` from the e-node's children and
+   * answers whether it changed anything.
+   *
+   * Propagation is congruence's shape. A merge puts e-nodes into a class, which
+   * can widen that class's facts, which can widen those of every class reading
+   * it as a child. So the work walks up parent edges, reaching an e-node only
+   * when one of its children actually moved. An e-node's id canonicalises to
+   * the class holding it, so a parent needs no lookup beyond `find`.
+   *
+   * A class whose facts moved joins the touched set, because that set is the
+   * only thing incremental arming reads: a fact that moved unannounced leaves
+   * every rule gated on it unarmed, and the next pass would skip a rewrite
+   * full saturation performs.
+   */
+  template <AnalysisScope Scope = AnalysisScope::Changed, typename UpdateNode>
+  auto refresh_analysis(BaseProcessingContext &ctx, UpdateNode &&update_node) -> std::size_t {
+    auto &worklist = ctx.analysis_worklist_container();
+    if constexpr (Scope == AnalysisScope::Changed) {
+      // A changed class's own e-nodes are queued, since a new class holds facts
+      // only `update` can establish, and so are the e-nodes reading it, since
+      // merged facts can make theirs derivable.
+      for (auto const id : analysis_dirty_) {
+        auto const it = classes_.find(find(id));
+        if (it == classes_.end()) continue;
+        auto const &eclass = *it->second;
+        worklist.insert(worklist.end(), eclass.nodes().begin(), eclass.nodes().end());
+        worklist.insert(worklist.end(), eclass.parents().begin(), eclass.parents().end());
+      }
+      analysis_dirty_.clear();
+    } else {
+      for (auto const id : canonical_eclass_ids()) {
+        auto const &eclass = this->eclass(id);
+        worklist.insert(worklist.end(), eclass.nodes().begin(), eclass.nodes().end());
+      }
+    }
+
+    // One e-node at a time, queueing the e-nodes that read a class whose facts
+    // moved. Per e-node rather than per e-class is what keeps a change cheap:
+    // an e-class gathers every equivalent form of an expression, and only the
+    // form whose child moved has anything to say.
+    std::size_t changed_total = 0;
+    while (!worklist.empty()) {
+      auto const enode_id = worklist.back();
+      worklist.pop_back();
+
+      auto const canonical = find(enode_id);
+      auto const it = classes_.find(canonical);
+      if (it == classes_.end()) continue;  // merged away since it was queued
+      auto &eclass = *it->second;
+
+      if (!update_node(get_enode(enode_id), eclass.analysis_for_refresh())) continue;
+
+      ++changed_total;
+      // Announced to arming only. The e-nodes reading this class are queued
+      // right here, so re-dirtying it would buy a repeat walk finding nothing.
+      touched_.insert(canonical);
+      worklist.insert(worklist.end(), eclass.parents().begin(), eclass.parents().end());
+    }
+    return changed_total;
+  }
 
   /**
    * @brief Check if an e-class exists and is canonical
@@ -476,7 +587,7 @@ auto EGraph<Symbol, Analysis>::emplace(Symbol symbol, uint64_t disambiguator, An
   hashcons_[enode_ref] = ENodeInfo{.current_eclassid = new_eclass_id, .enode_id = new_enode_id};
   classes_.emplace(new_eclass_id, std::make_unique<EClass<Analysis>>(new_enode_id, std::move(seed)));
   canonical_eclasses_.add(new_eclass_id);
-  touched_.insert(new_eclass_id);
+  mark_changed(new_eclass_id);
 
   return {.eclass_id = new_eclass_id, .enode_id = new_enode_id, .did_insert = true};
 }
@@ -514,7 +625,7 @@ auto EGraph<Symbol, Analysis>::emplace(Symbol symbol, utils::small_vector<EClass
   }
 
   canonical_eclasses_.add(new_eclass_id);
-  touched_.insert(new_eclass_id);
+  mark_changed(new_eclass_id);
 
   return {.eclass_id = new_eclass_id, .enode_id = new_enode_id, .did_insert = true};
 }
@@ -541,7 +652,7 @@ auto EGraph<Symbol, Analysis>::merge(EClassId a, EClassId b) -> MergeResult {
   rebuild_worklist_.insert(merged_id);
   // Record the change for the per-pass touched-set. Cascade merges during
   // rebuild re-enter here, so this captures the full cascade.
-  touched_.insert(merged_id);
+  mark_changed(merged_id);
 
   merge_eclasses(*classes_[merged_id], other_id);
 
@@ -757,7 +868,7 @@ auto EGraph<Symbol, Analysis>::merge_all(std::span<const uint32_t> canonical_ids
 
   auto merged_root = EClassId{union_find_.UnionSets(canonical_ids, uf_ctx)};
   rebuild_worklist_.insert(merged_root);
-  touched_.insert(merged_root);
+  mark_changed(merged_root);
 
   auto merged_it = classes_.find(merged_root);
   assert(merged_it != classes_.end());

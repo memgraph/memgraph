@@ -184,11 +184,7 @@ class Rewriter {
    * @param rules Shared rule set to use
    */
   Rewriter(Graph &graph, RuleSet<Graph> rules)
-      : egraph_(&graph.core()),
-        rules_(std::move(rules)),
-        matcher_(graph.core()),
-        vm_executor_(graph.core()),
-        ctx_(graph) {
+      : graph_(&graph), rules_(std::move(rules)), matcher_(graph.core()), vm_executor_(graph.core()), ctx_(graph) {
     reseat_latch();
   }
 
@@ -214,7 +210,7 @@ class Rewriter {
     result.rewrites_per_rule.resize(num_rules(), 0);  // Initialize per-rule counters
     auto const start_time = std::chrono::steady_clock::now();
 
-    driver.begin(*egraph_);
+    driver.begin(graph_->core());
 
     for (std::size_t iter = 0; iter < config.max_iterations; ++iter) {
       result.iterations = iter + 1;
@@ -224,12 +220,12 @@ class Rewriter {
         result.stop_reason = RewriteResult::StopReason::Timeout;
         return result;
       }
-      if (egraph_->num_nodes() > config.max_enodes) {
+      if (graph_->core().num_nodes() > config.max_enodes) {
         result.stop_reason = RewriteResult::StopReason::ENodeLimit;
         return result;
       }
 
-      driver.before_pass(*egraph_);
+      driver.before_pass(graph_->core());
 
 #ifndef NDEBUG
       auto const analysis_before = snapshot_analysis_for_audit();
@@ -246,7 +242,7 @@ class Rewriter {
         return result;
       }
 
-      driver.after_pass(*egraph_);
+      driver.after_pass(graph_->core());
     }
 
     result.stop_reason = RewriteResult::StopReason::IterationLimit;
@@ -304,8 +300,9 @@ class Rewriter {
   auto snapshot_analysis_for_audit() const -> AnalysisSnapshot {
     AnalysisSnapshot snapshot;
     if constexpr (kSupportsAnalysisAudit) {
-      snapshot.reserve(egraph_->num_classes());
-      for (auto const id : egraph_->canonical_eclass_ids()) snapshot.emplace_back(id, egraph_->analysis_of(id));
+      snapshot.reserve(graph_->core().num_classes());
+      for (auto const id : graph_->core().canonical_eclass_ids())
+        snapshot.emplace_back(id, graph_->core().analysis_of(id));
     }
     return snapshot;
   }
@@ -317,10 +314,10 @@ class Rewriter {
   void audit_moved_facts_were_touched(AnalysisSnapshot const &before) const {
     if constexpr (kSupportsAnalysisAudit) {
       boost::unordered_flat_set<EClassId> touched;
-      egraph_->touched_eclasses_into(touched);
+      graph_->core().touched_eclasses_into(touched);
       for (auto const &[id, was] : before) {
-        if (egraph_->analysis_of(id) == was) continue;
-        DMG_ASSERT(touched.contains(egraph_->find(id)),
+        if (graph_->core().analysis_of(id) == was) continue;
+        DMG_ASSERT(touched.contains(graph_->core().find(id)),
                    "analysis of an e-class moved during a pass that never touched it; incremental arming cannot "
                    "see the change and will skip a rule that full saturation would fire");
       }
@@ -339,7 +336,7 @@ class Rewriter {
    */
   auto apply_once_with_stats(std::vector<std::size_t> &per_rule_stats, std::vector<std::uint8_t> const *armed = nullptr,
                              RootRestriction active = RootRestriction::MatchAll()) -> std::size_t {
-    assert(!egraph_->needs_rebuild() && "E-graph must be clean at start of rewrite iteration");
+    assert(!graph_->core().needs_rebuild() && "E-graph must be clean at start of rewrite iteration");
 
     ctx_.clear_new_eclasses();
     std::size_t total_rewrites = 0;
@@ -357,9 +354,14 @@ class Rewriter {
     }
 
     // Rebuild e-graph after all rules (restores congruence closure after merges)
-    if (egraph_->needs_rebuild()) {
-      egraph_->rebuild(proc_ctx_);
+    if (graph_->core().needs_rebuild()) {
+      graph_->core().rebuild(proc_ctx_);
     }
+
+    // Recompute facts the merges above enabled, inside the pass rather than
+    // after the last one: a fact learned here still has a pass left in which to
+    // arm the rules gated on it.
+    graph_->refresh_analysis(proc_ctx_);
 
     // Incremental matcher rebuild for new e-classes only
     // rebuild_index handles canonicalization and duplicates internally
@@ -392,7 +394,7 @@ class Rewriter {
   void rebuild_index(std::span<EClassId const> updated_eclasses) { matcher_.rebuild_index(updated_eclasses); }
 
  private:
-  EGraph *egraph_;
+  Graph *graph_;
   RuleSet<Graph> rules_;  ///< Shared rules (cheap to copy)
   MatcherIndex<Symbol, Analysis> matcher_;
   pattern::vm::VMExecutor<Symbol, Analysis> vm_executor_;  ///< VM pattern matcher
