@@ -9,6 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <array>
 #include <chrono>
 #include <condition_variable>
 #include <mutex>
@@ -90,7 +91,7 @@ TEST(ProgressHeartbeatTest, ProgressKeepsCallAliveBeyondTimeout) {
   ASSERT_TRUE(rpc_server.Start());
   std::this_thread::sleep_for(100ms);
 
-  auto const rpc_timeouts = std::unordered_map{std::make_pair("SumReq"sv, kClientTimeoutMs)};
+  auto const rpc_timeouts = std::array{std::pair{"SumReq"sv, kClientTimeoutMs}};
   ClientContext client_context;
   Client client{endpoint, &client_context, rpc_timeouts};
 
@@ -144,7 +145,7 @@ TEST(ProgressHeartbeatTest, StalledHandlerStillTimesOut) {
   ASSERT_TRUE(rpc_server.Start());
   std::this_thread::sleep_for(100ms);
 
-  auto const rpc_timeouts = std::unordered_map{std::make_pair("SumReq"sv, kClientTimeoutMs)};
+  auto const rpc_timeouts = std::array{std::pair{"SumReq"sv, kClientTimeoutMs}};
   ClientContext client_context;
   Client client{endpoint, &client_context, rpc_timeouts};
 
@@ -204,7 +205,7 @@ TEST(ProgressHeartbeatTest, ProgressStoppingMidCallTimesOut) {
   ASSERT_TRUE(rpc_server.Start());
   std::this_thread::sleep_for(100ms);
 
-  auto const rpc_timeouts = std::unordered_map{std::make_pair("SumReq"sv, kClientTimeoutMs)};
+  auto const rpc_timeouts = std::array{std::pair{"SumReq"sv, kClientTimeoutMs}};
   ClientContext client_context;
   Client client{endpoint, &client_context, rpc_timeouts};
 
@@ -279,7 +280,7 @@ TEST(ProgressHeartbeatTest, PeerGoneLatchesAfterClientDisconnects) {
   std::this_thread::sleep_for(100ms);
 
   {
-    auto const rpc_timeouts = std::unordered_map{std::make_pair("SumReq"sv, kClientTimeoutMs)};
+    auto const rpc_timeouts = std::array{std::pair{"SumReq"sv, kClientTimeoutMs}};
     ClientContext client_context;
     Client client{endpoint, &client_context, rpc_timeouts};
     auto stream = client.Stream<SumV1>(2, 3);
@@ -336,7 +337,7 @@ TEST(ProgressHeartbeatTest, StopIsIdempotentAndSafeWithoutProgress) {
   ASSERT_TRUE(rpc_server.Start());
   std::this_thread::sleep_for(100ms);
 
-  auto const rpc_timeouts = std::unordered_map{std::make_pair("SumReq"sv, kLongerThanAnyDelay)};
+  auto const rpc_timeouts = std::array{std::pair{"SumReq"sv, kLongerThanAnyDelay}};
   ClientContext client_context;
   Client client{endpoint, &client_context, rpc_timeouts};
 

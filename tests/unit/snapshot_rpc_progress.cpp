@@ -12,6 +12,7 @@
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 
+#include <array>
 #include <chrono>
 #include <condition_variable>
 #include <mutex>
@@ -380,7 +381,7 @@ TEST_F(SnapshotRpcProgressTest, SnapshotRpcNoTimeout) {
 
   ASSERT_TRUE(rpc_server.Start());
 
-  auto const rpc_timeouts = std::unordered_map{std::make_pair("SnapshotReq"sv, kGenerousTimeoutMs)};
+  auto const rpc_timeouts = std::array{std::pair{"SnapshotReq"sv, kGenerousTimeoutMs}};
   ClientContext client_context;
   Client client{rpc_server.endpoint(), &client_context, rpc_timeouts};
 
@@ -423,7 +424,7 @@ TEST_F(SnapshotRpcProgressTest, SnapshotRpcProgress) {
 
   ASSERT_TRUE(rpc_server.Start());
 
-  auto const rpc_timeouts = std::unordered_map{std::make_pair("SnapshotReq"sv, kTimeoutMs)};
+  auto const rpc_timeouts = std::array{std::pair{"SnapshotReq"sv, kTimeoutMs}};
   ClientContext client_context;
   Client client{rpc_server.endpoint(), &client_context, rpc_timeouts};
 
@@ -469,7 +470,7 @@ TEST_F(SnapshotRpcProgressTest, SnapshotRpcTimeout) {
 
   ASSERT_TRUE(rpc_server.Start());
 
-  auto const rpc_timeouts = std::unordered_map{std::make_pair("SnapshotReq"sv, 100)};
+  auto const rpc_timeouts = std::array{std::pair{"SnapshotReq"sv, 100}};
   ClientContext client_context;
   Client client{rpc_server.endpoint(), &client_context, rpc_timeouts};
 

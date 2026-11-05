@@ -160,7 +160,7 @@ TEST(ReplicationServer, TlsClientToNoTlsServer) {
   auto const cert_file = (certs_dir / "instance1.crt").string();
   auto const ca_file = (certs_dir / "ca.crt").string();
   ClientContext client_conntext(key_file, cert_file, ca_file);
-  auto const rpc_timeouts = std::unordered_map{std::make_pair("FrequentHeartbeatReq"sv, 500)};
+  auto const rpc_timeouts = std::array{std::pair{"FrequentHeartbeatReq"sv, 500}};
   Client client(Endpoint("0.0.0.0", port), &client_conntext, rpc_timeouts, std::chrono::milliseconds{500});
   // Fails after 5s because the timeout is 5s on socket connect
   EXPECT_THROW(client.Stream<FrequentHeartbeatRpc>(), RpcFailedToConnectException);
@@ -182,7 +182,7 @@ TEST(ReplicationServer, TlsClientTlsServer) {
   auto const key1_file = (certs_dir / "instance1.key").string();
   auto const cert1_file = (certs_dir / "instance1.crt").string();
   ClientContext client_conntext(key1_file, cert1_file, ca_file);
-  auto const rpc_timeouts = std::unordered_map{std::make_pair("FrequentHeartbeatReq"sv, 500)};
+  auto const rpc_timeouts = std::array{std::pair{"FrequentHeartbeatReq"sv, 500}};
   Client client(Endpoint("0.0.0.0", port), &client_conntext, rpc_timeouts);
   auto stream = client.Stream<FrequentHeartbeatRpc>();
   EXPECT_NO_THROW(stream.SendAndWait());
@@ -257,7 +257,7 @@ TEST(ReplicationServer, TlsReload) {
 
   // Sanity: a real RPC round-trip also works.
   ClientContext client_conntext(key1_file, cert1_file, ca_file);
-  auto const rpc_timeouts = std::unordered_map{std::make_pair("FrequentHeartbeatReq"sv, 500)};
+  auto const rpc_timeouts = std::array{std::pair{"FrequentHeartbeatReq"sv, 500}};
   {
     Client client(Endpoint("0.0.0.0", port), &client_conntext, rpc_timeouts);
     EXPECT_NO_THROW(client.Stream<FrequentHeartbeatRpc>().SendAndWait());

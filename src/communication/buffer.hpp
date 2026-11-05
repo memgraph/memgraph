@@ -53,7 +53,7 @@ class Buffer final {
    */
   class ReadEnd {
    public:
-    explicit ReadEnd(Buffer *buffer);
+    explicit ReadEnd(Buffer *buffer) : buffer_(buffer) {}
 
     ReadEnd(const ReadEnd &) = delete;
     ReadEnd(ReadEnd &&) = delete;
@@ -61,17 +61,17 @@ class Buffer final {
     ReadEnd &operator=(ReadEnd &&) = delete;
     ~ReadEnd() = default;
 
-    uint8_t *data();
+    uint8_t *data() { return buffer_->data(); }
 
-    size_t size() const;
+    size_t size() const { return buffer_->size(); }
 
-    void Shift(size_t len);
+    void Shift(size_t len) { buffer_->Shift(len); }
 
-    void Resize(size_t len);
+    void Resize(size_t len) { buffer_->Resize(len); }
 
-    void Clear();
+    void Clear() { buffer_->Clear(); }
 
-    void ShrinkBuffer(size_t size);
+    void ShrinkBuffer(size_t size) { buffer_->ShrinkBuffer(size); }
 
    private:
     Buffer *buffer_;
@@ -83,7 +83,7 @@ class Buffer final {
    */
   class WriteEnd {
    public:
-    explicit WriteEnd(Buffer *buffer);
+    explicit WriteEnd(Buffer *buffer) : buffer_(buffer) {}
 
     WriteEnd(const WriteEnd &) = delete;
     WriteEnd(WriteEnd &&) = delete;
@@ -91,13 +91,13 @@ class Buffer final {
     WriteEnd &operator=(WriteEnd &&) = delete;
     ~WriteEnd() = default;
 
-    io::network::StreamBuffer GetBuffer();
+    io::network::StreamBuffer GetBuffer() { return buffer_->GetBuffer(); }
 
-    void Written(size_t len);
+    void Written(size_t len) { buffer_->Written(len); }
 
-    void Resize(size_t len);
+    void Resize(size_t len) { buffer_->Resize(len); }
 
-    void Clear();
+    void Clear() { buffer_->Clear(); }
 
    private:
     Buffer *buffer_;
@@ -112,16 +112,9 @@ class Buffer final {
   const WriteEnd *write_end() const { return &write_end_; }
 
  private:
-  /**
-   * This function returns a pointer to the internal buffer. It is used for
-   * reading data from the buffer.
-   */
-  uint8_t *data();
+  uint8_t *data() { return data_.data(); }
 
-  /**
-   * This function returns the size of available data for reading.
-   */
-  size_t size() const;
+  size_t size() const { return have_; }
 
   /**
    * This method shifts the available data for len. It is used when you read
@@ -163,11 +156,9 @@ class Buffer final {
    */
   void Resize(size_t len);
 
-  /**
-   * This method clears the buffer. It doesn't release the underlying storage
-   * space.
-   */
-  void Clear();
+  /// Does not release the underlying storage, which is what separates this from
+  /// ShrinkBuffer.
+  void Clear() { have_ = 0; }
 
   /**
    * This method resizes the internal data buffer.

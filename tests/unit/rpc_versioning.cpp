@@ -11,6 +11,7 @@
 
 #include "gtest/gtest.h"
 
+#include <array>
 #include <filesystem>
 #include <string>
 #include <type_traits>
@@ -79,7 +80,7 @@ TEST(RpcVersioning, SumUpgrade) {
   ASSERT_TRUE(rpc_server.Start());
   std::this_thread::sleep_for(100ms);
 
-  auto const rpc_timeouts = std::unordered_map{std::make_pair("EchoMessage"sv, 2000)};
+  auto const rpc_timeouts = std::array{std::pair{"EchoMessage"sv, 2000}};
   ClientContext client_context;
   Client client{endpoint, &client_context, rpc_timeouts};
   {
