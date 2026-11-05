@@ -28,8 +28,7 @@
 
 #include "query/exceptions.hpp"
 #include "query/plan/operator.hpp"
-#include "query/plan_v2/cost/builtin_estimator.hpp"
-#include "query/plan_v2/cost/cardinality_estimator.hpp"
+#include "query/plan_v2/cost/cost_model.hpp"
 #include "query/plan_v2/egraph/builtin_functions.hpp"
 #include "query/plan_v2/egraph/egraph.hpp"
 #include "query/plan_v2/egraph/egraph_internal.hpp"

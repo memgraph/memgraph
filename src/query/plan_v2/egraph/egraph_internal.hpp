@@ -43,7 +43,7 @@ struct egraph::impl {
   typed_egraph graph;
 };
 
-/// Pimpl back-door for plan_v2-internal TUs (converter, rewriter, estimator).
+/// Pimpl back-door for plan_v2-internal TUs (converter, rewriter, cost).
 /// Declared `friend` on `egraph` so private member access works.
 auto impl_of(egraph &e) -> egraph::impl &;
 auto impl_of(egraph const &e) -> egraph::impl const &;

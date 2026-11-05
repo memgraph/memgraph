@@ -75,12 +75,6 @@ struct egraph {
   /// graph it assembled by hand owes one call first.
   auto RefreshAnalysis() -> std::size_t;
 
-  /// Look up the FunctionInfo (name + cached BuiltinKind) for a function id
-  /// previously assigned by MakeFunction.  Used by the cost-model estimator
-  /// and the builder to translate a Function e-node back to its name without
-  /// materialising the whole interner.  Returns nullptr if the id is unknown.
-  auto FunctionInfoById(std::uint64_t id) const -> FunctionInfo const *;
-
   // Binary operators (arithmetic / comparison / boolean) - generated from EGRAPH_BINARY_OPS.
 #define MG_DECL_MAKE_BINARY(Name, ...) auto Make##Name(eclass lhs, eclass rhs) -> eclass;
   EGRAPH_BINARY_OPS(MG_DECL_MAKE_BINARY)

@@ -17,16 +17,17 @@
 
 namespace memgraph::query::plan::v2 {
 
-/// Hot-path classification for built-in functions.
+/// Classification for built-in functions whose result the planner reasons
+/// about.
 ///
-/// Cached on the e-graph's per-function-id record so the cost-model and
-/// estimator dispatch is an integer compare instead of a string compare on
-/// every Function alt.  `Unknown` covers UDFs and any name that doesn't
-/// resolve to a builtin we model.
+/// Cached on the e-graph's per-function-id record so deriving a builtin's facts
+/// is an integer compare rather than a string compare on every refresh.
+/// `Unknown` covers UDFs and any name that does not resolve to a builtin we
+/// model.
 enum class BuiltinKind : std::uint8_t {
-  Unknown,  ///< UDFs / unrecognised builtins; estimator falls back to default.
-  Range,    ///< Cypher range(start, end[, step]); estimator deduces from
-            ///< constant int args.
+  Unknown,  ///< UDFs / unrecognised builtins; no facts derived.
+  Range,    ///< Cypher range. Only the two-bound form has a derivable length;
+            ///< the optional step form is left unknown.
   Size,     ///< Cypher size(list); folds to the list's known length, no eval.
 };
 
@@ -34,7 +35,8 @@ enum class BuiltinKind : std::uint8_t {
 /// builtin set; everything else is Unknown.
 inline auto BuiltinKindFor(std::string_view name) -> BuiltinKind {
   // Case-insensitive compare against the small static set of recognised
-  // builtins.  Adding a new builtin is one entry here plus an estimator case.
+  // builtins.  Adding a new builtin is one entry here plus a case in the
+  // Function trait's update.
   auto eq_ci = [name](std::string_view candidate) {
     if (name.size() != candidate.size()) return false;
     for (std::size_t i = 0; i < name.size(); ++i) {

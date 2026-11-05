@@ -11,7 +11,6 @@
 
 #pragma once
 
-#include "query/plan_v2/cost/builtin_estimator.hpp"
 #include "query/plan_v2/cost/cost_model.hpp"
 #include "query/plan_v2/egraph/egraph.hpp"
 #include "query/plan_v2/egraph/egraph_internal.hpp"
@@ -21,12 +20,10 @@
 namespace memgraph::query::plan::v2::test {
 
 /// The production-mirrored inputs every extraction stage reads: the core
-/// e-graph, the builtin cardinality estimator, the pre-extraction data, and the
-/// SymbolContext over them. `CostHarness` and `ResolveHarness` both stand this
-/// up the way `ConvertToLogicalOperator` does, so the harnesses run the real
-/// pipeline rather than a re-implementation of its setup. Members initialise in
-/// declaration order (`syms` holds a reference into `pre`); construct on the
-/// stack and do not move while in use.
+/// e-graph, the pre-extraction data, and the SymbolContext over them. `CostHarness` and `ResolveHarness` both stand
+/// this up the way `ConvertToLogicalOperator` does, so the harnesses run the real pipeline rather than a
+/// re-implementation of its setup. Members initialise in declaration order (`syms` holds a reference into `pre`);
+/// construct on the stack and do not move while in use.
 struct ExtractionInputs {
   /// Takes the graph mutably so it can refresh the analysis first, which is what
   /// saturation does before a real extraction: a builtin's result facts are
@@ -34,7 +31,6 @@ struct ExtractionInputs {
   /// built, so a graph assembled by hand has none of them yet.
   explicit ExtractionInputs(egraph &e)
       : core{refreshed_core(e)},
-        estimator{e},
         pre{BuildPreExtractionData(core)},
         syms{.egraph = core,
              .variable_index = pre.variable_index,
@@ -48,7 +44,7 @@ struct ExtractionInputs {
   ~ExtractionInputs() = default;
 
   /// The cost model the frontier pass is driven with.
-  [[nodiscard]] auto cost_ctx() const -> CostCtx { return CostCtx{.estimator = estimator, .syms = syms}; }
+  [[nodiscard]] auto cost_ctx() const -> CostCtx { return CostCtx{.syms = syms}; }
 
  private:
   static auto refreshed_core(egraph &e) -> EGraph const & {
@@ -60,7 +56,6 @@ struct ExtractionInputs {
   // NOLINTBEGIN(cppcoreguidelines-avoid-const-or-ref-data-members)
   EGraph const &core;
   // NOLINTEND(cppcoreguidelines-avoid-const-or-ref-data-members)
-  BuiltinEstimator estimator;
   PreExtractionData pre;
   SymbolContext syms;
 };

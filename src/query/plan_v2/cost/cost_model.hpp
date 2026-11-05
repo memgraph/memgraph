@@ -14,7 +14,6 @@
 #include <span>
 
 #include "planner/extract/extract.hpp"
-#include "query/plan_v2/cost/cardinality_estimator.hpp"
 #include "query/plan_v2/egraph/alternative.hpp"
 #include "query/plan_v2/resolve/extraction_env.hpp"
 #include "query/plan_v2/resolve/variable_set.hpp"
@@ -29,11 +28,17 @@ struct CostFrontier
 };
 
 /// Read-only state the cost model reads while scoring an e-node.
+/// Row count assumed for a list whose size is not statically known. A small
+/// guess on purpose: an unknown list is assumed short so it does not dominate
+/// the row cardinality an Unwind derives from it. The exact figure is not
+/// empirically tuned - any small constant serves until estimates are backed by
+/// stored statistics.
+inline constexpr double kDefaultListSize = 12.0;
+
 struct CostCtx {
   using CostResult = CostFrontier;
 
   // NOLINTBEGIN(cppcoreguidelines-avoid-const-or-ref-data-members)
-  CardinalityEstimator const &estimator;
   SymbolContext const &syms;
   // NOLINTEND(cppcoreguidelines-avoid-const-or-ref-data-members)
 

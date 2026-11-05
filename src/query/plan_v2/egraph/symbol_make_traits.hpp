@@ -98,7 +98,7 @@ struct symbol_make_traits<symbol::Symbol> {
 
 /// Literal: value <-> id mapping.  `store` (value -> id) is the hash-consing
 /// direction used by `make`; `info` (id -> value, indexed by disambiguator)
-/// is the reverse used by the Builder and BuiltinEstimator.  `info` holds
+/// is the reverse used by the Builder.  `info` holds
 /// pointers into `store`'s node-stable keys -- no key duplication, valid as
 /// long as `store` outlives the reads.  Kept in lockstep by `make`.
 template <>

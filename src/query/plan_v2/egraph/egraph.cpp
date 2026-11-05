@@ -95,12 +95,6 @@ auto egraph::RefreshAnalysis() -> std::size_t {
   return pimpl_->graph.refresh_analysis(ctx);
 }
 
-auto egraph::FunctionInfoById(std::uint64_t id) const -> FunctionInfo const * {
-  auto const &info = pimpl_->graph.storage<Function>().info;
-  if (id >= info.size()) return nullptr;
-  return &info[id];
-}
-
 // Binary / unary public-API definitions - generated from EGRAPH_*_OPS.
 // NOLINTBEGIN(cppcoreguidelines-macro-usage)
 #define MG_DEFN_MAKE_BINARY(Name, ...)                                                \

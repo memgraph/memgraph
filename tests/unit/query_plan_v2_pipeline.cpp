@@ -31,7 +31,6 @@
 #include "query/frontend/opencypher/parser.hpp"
 #include "query/frontend/semantic/symbol_generator.hpp"
 #include "query/plan/operator.hpp"
-#include "query/plan_v2/cost/cardinality_estimator.hpp"
 #include "query/plan_v2/egraph/egraph.hpp"
 #include "query/plan_v2/frontend/ast_converter.hpp"
 #include "query/plan_v2/frontend/egraph_converter.hpp"

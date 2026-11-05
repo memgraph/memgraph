@@ -83,7 +83,6 @@ target_sources(mg-query
     plan/variable_start_planner.cpp
     plan_v2/egraph/egraph.cpp
     plan_v2/frontend/ast_converter.cpp
-    plan_v2/cost/builtin_estimator.cpp
     plan_v2/frontend/egraph_converter.cpp
     plan_v2/frontend/builder.cpp
     plan_v2/cost/cost_model.cpp

@@ -20,7 +20,6 @@
 
 #include "planner/extract/extract.hpp"
 #include "planner/extract/extractor.hpp"
-#include "query/plan_v2/cost/builtin_estimator.hpp"
 #include "query/plan_v2/cost/cost_model.hpp"
 #include "query/plan_v2/egraph/alternative.hpp"
 #include "query/plan_v2/egraph/child_layout.hpp"
@@ -167,9 +166,7 @@ auto ConvertToLogicalOperator(egraph const &e, eclass root, QueryPlannerContext 
                            .outer_scope = VariableSet{},
                            .referenced_syms = std::move(pre.referenced_syms)};
 
-  auto const active_estimator = BuiltinEstimator{e};
-  auto const &root_frontier = ComputeFrontiersAndCheckRoot(
-      impl.graph.core(), CostCtx{.estimator = active_estimator, .syms = syms}, true_root, ctx);
+  auto const &root_frontier = ComputeFrontiersAndCheckRoot(impl.graph.core(), CostCtx{.syms = syms}, true_root, ctx);
 
   ResolveSelection(impl.graph.core(), syms, true_root, ctx);
 
