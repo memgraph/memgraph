@@ -219,7 +219,8 @@ Trigger::PlanResult Trigger::GetPlan(DbAccessor *db_accessor, std::string_view d
                                         parsed_statements_.parameters,
                                         db_accessor,
                                         predefined_identifiers,
-                                        planner_context)
+                                        planner_context,
+                                        parsed_statements_.stripped_query.named_expressions())
                             .plan;
 
     trigger_plan_ = std::make_shared<TriggerPlan>(std::move(logical_plan), std::move(identifiers));

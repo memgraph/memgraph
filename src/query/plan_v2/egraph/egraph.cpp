@@ -41,8 +41,8 @@ egraph::~egraph() = default;  // required because pimpl
 
 auto egraph::MakeOnce() -> eclass { return from_core(pimpl_->graph.Make<Once>().eclass_id); }
 
-auto egraph::MakeSymbol(int32_t position, std::string_view name) -> eclass {
-  return from_core(pimpl_->graph.Make<Symbol>(position, name).eclass_id);
+auto egraph::MakeSymbol(int32_t position, std::string_view name, int64_t token_position) -> eclass {
+  return from_core(pimpl_->graph.Make<Symbol>(position, name, token_position).eclass_id);
 }
 
 auto egraph::MakeLiteral(storage::ExternalPropertyValue const &value) -> eclass {

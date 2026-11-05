@@ -160,8 +160,10 @@ struct symbol_build_traits<symbol::Symbol> {
     if (it == state.symbol_store.end()) [[unlikely]] {
       ThrowPlannerBug("symbol not found in store");
     }
-    // Diagnostics-only loss: rebuilt Symbol carries no user_declared_/type_.
-    auto const &symbol = state.symbol_table.CreateSymbol(it->second, false /*TODO*/);
+    // token_position is carried so result-header naming can recover an unaliased
+    // column's source text. Diagnostics-only loss: no user_declared_/type_.
+    auto const &symbol = state.symbol_table.CreateSymbol(
+        it->second.name, false /*TODO*/, Symbol::Type::ANY, static_cast<int32_t>(it->second.token_position));
     return state.symbol_cache.emplace(sym_pos, symbol).first->second;
   }
 };
