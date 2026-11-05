@@ -70,6 +70,9 @@ class UserProfiles {
   std::unordered_set<std::string> GetUsernames(std::string_view profile_name) const;
   std::optional<std::string> GetProfileForUsername(std::string_view username) const;
 
+  /// True while the user was found in several profiles at load and no admin action has resolved it since.
+  bool IsAmbiguous(std::string_view username) const;
+
   static std::optional<Profile> Merge(const std::optional<Profile> &user, const std::optional<Profile> &role);
 
  private:
@@ -99,9 +102,16 @@ class UserProfiles {
     [[nodiscard]] bool operator()(const std::string &lhs, const Profile &rhs) const { return lhs == rhs.name; }
   };
 
+  // Writes the profile; keeps stale durable spellings of still-ambiguous users so unrelated saves never fix them.
+  bool Persist(const Profile &profile);
+
+  // Drops the user's stale durable spellings after an admin action settled its profile. Caller holds the unique lock.
+  bool ResolveAmbiguity(const std::string &folded);
+
   mutable utils::RWSpinLock mtx_;
   Repository *durability_;                                             // Reuse auth's durability
   std::unordered_set<Profile, profile_hash, profile_equal> profiles_;  // Local storage
+  std::unordered_set<std::string> ambiguous_;  // Folded users found in several profiles at load; guarded by mtx_
 };
 
 }  // namespace memgraph::auth
