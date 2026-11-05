@@ -90,4 +90,33 @@
   X(NamedOutput)                     \
   X(Function)
 
+// Symbol-read partition, orthogonal to both above. A symbol *reads* a binding
+// when evaluating it needs the bound value; it merely *names* one when it
+// introduces the binding or labels an output with it. Eliding a binder nothing
+// reads turns entirely on this distinction, so the partition is checked
+// exhaustive against EGRAPH_ALL_SYMBOLS in symbol.hpp: a new symbol left out of
+// both lists is a compile error rather than a binding elided out from under a
+// reader.
+
+// Reads a binding: the Symbol child is dereferenced for its value.
+#define EGRAPH_SYM_READING_SYMBOLS(X) X(Identifier)
+
+// Does not read a binding: either it has no Symbol child, or it introduces the
+// binding (Bind, Unwind) or labels an output with it (NamedOutput).
+#define EGRAPH_NON_SYM_READING_SYMBOLS(X) \
+  X(Once)                                 \
+  X(Symbol)                               \
+  X(Literal)                              \
+  X(ParamLookup)                          \
+  X(Not)                                  \
+  X(UnaryMinus)                           \
+  X(UnaryPlus)                            \
+  EGRAPH_BINARY_SYMBOLS(X)                \
+  X(Bind)                                 \
+  X(Output)                               \
+  X(NamedOutput)                          \
+  X(Function)                             \
+  X(Unwind)                               \
+  X(Subquery)
+
 // NOLINTEND(cppcoreguidelines-macro-usage)
