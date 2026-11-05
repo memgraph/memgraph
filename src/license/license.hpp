@@ -121,7 +121,7 @@ struct LicenseChecker {
   LicenseChecker(LicenseChecker &&) = delete;
   LicenseChecker operator=(LicenseChecker &&) = delete;
 
-  void CheckEnvLicense(utils::Settings &settings);
+  void CheckEnvLicense();
   void SetCliLicense(std::string license_key, std::string organization_name, utils::Settings &settings);
   void EnableTesting(LicenseType license_type = LicenseType::ENTERPRISE);
   // Test-only: additionally applies a license memory limit through the real routing

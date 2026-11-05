@@ -13,7 +13,9 @@
 #include <array>
 #include <chrono>
 #include <cstdint>
+#include <cstdlib>
 #include <memory>
+#include <optional>
 #include <sstream>
 #include <string>
 #include <string_view>
@@ -286,7 +288,27 @@ TEST_F(LicenseTest, DetailedLicenseInfo_ExpiredReportsDate) {
       << detailed_license_info.status;
 }
 
-class LicenseExpiryWarningTest : public LicenseTest {
+class ScopedEnv {
+ public:
+  ScopedEnv(char const *name, std::string const &value) : name_{name} {
+    if (auto const *previous = std::getenv(name)) previous_ = previous;
+    setenv(name, value.c_str(), 1);  // NOLINT(concurrency-mt-unsafe)
+  }
+
+  ScopedEnv(ScopedEnv const &) = delete;
+  ScopedEnv &operator=(ScopedEnv const &) = delete;
+
+  ~ScopedEnv() {
+    // NOLINTNEXTLINE(concurrency-mt-unsafe)
+    previous_ ? setenv(name_, previous_->c_str(), 1) : unsetenv(name_);
+  }
+
+ private:
+  char const *name_;
+  std::optional<std::string> previous_;
+};
+
+class LicenseLogTest : public LicenseTest {
  protected:
   void SetUp() override {
     LicenseTest::SetUp();
@@ -306,30 +328,44 @@ class LicenseExpiryWarningTest : public LicenseTest {
     license_checker->SetCliLicense(memgraph::license::Encode(license), organization_name, *settings);
   }
 
-  size_t Warnings() const {
+  size_t Logged(std::string_view const message) const {
     auto const text = log.str();
     size_t count = 0;
-    for (auto pos = text.find(kWarning); pos != std::string::npos; pos = text.find(kWarning, pos + 1)) ++count;
+    for (auto pos = text.find(message); pos != std::string::npos; pos = text.find(message, pos + 1)) ++count;
     return count;
   }
 
-  static constexpr std::string_view kWarning = "Enterprise features stop working";
+  size_t Warnings() const { return Logged("Enterprise features stop working"); }
+
   const std::string organization_name{"Memgraph"};
   std::ostringstream log;
   std::shared_ptr<spdlog::sinks::ostream_sink_mt> sink = std::make_shared<spdlog::sinks::ostream_sink_mt>(log);
 };
 
-TEST_F(LicenseExpiryWarningTest, NotLoggedForDistantExpiry) {
+TEST_F(LicenseLogTest, ExpiryNotLoggedForDistantExpiry) {
   SetCliLicenseExpiringInDays(60);
   EXPECT_EQ(Warnings(), 0);
 }
 
-TEST_F(LicenseExpiryWarningTest, LoggedOncePerDay) {
+TEST_F(LicenseLogTest, ExpiryLoggedOncePerDay) {
   SetCliLicenseExpiringInDays(10);
   EXPECT_EQ(Warnings(), 1);
 
   settings->SetValue("organization.name", organization_name);
   EXPECT_EQ(Warnings(), 1);
+}
+
+TEST_F(LicenseLogTest, RejectedEnvBesideValidCliIsNotALoss) {
+  auto const key = memgraph::license::Encode({organization_name, 0, 0, memgraph::license::LicenseType::ENTERPRISE});
+  ScopedEnv const env_key{"MEMGRAPH_ENTERPRISE_LICENSE", key};
+  ScopedEnv const env_org{"MEMGRAPH_ORGANIZATION_NAME", "Memgraphwrong"};
+
+  license_checker->CheckEnvLicense();
+  license_checker->SetCliLicense(key, organization_name, *settings);
+
+  CheckLicenseValidity(true);
+  EXPECT_EQ(Logged("Running in community mode"), 0);
+  EXPECT_EQ(Logged("Ignoring a rejected license source. [ENV]"), 1);
 }
 
 // ===========================================================================

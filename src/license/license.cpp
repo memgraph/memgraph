@@ -355,7 +355,7 @@ void LicenseChecker::DisableTesting() {
   spdlog::info("The license is disabled for testing.");
 }
 
-void LicenseChecker::CheckEnvLicense(utils::Settings &settings) {
+void LicenseChecker::CheckEnvLicense() {
   const char *license_key = std::getenv("MEMGRAPH_ENTERPRISE_LICENSE");
   const char *organization_name = std::getenv("MEMGRAPH_ORGANIZATION_NAME");
   if (!license_key || !organization_name) {
@@ -363,7 +363,6 @@ void LicenseChecker::CheckEnvLicense(utils::Settings &settings) {
   }
   spdlog::info("License info found in environment variables.");
   env_license_info_.emplace(license_key, organization_name);
-  RevalidateLicense(settings);
 }
 
 void LicenseChecker::SetCliLicense(std::string license_key, std::string organization_name, utils::Settings &settings) {
