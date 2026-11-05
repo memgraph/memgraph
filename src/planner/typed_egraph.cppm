@@ -89,11 +89,11 @@ concept SymbolMakeTraits =
 /// only a reference parameter refuses a temporary.
 template <typename T, typename Analysis, typename EGraphT>
 concept SymbolUpdatesAnalysis =
-    requires(EGraphT const &eg, typename T::storage_type const &storage, std::span<EClassId const> children,
+    requires(EGraphT const &eg, T::storage_type const &storage, std::span<EClassId const> children,
              std::uint64_t disambiguator, Analysis &out) {
       { T::update(eg, storage, children, disambiguator, out) } -> std::same_as<bool>;
     } &&
-    !requires(EGraphT const &eg, typename T::storage_type const &storage, std::span<EClassId const> children,
+    !requires(EGraphT const &eg, T::storage_type const &storage, std::span<EClassId const> children,
               std::uint64_t disambiguator) { T::update(eg, storage, children, disambiguator, Analysis{}); };
 
 /// A symbol's update, or a no-op for one that offers none, so the refresh can
@@ -102,7 +102,7 @@ template <typename Analysis, typename EGraphT, typename TraitT>
 struct AnalysisUpdate {
   static constexpr bool updates = SymbolUpdatesAnalysis<TraitT, Analysis, EGraphT>;
 
-  static auto apply(EGraphT const &eg, typename TraitT::storage_type const &storage, std::span<EClassId const> children,
+  static auto apply(EGraphT const &eg, TraitT::storage_type const &storage, std::span<EClassId const> children,
                     std::uint64_t disambiguator, Analysis &out) -> bool {
     if constexpr (updates) {
       return TraitT::update(eg, storage, children, disambiguator, out);
