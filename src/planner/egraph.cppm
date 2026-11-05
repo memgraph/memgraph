@@ -177,6 +177,11 @@ struct EGraphBase {
  public:
   /// Declare whether any symbol recomputes facts from its children. Set once by
   /// the typed wrapper, which is the layer that knows the symbols' traits.
+  ///
+  /// Recording is the default, so a graph built straight through `emplace` is
+  /// safe without saying anything: recording when nothing derives facts wastes
+  /// a visit the refresh discards, while failing to record strands a fact a
+  /// rewrite may already have been allowed to read.
   void set_tracks_analysis(bool tracks) { tracks_analysis_ = tracks; }
 
  protected:
@@ -189,7 +194,7 @@ struct EGraphBase {
   // a driver may hold that one across passes or clear it each pass, which would
   // leave the refresh's result depending on the driver in use.
   boost::unordered_flat_set<EClassId> analysis_dirty_;
-  bool tracks_analysis_ = false;
+  bool tracks_analysis_ = true;
   size_t num_dead_nodes_ = 0;
 };
 }  // namespace detail
