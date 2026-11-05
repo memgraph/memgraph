@@ -8,6 +8,7 @@ target_sources(mg-versioning
         branch_info.hpp
         branch_ledger.hpp
         gate.hpp
+        overlay_state.hpp
         version_store.hpp
 
         PRIVATE
