@@ -866,7 +866,7 @@ class TypedValue {
   void CopyComplexValue(TypedValue const &other);
   TypedValue &MoveAssignComplex(TypedValue &&other);
 
-  // Cold: materialize a VectorRef into a List (const cache), else throw.
+  // Materialize a VectorRef into a List (const cache), else throw.
   const TVector &SlowValueList() const;
 
   TVector &SlowValueList() { return const_cast<TVector &>(std::as_const(*this).SlowValueList()); }

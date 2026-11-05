@@ -1210,21 +1210,18 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   }
 
   template <class TRecordAccessor>
-  [[gnu::cold, gnu::noinline]] TypedValue MakeVectorRef(const TRecordAccessor &record_accessor,
-                                                        storage::PropertyId prop_id) {
+  TypedValue MakeVectorRef(const TRecordAccessor &record_accessor, storage::PropertyId prop_id) {
     return TypedValue(VectorRefValue{record_accessor.impl_, prop_id, view_}, ctx_->memory);
   }
 
   template <class TRecordAccessor>
-  [[gnu::cold, gnu::noinline]] TypedValue LazyPropertyValue(const TRecordAccessor &record_accessor,
-                                                            const PropertyIx &prop) {
+  TypedValue LazyPropertyValue(const TRecordAccessor &record_accessor, const PropertyIx &prop) {
     auto raw = GetProperty<true>(record_accessor, prop);
     return MakePropertyValue(record_accessor, ctx_->properties[prop.ix], std::move(raw));
   }
 
   template <class TRecordAccessor>
-  [[gnu::cold, gnu::noinline]] TypedValue LazyPropertyValue(const TRecordAccessor &record_accessor,
-                                                            const std::string_view name) {
+  TypedValue LazyPropertyValue(const TRecordAccessor &record_accessor, const std::string_view name) {
     auto raw = GetProperty<true>(record_accessor, name);
     return MakePropertyValue(record_accessor, dba_->NameToProperty(name), std::move(raw));
   }

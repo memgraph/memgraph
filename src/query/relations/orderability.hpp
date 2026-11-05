@@ -81,7 +81,7 @@ std::partial_ordering CompareOfVectorRefs(TypedValue const &a, TypedValue const 
 /// An embedding against a list, in either order, which share a position though unlike in type.
 ///
 /// @pre One is a VectorRef and the other a List.
-[[gnu::cold]] std::partial_ordering CompareOfTiedTypes(TypedValue const &a, TypedValue const &b);
+std::partial_ordering CompareOfTiedTypes(TypedValue const &a, TypedValue const &b);
 
 namespace detail {
 

@@ -1012,7 +1012,7 @@ std::vector<float> TypedValue::ReadVectorRef() const {
   return floats;
 }
 
-__attribute__((cold, noinline)) void TypedValue::MaterializeInPlace() const {
+void TypedValue::MaterializeInPlace() const {
   if (type_ != Type::VectorRef) return;
   const auto floats = ReadVectorRef();
   TVector list(alloc_);

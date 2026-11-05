@@ -83,12 +83,10 @@ constexpr bool ValidFor(TypedValue::Type type) {
 std::optional<std::partial_ordering> CompareOfLists(TypedValue::TVector const &a, TypedValue::TVector const &b);
 
 /// Orders a pair with an embedding as the lists of doubles it materializes to: against another
-/// embedding or a plain list; any other partner has no order. Cold and out of line so Compare's
-/// scalar path carries only one call. Reads allocate on the heap.
+/// embedding or a plain list; any other partner has no order. Reads allocate on the heap.
 ///
 /// @pre At least one is a VectorRef.
-[[gnu::cold, gnu::noinline]] std::optional<std::partial_ordering> CompareWithVectorRef(const TypedValue &a,
-                                                                                       const TypedValue &b);
+std::optional<std::partial_ordering> CompareWithVectorRef(const TypedValue &a, const TypedValue &b);
 
 /**
  * Whether comparability places a value against the values of its own type.

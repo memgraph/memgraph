@@ -40,12 +40,11 @@ TypedValue EqualOfLists(TypedValue::TVector const &a, TypedValue::TVector const 
 TypedValue EqualOfMaps(TypedValue::TMap const &a, TypedValue::TMap const &b, TypedValue::allocator_type alloc);
 
 /// Equality where either side is a lazy embedding, which reads as the list of doubles it materializes to.
-/// Reading allocates on the heap, so this stays cold. Two embeddings compare as floats (NaN included, as
+/// Reading allocates on the heap. Two embeddings compare as floats (NaN included, as
 /// widening is exact); against a plain List elementwise; against anything else false.
 ///
 /// @pre At least one is a VectorRef.
-[[gnu::cold, gnu::noinline]] TypedValue EqualOfAnyVectorRef(const TypedValue &a, const TypedValue &b,
-                                                            TypedValue::allocator_type alloc);
+TypedValue EqualOfAnyVectorRef(const TypedValue &a, const TypedValue &b, TypedValue::allocator_type alloc);
 
 /// Whether a Null sits anywhere within the value, however deeply nested.
 ///

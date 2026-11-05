@@ -100,8 +100,8 @@ bool EquivalentOfContainers(const TypedValue &a, const TypedValue &b) {
 
 namespace {
 
-// Cold and out of line to keep Hash's frame small. Must equal the hash of the materialized list of doubles.
-[[gnu::cold, gnu::noinline]] size_t HashOfVectorRef(const TypedValue &value) {
+// Must equal the hash of the materialized list of doubles.
+size_t HashOfVectorRef(const TypedValue &value) {
   auto const floats = value.ReadVectorRef();
 
   struct FloatAsDoubleHash {
