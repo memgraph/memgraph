@@ -506,7 +506,7 @@ VectorIndex::VectorSearchNodeResults VectorIndex::SearchNodes(std::string_view i
     result.emplace_back(
         vertex,
         static_cast<double>(result_keys[i].distance),
-        std::abs(SimilarityFromDistance(item_ptr->mg_index.index.metric().metric_kind(), result_keys[i].distance)));
+        SimilarityFromDistance(item_ptr->mg_index.index.metric().metric_kind(), result_keys[i].distance));
   }
 
   return result;
