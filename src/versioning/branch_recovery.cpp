@@ -36,10 +36,12 @@
 #include "storage/v2/durability/wal.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/property_value.hpp"
+#include "utils/atomic_utils.hpp"
 #include "utils/crc_accumulator.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/variant_helpers.hpp"
 #include "versioning/branch_engine.hpp"
+#include "versioning/version_store.hpp"
 
 namespace memgraph::versioning {
 
@@ -359,6 +361,84 @@ class BranchWalReplayer {
   storage::NameIdMapper *mapper_;
 };
 
+// False for a branch that never committed: its directory has no WAL.
+// @throw utils::BasicException the directory cannot be inspected
+bool HasWalFiles(const std::filesystem::path &dir) {
+  std::error_code ec;
+  if (!std::filesystem::exists(dir, ec)) {
+    if (ec) throw utils::BasicException("Cannot inspect '{}': {}", dir.string(), ec.message());
+    return false;
+  }
+  for (std::filesystem::directory_iterator it{dir, ec}, end; !ec && it != end; it.increment(ec)) {
+    if (it->is_regular_file(ec)) return true;
+  }
+  if (ec) throw utils::BasicException("Cannot list '{}': {}", dir.string(), ec.message());
+  return false;
+}
+
+// A branch with a WAL was built before, so the ledger holds its floors; without them the native/fork boundary is lost.
+std::expected<std::shared_ptr<BranchCore>, std::string> BuildAndReplay(storage::InMemoryStorage &main,
+                                                                       const BranchInfo &info,
+                                                                       const std::filesystem::path &wal_dir) {
+  if (!info.vertex_gid_floor || !info.edge_gid_floor) {
+    return std::unexpected("the ledger holds no gid floors for it although its WAL exists");
+  }
+  auto built = BranchCore::Build(
+      main,
+      info.fork_ts,
+      info.number,
+      BranchCore::RecordedFloors{.vertex_gid_floor = *info.vertex_gid_floor, .edge_gid_floor = *info.edge_gid_floor});
+  if (!built) return std::unexpected(std::move(built.error().message));
+  if (auto replayed = ReplayBranchWal(*built, wal_dir); !replayed) return std::unexpected(std::move(replayed.error()));
+  return std::move(*built);
+}
+
+// New main objects must not take a gid a branch holds: gids below a floor are fork objects, so a native object taking
+// one would be misread as a fork object, and a native gid that main hands out again would alias two objects.
+void RaiseMainCounters(storage::InMemoryStorage &main, uint64_t next_vertex, uint64_t next_edge) {
+  atomic_fetch_max_explicit(&main.vertex_id_, next_vertex, std::memory_order_acq_rel);
+  atomic_fetch_max_explicit(&main.edge_id_, next_edge, std::memory_order_acq_rel);
+}
+
+void ScanCreatedGids(const WalFileEntry &file, uint64_t &next_vertex, uint64_t &next_edge) {
+  dur::Decoder decoder;
+  const auto version = OpenAtDeltas(decoder, file);
+  for (uint64_t i = 0; i < file.info.num_deltas; ++i) {
+    dur::ReadWalDeltaHeader(&decoder);
+    const auto delta = dur::ReadWalDeltaData(&decoder, version);
+    std::visit(utils::Overloaded{
+                   [&](const dur::WalVertexCreate &d) { next_vertex = std::max(next_vertex, d.gid.AsUint() + 1); },
+                   [&](const dur::WalEdgeCreate &d) { next_edge = std::max(next_edge, d.gid.AsUint() + 1); },
+                   [](const auto & /*other*/) {}},
+               delta.data_);
+  }
+}
+
+// For a branch whose core is not at hand: the floors and whatever its WAL files still say they created. A file or
+// directory that cannot be read contributes what was read before the damage.
+void RaiseMainCountersFromBranchFiles(storage::InMemoryStorage &main, const std::string &name, const BranchInfo &info) {
+  uint64_t next_vertex = info.vertex_gid_floor.value_or(0);
+  uint64_t next_edge = info.edge_gid_floor.value_or(0);
+  const auto wal_dir = main.config_.durability.storage_directory / "branches" / std::to_string(info.number) / "wal";
+  try {
+    if (HasWalFiles(wal_dir)) {
+      for (const auto &file : ListWalFiles(wal_dir)) {
+        try {
+          ScanCreatedGids(file, next_vertex, next_edge);
+        } catch (const std::exception &e) {
+          spdlog::warn("Graph Versioning: cannot read the WAL '{}' of branch '{}' in full: {}",
+                       file.path.string(),
+                       name,
+                       e.what());
+        }
+      }
+    }
+  } catch (const std::exception &e) {
+    spdlog::warn("Graph Versioning: cannot list the WAL of branch '{}': {}", name, e.what());
+  }
+  RaiseMainCounters(main, next_vertex, next_edge);
+}
+
 }  // namespace
 
 std::expected<void, std::string> ReplayBranchWal(std::shared_ptr<BranchCore> core,
@@ -374,6 +454,85 @@ std::expected<void, std::string> ReplayBranchWal(std::shared_ptr<BranchCore> cor
     return std::unexpected(std::string{e.what()});
   }
   return {};
+}
+
+std::vector<BranchRecoveryFailure> RecoverBranches(VersionStore &store, storage::InMemoryStorage &main) {
+  const memory::DbArenaScope arena_scope{main.DbArenaPool()};
+  const auto branches_dir = main.config_.durability.storage_directory / "branches";
+  std::vector<BranchRecoveryFailure> failures;
+  for (const auto &[name, info] : store.List()) {
+    const auto wal_dir = branches_dir / std::to_string(info.number) / "wal";
+    std::string failure;
+    try {
+      if (!HasWalFiles(wal_dir)) {
+        RaiseMainCounters(main, info.vertex_gid_floor.value_or(0), info.edge_gid_floor.value_or(0));
+        continue;
+      }
+      const auto core = store.GetOrBuildCore(info.number, [&] { return BuildAndReplay(main, info, wal_dir); });
+      if (core) {
+        // The diff engine's counters start at the floors and move one past the highest native gid it replayed.
+        RaiseMainCounters(main,
+                          std::max((*core)->vertex_gid_floor(), (*core)->diff_engine().vertex_id_.load()),
+                          std::max((*core)->edge_gid_floor(), (*core)->diff_engine().edge_id_.load()));
+        spdlog::info("Graph Versioning: recovered the contents of branch '{}'.", name);
+        continue;
+      }
+      failure = core.error();
+    } catch (const std::exception &e) {
+      failure = e.what();
+    }
+    failures.push_back({.name = name, .number = info.number, .reason = std::move(failure)});
+  }
+  return failures;
+}
+
+std::string DescribeRecoveryRefusal(std::string_view database, const std::filesystem::path &storage_directory,
+                                    const std::vector<BranchRecoveryFailure> &failures) {
+  const auto branches_dir = storage_directory / "branches";
+  std::string out = fmt::format(
+      "Database '{}' has Graph Versioning branches whose contents cannot be recovered at startup, so Memgraph will not "
+      "start. Nothing was changed on disk; no branch or main data is lost.\n",
+      database);
+  for (const auto &failure : failures) {
+    const auto branch_dir = branches_dir / std::to_string(failure.number);
+    const auto wal_dir = branch_dir / "wal";
+    std::string_view reason{failure.reason};
+    while (reason.ends_with('.')) reason.remove_suffix(1);
+    out += fmt::format(
+        "\nBranch '{0}' cannot be replayed: {1}.\n"
+        "  branch directory: {2}\n"
+        "  write-ahead log:  {3}\n"
+        "  branch ledger:    {4}\n",
+        failure.name,
+        reason,
+        branch_dir.string(),
+        wal_dir.string(),
+        (branches_dir / "ledger").string());
+  }
+  out +=
+      "\nTo start Memgraph again, stop it and, for every branch listed above, do one of:\n"
+      "  1. Repair the files in its write-ahead log directory, or restore that directory from a backup.\n"
+      "  2. Move its write-ahead log directory away. The branch then comes back as it was when it was created, without "
+      "the writes made on it (the moved files stay available for a repair), and main and the other branches are not "
+      "affected:\n";
+  for (const auto &failure : failures) {
+    const auto wal_dir = branches_dir / std::to_string(failure.number) / "wal";
+    out += fmt::format("       mv '{0}' '{0}.damaged'\n", wal_dir.string());
+  }
+  out +=
+      "Do not edit the branch ledger: it is checksummed. To discard every branch instead, move the whole branches "
+      "directory away.";
+  return out;
+}
+
+void KeepMainClearOfHiddenBranches(const LedgerContents &ledger, storage::InMemoryStorage &main) {
+  if (ledger.branches.empty()) return;
+  uint64_t newest_fork = 0;
+  for (const auto &[name, info] : ledger.branches) {
+    newest_fork = std::max(newest_fork, info.recorded_fork_ts);
+    RaiseMainCountersFromBranchFiles(main, name, info);
+  }
+  main.BumpClockPastDurable(newest_fork);
 }
 
 }  // namespace memgraph::versioning
