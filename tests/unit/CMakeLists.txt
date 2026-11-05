@@ -1027,6 +1027,11 @@ add_unit_test(storage_v2_wal_file
     LINK_TARGETS mg::storage storage_test_utils fmt::fmt
 )
 
+add_unit_test(storage_v2_commit_ts_info
+    SOURCES storage_v2_commit_ts_info.cpp
+    LINK_TARGETS mg::storage
+)
+
 add_unit_test(storage_v2_replication
     SOURCES storage_v2_replication.cpp
     LINK_TARGETS mg::storage mg-dbms fmt::fmt mg-repl_coord_glue storage_test_utils mg-replication_handler
