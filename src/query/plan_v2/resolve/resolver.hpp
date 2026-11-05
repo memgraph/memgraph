@@ -62,8 +62,16 @@ struct UniformResolveChildren {
 template <symbol S>
 struct symbol_resolve_traits;  // primary intentionally undefined; every symbol must specialise.
 
-// Alive Bind / Unwind child threading (both share the [input, sym, payload]
-// layout). own_sym is the sym child. Pipe gets:
+// Bind and Unwind share the [input, sym, payload] layout, which is what lets
+// the threading below index either of them through bind's constants. All three
+// positions are load-bearing, not just the sym: indexing an Unwind by bind's
+// `input` or `expr` while those diverged would thread its list as the row pipe.
+static_assert(child::bind::input == child::unwind::input && child::bind::sym == child::unwind::sym &&
+                  child::bind::expr == child::unwind::list,
+              "Bind and Unwind must agree on all three child positions; the resolver indexes both through "
+              "child::bind");
+
+// Alive Bind / Unwind child threading. own_sym is the sym child. Pipe gets:
 //   in_scope       = parent.in_scope
 //   must_introduce = chosen.introduces − {own_sym}
 // Expr gets:
@@ -101,11 +109,7 @@ inline void ResolveUnwindDead(planner::core::ENode<symbol> const &enode, Resolve
 // its sym, and "dead" when the bound value is unused downstream.
 inline bool BinderIsAlive(planner::core::ENode<symbol> const &enode, VariableSet const &chosen_introduces,
                           SymbolContext const &syms) {
-  using namespace child::bind;  // sym position shared with unwind
-  // Both binders resolve their sym at the same child index; this reads it by
-  // bind's constant for Bind and Unwind alike, so the two must agree.
-  static_assert(child::bind::sym == child::unwind::sym,
-                "BinderIsAlive reads the sym child by bind's index for both Bind and Unwind");
+  using namespace child::bind;  // shared layout asserted above
   return enode.children().size() == 3 && chosen_introduces.test(syms.variable_index.bit_of(enode.children()[sym]));
 }
 
