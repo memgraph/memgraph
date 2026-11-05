@@ -183,6 +183,46 @@ void BM_RefreshFanOut(benchmark::State &state) {
 
 BENCHMARK(BM_RefreshFanOut)->Arg(1)->Arg(64)->Arg(1024)->Arg(8192)->Iterations(30);
 
+/// Five towers of `depth` Add nodes over a shared leaf, their bases merged
+/// pairwise. One rebuild collapses every level of every tower, so by the time
+/// the refresh runs its change set holds an entry per merge the cascade made
+/// while only a tower's worth of e-classes survived. The benchmarks above each
+/// merge a single pair, where that distinction cannot appear.
+struct CascadeFixture {
+  MaskEGraph eg;
+  std::vector<EClassId> bases;
+
+  CascadeFixture(std::int64_t chains, std::int64_t depth) {
+    auto const shared = eg.Make<Op::Const>(static_cast<std::uint64_t>(1)).eclass_id;
+    for (std::int64_t c = 0; c < chains; ++c) {
+      auto previous = eg.Make<Op::Var>(static_cast<std::uint64_t>(1) << static_cast<std::uint64_t>(c + 1)).eclass_id;
+      bases.push_back(previous);
+      for (std::int64_t d = 0; d < depth; ++d) {
+        previous = eg.Make<Op::Add>(previous, shared).eclass_id;
+      }
+    }
+  }
+};
+
+void BM_RefreshAfterCascade(benchmark::State &state) {
+  auto const depth = state.range(0);
+  for (auto _ : state) {
+    state.PauseTiming();
+    CascadeFixture f{5, depth};
+    auto ctx = core::ProcessingContext<Op>{};
+    for (std::size_t i = 1; i < f.bases.size(); ++i) {
+      f.eg.core().merge(f.bases[i], f.bases[i - 1]);
+    }
+    f.eg.core().rebuild(ctx);
+    state.ResumeTiming();
+
+    benchmark::DoNotOptimize(f.eg.refresh_analysis(ctx));
+  }
+  state.SetLabel("5 towers of depth " + std::to_string(depth) + ", collapsed by one rebuild");
+}
+
+BENCHMARK(BM_RefreshAfterCascade)->Arg(16)->Arg(256)->Arg(2048)->Iterations(30);
+
 /// Building a graph with the phase on, against the same build with it off.
 /// The gap is what a consumer pays for declaring an update at all, separate
 /// from any refresh it then asks for.
