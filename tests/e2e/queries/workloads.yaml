@@ -12,3 +12,9 @@ workloads:
     binary: "tests/e2e/pytest_runner.sh"
     args: ["queries/queries.py"]
     <<: *queries_cluster
+
+  - name: "Dump float round-trip"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["queries/dump_float_roundtrip.py"]
+    <<: *queries_cluster
+
