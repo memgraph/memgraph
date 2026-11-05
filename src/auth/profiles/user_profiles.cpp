@@ -16,6 +16,8 @@
 #include <set>
 #include <shared_mutex>
 #include <string>
+#include <utility>
+#include <vector>
 
 #include "nlohmann/json.hpp"
 #include "slk/serialization.hpp"
@@ -82,10 +84,19 @@ UserProfiles::UserProfiles(Repository &durability) : durability_{&durability} {
     spdlog::error("Failed to put user profiles version");
   }
 
+  // Raw (pre-fold) spellings per folded user, as (spelling, profile name).
+  std::map<std::string, std::vector<std::pair<std::string, std::string>>> spellings;
+
   // Populate local storage
-  durability_->ForEachProfile([this](auto const &name, auto const &value) {
+  durability_->ForEachProfile([this, &spellings](auto const &name, auto const &value) {
     try {
-      auto profile = nlohmann::json::parse(value).template get<memgraph::auth::UserProfiles::Profile>();
+      const auto data = nlohmann::json::parse(value);
+      if (data.contains("usernames")) {
+        for (auto &raw : data["usernames"].template get<std::vector<std::string>>()) {
+          spellings[FoldUsername(raw)].emplace_back(std::move(raw), name);
+        }
+      }
+      auto profile = data.template get<memgraph::auth::UserProfiles::Profile>();
       profile.name = name;
       profiles_.emplace(std::move(profile));
     } catch (const nlohmann::json::parse_error &) {
@@ -93,24 +104,65 @@ UserProfiles::UserProfiles(Repository &durability) : durability_{&durability} {
     }
   });
 
-  // Data written before usernames were folded can place spellings of one user in several profiles.
-  std::map<std::string, std::set<std::string>> profiles_by_user;
-  for (const auto &profile : profiles_) {
-    for (const auto &username : profile.usernames) {
-      profiles_by_user[username].insert(profile.name);
+  // Data written before usernames were folded can place spellings of one user in several profiles. Keep one in
+  // memory (the largest raw spelling, i.e. the exact-lowercase one older binaries enforced) and leave durable as is.
+  for (const auto &[user, entries] : spellings) {
+    std::set<std::string> names;
+    const std::pair<std::string, std::string> *winner = nullptr;
+    for (const auto &entry : entries) {
+      names.insert(entry.second);
+      if (!winner || entry.first > winner->first || (entry.first == winner->first && entry.second < winner->second)) {
+        winner = &entry;
+      }
     }
-  }
-  for (const auto &[username, names] : profiles_by_user) {
-    if (names.size() > 1) {
-      spdlog::error(
-          "User '{}' is assigned to multiple profiles ({}); limits for this user are ambiguous. Run SET PROFILE "
-          "<profile> FOR {} to keep one.",
-          username,
-          utils::Join(names, ", "),
-          username);
+    if (names.size() < 2) continue;
+    for (const auto &name : names) {
+      if (name != winner->second) profiles_.find(name)->usernames.erase(user);
     }
+    ambiguous_.insert(user);
+    spdlog::error(
+        "User '{}' is assigned to profiles {} under different spellings; applying profile '{}'. Run SET PROFILE FOR {} "
+        "TO <profile> to choose a profile, or CLEAR PROFILE FOR {} to remove it.",
+        user,
+        utils::Join(names, ", "),
+        winner->second,
+        user,
+        user);
   }
 };
+
+bool UserProfiles::Persist(const Profile &profile) {
+  nlohmann::json json = profile;
+  if (!ambiguous_.empty()) {
+    if (const auto stored = durability_->Get(Repository::ProfileKey(profile.name))) {
+      const auto stored_json = nlohmann::json::parse(*stored, nullptr, false);
+      if (stored_json.is_object() && stored_json.contains("usernames") && stored_json["usernames"].is_array()) {
+        for (const auto &raw : stored_json["usernames"]) {
+          if (!raw.is_string()) continue;
+          const auto folded = FoldUsername(raw.get<std::string>());
+          if (ambiguous_.contains(folded) && !profile.usernames.contains(folded)) {
+            json["usernames"].push_back(raw);
+          }
+        }
+      }
+    }
+  }
+  return durability_->Put(Repository::ProfileKey(profile.name), json.dump());
+}
+
+bool UserProfiles::ResolveAmbiguity(const std::string &folded) {
+  if (!ambiguous_.contains(folded)) return true;
+  // Erase first so Persist stops carrying this user's stale spellings.
+  ambiguous_.erase(folded);
+  for (const auto &profile : profiles_) {
+    if (!Persist(profile)) {
+      ambiguous_.insert(folded);
+      spdlog::warn("Failed to clear stale profile membership of user '{}'; it stays ambiguous.", folded);
+      return false;
+    }
+  }
+  return true;
+}
 
 bool UserProfiles::Create(std::string_view name, limits_t defined_limits,
                           const std::unordered_set<std::string> &usernames) {
@@ -134,21 +186,22 @@ bool UserProfiles::Create(std::string_view name, limits_t defined_limits,
       if (existing_profile.usernames.contains(username)) {
         existing_profile.usernames.erase(username);
         // Update the other profile in durability
-        const nlohmann::json json = existing_profile;
-        durability_->Put(Repository::ProfileKey(existing_profile.name), json.dump());
+        Persist(existing_profile);
       }
     }
   }
 
-  const nlohmann::json json = profile;
   const auto [it, succ] = profiles_.emplace(std::move(profile));
   if (!succ) {
     return false;
   }
-  if (!durability_->Put(Repository::ProfileKey(name), json.dump())) {
+  if (!Persist(*it)) {
     // Remove new profile
     profiles_.erase(it);
     return false;
+  }
+  for (const auto &username : it->usernames) {
+    ResolveAmbiguity(username);
   }
   return true;
 }
@@ -165,8 +218,7 @@ std::optional<UserProfiles::Profile> UserProfiles::Update(std::string_view name,
     profile_it->limits[key] = val;
   }
   // Update durability
-  const nlohmann::json json = *profile_it;
-  if (!durability_->Put(Repository::ProfileKey(name), json.dump())) {
+  if (!Persist(*profile_it)) {
     // Revert to old profile
     profile_it->limits = std::move(old_limits);
     return std::nullopt;
@@ -186,6 +238,9 @@ UserProfiles::DropResult UserProfiles::Drop(std::string_view name) {
     // Revert to old profile
     profiles_.emplace(std::move(old_profile));
     return DropResult::kFailed;
+  }
+  for (const auto &username : old_profile.usernames) {
+    ResolveAmbiguity(username);
   }
   return DropResult::kDropped;
 }
@@ -224,8 +279,7 @@ std::optional<UserProfiles::Profile> UserProfiles::AddUsername(std::string_view 
     if (profile.usernames.contains(folded_username)) {
       profile.usernames.erase(folded_username);
       // Update the other profile in durability
-      const nlohmann::json json = profile;
-      durability_->Put(Repository::ProfileKey(profile.name), json.dump());
+      Persist(profile);
     }
   }
 
@@ -233,13 +287,13 @@ std::optional<UserProfiles::Profile> UserProfiles::AddUsername(std::string_view 
   profile_it->usernames.insert(folded_username);
 
   // Update durability
-  const nlohmann::json json = *profile_it;
-  if (!durability_->Put(Repository::ProfileKey(profile_name), json.dump())) {
+  if (!Persist(*profile_it)) {
     // Revert changes
     profile_it->usernames.erase(folded_username);
     return std::nullopt;
   }
 
+  ResolveAmbiguity(folded_username);
   return *profile_it;
 }
 
@@ -259,13 +313,13 @@ UserProfiles::MembershipResult UserProfiles::RemoveUsername(std::string_view pro
   profile_it->usernames.erase(username_it);
 
   // Update durability
-  const nlohmann::json json = *profile_it;
-  if (!durability_->Put(Repository::ProfileKey(profile_name), json.dump())) {
+  if (!Persist(*profile_it)) {
     // Revert changes
     profile_it->usernames.insert(folded_username);
     return MembershipResult::kFailed;
   }
 
+  ResolveAmbiguity(folded_username);
   return MembershipResult::kChanged;
 }
 
@@ -288,6 +342,11 @@ std::optional<std::string> UserProfiles::GetProfileForUsername(std::string_view 
     }
   }
   return std::nullopt;
+}
+
+bool UserProfiles::IsAmbiguous(std::string_view username) const {
+  auto l = std::shared_lock{mtx_};
+  return ambiguous_.contains(FoldUsername(username));
 }
 
 std::optional<UserProfiles::Profile> UserProfiles::Merge(const std::optional<Profile> &user,

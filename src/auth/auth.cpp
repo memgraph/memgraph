@@ -807,7 +807,9 @@ bool Auth::CreateOrUpdateProfile(const std::string &profile_name, UserProfiles::
       }
     }
     for (const auto &user : new_users) {
-      if (!existing_users.contains(user)) {
+      // The replica made the same pick from the same data, so a SET to the already-applied profile must still
+      // clear the replica's stale spelling.
+      if (!existing_users.contains(user) || user_profiles_.IsAmbiguous(user)) {
         SetProfile(profile_name, user, system_tx);
       }
     }
