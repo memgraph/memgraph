@@ -139,8 +139,8 @@ using FactEGraph =
 
 using FactCore = EGraph<FactOp, FactAnalysis>;
 
-// Traits whose update() is a near miss, for the negative concept checks. Each
-// is wrong in one way a trait author could plausibly write by accident.
+// Traits whose update() is a near miss, each wrong in one way a trait author
+// could plausibly write by accident.
 struct UpdateReturnsVoid {
   static void update(FactCore const & /*eg*/, std::span<EClassId const> /*children*/, FactAnalysis & /*out*/) {}
 };
@@ -220,9 +220,9 @@ static_assert(!SymbolMakeTraits<BadTraits, ToyAnalysis>, "make() not returning a
 
 // === SymbolUpdatesAnalysis: the optional half of the protocol ===
 
-// An update the concept declines is replaced by a no-op, so every shape below
-// that fails to be rejected is a symbol whose facts silently stop being
-// recomputed. There is no error to read: the graph simply derives less.
+// An update the concept declines is replaced by a no-op, so a shape below that
+// failed to be rejected would be a symbol whose facts silently stop being
+// recomputed, with no error to read.
 static_assert(SymbolUpdatesAnalysis<fact_traits<FactOp::Sum>, FactAnalysis, FactCore>,
               "a well-formed update satisfies the protocol");
 static_assert(!SymbolUpdatesAnalysis<fact_traits<FactOp::Leaf>, FactAnalysis, FactCore>,
@@ -234,7 +234,6 @@ static_assert(!SymbolUpdatesAnalysis<UpdateTakesAnalysisByValue, FactAnalysis, F
 static_assert(!SymbolUpdatesAnalysis<UpdateOmitsTheChildren, FactAnalysis, FactCore>,
               "an update that cannot read its children is rejected");
 
-// The consequence a near miss carries: not a diagnostic, but the no-op.
 static_assert(!AnalysisUpdate<FactAnalysis, FactCore, UpdateReturnsVoid>::updates);
 static_assert(AnalysisUpdate<FactAnalysis, FactCore, fact_traits<FactOp::Sum>>::updates);
 
@@ -260,10 +259,9 @@ TEST(TypedEGraph, RefreshDerivesAFactForAFreshlyMadeNode) {
   auto const one = eg.Make<FactOp::Leaf>(1).eclass_id;
   auto const five = eg.Make<FactOp::Leaf>(5).eclass_id;
 
-  // Both operands are known when the Sum is made, and no merge is involved.
-  // Only `update` can say 1 + 5, since `make` seeds a Sum with nothing - so a
-  // new e-class has to be visited on its own account, not merely when a merge
-  // reaches it.
+  // No merge is involved, and `make` seeds a Sum with nothing, so only
+  // `update` can say 1 + 5: a new e-class has to be visited on its own
+  // account.
   auto const sum = eg.Make<FactOp::Sum>(one, five).eclass_id;
   ASSERT_EQ(eg.refresh_analysis(refresh_ctx), 1U);
   ASSERT_TRUE(eg.core().analysis_of(sum).known.has_value());
@@ -311,7 +309,6 @@ TEST(TypedEGraph, RefreshRederivesAFactAMergeEnabled) {
   // revisited the parent whose own fact was derived from it.
   EXPECT_FALSE(eg.core().analysis_of(sum).known.has_value());
 
-  // Refreshing recomputes every e-class whose children's facts have moved.
   eg.refresh_analysis(refresh_ctx);
   ASSERT_TRUE(eg.core().analysis_of(sum).known.has_value());
   EXPECT_EQ(*eg.core().analysis_of(sum).known, 6);
@@ -352,10 +349,7 @@ TEST(TypedEGraph, RefreshMarksTheClassesItChangedTouched) {
   // merged - so finding it there afterwards can only be the refresh's doing.
   ASSERT_EQ(eg.refresh_analysis(refresh_ctx), 1U);
 
-  // Incremental arming learns that a class changed from the touched set alone.
-  // A fact that moves without touching leaves a rule gated on that fact
-  // unarmed, which is the unsoundness the rewriter's own pass audit asserts
-  // against.
+  // A fact that moves without touching leaves a rule gated on it unarmed.
   auto touched = boost::unordered_flat_set<EClassId>{};
   eg.core().touched_eclasses_into(touched);
   EXPECT_TRUE(touched.contains(eg.core().find(sum)));

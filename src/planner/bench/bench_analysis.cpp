@@ -9,12 +9,10 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-// What the analysis refresh costs once a symbol actually recomputes facts.
-//
-// Every other benchmark here runs an analysis with no `update`, where the phase
-// is a compile-time no-op, so none of them can price it. These use a synthetic
-// analysis whose `Add` claims the union of its operands' bits, which is the
-// shape a real one takes: a fact that only grows, derived from the children.
+// What the analysis refresh costs once a symbol actually recomputes facts. The
+// other benchmarks here use an analysis with no `update`, where the phase is a
+// compile-time no-op, so none of them price it. The synthetic analysis below
+// has the shape a real one does: a fact that only grows from the children.
 
 #include <cstdint>
 

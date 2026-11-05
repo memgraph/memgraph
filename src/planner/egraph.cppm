@@ -163,18 +163,13 @@ struct EGraphBase {
   void clear_touched() { touched_.clear(); }
 
  protected:
-  /// Record that `id` is new or newly merged. Arming wants both: either is
-  /// content a pattern could now match. The analysis refresh wants both too - a
-  /// merge can make a parent's fact derivable, and a new e-class has facts of
-  /// its own that only `update` can establish, since a seed need not derive
-  /// them. One entry point so neither consumer can be left out of a change
-  /// site.
+  /// Record that `id` is new or newly merged. Both arming and the analysis
+  /// refresh want both cases, so one entry point keeps a change site from
+  /// feeding only one of them.
   void mark_changed(EClassId id) {
     touched_.insert(id);
-    // Skipped unless some symbol recomputes facts. Nothing reads the set
-    // otherwise, and this runs on every e-class created and every merge, so a
-    // graph with no derived facts would be paying a hash insert per e-node to
-    // build a set no one looks at.
+    // Nothing reads the set unless some symbol recomputes facts, and this runs
+    // on every e-class created and every merge.
     if (tracks_analysis_) analysis_dirty_.insert(id);
   }
 
@@ -190,9 +185,8 @@ struct EGraphBase {
   // see touched_eclasses_into() for the read contract.
   boost::unordered_flat_set<EClassId> touched_;
   // Changes awaiting an analysis refresh. Separate from the touched set because
-  // it drains on its own schedule: a driver may hold the touched set across
-  // passes or clear it each one, which would otherwise leave the refresh's
-  // result depending on the driver in use.
+  // a driver may hold that one across passes or clear it each pass, which would
+  // leave the refresh's result depending on the driver in use.
   boost::unordered_flat_set<EClassId> analysis_dirty_;
   bool tracks_analysis_ = false;
   size_t num_dead_nodes_ = 0;
@@ -371,24 +365,24 @@ struct EGraph : private detail::EGraphBase {
    * `update_node(enode, facts)` widens `facts` from the e-node's children and
    * answers whether it changed anything.
    *
-   * Propagation is congruence's shape. A merge puts e-nodes into a class, which
-   * can widen that class's facts, which can widen those of every class reading
-   * it as a child. So the work walks up parent edges, reaching an e-node only
-   * when one of its children actually moved. An e-node's id canonicalises to
-   * the class holding it, so a parent needs no lookup beyond `find`.
+   * Propagation is congruence's shape: widening a class's facts can widen those
+   * of every class reading it as a child, so the work walks up parent edges and
+   * reaches an e-node only when one of its children moved. An e-node's id
+   * canonicalises to the class holding it, so a parent needs no lookup beyond
+   * `find`.
    *
-   * A class whose facts moved joins the touched set, because that set is the
-   * only thing incremental arming reads: a fact that moved unannounced leaves
-   * every rule gated on it unarmed, and the next pass would skip a rewrite
-   * full saturation performs.
+   * A class whose facts moved joins the touched set, which is the only thing
+   * incremental arming reads: a fact that moved unannounced leaves every rule
+   * gated on it unarmed, and the next pass would skip a rewrite full saturation
+   * performs.
    */
   template <AnalysisScope Scope = AnalysisScope::Changed, typename UpdateNode>
   auto refresh_analysis(BaseProcessingContext &ctx, UpdateNode &&update_node) -> std::size_t {
     auto &worklist = ctx.analysis_worklist_container();
     if constexpr (Scope == AnalysisScope::Changed) {
-      // A changed class's own e-nodes are queued, since a new class holds facts
-      // only `update` can establish, and so are the e-nodes reading it, since
-      // merged facts can make theirs derivable.
+      // Both the class's own e-nodes and the e-nodes reading it: a new class
+      // holds facts only `update` can establish, and a merged class can make
+      // its readers' facts derivable.
       for (auto const id : analysis_dirty_) {
         auto const it = classes_.find(find(id));
         if (it == classes_.end()) continue;
@@ -404,10 +398,9 @@ struct EGraph : private detail::EGraphBase {
       }
     }
 
-    // One e-node at a time, queueing the e-nodes that read a class whose facts
-    // moved. Per e-node rather than per e-class is what keeps a change cheap:
-    // an e-class gathers every equivalent form of an expression, and only the
-    // form whose child moved has anything to say.
+    // Per e-node rather than per e-class is what keeps a change cheap: an
+    // e-class gathers every equivalent form of an expression, and only the form
+    // whose child moved has anything to say.
     std::size_t changed_total = 0;
     while (!worklist.empty()) {
       auto const enode_id = worklist.back();
@@ -420,12 +413,11 @@ struct EGraph : private detail::EGraphBase {
 
       if (!update_node(get_enode(enode_id), eclass.analysis_for_refresh())) continue;
 
-      // What the walk's termination rests on: `update` is a pure function of
-      // the children's facts, so applying it again adds nothing the first
-      // application did not. An update that answers yes a second time reported
-      // a change it never made, and the walk would revisit this e-node without
-      // bound once a merge has made its class its own ancestor. The rewrite
-      // loop's limits sit outside this loop and cannot see that.
+      // What termination rests on: `update` is a pure function of the
+      // children's facts, so applying it again adds nothing. An update that
+      // answers yes a second time reported a change it never made, and the
+      // walk would revisit this e-node without bound once a merge has made its
+      // class its own ancestor.
       assert(!update_node(get_enode(enode_id), eclass.analysis_for_refresh()) &&
              "an analysis update reported a change without widening the facts");
 

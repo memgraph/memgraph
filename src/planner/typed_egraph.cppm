@@ -70,10 +70,8 @@ concept SymbolMakeTraits =
 /// when theirs move. Optional: a symbol without `update` keeps whatever its
 /// make-time seed established.
 ///
-/// `update` widens `out` from the children's current analyses and answers
-/// whether it changed anything. It writes in place so that recomputing a fact
-/// costs no copy of the analysis, which for a fact holding a string or a list
-/// would allocate.
+/// `update` widens `out` in place from the children's current analyses and
+/// answers whether it changed anything.
 ///
 /// Two requirements the signature cannot state. It must be a pure function of
 /// the children's analyses, so that two e-classes with the same children agree.
@@ -82,10 +80,10 @@ concept SymbolMakeTraits =
 ///
 /// A trait that declines the protocol keeps its seed, so a near miss - a
 /// misspelled name, a swapped parameter, a void return - costs no error and
-/// stops the symbol's facts being recomputed. The second requirement below is
-/// what pins the one near miss that would otherwise satisfy the first: taking
-/// `out` by value compiles, widens a copy, and discards it. Only a reference
-/// parameter refuses a temporary.
+/// quietly stops the symbol's facts being recomputed. Hence the second
+/// requirement below, which pins the one near miss that satisfies the first:
+/// taking `out` by value compiles, widens a copy and discards it, and only a
+/// reference parameter refuses a temporary.
 template <typename T, typename Analysis, typename EGraphT>
 concept SymbolUpdatesAnalysis = requires(EGraphT const &eg, std::span<EClassId const> children, Analysis &out) {
   { T::update(eg, children, out) } -> std::same_as<bool>;
@@ -189,15 +187,14 @@ class TypedEGraph {
     return core_.emplace(S, std::move(made.lowered.children), disambiguator, std::move(made.seed));
   }
 
-  /// Whether this graph has any facts to recompute. False leaves
-  /// `refresh_analysis` with nothing it could find, so the walk is dropped
-  /// rather than run to no effect; a consumer that declares no update pays
-  /// nothing for the phase existing.
+  /// Whether this graph has any facts to recompute. False drops the walk
+  /// entirely, so a consumer declaring no update pays nothing for the phase
+  /// existing.
   static constexpr bool updates_analysis = detail::AnySymbolUpdates<Analysis, egraph_type, Traits>(SymbolSeq{});
 
   /// Recompute the facts a change this pass can reach, and report how many
-  /// e-classes moved. The core owns the propagation, which follows the same
-  /// parent edges congruence does; this supplies only the per-symbol meaning.
+  /// e-classes moved. The core owns the propagation; this supplies only the
+  /// per-symbol meaning.
   ///
   /// A make-time seed reads the children's facts as they stood when the e-node
   /// was built. A later merge can establish a fact the seed could not derive,
