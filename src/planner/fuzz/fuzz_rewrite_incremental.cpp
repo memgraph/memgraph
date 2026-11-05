@@ -24,12 +24,17 @@
 // propagated, and convergence within a finite cap.
 //
 // The seeded leaves carry analysis facts, so the differential covers a graph
-// whose analysis holds something rather than an empty one. Arming keys on symbol
-// and parent-hop only, so analysis can make arming more conservative but never
-// cause a skip. A rule whose enabling depended on analysis propagating beyond
-// structural parent-adjacency would break that argument and need its own
-// differential; no such rule exists.
+// whose analysis holds something rather than an empty one. Most rules here are
+// enabled by shape alone, for which arming keys on symbol and parent-hop and
+// analysis can only make it more conservative. `fact_gated_collapse` is the
+// exception and the harder case: what enables it is a fact, which the analysis
+// refresh can widen long after the shape it reads stopped changing. Its gate
+// reads the matched class's own fact, so the class whose fact moves is the class
+// the rule needs armed, and announcing a widened class is sufficient. A fact
+// that widens unannounced, or a pass that stops before the rule its own refresh
+// enabled can run, shows up as a divergence or a failed fixpoint below.
 
+#include <bit>
 #include <cstdint>
 #include <cstdlib>
 #include <iostream>
@@ -65,6 +70,12 @@ using FuzzRule = RewriteRule<FuzzTypedEGraph>;  // the rewrite engine drives a T
   std::abort();
 }
 
+/// How many seeded leaves a class must be known to reach before
+/// `fact_gated_collapse` acts. Above one, so the gate cannot open on a seed
+/// alone and some merge has to establish it; low enough that a short input
+/// still reaches it.
+constexpr int kGateLeaves = 3;
+
 constexpr PatternVar kX{0};
 constexpr PatternVar kRoot{1};
 constexpr PatternVar kY{2};
@@ -95,6 +106,9 @@ auto tower_pattern(std::size_t depth) -> Pattern<FuzzSymbol> {
 //   multi_root_idem     {Plus(a,a), Mul(a,a)}       one rule, two root symbols
 //                       joined on the shared leaf a, exercising the arming index's
 //                       multi-root path; merges the two roots
+//   fact_gated_collapse Plus(x,y)->x once the      depth 1, merge-only; the
+//                       root's own fact reaches    only rule a fact enables
+//                       kGateLeaves leaves         rather than a shape
 //
 // noop_always_armed (?x -> merge(x,x)) is ALWAYS present. Its root is a bare
 // variable, so it is symbol-less and always armed - the one rule that exercises
@@ -132,6 +146,16 @@ auto make_rules(std::uint8_t selection, std::uint8_t tower_depth_raw) -> RuleSet
   if (selection & 0x08U)
     builder.add_rule(
         FuzzRule::Builder{"collapse_tower"}.pattern(tower_pattern(1U + (tower_depth_raw % 4U))).apply(merge_root_x));
+  if (selection & 0x20U)
+    builder.add_rule(FuzzRule::Builder{"fact_gated_collapse"}
+                         .pattern(Pattern<FuzzSymbol>::build(kRoot, FuzzSymbol::Plus, {Var{kX}, Var{kY}}))
+                         .apply([](RuleContext<FuzzTypedEGraph> &ctx, Match const &m) {
+                           // `Plus` claims the leaves of both operands, so the gate opens
+                           // only once merges below it have brought that many together -
+                           // and the count it reads is the one the refresh maintains.
+                           if (std::popcount(ctx.analysis(m[kRoot]).known_leaves) < kGateLeaves) return;
+                           ctx.merge(m[kRoot], m[kX]);
+                         }));
   if (selection & 0x10U)
     builder.add_rule(
         FuzzRule::Builder{"multi_root_idem"}
@@ -284,6 +308,8 @@ extern "C" auto LLVMFuzzerTestOneInput(uint8_t const *data, size_t size) -> int 
   Rewriter inc{inc_eg, rules};
 
   auto run_round = [&]() {
+    auto const facts_before = probe_facts(inc_eg.core(), pool);
+
     // Finite, size-scaled cap: under the pool's termination discipline both runs
     // must reach a fixpoint, so hitting the cap is always a bug (non-termination
     // or a skip that prevents convergence), not a legitimately slow input. Each
@@ -328,18 +354,25 @@ extern "C" auto LLVMFuzzerTestOneInput(uint8_t const *data, size_t size) -> int 
     if (inc.iterate_once() != 0) fail("incremental result is not a true fixpoint");
 
     // The analysis half of that oracle: a converged saturation leaves no fact
-    // still derivable. Checked on both drivers, which take different numbers of
-    // passes to converge and so refresh a different number of times.
-    if (inc_eg.refresh_analysis(proc) != 0) fail("incremental result leaves a derivable fact unclaimed");
-    if (ref_eg.refresh_analysis(proc) != 0) fail("full result leaves a derivable fact unclaimed");
-
-    // The check above starts from the same change set the per-pass refresh
-    // does, so a fact the propagation never reached is invisible to it. A
-    // difference here is a gap in the propagation, not in the rules.
+    // still derivable. Swept from every e-class rather than from the change
+    // set, which the last per-pass refresh drained - starting where that one
+    // started could only revisit what it already settled, and would pass
+    // whether the propagation reached everything or not. Checked on both
+    // drivers, which converge in different numbers of passes and so refresh a
+    // different number of times.
     if (inc_eg.refresh_analysis<AnalysisScope::Everything>(proc) != 0)
-      fail("a full sweep finds a fact the incremental refresh missed");
+      fail("incremental result leaves a derivable fact unclaimed");
     if (ref_eg.refresh_analysis<AnalysisScope::Everything>(proc) != 0)
-      fail("a full sweep finds a fact the full-driver refresh missed");
+      fail("full result leaves a derivable fact unclaimed");
+
+    // Facts only ever widen. That is what bounds the refresh, and what lets a
+    // rule trust a fact it has already read: a gate that opened must not shut
+    // under a later merge, or the two drivers' different pass counts would make
+    // the result depend on the driver.
+    auto const facts_after = probe_facts(inc_eg.core(), pool);
+    for (std::size_t i = 0; i < pool.size(); ++i) {
+      if ((facts_before[i] & ~facts_after[i]) != 0) fail("a round retracted an analysis fact");
+    }
   };
 
   run_round();  // initial build
