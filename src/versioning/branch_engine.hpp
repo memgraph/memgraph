@@ -29,6 +29,7 @@
 #include "absl/container/flat_hash_set.h"
 #include "absl/hash/hash.h"
 #include "memory/db_arena_fwd.hpp"
+#include "storage/v2/commit_args.hpp"
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/edge_direction.hpp"
 #include "storage/v2/id_types.hpp"
@@ -42,6 +43,7 @@
 #include "utils/db_aware_allocator.hpp"
 #include "utils/logging.hpp"
 #include "versioning/branch_change_filter.hpp"
+#include "versioning/branch_info.hpp"
 #include "versioning/edge_stub_index.hpp"
 #include "versioning/stub_index.hpp"
 
@@ -58,7 +60,8 @@ namespace memgraph::versioning {
 //
 // A branch's changes to fork vertices and fork edges (labels, properties, deletes) are written as stock MVCC deltas
 // on stubs: empty Vertex / Edge objects owned by the StubIndex / EdgeStubIndex, not entries of the diff engine's
-// vertices_ / edges_.
+// vertices_ / edges_. Commit, abort and GC of those deltas are the diff engine's own. A fork edge's stub is never
+// linked into an adjacency list and points at main's fork endpoint vertices, which the fork pin keeps alive.
 //
 // Branch-native creates take gids from main's counters, so gids are unique across main and every branch. `Build`
 // records main's counters as floors: a gid below the vertex (edge) floor is a fork CANDIDATE (the object may have been
@@ -110,6 +113,18 @@ class BranchCore {
   uint64_t vertex_gid_floor() const { return vertex_gid_floor_; }
 
   uint64_t edge_gid_floor() const { return edge_gid_floor_; }
+
+  // The fork vertices and edges deleted or hidden by the committed branch transactions so far.
+  ObjectCounts ForkDeletes() const noexcept {
+    return {.vertices = deleted_fork_vertices_.load(std::memory_order_relaxed),
+            .edges = deleted_fork_edges_.load(std::memory_order_relaxed)};
+  }
+
+  // Adds what a branch transaction deleted or hid; BranchContext calls it from the transaction's commit callback.
+  void AddForkDeletes(ObjectCounts deleted) noexcept {
+    deleted_fork_vertices_.fetch_add(deleted.vertices, std::memory_order_relaxed);
+    deleted_fork_edges_.fetch_add(deleted.edges, std::memory_order_relaxed);
+  }
 
   // Per-kind change filters (branch_change_filter.hpp); lock-free, safe for concurrent sessions.
   void RecordLabelChange(storage::Gid gid) noexcept { change_filters_.RecordLabelChange(gid); }
@@ -214,6 +229,9 @@ class BranchCore {
   uint64_t edge_gid_floor_;
   std::unique_ptr<storage::InMemoryStorage> diff_engine_;
 
+  std::atomic<uint64_t> deleted_fork_vertices_{0};
+  std::atomic<uint64_t> deleted_fork_edges_{0};
+
   BranchChangeFilters change_filters_;
 
   // Exact per-label touched gids and deleted gids; memory grows with the number of recorded changes. Writes are rare
@@ -256,8 +274,8 @@ class BranchCore {
 
 // One session's view of a branch: a shared BranchCore plus per-transaction state. A branch reads as the fork state
 // (main at fork_ts, through the historical accessor, always View::OLD) with the branch's own changes laid over it:
-//  - a fork object the branch changed has a stub in the diff engine (stub_state.hpp), found by gid and merged over the
-//    fork object (stub_merge.hpp);
+//  - a fork object the branch changed has a stub (stub_state.hpp), found by gid and merged over the fork object
+//    (stub_merge.hpp); a fork edge's stub is an Edge built on the fork edge's own endpoint vertices;
 //  - a branch-native object is a plain diff-engine object.
 // The read primitives below are the only place that resolves this. They take the accessor a query holds (a fork object
 // read from historical_, or a native one) and answer for the branch; no stub accessor is ever handed out as the object.
@@ -307,6 +325,14 @@ class BranchContext {
 
   // Drops the transaction and releases main's READ guard. Idempotent. The caller ends the diff-engine accessor itself.
   void EndTransaction() noexcept { txn_.reset(); }
+
+  // Commits the diff transaction, which holds every change of the branch transaction, and on success adds the fork
+  // vertices and edges it deleted or hid to the core's counts (a commit callback, run under the diff engine's commit).
+  // Same results as Accessor::PrepareForCommitPhase.
+  std::expected<void, storage::StorageManipulationError> CommitTransaction(storage::CommitArgs commit_args);
+
+  // As Accessor::PeriodicCommit: each batch publishes only the deletes made since the previous one.
+  std::expected<void, storage::StorageManipulationError> PeriodicCommitTransaction(storage::CommitArgs commit_args);
 
   // True between SetCurrentDiffTxn and EndTransaction.
   bool in_transaction() const { return txn_ && txn_->diff != nullptr; }
@@ -388,10 +414,33 @@ class BranchContext {
       storage::VertexAccessor &vertex);
 
   // Marks fork vertex `gid` deleted on the branch: false if it already was, NONEXISTENT_OBJECT if the fork state has no
-  // such vertex. Edges are NOT touched: incident fork edges are hidden by the marker, native edges are the caller's to
-  // delete. SERIALIZATION_ERROR (and a poisoned transaction) if a branch-created edge is attached to the vertex by a
-  // transaction this one cannot write over.
+  // such vertex. Like a stock DETACH DELETE it writes the delete marker of every fork edge it hides (so a concurrent
+  // write or delete of such an edge conflicts on the edge's stub, in either order); native edges are the caller's to
+  // delete. SERIALIZATION_ERROR (and a poisoned transaction) if one of those writes conflicts, or if a branch-created
+  // edge is attached to the vertex by a transaction this one cannot write over. The fork edges it hides count as
+  // deleted once the transaction commits (CommitTransaction).
   storage::Result<bool> DeleteForkVertex(storage::Gid gid);
+
+  // ---- Writes of an edge accessor
+  //
+  // `edge` is a fork edge (an accessor of main at fork_ts) or a branch-native one. A native edge is the diff engine's
+  // own object and takes the stock mutator. A fork edge is written as direct single-key stock mutators on its stub, an
+  // Edge in the EdgeStubIndex built on main's fork endpoints, created on first touch, with the same ordering and
+  // atomicity contract as the vertex writes. DELETED_OBJECT for a fork edge hidden on the branch; PROPERTIES_DISABLED
+  // if MAIN has no edge properties (the diff engine always has them, so only main's config says).
+  storage::Result<storage::PropertyValue> SetProperty(storage::EdgeAccessor &edge, storage::PropertyId key,
+                                                      const storage::PropertyValue &value);
+  storage::Result<bool> InitProperties(storage::EdgeAccessor &edge,
+                                       std::map<storage::PropertyId, storage::PropertyValue> &properties);
+  storage::Result<std::vector<std::tuple<storage::PropertyId, storage::PropertyValue, storage::PropertyValue>>>
+  UpdateProperties(const storage::EdgeAccessor &edge,
+                   std::map<storage::PropertyId, storage::PropertyValue> &properties);
+  storage::Result<std::map<storage::PropertyId, storage::PropertyValue>> ClearProperties(storage::EdgeAccessor &edge);
+
+  // Marks fork edge `fork_edge` deleted on the branch with one marker write (no decode of the stub): false if it
+  // already was hidden. Neither endpoint is written; a delete of an endpoint writes the same marker, so the two
+  // conflict on the edge's stub in either order. Counts as deleted once the transaction commits.
+  storage::Result<bool> DeleteForkEdge(const storage::EdgeAccessor &fork_edge);
 
   // A refusal to write that the user is told about.
   struct BranchWriteError {
@@ -405,6 +454,13 @@ class BranchContext {
 
   // Creates a branch-native vertex in the diff engine at a gid taken from main's counter.
   storage::VertexAccessor CreateNativeVertex();
+
+  // Creates a branch-native edge at a gid taken from main's counter. The endpoints are native vertices or the stubs
+  // EnsureDiffVertex returned; an edge between them is the stock CreateEdge, ordered against a concurrent delete of a
+  // fork endpoint by that endpoint's stub. DELETED_OBJECT if an endpoint's fork vertex was deleted earlier in this
+  // transaction (the stock call cannot see the delete marker).
+  storage::Result<storage::EdgeAccessor> CreateNativeEdge(storage::VertexAccessor &from, storage::VertexAccessor &to,
+                                                          storage::EdgeTypeId edge_type);
 
   // ---- Point lookups
 
@@ -525,6 +581,9 @@ class BranchContext {
     storage::Storage::Accessor *diff{nullptr};  // Not owned; set by SetCurrentDiffTxn.
     // Last-page cache for StubIndex lookups. A stale cursor never yields a wrong pointer.
     StubIndex::Cursor stub_cursor;
+    // Fork vertices and edges this transaction (since the last periodic commit) deleted or hid, published by
+    // CommitTransaction.
+    ObjectCounts fork_deletes;
   };
 
   // The open transaction; asserts SetCurrentDiffTxn has run.
@@ -555,6 +614,9 @@ class BranchContext {
   // True for a branch-native vertex: an object of the diff engine's vertices_.
   bool IsNative(const storage::VertexAccessor &vertex) const { return vertex.storage_ == &diff_engine(); }
 
+  // True for a branch-native edge: a diff-engine edge linked into its endpoints' adjacency.
+  bool IsNative(const storage::EdgeAccessor &edge) const { return edge.storage_ == &diff_engine(); }
+
   // The accessor of main's fork vertex `fork` (or, when the stub index has none recorded, a lookup of `gid`).
   std::optional<storage::VertexAccessor> ForkAccessor(storage::Vertex *fork, storage::Gid gid);
 
@@ -570,9 +632,20 @@ class BranchContext {
   // MaterializeStub for a writer: DELETED_OBJECT if the branch deleted the vertex.
   storage::Result<storage::VertexAccessor> StubForWrite(const storage::VertexAccessor &fork);
 
+  // The fork edge's stub as an accessor of the diff transaction, created on first touch after setting the `branched()`
+  // bit of main's Edge (when main has edge objects). It is built on main's fork endpoint vertices, which stay valid for
+  // the branch's life because main's GC horizon is clamped to the oldest fork pin, and is never linked into an
+  // adjacency list, so no endpoint stub is needed. May throw OutOfMemoryException after the stub is published.
+  storage::EdgeAccessor MaterializeEdgeStub(const storage::EdgeAccessor &fork_edge);
+
+  // MaterializeEdgeStub for a property writer: DELETED_OBJECT if the branch hid the edge, PROPERTIES_DISABLED if main
+  // has no edge properties.
+  storage::Result<storage::EdgeAccessor> StubForWrite(const storage::EdgeAccessor &fork_edge);
+
   // For a no-op write: the stock mutators check for a conflict before they find nothing to do, and so does this.
   // False (poisoning the transaction) on a conflict.
   bool TouchStub(const storage::VertexAccessor &stub);
+  bool TouchStub(const storage::EdgeAccessor &stub);
 
   // After a delete marker was written on `stub`: false (poisoning the transaction) if it carries a delta from a
   // branch-created edge that this transaction cannot write over, i.e. one from a transaction in flight or committed
@@ -580,15 +653,37 @@ class BranchContext {
   // non-sequential edge delta buried under a committed older head.
   bool CanDeleteAnchor(const storage::VertexAccessor &stub);
 
-  // One fork vertex property written through its stub, in the per-key order the reads rest on (stub_merge.hpp): a
-  // removal marker goes on before the value is dropped and off after the value is set. Returns the old merged value.
-  storage::Result<storage::PropertyValue> WriteStubProperty(const storage::VertexAccessor &fork,
-                                                            storage::VertexAccessor &stub, storage::PropertyId key,
-                                                            const storage::PropertyValue &value);
+  // The one marker write of a fork edge delete, with the change filters it needs (stub_state.hpp); shared by
+  // DeleteForkEdge and DeleteForkVertex. May throw OutOfMemoryException after the stub is published.
+  storage::Result<void> MarkForkEdgeDeleted(const storage::EdgeAccessor &fork_edge);
 
-  // Records the filters a write of fork vertex `gid`'s `key` feeds (per-key gate, touched set), before the stub is
-  // written. The vertex-wide property filter is recorded once per primitive.
-  void RecordPropertyWrite(storage::Gid gid, storage::PropertyId key);
+  // The fork edges of `fork` (an accessor of main at fork_ts) that the branch still shows, a self-loop once.
+  std::vector<storage::EdgeAccessor> VisibleForkEdges(const storage::VertexAccessor &fork);
+
+  // Registers the commit callback that adds this batch's fork deletes to the core.
+  void PublishForkDeletes();
+
+  // The property writes of vertices and edges, which differ only in how the stub is found and which filters record.
+  // `Object` is a fork or native accessor (const for the writes stock makes const).
+  template <typename Object>
+  storage::Result<storage::PropertyValue> SetPropertyAt(Object &object, storage::PropertyId key,
+                                                        const storage::PropertyValue &value);
+  template <typename Object>
+  storage::Result<bool> InitPropertiesAt(Object &object,
+                                         std::map<storage::PropertyId, storage::PropertyValue> &properties);
+  template <typename Object>
+  storage::Result<std::vector<std::tuple<storage::PropertyId, storage::PropertyValue, storage::PropertyValue>>>
+  UpdatePropertiesAt(Object &object, std::map<storage::PropertyId, storage::PropertyValue> &properties);
+  template <typename Object>
+  storage::Result<std::map<storage::PropertyId, storage::PropertyValue>> ClearPropertiesAt(Object &object);
+
+  // What a write of `key` feeds the change filters, recorded before the stub is written; `RecordPropertiesWrite` is
+  // the vertex-wide part, recorded once per primitive.
+  void RecordPropertyWrite(const storage::VertexAccessor &vertex, storage::PropertyId key);
+  void RecordPropertyWrite(const storage::EdgeAccessor &edge, storage::PropertyId key);
+  void RecordPropertiesWrite(const storage::VertexAccessor &vertex);
+
+  void RecordPropertiesWrite(const storage::EdgeAccessor & /*edge*/) {}
 
   // AddLabel (`add`) / RemoveLabel.
   storage::Result<bool> ToggleLabel(storage::VertexAccessor &vertex, storage::LabelId label, bool add);
