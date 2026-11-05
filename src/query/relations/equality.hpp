@@ -90,7 +90,7 @@ inline TypedValue Equal(const TypedValue &a, const TypedValue &b) {
   // Every element of a container reaches this.
   if (a.type() != b.type()) {
     if (!AreMixedNumbers(a.type(), b.type())) {
-      if (a.type() == TypedValue::Type::VectorRef || b.type() == TypedValue::Type::VectorRef) [[unlikely]]
+      if (a.type() == TypedValue::Type::VectorRef || b.type() == TypedValue::Type::VectorRef)
         return EqualOfAnyVectorRef(a, b, alloc);
       return TypedValue(false, alloc);
     }

@@ -618,14 +618,12 @@ class TypedValue {
   // A VectorRef is a lazy list: the first list access caches the materialized List in place, also via const.
   // Do not share a VectorRef across threads before that first access.
   TVector &ValueList() {
-    if (type_ != Type::List) [[unlikely]]
-      return SlowValueList();
+    if (type_ != Type::List) return SlowValueList();
     return list_v;
   }
 
   const TVector &ValueList() const {
-    if (type_ != Type::List) [[unlikely]]
-      return SlowValueList();
+    if (type_ != Type::List) return SlowValueList();
     return list_v;
   }
 
@@ -636,8 +634,7 @@ class TypedValue {
   bool IsPlainList() const { return type_ == Type::List; }
 
   const TVector &UnsafeValueList() const {
-    if (type_ == Type::VectorRef) [[unlikely]]
-      MaterializeInPlace();
+    if (type_ == Type::VectorRef) MaterializeInPlace();
     return list_v;
   }
 

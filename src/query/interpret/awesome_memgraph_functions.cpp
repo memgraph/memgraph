@@ -482,7 +482,7 @@ TypedValue Properties(const TypedValue *args, int64_t nargs, const FunctionConte
     for (const auto &property : *maybe_props) {
       auto key = TypedValue::TString(dba->PropertyToName(property.first), ctx.memory);
       if (is_allowed(property.first)) {
-        if (ctx.lazy_vector_refs && property.second.IsVectorIndexId()) [[unlikely]] {
+        if (ctx.lazy_vector_refs && property.second.IsVectorIndexId()) {
           properties.emplace(std::move(key),
                              TypedValue(VectorRefValue{record_accessor.impl_, property.first, ctx.view}, ctx.memory));
         } else {
@@ -546,7 +546,7 @@ TypedValue Size(const TypedValue *args, int64_t nargs, const FunctionContext &ct
   if (value.IsNull()) {
     return TypedValue(ctx.memory);
   } else if (value.IsList()) {
-    if (value.IsVectorRef()) [[unlikely]] {
+    if (value.IsVectorRef()) {
       return TypedValue(static_cast<int64_t>(value.ReadVectorRef().size()), ctx.memory);
     }
     return TypedValue(static_cast<int64_t>(value.ValueList().size()), ctx.memory);
@@ -1034,7 +1034,7 @@ TypedValue Values(const TypedValue *args, int64_t nargs, const FunctionContext &
     }
     for (const auto &[key, value] : *maybe_props) {
       if (is_allowed(key)) {
-        if (ctx.lazy_vector_refs && value.IsVectorIndexId()) [[unlikely]] {
+        if (ctx.lazy_vector_refs && value.IsVectorIndexId()) {
           values.emplace_back(VectorRefValue{record_accessor.impl_, key, ctx.view});
         } else {
           values.emplace_back(TypedValue(value, ctx.db_accessor->GetStorageAccessor()->GetNameIdMapper(), ctx.memory));

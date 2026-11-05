@@ -204,8 +204,7 @@ inline std::optional<std::partial_ordering> Compare(const TypedValue &a, const T
     if (auto const order = ComparePayload(a, b)) return order;
 
     // ComparePayload has no answer for a VectorRef, so a pair of embeddings only reaches here.
-    if (a.IsVectorRef()) [[unlikely]]
-      return CompareWithVectorRef(a, b);
+    if (a.IsVectorRef()) return CompareWithVectorRef(a, b);
 
     // A Null orders against nothing, itself included, and a type carrying no
     // order of its own places no pair of its values either. Both are
@@ -224,8 +223,7 @@ inline std::optional<std::partial_ordering> Compare(const TypedValue &a, const T
   // unlike types is incomparable, as is any pair involving a Null.
   if (!AreMixedNumbers(a.type(), b.type())) {
     // An embedding still orders against a plain list.
-    if (a.IsVectorRef() || b.IsVectorRef()) [[unlikely]]
-      return CompareWithVectorRef(a, b);
+    if (a.IsVectorRef() || b.IsVectorRef()) return CompareWithVectorRef(a, b);
     return std::nullopt;
   }
   return ComparePayloadOfMixedNumbers(a, b);

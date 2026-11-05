@@ -610,16 +610,14 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     if (lhs_ptr->IsVertex()) {
       if (!index.IsString()) throw QueryRuntimeException("Expected a string as a property name, got {}.", index.type());
       const auto &vertex = lhs_ptr->ValueVertex();
-      if (ctx_->lazy_vector_refs) [[unlikely]]
-        return LazyPropertyValue(vertex, index.ValueString());
+      if (ctx_->lazy_vector_refs) return LazyPropertyValue(vertex, index.ValueString());
       return {GetProperty(vertex, index.ValueString()), GetNameIdMapper(), ctx_->memory};
     }
 
     if (lhs_ptr->IsEdge()) {
       if (!index.IsString()) throw QueryRuntimeException("Expected a string as a property name, got {}.", index.type());
       const auto &edge = lhs_ptr->ValueEdge();
-      if (ctx_->lazy_vector_refs) [[unlikely]]
-        return LazyPropertyValue(edge, index.ValueString());
+      if (ctx_->lazy_vector_refs) return LazyPropertyValue(edge, index.ValueString());
       return {GetProperty(edge, index.ValueString()), GetNameIdMapper(), ctx_->memory};
     };
 
@@ -1207,8 +1205,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   template <class TRecordAccessor, class TPropertyValue>
   TypedValue MakePropertyValue(const TRecordAccessor &record_accessor, storage::PropertyId prop_id,
                                TPropertyValue &&raw) {
-    if (raw.IsVectorIndexId() && ctx_->lazy_vector_refs) [[unlikely]]
-      return MakeVectorRef(record_accessor, prop_id);
+    if (raw.IsVectorIndexId() && ctx_->lazy_vector_refs) return MakeVectorRef(record_accessor, prop_id);
     return {std::forward<TPropertyValue>(raw), GetNameIdMapper(), ctx_->memory};
   }
 

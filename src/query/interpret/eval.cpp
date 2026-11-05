@@ -328,8 +328,7 @@ TypedValue ExpressionEvaluator::Visit(PropertyLookup &property_lookup) {
         return CachedPropertyValue<RecordIdentity::Kind::Vertex>(expression_result_ptr->ValueVertex(), property_lookup);
       } else {
         const auto &vertex = expression_result_ptr->ValueVertex();
-        if (ctx_->lazy_vector_refs) [[unlikely]]
-          return LazyPropertyValue(vertex, property_lookup.property_);
+        if (ctx_->lazy_vector_refs) return LazyPropertyValue(vertex, property_lookup.property_);
         return {GetProperty(vertex, property_lookup.property_), GetNameIdMapper(), ctx_->memory};
       }
     case TypedValue::Type::Edge:
@@ -337,8 +336,7 @@ TypedValue ExpressionEvaluator::Visit(PropertyLookup &property_lookup) {
         return CachedPropertyValue<RecordIdentity::Kind::Edge>(expression_result_ptr->ValueEdge(), property_lookup);
       } else {
         const auto &edge = expression_result_ptr->ValueEdge();
-        if (ctx_->lazy_vector_refs) [[unlikely]]
-          return LazyPropertyValue(edge, property_lookup.property_);
+        if (ctx_->lazy_vector_refs) return LazyPropertyValue(edge, property_lookup.property_);
         return {GetProperty(edge, property_lookup.property_), GetNameIdMapper(), ctx_->memory};
       }
     case TypedValue::Type::VirtualEdge: {

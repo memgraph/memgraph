@@ -324,8 +324,7 @@ inline std::partial_ordering Compare(TypedValue const &a, TypedValue const &b) {
         detail::kPositions[static_cast<unsigned>(a.type())] <=> detail::kPositions[static_cast<unsigned>(b.type())];
 
     // Unlike types share a position only as an embedding against a list; the numbers were answered above.
-    if (std::is_eq(placed)) [[unlikely]]
-      return CompareOfTiedTypes(a, b);
+    if (std::is_eq(placed)) return CompareOfTiedTypes(a, b);
     return placed;
   }
 }
