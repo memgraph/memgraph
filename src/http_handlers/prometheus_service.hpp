@@ -22,6 +22,7 @@
 #include <boost/beast/http.hpp>
 #include <boost/beast/version.hpp>
 
+#include "license/license.hpp"
 #include "metrics/prometheus_metrics.hpp"
 
 namespace memgraph::http {
@@ -62,6 +63,12 @@ class PrometheusRequestHandler final {
       res.body() = "Not Found";
       res.prepare_payload();
       return send(std::move(res));
+    }
+
+    if (!license::global_license_checker.IsEnterpriseValidFast()) {
+      return send(text_response(boost::beast::http::status::bad_request,
+                                "Memgraph must have an Enterprise License for providing metrics. Check your license "
+                                "status by running SHOW LICENSE INFO."));
     }
 
     std::ostringstream oss;

@@ -199,14 +199,6 @@ auto Endpoint::ValidatePort(std::optional<uint16_t> port) -> bool {
   return true;
 }
 
-[[nodiscard]] auto Endpoint::GetAddress() const -> std::string const & { return address_; }
-
-[[nodiscard]] auto Endpoint::GetAddress() -> std::string & { return address_; }
-
-[[nodiscard]] auto Endpoint::GetPort() const -> uint16_t const & { return port_; }
-
-[[nodiscard]] auto Endpoint::GetPort() -> uint16_t & { return port_; }
-
 void Endpoint::SetAddress(std::string address) { address_ = std::move(address); }
 
 void Endpoint::SetPort(uint16_t port) { port_ = port; }

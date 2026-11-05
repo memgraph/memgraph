@@ -86,6 +86,7 @@ enum class TypeId : uint64_t {
   MERGE,
   OPTIONAL,
   UNWIND,
+  CARDINALITY_SCALE,
   DISTINCT,
   UNION,
   CARTESIAN,
@@ -108,6 +109,7 @@ enum class TypeId : uint64_t {
   PARALLEL_MERGE,
   ORDERBY_PARALLEL,
   CONDITIONAL,
+  CACHE_PROPERTIES,
 
   // Replication
   // NOTE: these NEED to be stable in the 2000+ range (see rpc version)

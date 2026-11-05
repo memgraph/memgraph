@@ -15,6 +15,7 @@
 #include "storage/v2/indices/index_order.hpp"
 #include "storage/v2/indices/label_properties_indices_info.hpp"
 #include "storage/v2/indices/label_property_index_entry.hpp"
+#include "storage/v2/indices/ordered_property_paths.hpp"
 #include "storage/v2/indices/property_path.hpp"
 #include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/value_field.hpp"
@@ -319,14 +320,14 @@ struct PropertiesPermutationHelper {
    * element is a tuple comprising: (position, [property id path], and value).
    */
   auto WithPropertyId(IndexOrderedValuesView values) const {
-    return ranges::views::enumerate(sorted_properties_) | ranges::views::transform([&, values](auto &&p) {
-             return std::tuple{p.first, std::cref(p.second), std::cref(values[position_lookup_[p.first]])};
+    return ranges::views::enumerate(ordered_.paths()) | ranges::views::transform([&, values](auto &&p) {
+             return std::tuple{p.first, std::cref(p.second), std::cref(values[ordered_.position_lookup()[p.first]])};
            });
   }
 
  private:
-  /// Puts the paths into the order a single pass over a record requires, and works out the
-  /// bookkeeping that follows from that order.
+  /// Works out the bookkeeping that follows from the order a single pass over a record
+  /// requires, the paths themselves being put in that order by the type that holds them.
   void OrderPaths(std::span<PropertyPath const> properties);
 
   /// Which field the path at `pos` names, where it names one.
@@ -336,8 +337,7 @@ struct PropertiesPermutationHelper {
   /// other position as it was.
   void ReadFieldsInto(PropertyStore const &properties, std::span<PropertyValue> out) const;
 
-  std::vector<PropertyPath> sorted_properties_;
-  std::vector<std::size_t> position_lookup_;
+  OrderedPropertyPaths ordered_;
   permutation_cycles cycles_;
   std::map<PropertyId, std::vector<std::size_t>> grouped_by_outer_prop_id_;
 

@@ -31,7 +31,6 @@
 #include "query/frontend/opencypher/parser.hpp"
 #include "query/frontend/semantic/symbol_generator.hpp"
 #include "query/plan/operator.hpp"
-#include "query/plan_v2/cost/cardinality_estimator.hpp"
 #include "query/plan_v2/egraph/egraph.hpp"
 #include "query/plan_v2/frontend/ast_converter.hpp"
 #include "query/plan_v2/frontend/egraph_converter.hpp"
@@ -174,6 +173,11 @@ class SimplePlanChecker : public plan::HierarchicalLogicalOperatorVisitor {
     return true;
   }
 
+  bool PreVisit(plan::CardinalityScale &op) override {
+    operator_details.push_back("CardinalityScale {n=" + std::to_string(op.scale_factor_) + "}");
+    return true;
+  }
+
   bool PreVisit(plan::Apply &) override {
     operator_details.push_back("Apply");
     return true;
@@ -214,7 +218,10 @@ class PlannerV2PipelineTest : public ::testing::TestWithParam<PipelineTestCase> 
     EXPECT_NE(cypher_query, nullptr);
 
     symbol_table_ = MakeSymbolTable(cypher_query);
-    auto [eg, root] = ConvertToEgraph(*cypher_query, symbol_table_);
+    // Raw parse keeps literals as PrimitiveLiterals, so there are no parameters
+    // to fold here.
+    Parameters parameters;
+    auto [eg, root] = ConvertToEgraph(*cypher_query, symbol_table_, parameters);
 
     auto result = ApplyAllRewrites(eg);
     rewrite_result_ = result;
@@ -368,7 +375,8 @@ TEST_F(PlannerV2PipelineTest, OptionalCallSubqueryIsRejected) {
   auto optional_symbols = MakeSymbolTable(optional_call);
   // The same body without OPTIONAL lowers fine - see the MinimalCallReturn pipeline case - so the guard keys on
   // the flag alone.
-  EXPECT_THROW(ConvertToEgraph(*optional_call, optional_symbols), NotYetImplemented);
+  Parameters parameters;
+  EXPECT_THROW(ConvertToEgraph(*optional_call, optional_symbols, parameters), NotYetImplemented);
 }
 
 TEST_F(PlannerV2PipelineTest, ExtractedSymbolPositionsResolveInCompactTable) {
@@ -411,6 +419,28 @@ TEST_F(PlannerV2PipelineTest, ExtractedSymbolPositionsResolveInCompactTable) {
                                      for (auto const &f : failures) out += "  " + f + "\n";
                                      return out;
                                    }();
+}
+
+TEST_F(PlannerV2PipelineTest, NestedConstantListLiteralLowers) {
+  // A list of constant lists is itself constant, so it lowers to a single list
+  // Literal and flows through Produce.
+  auto plan = PlanQuery("RETURN [[1, 2], [3, 4]] AS l;");
+  ASSERT_NE(plan, nullptr);
+  EXPECT_EQ(GetOperatorDetails(plan.get()), (std::vector<std::string>{"Produce {l`0:literal}", "Once"}));
+}
+
+TEST_F(PlannerV2PipelineTest, ListLiteralWithNonConstantElementIsUnsupported) {
+  // The constant-list shortcut stops at the first non-constant element; building
+  // such a list needs a runtime list-construction node we don't model yet.
+  EXPECT_THROW(PlanQuery("UNWIND [1, $p, 3] AS x RETURN 42;"), NotYetImplemented);
+}
+
+TEST_F(PlannerV2PipelineTest, StarProjectionIsUnsupported) {
+  // `*` symbols bypass named_expressions, so plan_v2 can neither project them nor
+  // count them as references; it must refuse the query rather than drop columns
+  // or let the dead-Unwind gate mis-classify a `*`-referenced binder as dead.
+  EXPECT_THROW(PlanQuery("UNWIND [1, 2, 3] AS x RETURN *;"), NotYetImplemented);
+  EXPECT_THROW(PlanQuery("UNWIND [1, 2, 3] AS x WITH * RETURN 42;"), NotYetImplemented);
 }
 
 // clang-format off
@@ -696,15 +726,17 @@ INSTANTIATE_TEST_SUITE_P(
     UnwindClauses,
     PlannerV2PipelineTest,
     ::testing::Values(
+        // The bound x is unused and range's length is provable from its
+        // int-literal bounds, so the binding elides to a CardinalityScale.
         PipelineTestCase{
             .name = "UnwindRangeReturnLiteral",
             .query = "UNWIND range(0, 5) AS x RETURN 1 AS r;",
-            .expected_details = {"Produce {r`1:1}", "Unwind {x:RANGE(0, 5)}", "Once"},
+            .expected_details = {"Produce {r`0:1}", "CardinalityScale {n=6}", "Once"},
             .expected_rewrites = 0,
         },
         // The introduces-axis lets Output's NamedOutput see symbols the
         // input row pipe binds.  RETURN x resolves to a per-row Identifier
-        // reference, which is what we want when x is the row-pipe variable.
+        // reference, which keeps x referenced - so the Unwind binding stays.
         PipelineTestCase{
             .name = "UnwindRangeReturnSymbol",
             .query = "UNWIND range(0, 5) AS x RETURN x;",
@@ -723,12 +755,27 @@ INSTANTIATE_TEST_SUITE_P(
             .name = "WithUnwindPrefersNonInlined",
             .query = "WITH $p+$p+$p+$p+$p+$p AS a UNWIND range(0, 100) AS X RETURN a;",
             .expected_details =
-                {"Produce {a`2:a}",
-                 "Unwind {X:RANGE(0, 100)}",
+                {"Produce {a`1:a}",
+                 "CardinalityScale {n=101}",
                  "Produce {a`0:(((((ParameterLookup + ParameterLookup) + ParameterLookup) + ParameterLookup) + "
                  "ParameterLookup) + ParameterLookup)}",
                  "Once"},
             .expected_rewrites = 1,
+        },
+        // A constant list literal has a known length, so an unused binding over
+        // it elides to a CardinalityScale just like range does.
+        PipelineTestCase{
+            .name = "UnwindConstListReturnLiteral",
+            .query = "UNWIND [1, 2, 3] AS x RETURN 42;",
+            .expected_details = {"Produce {42`0:42}", "CardinalityScale {n=3}", "Once"},
+            .expected_rewrites = 0,
+        },
+        // A referenced sym keeps the Unwind binding even over a constant list.
+        PipelineTestCase{
+            .name = "UnwindConstListReturnSymbol",
+            .query = "UNWIND [1, 2, 3] AS x RETURN x;",
+            .expected_details = {"Produce {x`1:x}", "Unwind {x:literal}", "Once"},
+            .expected_rewrites = 0,
         }
     ),
     TestCaseName
@@ -815,7 +862,9 @@ INSTANTIATE_TEST_SUITE_P(
         PipelineTestCase{
             .name = "TwoOutputsFromUnwindVar",
             .query = "UNWIND range(0, 5) AS x RETURN x AS a, x + 1 AS b;",
-            .expected_details = {"Produce {a`1:x, b`3:(x + 1)}", "Unwind {x:RANGE(0, 5)}", "Once"},
+            // x reconstructs to a single symbol shared by both NamedOutputs, so
+            // b takes position 2 (not 3, which would mean x was built twice).
+            .expected_details = {"Produce {a`1:x, b`2:(x + 1)}", "Unwind {x:RANGE(0, 5)}", "Once"},
             .expected_rewrites = 0,
         },
         // Scalar alive Bind for `a` (evaluated once before Unwind) combined

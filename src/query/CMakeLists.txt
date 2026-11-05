@@ -83,14 +83,13 @@ target_sources(mg-query
     plan/variable_start_planner.cpp
     plan_v2/egraph/egraph.cpp
     plan_v2/frontend/ast_converter.cpp
-    plan_v2/cost/builtin_estimator.cpp
     plan_v2/frontend/egraph_converter.cpp
     plan_v2/frontend/builder.cpp
     plan_v2/cost/cost_model.cpp
     plan_v2/rewrite/rewrites.cpp
     plan_v2/rewrite/fold.cpp
     plan_v2/egraph/symbol_make_traits.cpp
-    plan_v2/resolve/analysis.cpp
+    plan_v2/egraph/analysis.cpp
     plan/parallel_checker.cpp
     procedure/mg_procedure_impl.cpp
     procedure/callable_alias_mapper.cpp
@@ -139,6 +138,7 @@ target_sources(mg-query
     plan/parallel_checker.hpp
     plan/point_distance_condition.hpp
     plan/read_write_type_checker.hpp
+    plan/rewrite/cache_properties.hpp
     plan/rewrite/enum.hpp
     plan/rewrite/order_by_elimination.hpp
     plan/rewrite/parallel_rewrite.hpp
@@ -155,12 +155,12 @@ target_sources(mg-query
     TYPE HEADERS
     FILES
     plan_v2/frontend/builder.hpp
-    plan_v2/resolve/analysis.hpp
-    plan_v2/resolve/constant_identity.hpp
-    plan_v2/resolve/extraction_env.hpp
+    plan_v2/egraph/analysis.hpp
+    plan_v2/egraph/constant_identity.hpp
+    plan_v2/cost/extraction_env.hpp
     plan_v2/resolve/resolver.hpp
     plan_v2/egraph/symbol.hpp
-    plan_v2/resolve/variable_index.hpp
+    plan_v2/scope/variable_index.hpp
 )
 
 # CXX_MODULES split into a separate target to avoid CMake 4.x CMP0189

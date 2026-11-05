@@ -55,3 +55,7 @@ workloads:
     binary: "tests/e2e/pytest_runner.sh"
     args: ["show_metrics/show_metrics_openmetrics_values.py"]
     <<: *show_metrics_openmetrics_cluster
+
+  - name: "Metrics endpoints need a licence"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["show_metrics/metrics_licence.py"]

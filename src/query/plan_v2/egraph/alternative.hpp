@@ -14,7 +14,7 @@
 #include <compare>
 
 #include "planner/extract/pareto_frontier.hpp"
-#include "query/plan_v2/resolve/variable_set.hpp"
+#include "query/plan_v2/scope/variable_set.hpp"
 
 import memgraph.planner.core.egraph;
 

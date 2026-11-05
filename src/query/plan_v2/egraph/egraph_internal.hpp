@@ -19,10 +19,10 @@ import memgraph.planner.core.typed_egraph;
 
 #include <span>
 
+#include "query/plan_v2/egraph/analysis.hpp"
 #include "query/plan_v2/egraph/egraph.hpp"
 #include "query/plan_v2/egraph/symbol.hpp"
 #include "query/plan_v2/egraph/symbol_make_traits.hpp"
-#include "query/plan_v2/resolve/analysis.hpp"
 #include "utils/small_vector.hpp"
 
 namespace memgraph::query::plan::v2 {
@@ -43,7 +43,7 @@ struct egraph::impl {
   typed_egraph graph;
 };
 
-/// Pimpl back-door for plan_v2-internal TUs (converter, rewriter, estimator).
+/// Pimpl back-door for plan_v2-internal TUs (converter, rewriter, cost).
 /// Declared `friend` on `egraph` so private member access works.
 auto impl_of(egraph &e) -> egraph::impl &;
 auto impl_of(egraph const &e) -> egraph::impl const &;

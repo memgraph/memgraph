@@ -118,6 +118,7 @@ bool PlanPrinter::PreVisit(ParallelMerge & /*unused*/) {
 
 PRE_VISIT_TS(Expand);
 PRE_VISIT_TS(Produce);
+PRE_VISIT_TS(CacheProperties);
 
 bool PlanPrinter::PreVisit(ExpandVariable &op) {
   WithPrintLn([this, &op](auto &out) {
@@ -161,6 +162,7 @@ bool PlanPrinter::PreVisit(query::plan::Optional &op) {
 }
 
 PRE_VISIT(Unwind);
+PRE_VISIT_TS(CardinalityScale);
 PRE_VISIT(Distinct);
 
 bool PlanPrinter::PreVisit(query::plan::Union &op) {

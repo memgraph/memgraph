@@ -94,27 +94,16 @@ class Client final {
   [[nodiscard]] auto Read(size_t len, bool exactly_len = true, std::optional<int> timeout_ms = std::nullopt)
       -> std::expected<void, io::network::ClientCommunicationError>;
 
-  /**
-   * This function returns a pointer to the read data that is currently stored
-   * in the client.
-   */
-  uint8_t *GetData();
+  uint8_t *GetData() { return buffer_.read_end()->data(); }
 
-  /**
-   * This function returns the size of the read data that is currently stored in
-   * the client.
-   */
-  size_t GetDataSize() const;
+  size_t GetDataSize() const { return buffer_.read_end()->size(); }
 
   /**
    * This function removes first `len` bytes from the data buffer.
    */
-  void ShiftData(size_t len);
+  void ShiftData(size_t len) { buffer_.read_end()->Shift(len); }
 
-  /**
-   * This function clears the data buffer.
-   */
-  void ClearData();
+  void ClearData() { buffer_.read_end()->Clear(); }
 
   /**
    * This function writes data to the socket.
@@ -140,7 +129,7 @@ class Client final {
   [[nodiscard]] auto Write(std::string_view str, bool have_more = false, std::optional<int> timeout_ms = std::nullopt)
       -> std::expected<void, io::network::ClientCommunicationError>;
 
-  const io::network::Endpoint &endpoint() const;
+  const io::network::Endpoint &endpoint() const { return socket_.endpoint(); }
 
  private:
   void ReleaseSslObjects();

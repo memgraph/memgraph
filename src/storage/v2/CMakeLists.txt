@@ -44,6 +44,7 @@ target_sources(mg-storage-v2
         indices/indices_utils.hpp
         indices/label_index_stats.cpp
         indices/label_property_index.cpp
+        indices/ordered_property_paths.cpp
         indices/label_property_index_stats.cpp
         indices/point_index.cpp
         indices/point_index_change_collector.cpp

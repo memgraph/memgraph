@@ -125,12 +125,6 @@ std::optional<EdgeAccessor> SubgraphDbAccessor::FindEdge(storage::Gid edge_gid, 
   return std::nullopt;
 }
 
-query::Graph *SubgraphDbAccessor::getGraph() { return graph_; }
-
-storage::StorageMode SubgraphDbAccessor::GetStorageMode() const noexcept { return db_accessor_.GetStorageMode(); }
-
-DbAccessor *SubgraphDbAccessor::GetAccessor() { return &db_accessor_; }
-
 VirtualGraphDbAccessor::VirtualGraphDbAccessor(query::DbAccessor db_accessor, VirtualGraph *graph)
     : db_accessor_(db_accessor), graph_(graph) {}
 
@@ -168,12 +162,6 @@ const std::string &VirtualGraphDbAccessor::EdgeTypeToName(storage::EdgeTypeId ty
 std::shared_ptr<const VirtualNode> VirtualGraphDbAccessor::FindNode(storage::Gid synthetic_gid) const {
   return graph_->FindNode(synthetic_gid);
 }
-
-VirtualGraph *VirtualGraphDbAccessor::getGraph() const { return graph_; }
-
-storage::StorageMode VirtualGraphDbAccessor::GetStorageMode() const noexcept { return db_accessor_.GetStorageMode(); }
-
-DbAccessor *VirtualGraphDbAccessor::GetAccessor() { return &db_accessor_; }
 
 VertexAccessor SubgraphVertexAccessor::GetVertexAccessor() const { return impl_; }
 

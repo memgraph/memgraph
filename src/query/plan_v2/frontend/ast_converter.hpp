@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -18,10 +18,16 @@
 namespace memgraph::query {
 class CypherQuery;
 class SymbolTable;
+struct Parameters;
 }  // namespace memgraph::query
 
 namespace memgraph::query::plan::v2 {
 
-auto ConvertToEgraph(CypherQuery const &query, SymbolTable const &symbol_table) -> std::tuple<egraph, eclass>;
+/// Lower a parsed Cypher query to an e-graph. `parameters` carries the values of
+/// stripped literals and user parameters by token position; plan_v2 does not
+/// cache plans, so a ParameterLookup whose value is known is folded to a
+/// constant, letting the analysis see the actual value (e.g. a list length).
+auto ConvertToEgraph(CypherQuery const &query, SymbolTable const &symbol_table, Parameters const &parameters)
+    -> std::tuple<egraph, eclass>;
 
 }  // namespace memgraph::query::plan::v2

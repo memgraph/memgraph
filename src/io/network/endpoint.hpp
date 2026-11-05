@@ -42,10 +42,13 @@ class Endpoint {
                                                                std::optional<uint16_t> default_port = {});
 
   // Returns hostname as specified by user. Could be FQDN (IP address) or DNS name.
-  [[nodiscard]] auto GetAddress() const -> std::string const &;
-  [[nodiscard]] auto GetAddress() -> std::string &;
-  [[nodiscard]] auto GetPort() const -> uint16_t const &;
-  [[nodiscard]] auto GetPort() -> uint16_t &;
+  [[nodiscard]] auto GetAddress() const -> std::string const & { return address_; }
+
+  [[nodiscard]] auto GetAddress() -> std::string & { return address_; }
+
+  [[nodiscard]] auto GetPort() const -> uint16_t const & { return port_; }
+
+  [[nodiscard]] auto GetPort() -> uint16_t & { return port_; }
 
   // Does resolution
   [[nodiscard]] auto GetIpFamily() const -> IpFamily;

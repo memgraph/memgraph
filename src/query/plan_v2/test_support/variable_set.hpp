@@ -14,7 +14,7 @@
 #include <cstdint>
 #include <initializer_list>
 
-#include "query/plan_v2/resolve/variable_set.hpp"
+#include "query/plan_v2/scope/variable_set.hpp"
 
 namespace memgraph::query::plan::v2 {
 

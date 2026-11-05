@@ -14,6 +14,7 @@
 // Created by Florijan Stamenkovic on 07.03.17.
 //
 
+#include <bitset>
 #include <cstdint>
 #include <limits>
 #include <unordered_map>
@@ -24,6 +25,7 @@
 
 #include "query/exceptions.hpp"
 #include "query/frontend/stripped.hpp"
+#include "query/frontend/stripped_lexer_constants.hpp"
 #include "query/typed_value.hpp"
 
 using namespace memgraph::query;
@@ -765,6 +767,51 @@ TEST(HashedString, DisambiguatesOnHashCollision) {
   ASSERT_EQ(map.size(), 2U);
   EXPECT_EQ(map.at(HashedString{"RETURN 0"}), 1);
   EXPECT_EQ(map.at(HashedString{"RETURN 1"}), 2);
+}
+
+// A table that disagrees with its bit string would change which characters the
+// lexer accepts, and would do it silently.
+template <typename TSet>
+void ExpectMatchesBitset(const TSet &set, std::string_view bits) {
+  ASSERT_EQ(bits.size(), lexer_constants::kCodepointTableSize);
+  const std::bitset<lexer_constants::kCodepointTableSize> reference{std::string{bits}};
+  for (size_t pos = 0; pos != lexer_constants::kCodepointTableSize; ++pos) {
+    ASSERT_EQ(set.Contains(pos), reference[pos]) << "codepoint " << pos;
+  }
+}
+
+TEST(StrippedQuery, CodepointTablesMatchTheirBitStrings) {
+  ExpectMatchesBitset(lexer_constants::kUnescapedNameAllowedStarts, lexer_constants::kUnescapedNameAllowedStartsBits);
+  ExpectMatchesBitset(lexer_constants::kUnescapedNameAllowedParts, lexer_constants::kUnescapedNameAllowedPartsBits);
+  ExpectMatchesBitset(lexer_constants::kSpaceParts, lexer_constants::kSpacePartsBits);
+}
+
+// Agreeing with a std::bitset built from the same literal says nothing about
+// which end of the literal holds codepoint 0. These memberships do.
+TEST(StrippedQuery, CodepointTablesHoldTheCodepointsTheyName) {
+  EXPECT_TRUE(lexer_constants::kUnescapedNameAllowedStarts.Contains(U'A'));
+  EXPECT_TRUE(lexer_constants::kUnescapedNameAllowedStarts.Contains(U'z'));
+  EXPECT_TRUE(lexer_constants::kUnescapedNameAllowedStarts.Contains(U'_'));
+  EXPECT_FALSE(lexer_constants::kUnescapedNameAllowedStarts.Contains(U'0'));
+  EXPECT_FALSE(lexer_constants::kUnescapedNameAllowedStarts.Contains(U'-'));
+
+  // A digit cannot start a name but may continue one.
+  EXPECT_TRUE(lexer_constants::kUnescapedNameAllowedParts.Contains(U'0'));
+  EXPECT_TRUE(lexer_constants::kUnescapedNameAllowedParts.Contains(U'A'));
+  EXPECT_FALSE(lexer_constants::kUnescapedNameAllowedParts.Contains(U'('));
+
+  EXPECT_TRUE(lexer_constants::kSpaceParts.Contains(U' '));
+  EXPECT_TRUE(lexer_constants::kSpaceParts.Contains(U'\t'));
+  EXPECT_TRUE(lexer_constants::kSpaceParts.Contains(U'\n'));
+  EXPECT_FALSE(lexer_constants::kSpaceParts.Contains(U'A'));
+}
+
+// The lexer hands over whatever codepoint it decoded, including the four-byte
+// ones that sit above every table.
+TEST(StrippedQuery, CodepointTablesExcludeCodepointsAboveThem) {
+  EXPECT_FALSE(lexer_constants::kUnescapedNameAllowedStarts.Contains(lexer_constants::kCodepointTableSize));
+  EXPECT_FALSE(lexer_constants::kUnescapedNameAllowedParts.Contains(U'\U0001F600'));
+  EXPECT_FALSE(lexer_constants::kSpaceParts.Contains(U'\U0010FFFF'));
 }
 
 }  // namespace

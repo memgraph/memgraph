@@ -242,8 +242,9 @@ class Permissions final {
   /// @throw AuthException if unable to deserialize.
   static Permissions Deserialize(const nlohmann::json &data);
 
-  uint64_t grants() const;
-  uint64_t denies() const;
+  uint64_t grants() const { return grants_; }
+
+  uint64_t denies() const { return denies_; }
 
  private:
   uint64_t grants_{0};
@@ -391,9 +392,11 @@ class FineGrainedAccessPermissions final {
   /// @throw AuthException if unable to deserialize.
   static FineGrainedAccessPermissions Deserialize(const nlohmann::json &data);
 
-  std::optional<uint64_t> const &GetGlobalGrants() const;
-  std::optional<uint64_t> const &GetGlobalDenies() const;
-  std::vector<FineGrainedAccessRule> const &GetRules() const;
+  std::optional<uint64_t> const &GetGlobalGrants() const { return global_grants_; }
+
+  std::optional<uint64_t> const &GetGlobalDenies() const { return global_denies_; }
+
+  std::vector<FineGrainedAccessRule> const &GetRules() const { return rules_; }
 
  private:
   std::optional<uint64_t> global_grants_;
@@ -416,11 +419,13 @@ class FineGrainedAccessHandler final {
   FineGrainedAccessHandler &operator=(FineGrainedAccessHandler &&) noexcept = default;
   ~FineGrainedAccessHandler() = default;
 
-  const FineGrainedAccessPermissions &label_permissions() const;
-  FineGrainedAccessPermissions &label_permissions();
+  const FineGrainedAccessPermissions &label_permissions() const { return label_permissions_; }
 
-  const FineGrainedAccessPermissions &edge_type_permissions() const;
-  FineGrainedAccessPermissions &edge_type_permissions();
+  FineGrainedAccessPermissions &label_permissions() { return label_permissions_; }
+
+  const FineGrainedAccessPermissions &edge_type_permissions() const { return edge_type_permissions_; }
+
+  FineGrainedAccessPermissions &edge_type_permissions() { return edge_type_permissions_; }
 
   nlohmann::json Serialize() const;
 
@@ -649,9 +654,11 @@ class Role {
   Role &operator=(Role &&) noexcept = default;
   ~Role() = default;
 
-  const std::string &rolename() const;
-  const Permissions &permissions() const;
-  Permissions &permissions();
+  const std::string &rolename() const { return rolename_; }
+
+  const Permissions &permissions() const { return permissions_; }
+
+  Permissions &permissions() { return permissions_; }
 
   Permissions GetPermissions(std::optional<std::string_view> db_name = std::nullopt) const {
 #ifdef MG_ENTERPRISE
@@ -664,14 +671,18 @@ class Role {
 #endif
   }
 #ifdef MG_ENTERPRISE
-  const FineGrainedAccessHandler &fine_grained_access_handler() const;
-  FineGrainedAccessHandler &fine_grained_access_handler();
+  const FineGrainedAccessHandler &fine_grained_access_handler() const { return fine_grained_access_handler_; }
+
+  FineGrainedAccessHandler &fine_grained_access_handler() { return fine_grained_access_handler_; }
+
   const FineGrainedAccessPermissions &GetFineGrainedAccessLabelPermissions(
       std::optional<std::string_view> db_name = std::nullopt) const;
   const FineGrainedAccessPermissions &GetFineGrainedAccessEdgeTypePermissions(
       std::optional<std::string_view> db_name = std::nullopt) const;
-  PropertyAccessHandler const &property_access_handler() const;
-  PropertyAccessHandler &property_access_handler();
+
+  PropertyAccessHandler const &property_access_handler() const { return property_access_handler_; }
+
+  PropertyAccessHandler &property_access_handler() { return property_access_handler_; }
 #endif
 
 #ifdef MG_ENTERPRISE
@@ -1004,19 +1015,24 @@ class User final {
       std::optional<std::string_view> db_name = std::nullopt) const;
   FineGrainedAccessPermissions GetRoleFineGrainedAccessEdgeTypePermissions(
       std::optional<std::string_view> db_name = std::nullopt) const;
-  const FineGrainedAccessHandler &fine_grained_access_handler() const;
-  FineGrainedAccessHandler &fine_grained_access_handler();
-  PropertyAccessHandler const &property_access_handler() const;
-  PropertyAccessHandler &property_access_handler();
+
+  const FineGrainedAccessHandler &fine_grained_access_handler() const { return fine_grained_access_handler_; }
+
+  FineGrainedAccessHandler &fine_grained_access_handler() { return fine_grained_access_handler_; }
+
+  PropertyAccessHandler const &property_access_handler() const { return property_access_handler_; }
+
+  PropertyAccessHandler &property_access_handler() { return property_access_handler_; }
 
   PropertyAccessPermissions GetPropertyLabelPermissions(std::optional<std::string_view> db_name = std::nullopt) const;
   PropertyAccessPermissions GetPropertyEdgeTypePermissions(
       std::optional<std::string_view> db_name = std::nullopt) const;
 #endif
-  const std::string &username() const;
+  const std::string &username() const { return username_; }
 
-  const Permissions &permissions() const;
-  Permissions &permissions();
+  const Permissions &permissions() const { return permissions_; }
+
+  Permissions &permissions() { return permissions_; }
 
   // Multi-tenant access
 #ifdef MG_ENTERPRISE

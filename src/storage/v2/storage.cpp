@@ -153,8 +153,6 @@ Storage::Accessor::Accessor(Accessor &&other) noexcept
   other.commit_timestamp_.reset();
 }
 
-StorageMode Storage::GetStorageMode() const noexcept { return storage_mode_; }
-
 IsolationLevel Storage::GetIsolationLevel() const noexcept { return isolation_level_; }
 
 std::expected<void, Storage::SetIsolationLevelError> Storage::SetIsolationLevel(IsolationLevel isolation_level) {
@@ -168,6 +166,10 @@ std::vector<EdgeTypeId> Storage::ListAllPossiblyPresentEdgeTypes() const { retur
 std::vector<LabelId> Storage::ListAllPossiblyPresentVertexLabels() const { return stored_node_labels_.vectorize(); }
 
 StorageMode Storage::Accessor::GetPinnedStorageMode() const noexcept { return transaction_.storage_mode; }
+
+bool Storage::Accessor::HasVectorIndices() const {
+  return !storage_->indices_.vector_index_.Empty() || !storage_->indices_.vector_edge_index_.Empty();
+}
 
 std::optional<uint64_t> Storage::Accessor::GetStartTimestamp() const {
   if (is_transaction_active_) {

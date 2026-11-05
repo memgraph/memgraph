@@ -9,6 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <fmt/format.h>
 #include <gflags/gflags.h>
 #include <zconf.h>
 #include <zlib.h>
@@ -18,14 +19,21 @@
 #include <memory>
 
 #include "utils/compressor.hpp"
+#include "utils/enum.hpp"
 #include "utils/flag_validation.hpp"
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables, misc-unused-parameters)
 DEFINE_VALIDATED_string(storage_property_store_compression_level, "mid",
-                        memgraph::flags::storage_property_store_compression_level_help_string.c_str(),
+                        memgraph::flags::StoragePropertyStoreCompressionLevelHelpString().c_str(),
                         { return memgraph::flags::ValidStoragePropertyStoreCompressionLevel(value); });
 
 namespace memgraph::flags {
+
+std::string const &StoragePropertyStoreCompressionLevelHelpString() {
+  static std::string const help = fmt::format("Compression level for storing properties. Allowed values: {}.",
+                                              memgraph::utils::GetAllowedEnumValuesString(compression_level_mappings));
+  return help;
+}
 
 bool ValidStoragePropertyStoreCompressionLevel(std::string_view value) {
   if (const auto result = memgraph::utils::IsValidEnumValueString(value, compression_level_mappings);
