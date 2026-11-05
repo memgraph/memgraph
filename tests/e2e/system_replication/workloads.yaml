@@ -14,3 +14,6 @@ workloads:
   - name: "Hot/cold tenant convergence"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["system_replication/hot_cold_convergence.py"]
+  - name: "Replicate every database after an unlicensed restart"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["system_replication/unlicensed_restart.py"]
