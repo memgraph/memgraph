@@ -12,6 +12,7 @@ target_sources(memgraph__benchmark__new_planner
     bench_join.cpp
     bench_rewrite.cpp
     bench_extract.cpp
+    bench_analysis.cpp
 )
 
 target_link_libraries(memgraph__benchmark__new_planner PRIVATE mg::planner mg::planner::test_support benchmark::benchmark)
