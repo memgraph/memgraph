@@ -14,6 +14,7 @@
 #include <range/v3/all.hpp>
 #include "query/auth_checker.hpp"
 #include "query/common.hpp"
+#include "query/cypher_numeric_literal.hpp"
 
 #include <algorithm>
 #include <limits>
@@ -77,13 +78,7 @@ std::string EscapeName(const std::string_view value) {
   return out;
 }
 
-void DumpPreciseDouble(std::ostream *os, double value) {
-  // A temporary stream is used to keep precision of the original output
-  // stream unchanged.
-  std::ostringstream temp_oss;
-  temp_oss << std::setprecision(std::numeric_limits<double>::max_digits10) << value;
-  *os << temp_oss.str();
-}
+void DumpPreciseDouble(std::ostream *os, double value) { *os << CypherNumericLiteral(value); }
 
 namespace {
 void DumpDate(std::ostream &os, const storage::TemporalData &value) {
@@ -147,9 +142,13 @@ void DumpZonedTemporalData(std::ostream &os, const storage::ZonedTemporalData &v
   }
 }
 
-void DumpPoint2d(std::ostream &os, const storage::Point2d &value) { os << query::CypherConstructionFor(value); }
+void DumpPoint2d(std::ostream &os, const storage::Point2d &value) {
+  os << query::CypherConstructionFor(value, query::CypherCoordinateLiteral);
+}
 
-void DumpPoint3d(std::ostream &os, const storage::Point3d &value) { os << query::CypherConstructionFor(value); }
+void DumpPoint3d(std::ostream &os, const storage::Point3d &value) {
+  os << query::CypherConstructionFor(value, query::CypherCoordinateLiteral);
+}
 
 }  // namespace
 
@@ -237,7 +236,8 @@ void DumpPropertyValue(std::ostream *os, const storage::ExternalPropertyValue &v
     case storage::PropertyValue::Type::VectorIndexId: {
       const auto &vector = value.ValueVectorIndexList();
       *os << "[";
-      utils::PrintIterable(*os, vector, ", ", [](auto &os, const auto &item) { os << item; });
+      utils::PrintIterable(
+          *os, vector, ", ", [](auto &os, const auto &item) { os << query::CypherNumericLiteral(item); });
       *os << "]";
       return;
     }
