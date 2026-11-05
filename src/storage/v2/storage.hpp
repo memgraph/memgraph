@@ -330,7 +330,7 @@ class Storage {
     return EdgeTypeId::FromUint(name_id_mapper_->NameToId(name));
   }
 
-  StorageMode GetStorageMode() const noexcept;
+  StorageMode GetStorageMode() const noexcept { return storage_mode_; }
 
   // True iff this storage's durability mode keeps BOTH periodic snapshots AND a WAL
   // chain — the precondition for hot/cold suspend (suspend tears down RAM and relies

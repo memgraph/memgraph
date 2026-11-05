@@ -863,14 +863,6 @@ ZonedDateTimeParameters ParseZonedDateTimeParameters(std::string_view string) {
   };
 }
 
-std::chrono::sys_time<std::chrono::microseconds> AsSysTime(int64_t microseconds) {
-  return std::chrono::sys_time<std::chrono::microseconds>{std::chrono::microseconds(microseconds)};
-}
-
-std::chrono::local_time<std::chrono::microseconds> AsLocalTime(int64_t microseconds) {
-  return std::chrono::local_time<std::chrono::microseconds>{std::chrono::microseconds(microseconds)};
-}
-
 namespace {
 
 // Reading the fields through the configured timezone would let the server's shifts move a value naming another.
@@ -912,16 +904,6 @@ std::chrono::sys_time<std::chrono::microseconds> ZonedDateTime::SysTimeSinceEpoc
 
 std::chrono::microseconds ZonedDateTime::SysMicrosecondsSinceEpoch() const {
   return zoned_time.get_sys_time().time_since_epoch();
-}
-
-std::chrono::seconds ZonedDateTime::SysSecondsSinceEpoch() const {
-  return std::chrono::duration_cast<std::chrono::seconds>(zoned_time.get_sys_time().time_since_epoch());
-}
-
-std::chrono::nanoseconds ZonedDateTime::SysSubSecondsAsNanoseconds() const {
-  const auto time_since_epoch = zoned_time.get_sys_time().time_since_epoch();
-  const auto full_seconds = std::chrono::duration_cast<std::chrono::seconds>(time_since_epoch);
-  return std::chrono::duration_cast<std::chrono::nanoseconds>(time_since_epoch - full_seconds);
 }
 
 std::string ZonedDateTime::ToString() const {
@@ -1135,8 +1117,6 @@ constexpr To CastChronoDouble(const double value) {
   return std::chrono::duration_cast<To>(std::chrono::duration<double, typename From::period>(value));
 };
 }  // namespace
-
-Duration::Duration(int64_t const microseconds) : microseconds(microseconds) {}
 
 Duration::Duration(const DurationParameters &parameters) {
   microseconds = (CastChronoDouble<std::chrono::days, std::chrono::microseconds>(parameters.day) +
