@@ -439,7 +439,7 @@ void LicenseChecker::StartBackgroundLicenseChecker(std::weak_ptr<utils::Settings
   MG_ASSERT(locked_settings, "Settings are not available");
   RevalidateLicense(*locked_settings);
   scheduler_.SetInterval(std::chrono::minutes{5});
-  scheduler_.Run("licensechecker", [&, this] {
+  scheduler_.Run("licensechecker", [this, settings] {
     if (auto locked_settings = settings.lock()) {
       RevalidateLicense(*locked_settings);
     }
