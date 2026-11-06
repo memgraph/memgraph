@@ -14,6 +14,7 @@
 #include "utils/exceptions.hpp"
 
 #include <fmt/format.h>
+#include <string_view>
 
 namespace memgraph::query {
 
@@ -574,6 +575,16 @@ class WriteQueryOnMainException : public QueryException {
             "Write queries currently forbidden on the main instance. Either the cluster is in read-only mode, or a new "
             "main instance is being set up. Please retry the query later on if this is transient.") {}
   SPECIALIZE_GET_EXCEPTION_NAME(WriteQueryOnMainException)
+};
+
+class WriteQueryOnUnlicensedTenantException : public QueryException {
+ public:
+  explicit WriteQueryOnUnlicensedTenantException(std::string_view db_name)
+      : QueryException(
+            "Database '{}' is read-only without a valid license. Check your license status by running SHOW LICENSE "
+            "INFO.",
+            db_name) {}
+  SPECIALIZE_GET_EXCEPTION_NAME(WriteQueryOnUnlicensedTenantException)
 };
 
 class TransactionQueueInMulticommandTxException : public MulticommandTxException {
