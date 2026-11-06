@@ -65,6 +65,9 @@ target_link_libraries(${test_prefix}aggregation mg-query)
 add_benchmark(query/typed_value_ops.cpp)
 target_link_libraries(${test_prefix}typed_value_ops mg-query)
 
+add_benchmark(query/typed_value_set.cpp)
+target_link_libraries(${test_prefix}typed_value_set mg-query absl::flat_hash_set Boost::headers)
+
 add_benchmark(query/expression_lowering.cpp)
 target_link_libraries(${test_prefix}expression_lowering mg-query)
 
