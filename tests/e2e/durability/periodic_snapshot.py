@@ -358,6 +358,24 @@ def test_cron_flag_without_license(test_name):
         assert number_of_snapshots(snapshots_dir) > 0, "No snapshot after the licence was set"
 
 
+def test_negative_interval_flag_refused(test_name):
+    """A negative snapshot interval stops startup instead of scheduling snapshots back to back."""
+    instance = {
+        "negative_interval_flag": {
+            "args": [
+                "--log-level=TRACE",
+                "--also-log-to-stderr",
+                "--storage-snapshot-interval-sec=0",
+                "--storage-snapshot-interval=-1",
+            ],
+            "log_file": f"{get_logs_path(FILE, test_name)}/negative_interval_flag.log",
+            "data_directory": get_data_path(FILE, test_name),
+        }
+    }
+    with pytest.raises(AssertionError, match="failed to start"):
+        interactive_mg_runner.start(instance, "negative_interval_flag")
+
+
 # Interface doesn't support failure, so can't reliably test if both flags cause a fault
 # def test_both_flags(test_name):
 #     interactive_mg_runner.start(memgraph_instances(test_name), "both_flags")
