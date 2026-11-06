@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <algorithm>
 #include <cstdint>
 #include <cstdlib>
 #include <vector>

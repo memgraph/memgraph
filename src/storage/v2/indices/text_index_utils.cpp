@@ -207,7 +207,8 @@ bool IndexPropertiesMatch(std::span<const PropertyId> index_properties,
 }
 
 struct TextSearchSession::Impl {
-  absl::flat_hash_map<TextIndexKey, rust::Box<mgcxx::text_search::SearcherContext>> searchers;
+  boost::unordered_flat_map<TextIndexKey, rust::Box<mgcxx::text_search::SearcherContext>, absl::Hash<TextIndexKey>>
+      searchers;
 };
 
 TextSearchSession::TextSearchSession() : impl_(std::make_unique<Impl>()) {}

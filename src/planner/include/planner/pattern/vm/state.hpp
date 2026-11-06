@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <algorithm>
 #include <span>
 #include <vector>
 
@@ -19,7 +20,6 @@
 
 import memgraph.planner.core.eids;
 
-#include <absl/container/flat_hash_set.h>
 #include <cassert>
 
 #include "planner/pattern/vm/types.hpp"
@@ -82,7 +82,7 @@ using ParentsIter = SetIter<boost::unordered_flat_set<ENodeId>>;
 using SymbolEClassesIter = SetIter<boost::unordered_flat_set<EClassId>>;
 
 /// Open-addressing hash set for deduplication (much better cache locality than std::unordered_set)
-using FastEClassSet = absl::flat_hash_set<EClassId>;
+using FastEClassSet = boost::unordered_flat_set<EClassId>;
 
 /// Configuration for VMState reset
 struct VMStateConfig {

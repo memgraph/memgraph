@@ -150,7 +150,10 @@ void VectorEdgeIndex::RecoverAllVectorEdgeIndices(std::vector<VectorEdgeIndexRec
                                                   ProgressCallback const &on_progress) {
   if (recovery_infos.empty()) return;
 
-  absl::flat_hash_map<PropertyId, std::vector<std::pair<uint64_t, std::shared_ptr<EdgeTypeIndexItem>>>> prop_to_items;
+  boost::unordered_flat_map<PropertyId,
+                            std::vector<std::pair<uint64_t, std::shared_ptr<EdgeTypeIndexItem>>>,
+                            std::hash<PropertyId>>
+      prop_to_items;
   try {
     for (auto &ri : recovery_infos) {
       auto index_id = SetupIndex(ri.spec, name_id_mapper);

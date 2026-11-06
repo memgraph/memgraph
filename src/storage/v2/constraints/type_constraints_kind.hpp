@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <algorithm>
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_store_types.hpp"
 #include "storage/v2/temporal.hpp"
@@ -20,7 +21,7 @@
 #include <string>
 #include <utility>
 
-#include "absl/container/flat_hash_map.h"
+#include <boost/unordered/unordered_flat_map.hpp>
 
 import memgraph.storage.property_value;
 
@@ -41,6 +42,8 @@ enum class TypeConstraintKind : uint8_t {
   ENUM = 11,
   POINT = 12,
 };
+
+using PropertyTypeConstraints = boost::unordered_flat_map<PropertyId, TypeConstraintKind, std::hash<PropertyId>>;
 
 inline std::string_view TypeConstraintKindToString(TypeConstraintKind type) {
   using namespace std::string_view_literals;

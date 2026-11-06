@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <algorithm>
 #include "storage/v2/id_types.hpp"
 
 #include "storage/v2/constraints/type_constraints_kind.hpp"
@@ -19,8 +20,6 @@
 
 #include <cstdint>
 #include <string>
-
-#include "absl/container/flat_hash_map.h"
 
 namespace memgraph::storage {
 
@@ -37,7 +36,7 @@ struct PropertyStoreMemberInfo {
 };
 
 struct TypeConstraintsValidator {
-  void add(LabelId label, absl::flat_hash_map<PropertyId, TypeConstraintKind> const &constraints) {
+  void add(LabelId label, PropertyTypeConstraints const &constraints) {
     labels.emplace_back(label);
     constraints_.emplace_back(std::cref(constraints));
   }
@@ -48,7 +47,7 @@ struct TypeConstraintsValidator {
 
  private:
   std::vector<LabelId> labels;
-  std::vector<std::reference_wrapper<absl::flat_hash_map<PropertyId, TypeConstraintKind> const>> constraints_;
+  std::vector<std::reference_wrapper<PropertyTypeConstraints const>> constraints_;
 };
 
 }  // namespace memgraph::storage
