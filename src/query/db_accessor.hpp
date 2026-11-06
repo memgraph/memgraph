@@ -79,6 +79,14 @@ class SubgraphVertexAccessor final {
 
   auto OutEdges(storage::View view) const -> decltype(impl_.OutEdges(view));
 
+  /// Only edges of `edge_types` that are in the subgraph. As in the storage, an empty list means every type.
+  auto InEdges(storage::View view, const std::vector<storage::EdgeTypeId> &edge_types) const
+      -> decltype(impl_.InEdges(view));
+
+  /// Only edges of `edge_types` that are in the subgraph. As in the storage, an empty list means every type.
+  auto OutEdges(storage::View view, const std::vector<storage::EdgeTypeId> &edge_types) const
+      -> decltype(impl_.OutEdges(view));
+
   auto Labels(storage::View view) const { return impl_.Labels(view); }
 
   storage::Result<bool> AddLabel(storage::LabelId label) { return impl_.AddLabel(label); }
