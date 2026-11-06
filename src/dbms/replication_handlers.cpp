@@ -364,14 +364,18 @@ bool ForceSuspendForRecovery(DbmsHandler &dbms_handler, std::string_view name) {
 }  // namespace
 
 bool SystemRecoveryHandler(DbmsHandler &dbms_handler, const std::vector<storage::SalientConfig> &database_configs,
-                           const std::vector<storage::ColdTenantRecovery> &cold_databases) {
+                           const std::vector<storage::ColdTenantRecovery> &cold_databases,
+                           bool const includes_all_databases) {
   /*
-   * NO LICENSE
+   * NO LICENSE, here or on MAIN: only the default DB is reconciled, and no other DB is dropped
    */
-  if (!license::global_license_checker.IsEnterpriseValidFast()) {
-    spdlog::error(
-        "Handling SystemRecovery, an enterprise RPC message, without license. Check your license status by running "
-        "SHOW LICENSE INFO.");
+  auto const licensed = license::global_license_checker.IsEnterpriseValidFast();
+  if (!licensed || !includes_all_databases) {
+    if (!licensed) {
+      spdlog::error(
+          "Handling SystemRecovery, an enterprise RPC message, without license. Check your license status by running "
+          "SHOW LICENSE INFO.");
+    }
     for (const auto &config : database_configs) {
       // Only handle default DB
       if (config.name != kDefaultDB) continue;

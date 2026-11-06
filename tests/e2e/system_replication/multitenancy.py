@@ -16,6 +16,7 @@ import time
 from functools import partial
 from pathlib import Path
 from typing import Any, Dict
+from unittest.mock import patch
 
 import interactive_mg_runner
 import mgclient
@@ -1010,6 +1011,60 @@ def test_multitenancy_replication_restart_replica_w_fc_w_rec(connection, replica
 
     mg_sleep_and_assert(3, get_number_of_nodes_func(cursor_replica, "B"))
     mg_sleep_and_assert(0, get_number_of_edges_func(cursor_replica, "B"))
+
+
+@pytest.mark.parametrize("replica_name", [("replica_1"), ("replica_2")])
+def test_multitenancy_replication_unlicensed_main_keeps_replica_state(connection, replica_name, test_name):
+    # Goal: show that a MAIN which loses its licence leaves its replicas' users, roles, and databases alone
+    # 0/ Start replicas licensed as usual; start MAIN without the licence environment and license it by settings
+    # 1/ Setup replication, databases A and B, and an authorized user
+    # 2/ Break MAIN's licence with a mismatched organization name
+    # 3/ Validate users, roles, and data on the replica
+
+    # 0/
+    MEMGRAPH_INSTANCES_DESCRIPTION_WITH_RECOVERY = get_instances_with_recovery(test_name)
+    interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION_WITH_RECOVERY, "replica_1")
+    interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION_WITH_RECOVERY, "replica_2")
+    license_key = os.environ["MEMGRAPH_ENTERPRISE_LICENSE"]
+    organization_name = os.environ["MEMGRAPH_ORGANIZATION_NAME"]
+    with patch.dict(os.environ):
+        del os.environ["MEMGRAPH_ENTERPRISE_LICENSE"]
+        del os.environ["MEMGRAPH_ORGANIZATION_NAME"]
+        interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION_WITH_RECOVERY, "main")
+    main_cursor = connection(BOLT_PORTS["main"], "main").cursor()
+    execute_and_fetch_all(main_cursor, f"SET DATABASE SETTING 'organization.name' TO '{organization_name}';")
+    execute_and_fetch_all(main_cursor, f"SET DATABASE SETTING 'enterprise.license' TO '{license_key}';")
+
+    # 1/
+    setup_replication(connection)
+    main_cursor = connection(BOLT_PORTS["main"], "main").cursor()
+    execute_and_fetch_all(main_cursor, "CREATE DATABASE A;")
+    execute_and_fetch_all(main_cursor, "CREATE DATABASE B;")
+    setup_main(main_cursor)
+    for query in [
+        "CREATE ROLE analyst;",
+        "CREATE USER tester IDENTIFIED BY 'tester';",
+        "GRANT ALL PRIVILEGES TO tester;",
+        "GRANT DATABASE * TO tester;",
+        "GRANT READ ON NODES CONTAINING LABELS * TO tester;",
+    ]:
+        execute_and_fetch_all(main_cursor, query)
+
+    cursor_replica = connection(BOLT_PORTS[replica_name], "replica", "tester", "tester").cursor()
+    mg_sleep_and_assert(7, get_number_of_nodes_func(cursor_replica, "A"))
+    mg_sleep_and_assert(2, get_number_of_nodes_func(cursor_replica, "B"))
+
+    # 2/
+    main_cursor = connection(BOLT_PORTS["main"], "main", "tester", "tester").cursor()
+    execute_and_fetch_all(main_cursor, f"SET DATABASE SETTING 'organization.name' TO '{organization_name.swapcase()}';")
+    time.sleep(5)
+
+    # 3/
+    cursor_replica = connection(BOLT_PORTS[replica_name], "replica", "tester", "tester").cursor()
+    assert [row[0] for row in execute_and_fetch_all(cursor_replica, "SHOW USERS;")] == ["tester"]
+    assert [row[0] for row in execute_and_fetch_all(cursor_replica, "SHOW ROLES;")] == ["analyst"]
+    assert get_number_of_nodes_func(cursor_replica, "A")() == 7
+    assert get_number_of_nodes_func(cursor_replica, "B")() == 2
 
 
 @pytest.mark.parametrize("replica_name", [("replica_1"), ("replica_2")])
