@@ -61,6 +61,7 @@ struct Options {
   bool wal{true};
   bool properties_on_edges{true};
   bool loop{false};  // main has a self-loop on v3
+  bool index{false};  // main has a label+property index on (L, p) when the branch forks
 };
 
 ms::Config MakeConfig(Options options = {}) {
@@ -214,6 +215,11 @@ class VersioningBranchWalTest : public ::testing::Test {
 struct Fixture {
   explicit Fixture(Options options = {}) : db{MakeConfig(options)}, arena_scope{&db.Arena()} {
     base = CreateBase(db, options.properties_on_edges, options.loop);
+    if (options.index) {
+      auto acc = db.storage()->UniqueAccess();
+      EXPECT_TRUE(acc->CreateIndex(Label("L"), {Prop("p")}).has_value());
+      Commit(*acc);
+    }
     auto info = db.version_store()->CreateBranch("b");
     EXPECT_TRUE(info.has_value());
     number = info->number;
@@ -776,4 +782,48 @@ TEST_F(VersioningBranchWalTest, BranchOfAMainWithoutWalWritesNoBranchWal) {
       EXPECT_FALSE(entry.is_regular_file()) << "branch durability off, yet " << entry.path() << " exists";
     }
   }
+}
+
+// The copies that keep an indexed key complete are base state, not user operations: the branch's WAL holds the same
+// records whether or not main has the index.
+TEST_F(VersioningBranchWalTest, KeyPartCopiesAreNeverLogged) {
+  auto const records_of = [](bool index) {
+    std::filesystem::remove_all(kStorageDirectory);
+    auto out = RunBranch(
+        [](Fixture &f) {
+          auto &ctx = *f.ctx;
+          BranchTxn(ctx, [&](mv::BranchContext &c) {  // removes L before any write copied it onto the stub
+            auto v1 = ForkVertex(c, f.base.v1);
+            ASSERT_TRUE(c.RemoveLabel(v1, f.Label("L")).has_value());
+          });
+          BranchTxn(ctx, [&](mv::BranchContext &c) {  // sets the key property while L is away
+            auto v1 = ForkVertex(c, f.base.v1);
+            ASSERT_TRUE(c.SetProperty(v1, f.Prop("p"), ms::PropertyValue(2)).has_value());
+          });
+          BranchTxn(ctx, [&](mv::BranchContext &c) {  // re-adds L: the stub holds no copy, so it gets one
+            auto v1 = ForkVertex(c, f.base.v1);
+            ASSERT_TRUE(c.AddLabel(v1, f.Label("L")).has_value());
+          });
+          BranchTxn(ctx, [&](mv::BranchContext &c) {  // marks L removed again; the copy stays on the stub
+            auto v1 = ForkVertex(c, f.base.v1);
+            ASSERT_TRUE(c.RemoveLabel(v1, f.Label("L")).has_value());
+          });
+          BranchTxn(ctx, [&](mv::BranchContext &c) {  // re-adds L: the stub holds the copy already
+            auto v1 = ForkVertex(c, f.base.v1);
+            ASSERT_TRUE(c.AddLabel(v1, f.Label("L")).has_value());
+          });
+          BranchTxn(ctx, [&](mv::BranchContext &c) {  // the fork vertex has neither: nothing to copy
+            auto v3 = ForkVertex(c, f.base.v3);
+            ASSERT_TRUE(c.SetProperty(v3, f.Prop("p"), ms::PropertyValue(7)).has_value());
+            ASSERT_TRUE(c.AddLabel(v3, f.Label("L")).has_value());
+          });
+        },
+        Options{.index = index});
+    std::vector<std::string> all;
+    for (auto const &txn : out.wal.txns) all.insert(all.end(), txn.records.begin(), txn.records.end());
+    return all;
+  };
+  auto const without_index = records_of(false);
+  ASSERT_FALSE(without_index.empty());
+  EXPECT_EQ(records_of(true), without_index);
 }

@@ -395,22 +395,27 @@ TEST_F(VersioningBranchCoreAutoIndexTest, DiffEngineNeverTracksSchemaInfo) {
   }
 }
 
-TEST_F(VersioningBranchCoreDefinitionsTest, DiffEngineMirrorsNoConstraintVectorOrTextDefinitions) {
+TEST_F(VersioningBranchCoreDefinitionsTest, DiffEngineMirrorsOnlyTheVertexIndexDefinitionsNoConstraintVectorOrText) {
+  const auto main_indices = storage_->Access(ms::READ)->ListAllIndices();
+  ASSERT_FALSE(main_indices.label.empty());
+  ASSERT_FALSE(main_indices.label_properties.empty());
+  ASSERT_FALSE(main_indices.vector_indices_spec.empty());
+  ASSERT_FALSE(main_indices.text_indices.empty());
   {
-    const auto main_indices = storage_->Access(ms::READ)->ListAllIndices();
-    ASSERT_FALSE(main_indices.label.empty());
-    ASSERT_FALSE(main_indices.label_properties.empty());
-    ASSERT_FALSE(main_indices.vector_indices_spec.empty());
-    ASSERT_FALSE(main_indices.text_indices.empty());
     const auto main_constraints = storage_->Access(ms::READ)->ListAllConstraints();
     ASSERT_FALSE(main_constraints.existence.empty());
     ASSERT_FALSE(main_constraints.unique.empty());
   }
   auto acc = Diff().Access(ms::READ);
   const auto indices = acc->ListAllIndices();
-  EXPECT_TRUE(indices.label.empty());
-  EXPECT_TRUE(indices.label_properties.empty());
-  EXPECT_TRUE(indices.vertex_property.empty());
+  EXPECT_EQ(indices.label, main_indices.label);
+  ASSERT_EQ(indices.label_properties.size(), main_indices.label_properties.size());
+  for (size_t i = 0; i < indices.label_properties.size(); ++i) {
+    EXPECT_EQ(indices.label_properties[i].label, main_indices.label_properties[i].label) << "entry " << i;
+    EXPECT_EQ(indices.label_properties[i].properties, main_indices.label_properties[i].properties) << "entry " << i;
+    EXPECT_EQ(indices.label_properties[i].order, main_indices.label_properties[i].order) << "entry " << i;
+  }
+  EXPECT_EQ(indices.vertex_property, main_indices.vertex_property);
   EXPECT_TRUE(indices.edge_type.empty());
   EXPECT_TRUE(indices.edge_type_property.empty());
   EXPECT_TRUE(indices.edge_property.empty());
@@ -3240,6 +3245,393 @@ TEST_F(VersioningBranchWriteTest, AReadOfAPropertyFlippedByDirectWritesNeverShow
   for (auto &t : readers) t.join();
   EXPECT_EQ(wrong.load(), 0);
   EXPECT_GT(reads.load(), 0) << "the readers must actually overlap the flips";
+}
+
+// A stub holds only what the branch changed, but the diff engine's stock index insert reads the stub's own labels and
+// properties: a write moving one part of a mirrored key first copies the fork's other parts onto the stub (no delta).
+class VersioningBranchKeyCopyTest : public VersioningBranchWriteTest {
+ protected:
+  void MainIndex(ms::LabelId label, std::vector<ms::PropertyPath> properties) {
+    auto acc = storage_->UniqueAccess();
+    ASSERT_TRUE(acc->CreateIndex(label, std::move(properties)).has_value());
+    Commit(*acc);
+  }
+
+  std::set<uint64_t> IndexedStubs(ms::LabelId label, const std::vector<ms::PropertyPath> &properties) {
+    auto acc = Diff().Access(ms::READ);
+    std::set<uint64_t> gids;
+    for (auto v : acc->Vertices(label, properties, ms::View::NEW)) gids.insert(v.Gid().AsUint());
+    return gids;
+  }
+
+  // gid -> key values read off the stub: a yielded entry is validated against it, so the stub holds every part.
+  using Keys = std::map<uint64_t, std::vector<ms::PropertyValue>>;
+
+  Keys IndexedKeys(ms::LabelId label, const std::vector<ms::PropertyId> &properties) {
+    auto acc = Diff().Access(ms::READ);
+    std::vector<ms::PropertyPath> paths(properties.begin(), properties.end());
+    Keys keys;
+    for (auto v : acc->Vertices(label, paths, ms::View::NEW)) {
+      auto &key = keys[v.Gid().AsUint()];
+      for (auto const property : properties) key.push_back(*v.GetProperty(property, ms::View::NEW));
+    }
+    return keys;
+  }
+
+  ms::Vertex *RawStub(ms::Gid gid) { return Core().stub_index().FindStub(gid.AsUint()); }
+
+  static bool HoldsLabel(ms::Vertex *stub, ms::LabelId label) {
+    std::shared_lock guard{stub->lock};
+    return std::ranges::contains(stub->labels, label);
+  }
+
+  static auto HeldLabelCount(ms::Vertex *stub, ms::LabelId label) {
+    std::shared_lock guard{stub->lock};
+    return std::ranges::count(stub->labels, label);
+  }
+
+  static ms::PropertyValue HeldProperty(ms::Vertex *stub, ms::PropertyId key) {
+    std::shared_lock guard{stub->lock};
+    return stub->properties.GetProperty(key);
+  }
+
+  static std::vector<ms::Delta::Action> Actions(ms::Vertex *stub) {
+    std::vector<ms::Delta::Action> actions;
+    std::shared_lock guard{stub->lock};
+    for (const ms::Delta *delta = stub->delta(); delta != nullptr; delta = delta->next.load()) {
+      actions.push_back(delta->action);
+    }
+    return actions;
+  }
+
+  template <typename Body>
+  void OnFork(ms::Gid gid, Body &&body) {
+    Fork();
+    Writing(gid, std::forward<Body>(body));
+  }
+
+  template <typename Body>
+  void Writing(ms::Gid gid, Body &&body) {
+    Write([&] {
+      auto fork = *Ctx().FindForkVertex(gid);
+      body(fork);
+    });
+  }
+};
+
+TEST_F(VersioningBranchKeyCopyTest, SettingALabelCopiesTheIndexedPropertyTheForkHas) {
+  auto const l = Label("L");
+  auto const x = Prop("x");
+  auto const v = CreateMainVertex({}, {{x, Int(1)}});
+  MainIndex(l, {x});
+  std::vector<ms::Delta::Action> actions;
+  OnFork(v, [&](ms::VertexAccessor &fork) {
+    ASSERT_TRUE(Ctx().AddLabel(fork, l).has_value());
+    actions = Actions(RawStub(v));
+  });
+  EXPECT_EQ(IndexedStubs(l, {x}), std::set<uint64_t>{v.AsUint()}) << "the stub is under (L, x) in the diff index";
+  EXPECT_EQ(HeldProperty(RawStub(v), x), Int(1)) << "x was copied from the fork";
+  EXPECT_EQ(actions, std::vector<ms::Delta::Action>{ms::Delta::Action::REMOVE_LABEL})
+      << "the copy left no delta: only the label write has one";
+  Read([&] {
+    auto fork = *Ctx().FindForkVertex(v);
+    EXPECT_EQ(*Ctx().GetProperty(fork, x, ms::View::NEW), Int(1));
+    EXPECT_EQ(LabelSet(Ctx().Labels(fork, ms::View::NEW)), std::set<ms::LabelId>{l});
+  });
+}
+
+TEST_F(VersioningBranchKeyCopyTest, ACompositeKeyGetsEveryPartTheForkHas) {
+  auto const l = Label("L"), other = Label("Other");
+  auto const x = Prop("x"), y = Prop("y"), z = Prop("z");
+  auto const v = CreateMainVertex({l, other}, {{x, Int(1)}, {y, Int(2)}, {z, Int(3)}});
+  MainIndex(l, {x, y});
+  std::vector<ms::Delta::Action> actions;
+  OnFork(v, [&](ms::VertexAccessor &fork) {
+    ASSERT_TRUE(Ctx().SetProperty(fork, y, Int(20)).has_value());
+    actions = Actions(RawStub(v));
+  });
+  EXPECT_EQ(IndexedKeys(l, {x, y}), (Keys{{v.AsUint(), {Int(1), Int(20)}}}));
+  EXPECT_EQ(IndexedStubs(l, {x, y}), std::set<uint64_t>{v.AsUint()});
+  auto *const stub = RawStub(v);
+  EXPECT_TRUE(HoldsLabel(stub, l)) << "L was copied";
+  EXPECT_FALSE(HoldsLabel(stub, other)) << "a label no index key uses is not";
+  EXPECT_EQ(HeldProperty(stub, x), Int(1)) << "the partner part was copied";
+  EXPECT_TRUE(HeldProperty(stub, z).IsNull()) << "a property outside the key was not";
+  EXPECT_EQ(HeldProperty(stub, y), Int(20));
+  EXPECT_EQ(actions, std::vector<ms::Delta::Action>{ms::Delta::Action::SET_PROPERTY})
+      << "the copies left no delta: only the property write has one";
+  Read([&] {
+    auto fork = *Ctx().FindForkVertex(v);
+    EXPECT_EQ(LabelSet(Ctx().Labels(fork, ms::View::NEW)), (std::set<ms::LabelId>{l, other}));
+    EXPECT_TRUE(*Ctx().HasLabel(fork, l, ms::View::NEW));
+  });
+}
+
+TEST_F(VersioningBranchKeyCopyTest, RemovingOnePartOfACompositeKeyCopiesTheRest) {
+  auto const l = Label("L");
+  auto const x = Prop("x"), y = Prop("y");
+  auto const v = CreateMainVertex({l}, {{x, Int(1)}, {y, Int(2)}});
+  MainIndex(l, {x, y});
+  OnFork(v,
+         [&](ms::VertexAccessor &fork) { ASSERT_TRUE(Ctx().SetProperty(fork, x, ms::PropertyValue{}).has_value()); });
+  auto *const stub = RawStub(v);
+  EXPECT_TRUE(HoldsLabel(stub, l));
+  EXPECT_EQ(HeldProperty(stub, y), Int(2)) << "the rest of the key, which stays non-null";
+  EXPECT_TRUE(HeldProperty(stub, x).IsNull());
+  Read([&] {
+    auto fork = *Ctx().FindForkVertex(v);
+    EXPECT_TRUE(Ctx().GetProperty(fork, x, ms::View::NEW)->IsNull());
+    EXPECT_EQ(*Ctx().GetProperty(fork, y, ms::View::NEW), Int(2));
+  });
+}
+
+TEST_F(VersioningBranchKeyCopyTest, WritesThatCannotMoveAKeyCopyNothing) {
+  auto const l = Label("L"), other = Label("Other");
+  auto const x = Prop("x"), unrelated = Prop("u");
+  auto const v = CreateMainVertex({l}, {{x, Int(1)}, {unrelated, Int(9)}});
+  auto const w = CreateMainVertex({l}, {{x, Int(2)}});
+  MainIndex(l, {x});
+  Fork();
+  Writing(v, [&](ms::VertexAccessor &fork) {
+    ASSERT_TRUE(Ctx().SetProperty(fork, unrelated, Int(10)).has_value());
+    ASSERT_TRUE(Ctx().AddLabel(fork, other).has_value()) << "a label no key uses";
+  });
+  auto *const stub = RawStub(v);
+  EXPECT_FALSE(HoldsLabel(stub, l));
+  EXPECT_TRUE(HeldProperty(stub, x).IsNull());
+  Writing(w, [&](ms::VertexAccessor &fork) { ASSERT_TRUE(Ctx().RemoveLabel(fork, l).has_value()); });
+  EXPECT_TRUE(HeldProperty(RawStub(w), x).IsNull()) << "a label removal copies nothing";
+  EXPECT_TRUE(IndexedStubs(l, {x}).empty());
+}
+
+TEST_F(VersioningBranchKeyCopyTest, SinglePartIndexesNeverCopy) {
+  auto const l = Label("L");
+  auto const x = Prop("x");
+  auto const v = CreateMainVertex({l}, {{x, Int(1)}});
+  {
+    auto acc = storage_->UniqueAccess();
+    ASSERT_TRUE(acc->CreateIndex(l).has_value());
+    Commit(*acc);
+  }
+  {
+    auto acc = storage_->UniqueAccess();
+    ASSERT_TRUE(acc->CreateGlobalVertexIndex(x).has_value());
+    Commit(*acc);
+  }
+  OnFork(v, [&](ms::VertexAccessor &fork) {
+    ASSERT_TRUE(Ctx().SetProperty(fork, x, Int(2)).has_value());
+    ASSERT_TRUE(Ctx().AddLabel(fork, Label("M")).has_value());
+  });
+  EXPECT_FALSE(HoldsLabel(RawStub(v), l));
+}
+
+TEST_F(VersioningBranchKeyCopyTest, ACopyNeverReplacesWhatTheBranchAlreadyHolds) {
+  auto const l = Label("L");
+  auto const x = Prop("x");
+  auto const v = CreateMainVertex({}, {{x, Int(1)}});
+  MainIndex(l, {x});
+  OnFork(v, [&](ms::VertexAccessor &fork) { ASSERT_TRUE(Ctx().SetProperty(fork, x, Int(7)).has_value()); });
+  Writing(v, [&](ms::VertexAccessor &fork) { ASSERT_TRUE(Ctx().AddLabel(fork, l).has_value()); });
+  EXPECT_EQ(HeldProperty(RawStub(v), x), Int(7)) << "the branch's own value stays";
+  EXPECT_EQ(IndexedStubs(l, {x}), std::set<uint64_t>{v.AsUint()});
+}
+
+TEST_F(VersioningBranchKeyCopyTest, ARemovedForkLabelIsNotCopiedAndReaddingItIndexesTheStub) {
+  auto const l = Label("L");
+  auto const x = Prop("x");
+  auto const v = CreateMainVertex({l}, {{x, Int(1)}});
+  MainIndex(l, {x});
+  OnFork(v, [&](ms::VertexAccessor &fork) { ASSERT_TRUE(Ctx().RemoveLabel(fork, l).has_value()); });
+  Writing(v, [&](ms::VertexAccessor &fork) { ASSERT_TRUE(Ctx().SetProperty(fork, x, Int(2)).has_value()); });
+  EXPECT_FALSE(HoldsLabel(RawStub(v), l)) << "the label is removed on the branch, so it is not copied";
+  EXPECT_TRUE(IndexedStubs(l, {x}).empty()) << "and no entry exists while the vertex lacks L";
+  Writing(v, [&](ms::VertexAccessor &fork) { ASSERT_TRUE(Ctx().AddLabel(fork, l).has_value()); });
+  EXPECT_EQ(IndexedStubs(l, {x}), std::set<uint64_t>{v.AsUint()}) << "re-adding L puts the stub under (L, 2)";
+  Read([&] {
+    auto fork = *Ctx().FindForkVertex(v);
+    EXPECT_TRUE(*Ctx().HasLabel(fork, l, ms::View::NEW));
+    EXPECT_EQ(*Ctx().GetProperty(fork, x, ms::View::NEW), Int(2));
+  });
+}
+
+TEST_F(VersioningBranchKeyCopyTest, ACopiedLabelThatIsThenRemovedReadsAsRemoved) {
+  auto const l = Label("L");
+  auto const x = Prop("x");
+  auto const v = CreateMainVertex({l}, {});
+  MainIndex(l, {x});
+  OnFork(v, [&](ms::VertexAccessor &fork) { ASSERT_TRUE(Ctx().SetProperty(fork, x, Int(2)).has_value()); });
+  ASSERT_TRUE(HoldsLabel(RawStub(v), l));
+  Writing(v, [&](ms::VertexAccessor &fork) { EXPECT_TRUE(*Ctx().RemoveLabel(fork, l)); });
+  Read([&] {
+    auto fork = *Ctx().FindForkVertex(v);
+    EXPECT_FALSE(*Ctx().HasLabel(fork, l, ms::View::NEW));
+    EXPECT_TRUE(Ctx().Labels(fork, ms::View::NEW)->empty());
+    EXPECT_FALSE(*Ctx().HasAnyLabel(fork, ms::View::NEW));
+  });
+  Writing(v, [&](ms::VertexAccessor &fork) { EXPECT_TRUE(*Ctx().AddLabel(fork, l)); });
+  Read([&] {
+    auto fork = *Ctx().FindForkVertex(v);
+    EXPECT_TRUE(*Ctx().HasLabel(fork, l, ms::View::NEW));
+    EXPECT_EQ(LabelSet(Ctx().Labels(fork, ms::View::NEW)), std::set<ms::LabelId>{l});
+  });
+}
+
+TEST_F(VersioningBranchKeyCopyTest, UpdatingPropertiesCopiesThePartsOfEveryKeyTheMapMoves) {
+  auto const l = Label("L"), m = Label("M");
+  auto const a = Prop("a"), b = Prop("b"), c = Prop("c"), d = Prop("d"), z = Prop("z");
+  auto const v = CreateMainVertex({l, m}, {{a, Int(1)}, {b, Int(2)}, {c, Int(3)}, {d, Int(4)}, {z, Int(5)}});
+  MainIndex(l, {a, b});
+  MainIndex(l, {a, z});
+  MainIndex(m, {c, d});
+  OnFork(v, [&](ms::VertexAccessor &fork) {
+    Props map{{a, Int(10)}, {c, Int(30)}, {z, Int(50)}};
+    ASSERT_TRUE(Ctx().UpdateProperties(fork, map).has_value());
+  });
+  EXPECT_EQ(IndexedKeys(l, {a, b}), (Keys{{v.AsUint(), {Int(10), Int(2)}}}));
+  EXPECT_EQ(IndexedKeys(l, {a, z}), (Keys{{v.AsUint(), {Int(10), Int(50)}}}));
+  EXPECT_EQ(IndexedKeys(m, {c, d}), (Keys{{v.AsUint(), {Int(30), Int(4)}}}));
+  auto *const stub = RawStub(v);
+  EXPECT_EQ(HeldLabelCount(stub, l), 1) << "two moved keys of L copy it once";
+  EXPECT_EQ(HeldLabelCount(stub, m), 1);
+  EXPECT_EQ(HeldProperty(stub, b), Int(2));
+  EXPECT_EQ(HeldProperty(stub, d), Int(4));
+  Read([&] {
+    auto fork = *Ctx().FindForkVertex(v);
+    EXPECT_EQ(*Ctx().Properties(fork, ms::View::NEW),
+              (Props{{a, Int(10)}, {b, Int(2)}, {c, Int(30)}, {d, Int(4)}, {z, Int(50)}}));
+  });
+}
+
+TEST_F(VersioningBranchKeyCopyTest, InitialisingPropertiesCopiesTheForkLabelOfTheKey) {
+  auto const l = Label("L");
+  auto const a = Prop("a"), b = Prop("b");
+  auto const v = CreateMainVertex({l}, {});
+  MainIndex(l, {a, b});
+  OnFork(v, [&](ms::VertexAccessor &fork) {
+    Props map{{a, Int(1)}, {b, Int(2)}};
+    ASSERT_TRUE(*Ctx().InitProperties(fork, map));
+  });
+  EXPECT_EQ(IndexedKeys(l, {a, b}), (Keys{{v.AsUint(), {Int(1), Int(2)}}}));
+  EXPECT_TRUE(HoldsLabel(RawStub(v), l));
+}
+
+TEST_F(VersioningBranchKeyCopyTest, ReplacingPropertiesIndexesOnlyTheKeysTheMapCompletes) {
+  auto const l = Label("L");
+  auto const a = Prop("a"), b = Prop("b");
+  auto const whole = CreateMainVertex({l}, {{a, Int(1)}, {b, Int(2)}});
+  auto const half = CreateMainVertex({l}, {{a, Int(1)}, {b, Int(2)}});
+  MainIndex(l, {a, b});
+  Fork();
+  Writing(whole, [&](ms::VertexAccessor &fork) {
+    ASSERT_TRUE(Ctx().ClearProperties(fork).has_value());
+    EXPECT_FALSE(HoldsLabel(RawStub(whole), l)) << "the clear copies nothing";
+    Props map{{a, Int(5)}, {b, Int(6)}};
+    ASSERT_TRUE(Ctx().UpdateProperties(fork, map).has_value());
+  });
+  Writing(half, [&](ms::VertexAccessor &fork) {
+    ASSERT_TRUE(Ctx().ClearProperties(fork).has_value());
+    Props map{{a, Int(7)}};
+    ASSERT_TRUE(Ctx().UpdateProperties(fork, map).has_value());
+  });
+  EXPECT_EQ(IndexedKeys(l, {a, b}), (Keys{{whole.AsUint(), {Int(5), Int(6)}}}))
+      << "the vertex the replace left without b is under no key";
+  EXPECT_TRUE(HeldProperty(RawStub(half), b).IsNull()) << "the cleared b is not copied back";
+  Read([&] {
+    auto fork = *Ctx().FindForkVertex(half);
+    EXPECT_EQ(*Ctx().Properties(fork, ms::View::NEW), (Props{{a, Int(7)}}));
+  });
+}
+
+TEST_F(VersioningBranchKeyCopyTest, SettingSeveralLabelsCopiesThePartsOfEachKey) {
+  auto const l1 = Label("L1"), l2 = Label("L2");
+  auto const a = Prop("a"), b = Prop("b");
+  auto const v = CreateMainVertex({}, {{a, Int(1)}, {b, Int(2)}});
+  MainIndex(l1, {a});
+  MainIndex(l2, {a, b});
+  OnFork(v, [&](ms::VertexAccessor &fork) {
+    ASSERT_TRUE(*Ctx().AddLabel(fork, l1));
+    ASSERT_TRUE(*Ctx().AddLabel(fork, l2));
+  });
+  EXPECT_EQ(IndexedKeys(l1, {a}), (Keys{{v.AsUint(), {Int(1)}}}));
+  EXPECT_EQ(IndexedKeys(l2, {a, b}), (Keys{{v.AsUint(), {Int(1), Int(2)}}}));
+  EXPECT_EQ(HeldLabelCount(RawStub(v), l1), 1);
+  EXPECT_EQ(HeldLabelCount(RawStub(v), l2), 1);
+}
+
+TEST_F(VersioningBranchKeyCopyTest, RemovalsDeletesAndNoOpsCopyNothing) {
+  auto const l = Label("L"), m = Label("M");
+  auto const s = Prop("s"), x = Prop("x"), y = Prop("y"), z = Prop("z");
+  auto const removed = CreateMainVertex({l}, {{s, Int(1)}});
+  auto const deleted = CreateMainVertex({m}, {{x, Int(1)}, {y, Int(2)}});
+  auto const absent = CreateMainVertex({m}, {{x, Int(1)}});
+  auto const unrelated = CreateMainVertex({m}, {{x, Int(1)}, {y, Int(2)}});
+  MainIndex(l, {s});
+  MainIndex(m, {x, y});
+  Fork();
+  Writing(removed, [&](ms::VertexAccessor &fork) {
+    ASSERT_TRUE(Ctx().SetProperty(fork, s, ms::PropertyValue{}).has_value()) << "REMOVE of a single-part key";
+  });
+  EXPECT_FALSE(HoldsLabel(RawStub(removed), l));
+  Write([&] { ASSERT_TRUE(*Ctx().DeleteForkVertex(deleted)); });
+  EXPECT_FALSE(HoldsLabel(RawStub(deleted), m)) << "a delete copies nothing";
+  EXPECT_TRUE(HeldProperty(RawStub(deleted), x).IsNull());
+  Writing(absent, [&](ms::VertexAccessor &fork) {
+    ASSERT_TRUE(Ctx().SetProperty(fork, y, ms::PropertyValue{}).has_value()) << "REMOVE of a property nobody holds";
+  });
+  EXPECT_FALSE(HoldsLabel(RawStub(absent), m));
+  EXPECT_TRUE(HeldProperty(RawStub(absent), x).IsNull());
+  Writing(unrelated, [&](ms::VertexAccessor &fork) {
+    Props map{{z, Int(1)}};
+    ASSERT_TRUE(Ctx().UpdateProperties(fork, map).has_value()) << "a map that names no key part";
+  });
+  EXPECT_FALSE(HoldsLabel(RawStub(unrelated), m));
+  EXPECT_TRUE(HeldProperty(RawStub(unrelated), x).IsNull());
+  EXPECT_TRUE(IndexedKeys(l, {s}).empty());
+  EXPECT_TRUE(IndexedKeys(m, {x, y}).empty());
+}
+
+TEST_F(VersioningBranchKeyCopyTest, AddingALabelAfterRemovingAPartNeverBringsThePartBack) {
+  auto const l = Label("L");
+  auto const x = Prop("x");
+  auto const v = CreateMainVertex({}, {{x, Int(1)}});
+  MainIndex(l, {x});
+  OnFork(v,
+         [&](ms::VertexAccessor &fork) { ASSERT_TRUE(Ctx().SetProperty(fork, x, ms::PropertyValue{}).has_value()); });
+  Writing(v, [&](ms::VertexAccessor &fork) { ASSERT_TRUE(*Ctx().AddLabel(fork, l)); });
+  EXPECT_TRUE(HeldProperty(RawStub(v), x).IsNull()) << "the branch removed x: the label copy does not restore it";
+  EXPECT_TRUE(IndexedKeys(l, {x}).empty());
+  Read([&] {
+    auto fork = *Ctx().FindForkVertex(v);
+    EXPECT_TRUE(Ctx().GetProperty(fork, x, ms::View::NEW)->IsNull());
+  });
+}
+
+TEST_F(VersioningBranchKeyCopyTest, AnAbortedUpdateDoesNotKeepTheNextWriteOutOfTheIndex) {
+  auto const l = Label("L");
+  auto const a = Prop("a"), b = Prop("b");
+  auto const v = CreateMainVertex({l}, {{a, Int(1)}, {b, Int(2)}});
+  MainIndex(l, {a, b});
+  Fork();
+  {
+    auto acc = Diff().Access(ms::WRITE);
+    Begin(acc.get());
+    auto fork = *Ctx().FindForkVertex(v);
+    Props map{{a, Int(5)}};
+    ASSERT_TRUE(Ctx().UpdateProperties(fork, map).has_value());
+    Ctx().EndTransaction();
+    acc->Abort();
+  }
+  EXPECT_TRUE(IndexedKeys(l, {a, b}).empty()) << "the stale entry is hidden by validation";
+  Read([&] {
+    auto fork = *Ctx().FindForkVertex(v);
+    EXPECT_EQ(*Ctx().Properties(fork, ms::View::NEW), (Props{{a, Int(1)}, {b, Int(2)}}));
+    EXPECT_EQ(LabelSet(Ctx().Labels(fork, ms::View::NEW)), std::set<ms::LabelId>{l}) << "a copy changes no read";
+  });
+  Writing(v, [&](ms::VertexAccessor &fork) {
+    Props map{{a, Int(7)}};
+    ASSERT_TRUE(Ctx().UpdateProperties(fork, map).has_value());
+  });
+  EXPECT_EQ(IndexedKeys(l, {a, b}), (Keys{{v.AsUint(), {Int(7), Int(2)}}}));
 }
 
 ///// BRANCH EDGE WRITES: THE EDGE STUBS, THE DELETE MARKER AND THE COMMIT'S COUNTS
