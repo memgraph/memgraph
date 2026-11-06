@@ -15,6 +15,8 @@
 #include <cstdlib>
 #include <iostream>
 #include <optional>
+#include <string>
+#include <unordered_set>
 
 #include <gflags/gflags.h>
 #include <gtest/gtest.h>
@@ -2922,6 +2924,45 @@ TEST_F(AuthWithVariousEncryptionAlgorithms, VerifyPasswordSHA256_1024) {
   auto hash = HashPassword("hello");
   ASSERT_TRUE(hash.VerifyPassword("hello"));
   ASSERT_FALSE(hash.VerifyPassword("hello1"));
+}
+
+// Known-answer tests for the stored salted form, hex(salt) || hex(SHA256(salt || password x N)).
+// Hashes stored by earlier versions must keep verifying however new salts are generated.
+// Reproduce with:
+//
+//   python3 -c 'import hashlib; s = bytes(range(16)); print(s.hex() + hashlib.sha256(s + b"hello").hexdigest())'
+//
+// and `b"hello" * 1024` for sha256-multiple.
+TEST_F(AuthWithVariousEncryptionAlgorithms, SHA256SaltedKnownAnswer) {
+  auto sha256 = HashedPassword{PasswordHashAlgorithm::SHA256,
+                               "000102030405060708090a0b0c0d0e0f"
+                               "7c9f5b9e4cc36c703715bb6eedcbb8bd80840fd48d135a07af861d1a027be360"};
+  ASSERT_TRUE(sha256.IsSalted());
+  ASSERT_TRUE(sha256.VerifyPassword("hello"));
+  ASSERT_FALSE(sha256.VerifyPassword("hellp"));
+
+  auto sha256_multiple = HashedPassword{PasswordHashAlgorithm::SHA256_MULTIPLE,
+                                        "000102030405060708090a0b0c0d0e0f"
+                                        "adbccd61954d4ee79b2e0649ce9591503ede274bd0ac13082dd6a7f826238346"};
+  ASSERT_TRUE(sha256_multiple.IsSalted());
+  ASSERT_TRUE(sha256_multiple.VerifyPassword("hello"));
+  ASSERT_FALSE(sha256_multiple.VerifyPassword("hellp"));
+}
+
+// The 128-bit salt must carry 128 bits of entropy. A generator seeded from one
+// 32-bit value can only produce 2^32 distinct salts, so among 2^18 of them about
+// eight repeats are expected; from OpenSSL's DRBG a repeat is practically impossible.
+TEST_F(AuthWithVariousEncryptionAlgorithms, SHA256SaltsDoNotRepeat) {
+  SetHashAlgorithm("sha256");
+  constexpr auto kSamples = std::size_t{1} << 18U;
+  constexpr auto kSaltHexLength = std::size_t{32};
+  auto salts = std::unordered_set<std::string>{};
+  salts.reserve(kSamples);
+  for (auto i = std::size_t{0}; i < kSamples; ++i) {
+    nlohmann::json const j = HashPassword("hello");
+    salts.insert(j.at("password_hash").get<std::string>().substr(0, kSaltHexLength));
+  }
+  ASSERT_EQ(salts.size(), kSamples);
 }
 
 TEST_F(AuthWithVariousEncryptionAlgorithms, VerifyPasswordPBKDF2SHA256) {
