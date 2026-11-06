@@ -133,7 +133,7 @@ class BranchCore {
   // durable ceiling, extending it first when it is not. Throws if the ledger cannot be written; the gid stays unused.
   void ReserveNativeGid(GidKind kind, uint64_t gid);
 
-  // The parts of the label+property keys of the indexes the diff engine mirrors; empty while it mirrors none.
+  // The parts of the label+property keys of the indexes the diff engine mirrors.
   const IndexKeyParts &key_parts() const noexcept { return key_parts_; }
 
   // The fork vertices and edges deleted or hidden by the committed branch transactions so far.
