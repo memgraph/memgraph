@@ -191,6 +191,24 @@ def test_set_parameter_replication(connection, test_name, clean_dirs):
         assert rows[0][0] == "x"
 
 
+def test_set_parameter_on_replica_keeps_replica_in_sync(connection, test_name, clean_dirs):
+    # A local SET on a replica must not disturb the MAIN-owned system timestamp, otherwise MAIN's
+    # next system delta fails the timestamp check, the replica goes BEHIND and recovery wipes it.
+    interactive_mg_runner.start_all(_instances(test_name), keep_directories=False)
+    cursor = connection(BOLT_PORTS["main"], "main").cursor()
+    replica_cursor = connection(BOLT_PORTS["replica_1"], "replica").cursor()
+
+    execute_and_fetch_all(replica_cursor, 'SET GLOBAL PARAMETER local_x="replica_value";')
+    execute_and_fetch_all(cursor, 'SET GLOBAL PARAMETER main_y="main_value";')
+    # 2 REGISTER (ts 1,2) + 1 SET on main (ts 3)
+    mg_sleep_and_assert_collection(_expected_replicas_ts(3), show_replicas_func(cursor))
+
+    params = {row[0]: row[1] for row in _show_parameters(replica_cursor)}
+    # SHOW PARAMETERS returns values JSON-encoded, hence the embedded quotes.
+    assert params.get("main_y") == '"main_value"', params
+    assert params.get("local_x") == '"replica_value"', params
+
+
 def test_set_database_parameter_replication(connection, test_name, clean_dirs):
     """Set a global and a database-scoped parameter on main; verify both replicate to replicas."""
     interactive_mg_runner.start_all(_instances(test_name), keep_directories=False)
