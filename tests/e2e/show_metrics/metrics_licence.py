@@ -13,6 +13,7 @@
 
 import os
 import sys
+import time
 import urllib.error
 import urllib.request
 from unittest.mock import patch
@@ -43,12 +44,19 @@ def cleanup_after_test():
     interactive_mg_runner.kill_all(keep_directories=False)
 
 
-def scrape():
-    try:
-        with urllib.request.urlopen("http://localhost:9091/metrics", timeout=5) as response:
-            return response.status, response.read().decode()
-    except urllib.error.HTTPError as error:
-        return error.code, error.read().decode()
+def scrape(deadline_seconds=10):
+    # The runner only waits for the Bolt port; the metrics server starts slightly later.
+    deadline = time.monotonic() + deadline_seconds
+    while True:
+        try:
+            with urllib.request.urlopen("http://localhost:9091/metrics", timeout=5) as response:
+                return response.status, response.read().decode()
+        except urllib.error.HTTPError as error:
+            return error.code, error.read().decode()
+        except urllib.error.URLError:
+            if time.monotonic() >= deadline:
+                raise
+            time.sleep(0.05)
 
 
 @pytest.mark.parametrize("metrics_format", ["OpenMetrics", "JSON"])
