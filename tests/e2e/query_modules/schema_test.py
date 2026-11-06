@@ -374,6 +374,34 @@ def test_assert_does_not_drop_indices_and_constraints():
     execute_and_fetch_all(cursor, "DROP CONSTRAINT ON (n:Person) ASSERT EXISTS (n.surname);")
 
 
+def test_assert_repeated_call_keeps_asserted_constraints():
+    cursor = connect().cursor()
+    query = (
+        "CALL schema.assert({Person: ['', 'id']}, {Person: [['id']], Company: [['id']]}, {Person: ['id']}, true) "
+        "YIELD * RETURN *;"
+    )
+    execute_and_fetch_all(cursor, query)
+    results = list(execute_and_fetch_all(cursor, query))
+    assert results == [
+        ("Kept", "", [], "Person", False),
+        ("Kept", "id", ["id"], "Person", False),
+        ("Kept", "id", ["id"], "Person", False),
+        ("Kept", "[id]", ["id"], "Company", True),
+        ("Kept", "[id]", ["id"], "Person", True),
+    ]
+    show_constraint_results = list(execute_and_fetch_all(cursor, "SHOW CONSTRAINT INFO;"))
+    assert sorted(show_constraint_results) == [
+        ("exists", "Person", "id", ""),
+        ("unique", "Company", ["id"], ""),
+        ("unique", "Person", ["id"], ""),
+    ]
+    execute_and_fetch_all(cursor, "DROP INDEX ON :Person;")
+    execute_and_fetch_all(cursor, "DROP INDEX ON :Person(id);")
+    execute_and_fetch_all(cursor, "DROP CONSTRAINT ON (n:Person) ASSERT n.id IS UNIQUE;")
+    execute_and_fetch_all(cursor, "DROP CONSTRAINT ON (n:Company) ASSERT n.id IS UNIQUE;")
+    execute_and_fetch_all(cursor, "DROP CONSTRAINT ON (n:Person) ASSERT EXISTS (n.id);")
+
+
 def test_node_type_properties1():
     cursor = connect().cursor()
     execute_and_fetch_all(
