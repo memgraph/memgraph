@@ -397,7 +397,8 @@ void Initialize(utils::Settings &settings) {
    * @param durability - how the setting treats the value in the data directory
    * @param post_update - user defined callback executed post flag update
    * @param validator - user defined value correctness checker
-   * @param validate_startup_value - false applies the startup value without the validator; the caller has validated it
+   * @param validate_startup_value - false applies the startup value without the validator; the caller has validated it.
+   *                                 Ignored for kPersisted.
    */
   auto register_flag = [&](
                            const std::string &flag,
