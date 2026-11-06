@@ -28,13 +28,16 @@
 #include "dbms/constants.hpp"
 #include "dbms/dbms_handler.hpp"
 #include "dbms/global.hpp"
+#include "dbms/replication_handlers.hpp"
 #include "dbms/tenant_profiles.hpp"
 #include "glue/auth_checker.hpp"
 #include "glue/auth_handler.hpp"
 #include "kvstore/kvstore.hpp"
+#include "license/license.hpp"
 #include "metrics/prometheus_metrics.hpp"
 #include "query/config.hpp"
 #include "query/interpreter.hpp"
+#include "rpc/version.hpp"
 #include "system/system.hpp"
 #include "utils/uuid.hpp"
 
@@ -1323,6 +1326,181 @@ TEST(DBMS_Handler, DroppedTenantHasNoDatabaseProtector) {
 
   ASSERT_TRUE(dbms.Delete("protector_dropped", static_cast<memgraph::system::Transaction *>(nullptr)).has_value());
   EXPECT_EQ((*db)->storage()->make_database_protector(), nullptr);
+}
+
+TEST(DBMS_Handler, BootRestoresLegacyInvalidHotName) {
+  namespace fs = std::filesystem;
+  using memgraph::dbms::DbmsHandler;
+
+  // Leading whitespace: rejected by the current name rule, but an older release may have persisted it.
+  const std::string kLegacyName = " legacy";
+
+  auto sr = MakeSeededRoot("legacy_hot_name");
+
+  memgraph::utils::UUID legacy_uuid;
+  {
+    memgraph::kvstore::KVStore seed_kv{sr.durability_dir};
+    ASSERT_TRUE(seed_kv.Put("version", "V2"));
+    legacy_uuid = SeedHotEntry(seed_kv, kLegacyName).uuid;
+  }
+  fs::create_directories(TenantDataDir(sr, legacy_uuid));
+
+  auto conf = MakeSeededConfig(sr.root);
+  std::unique_ptr<DbmsHandler> handler;
+  ASSERT_NO_THROW(handler = std::make_unique<DbmsHandler>(conf))
+      << "boot must adopt a legacy-invalid HOT name, not abort on it";
+
+  const auto all = handler->All();
+  EXPECT_TRUE(std::find(all.begin(), all.end(), kLegacyName) != all.end()) << "the legacy tenant must stay addressable";
+  ASSERT_NO_THROW(handler->Get(kLegacyName));
+  handler.reset();
+
+  memgraph::kvstore::KVStore verify_kv{sr.durability_dir};
+  const auto entry = verify_kv.Get(std::string{kDBPrefixLiteral} + kLegacyName);
+  ASSERT_TRUE(entry.has_value()) << "the legacy tenant's durable key must be preserved verbatim";
+  const auto entry_json = nlohmann::json::parse(*entry);
+  EXPECT_EQ(entry_json.at("uuid").get<memgraph::utils::UUID>(), legacy_uuid);
+  EXPECT_EQ(entry_json.at("rel_dir").get<fs::path>(),
+            fs::path(std::string{memgraph::dbms::kMultiTenantDir}) / std::string{legacy_uuid});
+
+  fs::remove_all(sr.root);
+}
+
+TEST(DBMS_Handler, BootRestoresLegacyInvalidColdNameAndResume) {
+  namespace fs = std::filesystem;
+  using memgraph::dbms::DbmsHandler;
+
+  // Embedded newline: a control character, rejected by the current name rule.
+  const std::string kLegacyName = "legacy\nname";
+
+  auto sr = MakeSeededRoot("legacy_cold_name");
+
+  memgraph::utils::UUID legacy_uuid;
+  {
+    memgraph::kvstore::KVStore seed_kv{sr.durability_dir};
+    ASSERT_TRUE(seed_kv.Put("version", "V2"));
+    legacy_uuid = SeedColdEntry(seed_kv, kLegacyName);
+  }
+  fs::create_directories(TenantDataDir(sr, legacy_uuid));
+
+  auto conf = MakeSeededConfig(sr.root);
+  std::unique_ptr<DbmsHandler> handler;
+  ASSERT_NO_THROW(handler = std::make_unique<DbmsHandler>(conf));
+  ASSERT_TRUE(handler->IsSuspended(kLegacyName))
+      << "the legacy COLD entry must restore as a COLD shell, not be dropped";
+
+  auto resumed = handler->Resume(kLegacyName);
+  ASSERT_TRUE(resumed.has_value()) << "a legacy-invalid COLD tenant must still be resumable";
+  EXPECT_FALSE(resumed->already_hot);
+  const auto all = handler->All();
+  EXPECT_TRUE(std::find(all.begin(), all.end(), kLegacyName) != all.end())
+      << "the resumed tenant must become addressable";
+  // ~DbmsHandler waits for every accessor, so release the resumed one first.
+  resumed->db.reset();
+  handler.reset();
+
+  memgraph::kvstore::KVStore verify_kv{sr.durability_dir};
+  EXPECT_TRUE(verify_kv.Get(std::string{kDBPrefixLiteral} + kLegacyName).has_value())
+      << "resume must not delete the durable record of the legacy tenant";
+
+  fs::remove_all(sr.root);
+}
+
+TEST(DBMS_Handler, ReplicaAdmitsLegacyNameFromMain) {
+  namespace fs = std::filesystem;
+  using memgraph::dbms::DbmsHandler;
+
+  // Trailing whitespace: rejected by the current name rule.
+  const std::string kLegacyName = "trailing ";
+
+  auto sr = MakeSeededRoot("legacy_replica");
+  auto conf = MakeSeededConfig(sr.root);
+  memgraph::license::global_license_checker.EnableTesting();
+
+  memgraph::storage::SalientConfig legacy_salient;
+  legacy_salient.name = kLegacyName;
+  legacy_salient.uuid = memgraph::utils::UUID{};
+
+  {
+    DbmsHandler handler{conf};
+    // Only MAIN's durable name may introduce it on the replica.
+    EXPECT_FALSE(handler.New(kLegacyName).has_value())
+        << "a legacy-invalid name must not be mintable locally; only replication may adopt it";
+    const auto default_salient = handler.Get(memgraph::dbms::kDefaultDB)->config().salient;
+    auto updated = handler.Update(legacy_salient);
+    ASSERT_TRUE(updated.has_value()) << "replication Update must adopt a legacy-invalid name sent by MAIN";
+    ASSERT_NO_THROW(handler.Get(kLegacyName));
+
+    ASSERT_TRUE(memgraph::dbms::SystemRecoveryHandler(handler, {default_salient, legacy_salient}, {}))
+        << "SystemRecovery must converge on a legacy name MAIN holds instead of failing the replica";
+    const auto all = handler.All();
+    EXPECT_TRUE(std::find(all.begin(), all.end(), kLegacyName) != all.end());
+  }
+  fs::remove_all(sr.root);
+}
+
+TEST(DBMS_Handler, ReplicaRenameAdmitsLegacyTarget) {
+  namespace fs = std::filesystem;
+  using memgraph::dbms::DbmsHandler;
+  using memgraph::storage::replication::RenameDatabaseReq;
+  using memgraph::storage::replication::RenameDatabaseRes;
+
+  // 64 bytes: one over the current name-length limit.
+  const std::string kLegacyName(64, 'x');
+
+  auto sr = MakeSeededRoot("legacy_replica_rename");
+  auto conf = MakeSeededConfig(sr.root);
+  memgraph::license::global_license_checker.EnableTesting();
+
+  memgraph::system::System system;
+  auto system_access = system.CreateSystemStateAccess();
+  {
+    DbmsHandler handler{conf};
+    ASSERT_TRUE(handler.New("rename_src").has_value());
+    // Only a MAIN-sent rename may adopt a legacy-invalid target.
+    EXPECT_FALSE(handler.Rename("rename_src", kLegacyName).has_value())
+        << "a legacy-invalid rename target must not be mintable locally; only replication may adopt it";
+
+    const memgraph::utils::UUID main_uuid;
+    const RenameDatabaseReq req{main_uuid,
+                                system_access.LastCommitedTS(),
+                                /*new_group_timestamp=*/7,
+                                /*uuid=*/memgraph::utils::UUID{},
+                                "rename_src",
+                                kLegacyName};
+
+    std::vector<uint8_t> req_bytes;
+    {
+      memgraph::slk::Builder builder([&req_bytes](const uint8_t *data, size_t size, bool) {
+        req_bytes.insert(req_bytes.end(), data, data + size);
+      });
+      memgraph::slk::Save(req, &builder);
+      builder.Finalize();
+    }
+    std::vector<uint8_t> res_bytes;
+    {
+      memgraph::slk::Reader reader(req_bytes.data(), req_bytes.size());
+      memgraph::slk::Builder builder([&res_bytes](const uint8_t *data, size_t size, bool) {
+        res_bytes.insert(res_bytes.end(), data, data + size);
+      });
+      memgraph::dbms::RenameDatabaseHandler(
+          system_access, main_uuid, handler, RenameDatabaseReq::kVersion, &reader, &builder);
+    }
+
+    memgraph::slk::Reader reader(res_bytes.data(), res_bytes.size());
+    const auto header = memgraph::rpc::LoadMessageHeader(&reader);
+    RenameDatabaseRes res;
+    memgraph::slk::Load(&res, &reader);
+    EXPECT_EQ(header.message_id, RenameDatabaseRes::kType.id);
+    EXPECT_EQ(res.result, RenameDatabaseRes::Result::SUCCESS)
+        << "the replica rename apply path must admit a legacy target from MAIN (FAILURE would strand it)";
+
+    const auto all = handler.All();
+    EXPECT_TRUE(std::find(all.begin(), all.end(), kLegacyName) != all.end());
+    EXPECT_TRUE(std::find(all.begin(), all.end(), "rename_src") == all.end());
+  }
+
+  fs::remove_all(sr.root);
 }
 
 int main(int argc, char *argv[]) {

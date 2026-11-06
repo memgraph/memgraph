@@ -20,6 +20,7 @@
 #include <string_view>
 
 #include "dbms/database.hpp"
+#include "dbms/dbms_name.hpp"
 
 #include "handler.hpp"
 
@@ -67,6 +68,58 @@ class DatabaseHandler : public Handler<Database> {
    * @return HandlerT::NewResult
    */
   HandlerT::NewResult New(storage::Config config) {
+    if (!DatabaseNameIsWellFormed(*config.salient.name.str_view())) {
+      return std::unexpected{NewError::INVALID_NAME};
+    }
+    return DoNew_(std::move(config));
+  }
+
+  // Shadows Handler::Rename: gate the locally minted target before any mutation.
+  std::expected<void, RenameError> Rename(std::string_view old_name, std::string_view new_name) {
+    if (!DatabaseNameIsWellFormed(new_name)) {
+      return std::unexpected{RenameError::INVALID_NAME};
+    }
+    return HandlerT::Rename(old_name, new_name);
+  }
+
+  // Adopt entry for a name from durable state or MAIN replication: warn, proceed, never abort.
+  HandlerT::NewResult AdoptLegacy(storage::Config config) {
+    WarnIfInvalid_(*config.salient.name.str_view(), "durable state or MAIN replication");
+    return DoNew_(std::move(config));
+  }
+
+  // Adopt entry for a legacy name as a COLD shell (boot cold restore): warn, proceed, stay resumable.
+  utils::Gatekeeper<Database> *AdoptColdShell(std::string_view name) {
+    WarnIfInvalid_(name, "cold restore from durable state");
+    return HandlerT::EmplaceColdShell(name);
+  }
+
+  // Adopt entry for a replica rename target from MAIN: warn, proceed so the replica converges.
+  std::expected<void, RenameError> AdoptReplicatedRename(std::string_view old_name, std::string_view new_name) {
+    WarnIfInvalid_(new_name, "replica rename from MAIN");
+    return HandlerT::Rename(old_name, new_name);
+  }
+
+  // Adopt entry for a keep-old rollback destination: warn, proceed, the rollback never fails on the name.
+  std::expected<void, RenameError> AdoptRenameRollback(std::string_view old_name, std::string_view new_name) {
+    WarnIfInvalid_(new_name, "rename rollback");
+    return HandlerT::Rename(old_name, new_name);
+  }
+
+ private:
+  // Legacy names are adopted, never rejected: warn loudly but keep the tenant alive.
+  static void WarnIfInvalid_(std::string_view name, std::string_view origin) {
+    if (!DatabaseNameIsWellFormed(name)) {
+      spdlog::warn(
+          "Adopting database name {:?} ({}), which does not satisfy the database name rule. The tenant stays "
+          "addressable; RENAME it to a well-formed name.",
+          name,
+          origin);
+    }
+  }
+
+  // The one registry insert body shared by the strict and the adopt entries.
+  HandlerT::NewResult DoNew_(storage::Config config) {
     // Control that no one is using the same data directory
     if (std::ranges::any_of(*this, [&](auto &elem) {
           // A hot/cold COLD shell is a no-value gatekeeper (access() == nullopt). It does not hold a
@@ -85,6 +138,7 @@ class DatabaseHandler : public Handler<Database> {
     return HandlerT::New(std::piecewise_construct, *config.salient.name.str_view(), config);
   }
 
+ public:
   /**
    * @brief Build a Database gatekeeper OFF the map (no insert), recovering it if the config asks for
    *        it. Used by the hot/cold resume engine: the winner rebuilds the storage on its own thread

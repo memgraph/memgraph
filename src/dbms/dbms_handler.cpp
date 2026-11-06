@@ -290,7 +290,7 @@ DbmsHandler::DbmsHandler(storage::Config config, ResumeRetryPolicy resume_retry_
       // only nlohmann::json::exception so std::bad_alloc / OOM keep their existing propagation.
       spdlog::info("Restoring suspended (cold) database {} at {}.", name, rel_dir);
       try {
-        db_handler_.EmplaceColdShell(name);
+        db_handler_.AdoptColdShell(name);
         suspended_.insert_or_assign(std::string{name}, make_cold_entry(name, uuid, rel_dir, json));
         spdlog::info("Suspended (cold) database {} restored.", name);
       } catch (const nlohmann::json::exception &e) {
@@ -316,9 +316,9 @@ DbmsHandler::DbmsHandler(storage::Config config, ResumeRetryPolicy resume_retry_
     // the same clean fatal log instead of an opaque uncaught-exception terminate out of the ctor.
     spdlog::info("Restoring database {} at {}.", name, rel_dir);
     try {
-      // New_ registers the database as a side effect; the returned handle is intentionally dropped and
-      // only its success is checked here (do not "fix" the unused value by storing it).
-      auto new_db = New_(name, uuid, nullptr, rel_dir);
+      // NewAdopted_ registers the database as a side effect; only its success is checked here (the handle is
+      // intentionally dropped). A name an older release persisted is adopted (warn, proceed), not rejected.
+      auto new_db = NewAdopted_(name, uuid, rel_dir);
       MG_ASSERT(new_db.has_value(),
                 "Failed while recovering database {} (error {}); aborting.",
                 name,
@@ -571,7 +571,16 @@ DbmsHandler::DeleteResult DbmsHandler::Delete(utils::UUID uuid) {
 DbmsHandler::RenameResult DbmsHandler::Rename(std::string_view old_name, std::string_view new_name,
                                               system::Transaction *txn) {
   auto wr = std::lock_guard{lock_};
+  return RenameImpl_(old_name, new_name, txn, &DatabaseHandler::Rename);
+}
 
+DbmsHandler::RenameResult DbmsHandler::AdoptReplicatedRename(std::string_view old_name, std::string_view new_name) {
+  auto wr = std::scoped_lock{lock_};
+  return RenameImpl_(old_name, new_name, nullptr, &DatabaseHandler::AdoptReplicatedRename);
+}
+
+DbmsHandler::RenameResult DbmsHandler::RenameImpl_(std::string_view old_name, std::string_view new_name,
+                                                   system::Transaction *txn, DbRenameFn rename_db) {
   // Check if trying to rename default database
   if (old_name == kDefaultDB) {
     return std::unexpected{RenameError::DEFAULT_DB};
@@ -600,7 +609,7 @@ DbmsHandler::RenameResult DbmsHandler::Rename(std::string_view old_name, std::st
   }
 
   // Perform the rename operation in the handler
-  if (auto rename_result = db_handler_.Rename(old_name, new_name); !rename_result.has_value()) {
+  if (auto rename_result = (db_handler_.*rename_db)(old_name, new_name); !rename_result.has_value()) {
     return std::unexpected{rename_result.error()};
   }
 
@@ -633,7 +642,7 @@ DbmsHandler::RenameResult DbmsHandler::Rename(std::string_view old_name, std::st
         // Intentional reverse rename -- the DB is currently named new_name, so rename it back to
         // old_name to undo the in-memory rename above (arg/param names legitimately mismatch).
         // NOLINTNEXTLINE(readability-suspicious-call-argument)
-        [[maybe_unused]] auto rolled_back = db_handler_.Rename(new_name, old_name);
+        [[maybe_unused]] auto rolled_back = db_handler_.AdoptRenameRollback(new_name, old_name);
         (*new_db)->Rename(old_name);
         return std::unexpected{RenameError::FAIL};
       }

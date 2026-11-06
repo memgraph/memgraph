@@ -11,10 +11,16 @@
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
+#include <concepts>
+#include <expected>
 #include <filesystem>
 #include <optional>
+#include <string_view>
+#include <type_traits>
+#include <utility>
 
 #include "dbms/database_handler.hpp"
+#include "dbms/dbms_name.hpp"
 #include "dbms/global.hpp"
 #include "memory/db_arena.hpp"
 #include "metrics/prometheus_metrics.hpp"
@@ -276,6 +282,117 @@ TEST_F(DBMS_Database, MetricsFollowUuidAdoptedDuringRecovery) {
   ASSERT_EQ(std::string(db.value()->uuid()), std::string(snapshot_uuid));
 
   EXPECT_TRUE(memgraph::metrics::Metrics().GetDbMetricsInfo(db.value()->uuid()).has_value());
+}
+
+// Rejected: empty, >63 bytes, malformed UTF-8, Cc control code points, leading/trailing Unicode whitespace.
+TEST_F(DBMS_Database, DatabaseNameIsWellFormedBoundaries) {
+  using namespace std::string_literals;
+
+  struct Case {
+    std::string name;
+    bool well_formed;
+    const char *what;
+  };
+
+  const Case cases[] = {
+      {"", false, "empty"},
+      {" ", false, "space only"},
+      {" a", false, "leading space"},
+      {"a ", false, "trailing space"},
+      {"a\xC2\xA0", false, "trailing NBSP"},
+      {"a\nb", false, "embedded LF"},
+      {"a\rb", false, "embedded CR"},
+      {"a\tb", false, "embedded TAB"},
+      {"a\0b"s, false, "embedded NUL"},
+      {"a\xC2\x85", false, "U+0085 control"},
+      {"\x80", false, "lone continuation byte"},
+      {"\xC3", false, "truncated sequence"},
+      {"\xC0\xAF", false, "overlong encoding"},
+      {"\xED\xA0\x80", false, "UTF-16 surrogate"},
+      {std::string(64, 'x'), false, "64 ASCII bytes"},
+      {[] {
+         std::string s;
+         for (int i = 0; i < 32; ++i) s += "\xD1\x8F";
+         return s;
+       }(),
+       false,
+       "32 two-byte letters (64 bytes)"},
+      {std::string(63, 'x'), true, "63 ASCII bytes"},
+      {"a b", true, "inner space"},
+      {".", true, "dot"},
+      {"..", true, "dot dot"},
+      {"a/b", true, "slash"},
+      {"a@b", true, "at"},
+      {"a:b", true, "colon"},
+      {"a`b", true, "backtick"},
+      {"db_1+2-3.x", true, "punctuation mix"},
+      {"\xD0\xB1\xD0\xB0\xD0\xB7\xD0\xB0", true, "Cyrillic"},
+      {"\xF0\x9F\x98\x80", true, "4-byte emoji"},
+  };
+  for (const auto &[name, well_formed, what] : cases) {
+    EXPECT_EQ(memgraph::dbms::DatabaseNameIsWellFormed(name), well_formed) << what;
+  }
+}
+
+namespace {
+
+template <typename T>
+concept UnqualifiedRawNewReachable = requires(T &handler, std::string_view name, memgraph::storage::Config config) {
+  handler.New(std::piecewise_construct, name, config);
+};
+
+}  // namespace
+
+TEST_F(DBMS_Database, AdmissionEntriesStrictVsAdopt) {
+  using DH = memgraph::dbms::DatabaseHandler;
+  using RenameResult = std::expected<void, memgraph::dbms::RenameError>;
+
+  static_assert(std::is_same_v<decltype(&DH::New), DH::HandlerT::NewResult (DH::*)(memgraph::storage::Config)>);
+  static_assert(std::is_same_v<decltype(&DH::Rename), RenameResult (DH::*)(std::string_view, std::string_view)>);
+  static_assert(std::is_same_v<decltype(&DH::AdoptLegacy), DH::HandlerT::NewResult (DH::*)(memgraph::storage::Config)>);
+  static_assert(std::is_same_v<decltype(&DH::AdoptColdShell),
+                               memgraph::utils::Gatekeeper<memgraph::dbms::Database> *(DH::*)(std::string_view)>);
+  static_assert(
+      std::is_same_v<decltype(&DH::AdoptReplicatedRename), RenameResult (DH::*)(std::string_view, std::string_view)>);
+  static_assert(
+      std::is_same_v<decltype(&DH::AdoptRenameRollback), RenameResult (DH::*)(std::string_view, std::string_view)>);
+  static_assert(!UnqualifiedRawNewReachable<DH>,
+                "DatabaseHandler must shadow Handler::New with the strict entry; a raw insert is not an admission "
+                "path and must not be reachable without passing a named strict/adopt entry");
+
+  DH db_handler;
+
+  auto rejected_new = db_handler.New(default_conf("a\nb"));
+  ASSERT_FALSE(rejected_new.has_value()) << "New is the items_ mutator every CREATE reaches; it must be strict";
+  EXPECT_EQ(rejected_new.error(), memgraph::dbms::NewError::INVALID_NAME);
+  ASSERT_TRUE(db_handler.New(default_conf("census_src")).has_value());
+  auto rejected_rename = db_handler.Rename("census_src", " lead");
+  ASSERT_FALSE(rejected_rename.has_value()) << "Rename is the items_ mutator RENAME reaches; it must be strict";
+  EXPECT_EQ(rejected_rename.error(), memgraph::dbms::RenameError::INVALID_NAME);
+  EXPECT_TRUE(db_handler.GetConfig("census_src").has_value());
+
+  const std::string legacy_name = " ad opt";
+  const std::string cold_name = "cold sh ";
+  const std::string renamed_name = "repl\name";
+  const std::string rollback_name(64, 'r');
+  const std::string raw_name = "raw\x01sh";
+  for (const auto *invalid : {&legacy_name, &cold_name, &renamed_name, &rollback_name, &raw_name}) {
+    ASSERT_FALSE(memgraph::dbms::DatabaseNameIsWellFormed(*invalid))
+        << "precondition: adopt entries must be shown to admit a name the strict rule rejects";
+  }
+
+  ASSERT_TRUE(db_handler.AdoptLegacy(default_conf(legacy_name)).has_value());
+  EXPECT_TRUE(db_handler.Has(legacy_name));
+  ASSERT_NE(db_handler.AdoptColdShell(cold_name), nullptr);
+  EXPECT_TRUE(db_handler.Has(cold_name));
+  ASSERT_TRUE(db_handler.New(default_conf("repl_src")).has_value());
+  ASSERT_TRUE(db_handler.AdoptReplicatedRename("repl_src", renamed_name).has_value());
+  EXPECT_TRUE(db_handler.Has(renamed_name));
+  ASSERT_TRUE(db_handler.New(default_conf("roll_src")).has_value());
+  ASSERT_TRUE(db_handler.AdoptRenameRollback("roll_src", rollback_name).has_value());
+  EXPECT_TRUE(db_handler.Has(rollback_name));
+  ASSERT_NE(db_handler.EmplaceColdShell(raw_name), nullptr);
+  EXPECT_TRUE(db_handler.Has(raw_name));
 }
 
 #endif

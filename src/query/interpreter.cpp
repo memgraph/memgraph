@@ -57,6 +57,7 @@
 #include "dbms/constants.hpp"
 #include "dbms/coordinator_handler.hpp"
 #include "dbms/dbms_handler.hpp"
+#include "dbms/dbms_name.hpp"
 #include "dbms/global.hpp"
 #include "flags/general.hpp"
 #include "flags/isolation_level.hpp"
@@ -8874,6 +8875,8 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
                   throw QueryRuntimeException("Failed while creating {}", db_name);
                 case dbms::NewError::NO_CONFIGS:
                   throw QueryRuntimeException("No configuration found while trying to create {}", db_name);
+                case dbms::NewError::INVALID_NAME:
+                  throw QueryRuntimeException(dbms::kInvalidDatabaseNameMessage);
               }
             } else {
               res = "Successfully created database " + db_name;
@@ -9014,6 +9017,8 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
                   case dbms::RenameError::SUSPENDED:
                     throw QueryRuntimeException("Cannot rename database {}: it is suspended (cold). RESUME it first.",
                                                 old_name);
+                  case dbms::RenameError::INVALID_NAME:
+                    throw QueryRuntimeException(dbms::kInvalidDatabaseNameMessage);
                 }
               }
             } catch (const utils::BasicException &e) {
