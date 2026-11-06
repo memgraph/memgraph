@@ -3593,3 +3593,57 @@ Feature: Subquery expressions
       Then the result should be, in order:
           | x   |
           | 'd' |
+
+  # The first CREATE gives `n` two edges before the WITH. The second CREATE then adds one for each row, so a subquery
+  # in the WITH that saw it would count three for the second row.
+  Scenario: A COUNT in a WITH after a write does not see a later clause's write for an earlier row
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:N)
+          """
+      When executing query:
+          """
+          MATCH (n:N) UNWIND [1, 2] AS x CREATE (n)-[:R]->(:M)
+          WITH n, x WHERE COUNT { MATCH (n)-[:R]->(m) } = 2
+          CREATE (n)-[:R]->(:M)
+          RETURN x ORDER BY x;
+          """
+      Then the result should be, in order:
+          | x |
+          | 1 |
+          | 2 |
+
+  Scenario: A projected COUNT in a WITH after a write does not see a later clause's write for an earlier row
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:N)
+          """
+      When executing query:
+          """
+          MATCH (n:N) UNWIND [1, 2] AS x CREATE (n)-[:R]->(:M)
+          WITH n, x, COUNT { (n)-[:R]->() } AS c
+          CREATE (n)-[:R]->(:M)
+          RETURN x, c ORDER BY x;
+          """
+      Then the result should be, in order:
+          | x | c |
+          | 1 | 2 |
+          | 2 | 2 |
+
+  Scenario: A COUNT in a WITH after a write sees that write
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:N)
+          """
+      When executing query:
+          """
+          MATCH (n:N) SET n.v = 1
+          WITH n WHERE COUNT { MATCH (m:N) WHERE m.v = 1 } = 1
+          RETURN n.v AS v;
+          """
+      Then the result should be:
+          | v |
+          | 1 |
