@@ -541,6 +541,10 @@ class BranchContext {
   // out-adjacency, so O(its out-degree at the fork).
   std::optional<storage::EdgeAccessor> FindForkEdge(storage::Gid edge_gid, storage::Gid from_gid);
 
+  // The fork edge a stub (of an edge scan's hit in the diff engine's index) stands for: O(1) through the stub index,
+  // which records it when the stub is created.
+  std::optional<storage::EdgeAccessor> FindForkEdgeOfStub(const storage::EdgeAccessor &stub);
+
   // The diff engine's object for `gid`, for the writers: a fork gid resolves only through the stub index (a stub
   // accessor), a native gid only through the diff engine's skiplist. Hand a stub to no one but the branch writers.
   std::optional<storage::VertexAccessor> FindStub(storage::Gid gid, storage::View view);

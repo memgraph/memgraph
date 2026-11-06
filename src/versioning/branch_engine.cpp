@@ -111,6 +111,15 @@ void MirrorMainIndexDefinitionsIntoDiffEngine(storage::InMemoryStorage &diff_eng
   for (const auto &property : main_indices.vertex_property) {
     mirror([&](storage::Storage::Accessor &acc) { return acc.CreateGlobalVertexIndex(property); });
   }
+  for (const auto &edge_type : main_indices.edge_type) {
+    mirror([&](storage::Storage::Accessor &acc) { return acc.CreateIndex(edge_type); });
+  }
+  for (const auto &[edge_type, property] : main_indices.edge_type_property) {
+    mirror([&](storage::Storage::Accessor &acc) { return acc.CreateIndex(edge_type, property); });
+  }
+  for (const auto &property : main_indices.edge_property) {
+    mirror([&](storage::Storage::Accessor &acc) { return acc.CreateGlobalEdgeIndex(property); });
+  }
 }
 
 }  // namespace
@@ -467,6 +476,13 @@ std::optional<storage::EdgeAccessor> BranchContext::FindForkEdge(storage::Gid ed
   auto const found = std::ranges::find_if(out->edges, [&](const auto &edge) { return edge.Gid() == edge_gid; });
   if (found == out->edges.end()) return std::nullopt;
   return *found;
+}
+
+std::optional<storage::EdgeAccessor> BranchContext::FindForkEdgeOfStub(const storage::EdgeAccessor &stub) {
+  auto const fork = edge_stubs().FindFork(stub.Gid().AsUint());
+  if (!fork) return FindForkEdge(stub.Gid(), stub.from_vertex_->gid);
+  return storage::EdgeAccessor{
+      *fork, stub.EdgeType(), stub.from_vertex_, stub.to_vertex_, &main(), historical().GetTransaction()};
 }
 
 std::optional<storage::VertexAccessor> BranchContext::FindStub(storage::Gid gid, storage::View view) {

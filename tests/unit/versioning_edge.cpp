@@ -198,6 +198,7 @@ TEST_F(VersioningEdgeTest, BranchForkEdgeWriteAfterRollbackSucceeds) {
 // A written fork edge, deleted directly or through a DETACH DELETE of its endpoint, is gone from both ends and from
 // filtered scans while its parallel sibling stays; main keeps all of them.
 TEST_F(VersioningEdgeTest, BranchDeleteWrittenForkEdgeIsGoneEverywhere) {
+  faker.Interpret("CREATE EDGE INDEX ON :R(w)");
   faker.Interpret(
       "CREATE (a:A {id: 1}), (b:B {id: 2}), (a)-[:R {w: 1}]->(b), (a)-[:R {w: 4}]->(b), "
       "(:A {id: 3})-[:R {w: 5}]->(:B {id: 4}), (:A {id: 5})-[:R {w: 6}]->(:B {id: 6})");
@@ -208,10 +209,13 @@ TEST_F(VersioningEdgeTest, BranchDeleteWrittenForkEdgeIsGoneEverywhere) {
   EXPECT_EQ(IntRows(faker, "MATCH (:A {id: 1})-[r]->() RETURN r.w"), (Rows{{4}}));
   EXPECT_EQ(IntRows(faker, "MATCH (:B {id: 2})<-[r]-() RETURN r.w"), (Rows{{4}}));
   EXPECT_EQ(IntRows(faker, "MATCH ()-[r:R]->() WHERE r.w > 0 RETURN r.w ORDER BY r.w"), (Rows{{4}, {5}, {6}}));
+  EXPECT_EQ(IntRows(faker, "MATCH ()-[r:R]->() WHERE r.w = 2 RETURN count(r)"), (Rows{{0}}));
 
   faker.Interpret("MATCH (:A {id: 3})-[r:R]->() SET r.w = 8");
   faker.Interpret("MATCH (a:A {id: 3}) DETACH DELETE a");
   EXPECT_EQ(IntRows(faker, "MATCH ()-[r:R]->() RETURN r.w ORDER BY r.w"), (Rows{{4}, {6}}));
+  EXPECT_EQ(IntRows(faker, "MATCH ()-[r:R]->() WHERE r.w > 0 RETURN r.w ORDER BY r.w"), (Rows{{4}, {6}}));
+  EXPECT_EQ(IntRows(faker, "MATCH ()-[r:R]->() WHERE r.w = 8 RETURN count(r)"), (Rows{{0}}));
   EXPECT_EQ(IntRows(faker, "MATCH (:B {id: 4})<-[r]-() RETURN count(r)"), (Rows{{0}}));
 
   UseMain();
@@ -381,4 +385,26 @@ TEST_F(VersioningReferenceEdgeTest, BranchReferenceEdgeReadsNullAndRefusesProper
   UseMain();
   EXPECT_THROW(faker.Interpret("MATCH (:S)-[e:E]->(:A) SET e.w = 1"), mq::QueryRuntimeException);
   EXPECT_EQ(IntRows(faker, "MATCH ()-[e]->() RETURN count(e)"), (Rows{{1}}));
+}
+
+// A main without edge properties can hold no edge index, and the diff engine (which always has edge properties) must
+// not grow one: edge-type matches on the branch stay plain scans over the branch's adjacency, which see the branch's
+// deletes and native edges.
+TEST_F(VersioningReferenceEdgeTest, BranchEdgeTypeMatchFollowsBranchWritesWithoutEdgeIndexes) {
+  faker.Interpret(
+      "CREATE (a:A {id: 1}), (b:B {id: 2}), (c:B {id: 3}), (d:B {id: 4}), (e:B {id: 5}), (a)-[:E]->(b), (a)-[:E]->(c), "
+      "(b)-[:F]->(a), (d)-[:E]->(e)");
+  Fork();
+
+  auto const scan = "MATCH (x)-[:E]->(y) RETURN x.id * 10 + y.id AS e ORDER BY e";
+  EXPECT_FALSE(PlanHasOperator(ExplainText(faker, scan), "ScanAllByEdgeType"));
+  EXPECT_EQ(IntRows(faker, scan), (Rows{{12}, {13}, {45}}));
+  faker.Interpret("MATCH (:A)-[e:E]->(:B {id: 2}) DELETE e");
+  faker.Interpret("MATCH (d:B {id: 4}) DETACH DELETE d");
+  faker.Interpret("MATCH (a:A), (e:B {id: 5}) CREATE (a)-[:E]->(e)");
+  EXPECT_EQ(IntRows(faker, scan), (Rows{{13}, {15}}));
+  EXPECT_EQ(IntRows(faker, "MATCH ()-[e:E]->() RETURN count(e)"), (Rows{{2}}));
+
+  UseMain();
+  EXPECT_EQ(IntRows(faker, scan), (Rows{{12}, {13}, {45}}));
 }
