@@ -760,8 +760,12 @@ void SnapshotPeriodicDetach(std::shared_ptr<utils::Observer<utils::SchedulerInte
   snapshot_periodic_.Detach(observer);
 }
 
+bool CronScheduleWithoutLicense() {
+  return snapshot_periodic_.IsCron() && !license::global_license_checker.IsEnterpriseValidFast();
+}
+
 bool SnapshotScheduleLicensed() {
-  const bool licensed = !snapshot_periodic_.IsCron() || license::global_license_checker.IsEnterpriseValidFast();
+  const bool licensed = !CronScheduleWithoutLicense();
   if (licensed) {
     cron_snapshots_skipped_.store(false, std::memory_order_relaxed);
   } else if (!cron_snapshots_skipped_.exchange(true, std::memory_order_relaxed)) {

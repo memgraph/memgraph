@@ -428,8 +428,10 @@ def test_cron_skips_after_license_lost(test_name):
             tries += 1
             time.sleep(1)
         assert number_of_snapshots(snapshots_dir) > 0, "No snapshot while licensed"
+        assert execute_and_fetch_all(cursor, "SHOW NEXT SNAPSHOT;")
 
         execute_and_fetch_all(cursor, "SET DATABASE SETTING 'enterprise.license' TO '';")
+        assert execute_and_fetch_all(cursor, "SHOW NEXT SNAPSHOT;") == []
         time.sleep(1)
         before = number_of_snapshots(snapshots_dir)
         time.sleep(3)
