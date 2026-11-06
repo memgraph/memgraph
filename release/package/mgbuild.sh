@@ -238,7 +238,7 @@ print_help () {
   echo -e "  --size string                 Specify dataset size: (for pokec: small, medium, large) (default \"medium\")"
   echo -e "  --export-results-file string  Specify output file for benchmark results (default \"benchmark_result.json\")"
   echo -e "  --no-authorization            Skip the fine-grained authorization run of each workload"
-
+  echo -e "  --branch-reads                Also measure the read queries on Graph Versioning branches with 10% and 90% of the dataset changed"
 
 
   echo -e "\nmgbench-ha options:"
@@ -2180,6 +2180,7 @@ test_memgraph() {
       local DATASET_SIZE='medium'
       local EXPORT_RESULTS_FILE="$default_benchmark_result_file"
       local NO_AUTHORIZATION=""
+      local BRANCH_READS=""
 
       while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -2199,16 +2200,20 @@ test_memgraph() {
             NO_AUTHORIZATION="--no-authorization"
             shift 1
           ;;
+          --branch-reads)
+            BRANCH_READS="--branch-reads"
+            shift 1
+          ;;
           *)
             echo "Error: Unknown flag '$1' for mgbench"
-            echo "Supported flags: --dataset, --size, --export-results-file, --no-authorization"
+            echo "Supported flags: --dataset, --size, --export-results-file, --no-authorization, --branch-reads"
             exit 1
           ;;
         esac
       done
 
       check_support pokec_size $DATASET_SIZE
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --installation-type native $MGBENCH_CACHE_ARG --num-workers-for-benchmark 6 --export-results $EXPORT_RESULTS_FILE $NO_AUTHORIZATION $DATASET/$DATASET_SIZE/*/*"
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --installation-type native $MGBENCH_CACHE_ARG --num-workers-for-benchmark 6 --export-results $EXPORT_RESULTS_FILE $NO_AUTHORIZATION $BRANCH_READS $DATASET/$DATASET_SIZE/*/*"
     ;;
     mgbench-ha)
       shift 1

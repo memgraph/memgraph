@@ -492,7 +492,8 @@ void CreateDatabases(std::vector<std::string> const &dbs) {
   memgraph::communication::bolt::Client client(context);
   client.Connect(endpoint, FLAGS_username, FLAGS_password);
   for (auto const &db : dbs) {
-    if (db == "memgraph") {
+    // "<database>@<branch>" addresses a branch of a database that already exists, it is not a database.
+    if (db == "memgraph" || db.contains('@')) {
       continue;
     }
     auto const create_db_query = fmt::format("CREATE DATABASE {}", db);
