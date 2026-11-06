@@ -8,7 +8,10 @@ authors = [
 ]
 license = "Apache-2.0"
 readme = "README.md"
-include = ["mgp.py", "_mgp.py"]
+include = [
+    { path = "mgp.py", format = ["sdist", "wheel"] },
+    { path = "_mgp.py", format = ["sdist", "wheel"] },
+]
 
 [tool.poetry.dependencies]
 python = "^3.7"
