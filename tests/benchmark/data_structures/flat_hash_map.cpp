@@ -19,6 +19,7 @@
 #include <vector>
 
 #include "absl/container/flat_hash_map.h"
+#include "absl/hash/hash.h"
 #include "boost/unordered/unordered_flat_map.hpp"
 
 namespace {
@@ -214,6 +215,10 @@ BENCHMARK(BM_FlatHashMapString_Erase<absl::flat_hash_map<std::string, std::strin
 BENCHMARK(BM_FlatHashMapString_Erase<boost::unordered_flat_map<std::string, std::string>>)->Apply(SizeArgs);
 BENCHMARK(BM_FlatHashMapPtr_Insert<absl::flat_hash_map<Node const *, Node const *>>)->Apply(SizeArgs);
 BENCHMARK(BM_FlatHashMapPtr_Insert<boost::unordered_flat_map<Node const *, Node const *>>)->Apply(SizeArgs);
+BENCHMARK(BM_FlatHashMapPtr_Insert<boost::unordered_flat_map<Node const *, Node const *, absl::Hash<Node const *>>>)
+    ->Apply(SizeArgs);
 BENCHMARK(BM_FlatHashMapPtr_Find<absl::flat_hash_map<Node const *, Node const *>>)->Apply(FindArgs);
 BENCHMARK(BM_FlatHashMapPtr_Find<boost::unordered_flat_map<Node const *, Node const *>>)->Apply(FindArgs);
+BENCHMARK(BM_FlatHashMapPtr_Find<boost::unordered_flat_map<Node const *, Node const *, absl::Hash<Node const *>>>)
+    ->Apply(FindArgs);
 BENCHMARK_MAIN();
