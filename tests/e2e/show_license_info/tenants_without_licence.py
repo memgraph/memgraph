@@ -99,8 +99,9 @@ def test_tenant_read_only_without_licence(request):
                 session.run("CREATE ();").consume()
     execute(cursor, "USE DATABASE memgraph;")
     execute(cursor, "CREATE ();")
-    with pytest.raises(mgclient.DatabaseError):
-        execute(cursor, "CREATE DATABASE another;")
+    for change in ["CREATE DATABASE another;", "DROP DATABASE tenant;", "RENAME DATABASE tenant TO another;"]:
+        with pytest.raises(mgclient.DatabaseError, match="Access to multi-tenancy requires"):
+            execute(cursor, change)
 
     set_organization_name(cursor, ORGANIZATION_NAME)
 
