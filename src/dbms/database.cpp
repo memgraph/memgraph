@@ -401,7 +401,12 @@ Database::Database(storage::Config config)
   if (storage_->GetStorageMode() == storage::StorageMode::IN_MEMORY_TRANSACTIONAL) {
     auto *in_memory_storage = static_cast<storage::InMemoryStorage *>(storage_.get());
     version_store_ = std::make_unique<versioning::VersionStore>(
-        [in_memory_storage] { return versioning::ForkPoint{.fork_ts = in_memory_storage->RegisterBranchForkPin()}; },
+        [in_memory_storage] {
+          const auto fork_ts = in_memory_storage->RegisterBranchForkPin();
+          const auto counts = in_memory_storage->GetApproximateCounts();
+          return versioning::ForkPoint{.fork_ts = fork_ts,
+                                       .counts = {.vertices = counts.vertices, .edges = counts.edges}};
+        },
         [in_memory_storage](uint64_t fork_ts) { in_memory_storage->ReleaseForkPin(fork_ts); });
     version_store_->SetRetentionFloorCallback(
         [in_memory_storage](std::optional<uint64_t> floor) { in_memory_storage->SetRetentionFloor(floor); });

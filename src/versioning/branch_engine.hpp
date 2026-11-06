@@ -92,9 +92,10 @@ class BranchCore {
   // branch is not durable. The engine always has properties_on_edges: fork-edge stubs are heavy Edge
   // objects whatever main's config says, so any code that interprets an EdgeRef read from main must consult MAIN's
   // config (`main().config_`), not the diff engine's.
+  // `fork_counts` (main's counts read with the fork pin) base ApproximateCounts; main's current counts without them.
   static std::expected<std::shared_ptr<BranchCore>, BuildError> Build(
       storage::InMemoryStorage &main, uint64_t fork_ts, std::optional<uint64_t> branch_number = std::nullopt,
-      std::optional<RecordedFloors> recorded = std::nullopt);
+      std::optional<RecordedFloors> recorded = std::nullopt, std::optional<ObjectCounts> fork_counts = std::nullopt);
 
   // Build for a session's first checkout of `info`: on the ledger's gid floors if it holds them (the branch was built
   // before a restart and had nothing to replay), else on main's current counters. Main objects created since the fork
@@ -105,7 +106,7 @@ class BranchCore {
     if (info.vertex_gid_floor && info.edge_gid_floor) {
       recorded = RecordedFloors{.vertex_gid_floor = *info.vertex_gid_floor, .edge_gid_floor = *info.edge_gid_floor};
     }
-    return Build(main, info.fork_ts, info.number, recorded);
+    return Build(main, info.fork_ts, info.number, recorded, info.fork_counts);
   }
 
   BranchCore(const BranchCore &) = delete;
@@ -135,6 +136,11 @@ class BranchCore {
 
   // The parts of the label+property keys of the indexes the diff engine mirrors.
   const IndexKeyParts &key_parts() const noexcept { return key_parts_; }
+
+  // Main's counts at the fork, plus the diff engine's (branch-created objects, counted as main counts its own), minus
+  // the fork vertices and edges deleted or hidden by committed branch transactions; never below zero. Committed state
+  // only, independent of main's later writes.
+  ObjectCounts ApproximateCounts() const;
 
   // The fork vertices and edges deleted or hidden by the committed branch transactions so far.
   ObjectCounts ForkDeletes() const noexcept {
@@ -226,7 +232,7 @@ class BranchCore {
 
  private:
   BranchCore(storage::InMemoryStorage *main, uint64_t fork_ts, std::unique_ptr<storage::InMemoryStorage> diff_engine,
-             uint64_t vertex_gid_floor, uint64_t edge_gid_floor);
+             uint64_t vertex_gid_floor, uint64_t edge_gid_floor, ObjectCounts fork_counts);
 
   // Emplaced by ~BranchCore and destroyed last: the stubs go back to main's arenas whichever thread drops the last
   // reference.
@@ -235,6 +241,7 @@ class BranchCore {
   uint64_t fork_ts_;
   uint64_t vertex_gid_floor_;
   uint64_t edge_gid_floor_;
+  ObjectCounts fork_counts_;
   // Set once by Build, before the core is shared.
   IndexKeyParts key_parts_;
   std::unique_ptr<storage::InMemoryStorage> diff_engine_;
@@ -521,8 +528,7 @@ class BranchContext {
 
   // ---- Counts
 
-  // Approximate counts as Storage::Accessor reports them on main, for the planner and mgp: main's current count plus
-  // the branch-native objects, less the fork vertices (edges) committed branch transactions deleted (hid).
+  // The branch's approximate counts for the planner, mgp and SHOW STORAGE INFO: BranchCore::ApproximateCounts.
   int64_t ApproximateVertexCount();
   int64_t ApproximateEdgeCount();
 

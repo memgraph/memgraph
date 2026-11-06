@@ -66,6 +66,8 @@ class VersioningInfoTest : public VersioningGatedTest {
           out.push_back(value.ValueString());
         } else if (value.IsInt()) {
           out.push_back(std::to_string(value.ValueInt()));
+        } else if (value.IsDouble()) {
+          out.push_back(std::to_string(value.ValueDouble()));
         } else if (value.IsList()) {
           std::string joined;
           for (const auto &item : value.ValueList()) joined += item.ValueString();
@@ -99,6 +101,17 @@ class VersioningInfoTest : public VersioningGatedTest {
       if (row.at(0) == key) return row.at(1);
     }
     return "<missing>";
+  }
+
+  // The procedure API's approximate vertex and edge counts inside the session's open transaction.
+  std::pair<std::string, std::string> ProcedureCounts() {
+    auto &dba = *faker.interpreter.current_db_.execution_db_accessor_;
+    mgp_graph graph{&dba, memgraph::storage::View::NEW, nullptr, dba.GetStorageMode()};
+    size_t vertices = 0;
+    size_t edges = 0;
+    EXPECT_EQ(mgp_graph_approximate_vertex_count(&graph, &vertices), mgp_error::MGP_ERROR_NO_ERROR);
+    EXPECT_EQ(mgp_graph_approximate_edge_count(&graph, &edges), mgp_error::MGP_ERROR_NO_ERROR);
+    return {std::to_string(vertices), std::to_string(edges)};
   }
 
   // Sizes of the procedure API's label-index and existence-constraint lists inside the session's open transaction.
@@ -173,18 +186,41 @@ TEST_F(VersioningInfoTest, ListingsOnABranchLeakNoMarkerNames) {
   }
 }
 
-TEST_F(VersioningInfoTest, StorageInfoOnABranchHasNoCountsAndNamesTheBranch) {
+// Main at the fork plus the branch's committed changes: native creates, deleted fork vertices, fork edges deleted or
+// hidden by a deleted endpoint. Main's later writes and a rolled-back transaction do not count.
+TEST_F(VersioningInfoTest, StorageInfoCountsOnABranchAreMainAtTheForkPlusTheBranchs) {
   BuildMain();
-  EXPECT_EQ(StorageInfo("vertex_count"), "3");
-  EXPECT_EQ(StorageInfo("edge_count"), "1");
+  faker.Interpret("CREATE (:C)-[:S]->(:C)");
+  EXPECT_EQ(StorageInfo("vertex_count"), "5");
+  EXPECT_EQ(StorageInfo("edge_count"), "2");
   EXPECT_EQ(StorageInfo("branch"), "<missing>");
 
+  // 5 + 2 native - 1 deleted vertices; 2 + 1 native - 1 hidden (the deleted vertex's) - 1 deleted edges.
   ChangeBranch();
-  EXPECT_EQ(StorageInfo("vertex_count"), "<null>");
-  EXPECT_EQ(StorageInfo("edge_count"), "<null>");
-  EXPECT_EQ(StorageInfo("average_degree"), "<null>");
+  faker.Interpret("MATCH ()-[s:S]->() DELETE s");
+  const auto expect_branch_counts = [&] {
+    EXPECT_EQ(StorageInfo("vertex_count"), "6");
+    EXPECT_EQ(StorageInfo("edge_count"), "1");
+    EXPECT_EQ(StorageInfo("average_degree"), std::to_string(2.0 / 6));
+  };
+  expect_branch_counts();
   EXPECT_EQ(StorageInfo("branch"), "b");
   EXPECT_EQ(StorageInfo("storage_mode"), "IN_MEMORY_TRANSACTIONAL");
+  faker.Interpret("BEGIN");
+  EXPECT_EQ(ProcedureCounts(), (std::pair<std::string, std::string>{"6", "1"}));
+  faker.Interpret("ROLLBACK");
+
+  faker.Interpret("BEGIN");
+  faker.Interpret("MATCH (c:C) DETACH DELETE c");
+  faker.Interpret("MATCH (n:BranchOnly) DETACH DELETE n");
+  faker.Interpret("ROLLBACK");
+  expect_branch_counts();
+
+  faker.Interpret("USE BRANCH main");
+  faker.Interpret("CREATE (:M), (:M)-[:R]->(:M)");
+  faker.Interpret("MATCH (c:C) DETACH DELETE c");
+  faker.Interpret("USE BRANCH b");
+  expect_branch_counts();
 
   // The instance view has no per-database rows.
   for (const auto &row : Show("SHOW STORAGE INFO")) {
@@ -193,7 +229,6 @@ TEST_F(VersioningInfoTest, StorageInfoOnABranchHasNoCountsAndNamesTheBranch) {
   }
 
   faker.Interpret("USE BRANCH main");
-  EXPECT_EQ(StorageInfo("vertex_count"), "3");
   EXPECT_EQ(StorageInfo("branch"), "<missing>");
 }
 
@@ -218,4 +253,44 @@ TEST_F(VersioningInfoTest, ProcedureSchemaListingsOnABranchAreMains) {
   faker.Interpret("BEGIN");
   EXPECT_EQ(ProcedureListingSizes(), on_main);
   faker.Interpret("ROLLBACK");
+}
+
+// The branch's counts are main's at the fork plus the committed branch changes: inside an open branch transaction
+// main's later commits never show, the transaction's own deletes count only once it commits, a rolled-back or
+// conflicting delete never counts, and a delete that won is counted exactly once. (Like main's, they are not a
+// per-transaction snapshot: another branch session's commit shows as soon as it lands.)
+TEST_F(VersioningInfoTest, BranchCountsIgnoreMainAfterTheForkAndCountEachCommittedDeleteOnce) {
+  faker.Interpret("CREATE (:V {id: 1}), (:V {id: 2}), (:V {id: 3})-[:E]->(:V {id: 4})");
+  faker.Interpret("CREATE BRANCH b");
+  InterpreterFaker main_session{&interpreter_context, db};
+  auto sessions = SessionsOnBranch(2, "b");
+  auto &first = *sessions[0];
+  auto &second = *sessions[1];
+  faker.Interpret("USE BRANCH b");
+  const auto counts = [](size_t vertices, size_t edges) {
+    return std::pair<std::string, std::string>{std::to_string(vertices), std::to_string(edges)};
+  };
+
+  faker.Interpret("BEGIN");
+  EXPECT_EQ(ProcedureCounts(), counts(4, 1));
+  main_session.Interpret("CREATE (:Later)-[:E]->(:Later), (:Later)");
+  main_session.Interpret("MATCH (n:V {id: 4}) DETACH DELETE n");
+  EXPECT_EQ(ProcedureCounts(), counts(4, 1)) << "main's commits after the fork are not the branch's";
+  faker.Interpret("MATCH (n:V {id: 1}) DELETE n");
+  EXPECT_EQ(ProcedureCounts(), counts(4, 1)) << "the transaction's own delete counts when it commits";
+
+  first.Interpret("BEGIN");
+  first.Interpret("MATCH (n:V {id: 3}) DETACH DELETE n");
+  second.Interpret("BEGIN");
+  EXPECT_NE(ThrownMessage([&] { second.Interpret("MATCH (n:V {id: 3}) DETACH DELETE n"); }), "<no exception>");
+  second.Interpret("ROLLBACK");
+  EXPECT_EQ(ProcedureCounts(), counts(4, 1)) << "an uncommitted or conflicting delete does not count";
+  first.Interpret("COMMIT");
+  EXPECT_EQ(ProcedureCounts(), counts(3, 0)) << "the winning delete counts once, with the edge it hid";
+
+  faker.Interpret("COMMIT");
+  EXPECT_EQ(StorageInfo("vertex_count"), "2");
+  EXPECT_EQ(StorageInfo("edge_count"), "0");
+  EXPECT_EQ(second.Interpret("MATCH (n:V) RETURN count(n)").GetResults().at(0).at(0).ValueInt(), 2)
+      << "the counts are the visible vertices";
 }

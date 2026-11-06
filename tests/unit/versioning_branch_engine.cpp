@@ -3827,6 +3827,116 @@ TEST_F(VersioningBranchEdgeWriteTest, PeriodicCommitPublishesEachBatchsForkDelet
   EXPECT_EQ(Core().ForkDeletes(), (mv::ObjectCounts{1, 3}));
 }
 
+///// The branch's counts: main's at the fork, the native objects, less the committed fork deletes
+
+TEST_F(VersioningBranchEdgeWriteTest, BranchCountsDropWithCommittedForkDeletesOnly) {
+  auto const g = MakeGraph();
+  Fork();
+  EXPECT_EQ(Core().ApproximateCounts(), (mv::ObjectCounts{3, 3}));
+  EXPECT_EQ(Ctx().ApproximateVertexCount(), 3);
+  EXPECT_EQ(Ctx().ApproximateEdgeCount(), 3);
+
+  WriteAborted([&] {
+    ASSERT_TRUE(*Ctx().DeleteForkVertex(g.a));
+    ASSERT_TRUE(*Ctx().DeleteForkEdge(ForkEdge(g.loop)));
+  });
+  EXPECT_EQ(Core().ApproximateCounts(), (mv::ObjectCounts{3, 3}));
+
+  // The edge goes first, then its endpoint: e1 leaves the count once, e2 with the vertex.
+  WriteCounted([&] {
+    ASSERT_TRUE(*Ctx().DeleteForkEdge(ForkEdge(g.e1)));
+    ASSERT_TRUE(*Ctx().DeleteForkVertex(g.a));
+  });
+  EXPECT_EQ(Core().ApproximateCounts(), (mv::ObjectCounts{2, 1}));
+
+  // A self-loop is one edge.
+  WriteCounted([&] { ASSERT_TRUE(*Ctx().DeleteForkVertex(g.c)); });
+  EXPECT_EQ(Core().ApproximateCounts(), (mv::ObjectCounts{1, 0}));
+  EXPECT_EQ(Ctx().ApproximateVertexCount(), 1);
+  EXPECT_EQ(Ctx().ApproximateEdgeCount(), 0);
+}
+
+TEST_F(VersioningBranchEdgeWriteTest, ADeletedHubTakesEveryEdgeOutOfTheBranchCounts) {
+  auto const hub = CreateMainVertex({}, {});
+  constexpr int kSpokes = 100;
+  for (int i = 0; i < kSpokes; ++i) {
+    auto const leaf = CreateMainVertex({}, {});
+    if (i % 2 == 0) {
+      CreateMainEdge(hub, leaf, "E");
+    } else {
+      CreateMainEdge(leaf, hub, "E");
+    }
+  }
+  Fork();
+  EXPECT_EQ(Core().ApproximateCounts(), (mv::ObjectCounts{kSpokes + 1, kSpokes}));
+  WriteCounted([&] { ASSERT_TRUE(*Ctx().DeleteForkVertex(hub)); });
+  EXPECT_EQ(Core().ApproximateCounts(), (mv::ObjectCounts{kSpokes, 0}));
+}
+
+TEST_F(VersioningBranchEdgeWriteTest, BranchCountsFollowEachPeriodicCommitBatch) {
+  auto const g = MakeGraph();
+  Fork();
+  auto acc = Diff().Access(ms::WRITE);
+  Begin(acc.get());
+  ASSERT_TRUE(*Ctx().DeleteForkEdge(ForkEdge(g.e1)));
+  ASSERT_TRUE(Ctx().PeriodicCommitTransaction(memgraph::tests::MakeMainCommitArgs()).has_value());
+  EXPECT_EQ(Core().ApproximateCounts(), (mv::ObjectCounts{3, 2}));
+  ASSERT_TRUE(*Ctx().DeleteForkVertex(g.c));
+  ASSERT_TRUE(Ctx().PeriodicCommitTransaction(memgraph::tests::MakeMainCommitArgs()).has_value());
+  EXPECT_EQ(Core().ApproximateCounts(), (mv::ObjectCounts{2, 1}));
+  ASSERT_TRUE(*Ctx().DeleteForkVertex(g.b));
+  Ctx().EndTransaction();
+  acc->Abort();
+  EXPECT_EQ(Core().ApproximateCounts(), (mv::ObjectCounts{2, 1})) << "the batch that never committed counts nothing";
+}
+
+// A stub is main's object under a new head: writing one adds nothing, while a native vertex and edge, also one on the
+// stub of a fork vertex, are counted as the diff engine counts them.
+TEST_F(VersioningBranchEdgeWriteTest, StubsAreNotNativeObjectsInTheBranchCounts) {
+  auto const x = Prop("x");
+  auto const g = MakeGraph();
+  Fork();
+  WriteCounted([&] {
+    auto a = *Ctx().FindForkVertex(g.a);
+    ASSERT_TRUE(Ctx().SetProperty(a, x, Int(1)).has_value());
+    auto e1 = ForkEdge(g.e1);
+    ASSERT_TRUE(Ctx().SetProperty(e1, x, Int(2)).has_value());
+  });
+  EXPECT_EQ(EdgeStubCount(), 1u);
+  EXPECT_EQ(Core().ApproximateCounts(), (mv::ObjectCounts{3, 3}));
+
+  WriteCounted([&] {
+    auto n1 = Ctx().CreateNativeVertex();
+    auto n2 = Ctx().CreateNativeVertex();
+    ASSERT_TRUE(Ctx().CreateNativeEdge(n1, n2, storage_->NameToEdgeType("N")).has_value());
+    auto stub = Ctx().EnsureDiffVertex(g.a);
+    ASSERT_TRUE(stub.has_value());
+    ASSERT_TRUE(Ctx().CreateNativeEdge(*stub, n1, storage_->NameToEdgeType("N")).has_value());
+  });
+  EXPECT_EQ(Core().ApproximateCounts(), (mv::ObjectCounts{5, 5}));
+}
+
+// The count is the fork's plus the branch's changes, not main's live count.
+TEST_F(VersioningBranchEdgeWriteTest, MainsChangesAfterTheForkDoNotMoveTheBranchCounts) {
+  auto const g = MakeGraph();
+  Fork();
+  auto const extra = CreateMainVertex({}, {});
+  CreateMainEdge(extra, g.a, "E");
+  {
+    auto acc = storage_->Access(ms::WRITE);
+    auto b = *acc->FindVertex(g.b, ms::View::NEW);
+    auto c = *acc->FindVertex(g.c, ms::View::NEW);
+    ASSERT_TRUE(acc->DetachDelete({&b, &c}, {}, true).has_value());
+    Commit(*acc);
+  }
+  storage_->FreeMemory({}, false);
+  EXPECT_EQ(Core().ApproximateCounts(), (mv::ObjectCounts{3, 3}));
+  EXPECT_EQ(Ctx().ApproximateVertexCount(), 3);
+  EXPECT_EQ(Ctx().ApproximateEdgeCount(), 3);
+  WriteCounted([&] { ASSERT_TRUE(*Ctx().DeleteForkVertex(g.a)); });
+  EXPECT_EQ(Core().ApproximateCounts(), (mv::ObjectCounts{2, 1}));
+}
+
 ///// A delete of a vertex against a delete of one of its edges (BL-0239)
 
 // Whichever delete is written second finds the other and fails, so the edge is hidden by exactly one committed delete.
@@ -4064,6 +4174,8 @@ TEST_F(VersioningBranchEdgeWriteTest, TheDeletesOfBothEndpointsOfAnEdgeNeverBoth
     vertices += from_committed[round] + to_committed[round];
   }
   EXPECT_EQ(Core().ForkDeletes(), (mv::ObjectCounts{vertices, rounds_with_a_commit}));
+  EXPECT_EQ(Core().ApproximateCounts(), (mv::ObjectCounts{2 * kRounds - vertices, kRounds - rounds_with_a_commit}))
+      << "each edge leaves the count once";
 }
 
 // A write of an endpoint's property is no delete: it conflicts with neither the edge's writer nor its deleter.
