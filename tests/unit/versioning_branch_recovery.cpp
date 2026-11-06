@@ -12,7 +12,7 @@
 // A branch comes back after a restart of the dbms::Database by replaying its diff-engine WAL. The log holds user
 // operations: a record on a fork object is written again through the BranchContext write resolver, a record on a
 // branch-native object is the diff engine's stock operation. Each case runs a branch workload, captures what a session
-// reads (and what the change filters, touched sets and fork-delete counts say), restarts, replays, and compares.
+// reads (and what the change filters, touched gates and fork-delete counts say), restarts, replays, and compares.
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 

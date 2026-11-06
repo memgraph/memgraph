@@ -275,71 +275,6 @@ BranchCore::~BranchCore() {
   }
 }
 
-void BranchCore::RecordVertexDeleted(storage::Gid gid) {
-  change_filters_.RecordVertexDeleted(gid);
-  // OOM-blocked: absl sets are not exception-safe, so a refused growth must not interrupt the insert.
-  utils::AtomicMemoryBlock([&] {
-    std::lock_guard lock(touched_mutex_);
-    if (deleted_exact_.insert(gid.AsUint()).second) ++touched_version_;
-  });
-}
-
-void BranchCore::RecordLabelTouched(storage::LabelId label, storage::Gid gid) {
-  // Before the set insert and the commit: readers that see the commit see the bit.
-  label_touched_gate_[GateWord(label.AsUint())].fetch_or(GateBit(label.AsUint()), std::memory_order_release);
-  utils::AtomicMemoryBlock([&] {
-    std::lock_guard lock(touched_mutex_);
-    if (label_touched_[label].insert(gid.AsUint()).second) ++touched_version_;
-  });
-}
-
-std::shared_ptr<const BranchCore::LabelTouchedSet> BranchCore::LabelTouchedSnapshot(storage::LabelId label) {
-  std::lock_guard lock(touched_mutex_);
-  auto &cached = label_snapshots_[label];
-  if (cached.set && cached.version == touched_version_) return cached.set;
-  auto merged = std::make_shared<LabelTouchedSet>(deleted_exact_);
-  if (auto const it = label_touched_.find(label); it != label_touched_.end()) {
-    merged->insert(it->second.begin(), it->second.end());
-  }
-  cached = CachedLabelSnapshot{touched_version_, std::move(merged)};
-  return cached.set;
-}
-
-void BranchCore::RecordPropertyTouched(storage::PropertyId pid, storage::Gid gid) {
-  property_touched_gate_[GateWord(pid.AsUint())].fetch_or(GateBit(pid.AsUint()), std::memory_order_release);
-  utils::AtomicMemoryBlock([&] {
-    std::lock_guard lock(touched_mutex_);
-    if (property_touched_[pid].insert(gid.AsUint()).second) ++touched_version_;
-  });
-}
-
-std::shared_ptr<const BranchCore::LabelTouchedSet> BranchCore::PropertyTouchedSnapshot(storage::PropertyId pid) {
-  std::lock_guard lock(touched_mutex_);
-  auto &cached = property_snapshots_[pid];
-  if (cached.set && cached.version == touched_version_) return cached.set;
-  auto merged = std::make_shared<LabelTouchedSet>();
-  if (auto const it = property_touched_.find(pid); it != property_touched_.end()) *merged = it->second;
-  cached = CachedLabelSnapshot{touched_version_, std::move(merged)};
-  return cached.set;
-}
-
-void BranchCore::RecordEdgePropertyTouched(storage::PropertyId pid, storage::Gid edge_gid, storage::Gid from_gid) {
-  utils::AtomicMemoryBlock([&] {
-    std::lock_guard lock(touched_mutex_);
-    if (edge_property_touched_[pid].try_emplace(edge_gid.AsUint(), from_gid.AsUint()).second) ++touched_version_;
-  });
-}
-
-std::shared_ptr<const BranchCore::EdgeTouchedMap> BranchCore::EdgePropertyTouchedSnapshot(storage::PropertyId pid) {
-  std::lock_guard lock(touched_mutex_);
-  auto &cached = edge_property_snapshots_[pid];
-  if (cached.map && cached.version == touched_version_) return cached.map;
-  auto copy = std::make_shared<EdgeTouchedMap>();
-  if (auto const it = edge_property_touched_.find(pid); it != edge_property_touched_.end()) *copy = it->second;
-  cached = CachedEdgeSnapshot{touched_version_, std::move(copy)};
-  return cached.map;
-}
-
 std::expected<std::unique_ptr<BranchContext>, BranchContext::BuildError> BranchContext::BuildFromFork(
     storage::InMemoryStorage &main, uint64_t fork_ts, std::optional<uint64_t> branch_number) {
   return BranchCore::Build(main, fork_ts, branch_number).transform([](std::shared_ptr<BranchCore> core) {
@@ -1078,12 +1013,11 @@ bool BranchContext::CanDeleteAnchor(const storage::VertexAccessor &stub) {
 
 void BranchContext::RecordPropertyWrite(const storage::VertexAccessor &vertex, storage::PropertyId key) {
   core_->RecordPropertyFieldChange(vertex.Gid(), key);
-  core_->RecordPropertyTouched(key, vertex.Gid());
+  core_->RecordPropertyTouched(key);
 }
 
 void BranchContext::RecordPropertyWrite(const storage::EdgeAccessor &edge, storage::PropertyId key) {
   core_->RecordForkEdgeProperty(edge.Gid(), key);
-  core_->RecordEdgePropertyTouched(key, edge.Gid(), edge.from_vertex_->gid);
 }
 
 void BranchContext::RecordPropertiesWrite(const storage::VertexAccessor &vertex) {
@@ -1101,7 +1035,7 @@ storage::Result<bool> BranchContext::ToggleLabel(storage::VertexAccessor &vertex
   if (!in_fork) return std::unexpected(in_fork.error());
   auto const gid = vertex.Gid();
   core_->RecordLabelChange(gid);
-  core_->RecordLabelTouched(label, gid);
+  core_->RecordLabelTouched(label);
   // A fork label is removed by marking it and added back by dropping its mark, any other label is recorded or dropped
   // as itself.
   auto const written = *in_fork ? stub::Mark(label) : label;
@@ -1584,10 +1518,14 @@ void BranchContext::UnionVerticesIterable::Iterator::SeekNext() {
     return;
   }
 
-  if (diff_it_.has_value() && !(*diff_it_ == *diff_end_)) {
-    current_ = **diff_it_;
-    DMG_ASSERT(!ctx_->IsStub(*current_), "the diff engine's vertices_ holds only native vertices.");
+  while (diff_it_.has_value() && !(*diff_it_ == *diff_end_)) {
+    const storage::VertexAccessor native = **diff_it_;
+    DMG_ASSERT(!ctx_->IsStub(native), "the diff engine's vertices_ holds only native vertices.");
     ++(*diff_it_);
+    // The diff iterator checked it when stepping onto it, which was a row ago: checked again, as main's scan checks the
+    // vertex it steps onto.
+    if (!native.IsVisible(view_)) continue;
+    current_ = native;
     done_ = false;
     return;
   }

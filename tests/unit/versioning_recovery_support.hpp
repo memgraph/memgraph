@@ -10,7 +10,7 @@
 // licenses/APL.txt.
 
 // What the branch-recovery tests share: a durable database with a base graph and one or more branches, a view of what a
-// session reads on a branch (and what its change filters, touched sets and fork-delete counts say), and the round trip
+// session reads on a branch (and what its change filters, touched gates and fork-delete counts say), and the round trip
 // "run a workload, restart, compare". Each test executable keeps its files under a directory named after itself.
 #pragma once
 
@@ -210,7 +210,7 @@ struct VertexDump {
 
 struct Captured {
   std::vector<VertexDump> vertices;
-  std::string bookkeeping;  // fork-delete counts, touched sets, change filters
+  std::string bookkeeping;  // fork-delete counts, touched gates, change filters
 
   const VertexDump *Find(ms::Gid gid) const {
     const auto it = std::ranges::find(vertices, gid.AsUint(), &VertexDump::gid);
@@ -258,7 +258,7 @@ inline std::map<std::string, std::string> Named(ms::Storage &st,
   return named;
 }
 
-// Fork-delete counts, the touched sets of every label and property named in the workloads, and the change filters of
+// Fork-delete counts, the touched gates of every label and property named in the workloads, and the change filters of
 // every base object. Every write of a workload changes something, so replay (which records only logged changes) must
 // leave the same traces as the live run.
 inline std::string Bookkeeping(memgraph::dbms::Database &db, mv::BranchCore &core, const Base &base) {
@@ -267,22 +267,10 @@ inline std::string Bookkeeping(memgraph::dbms::Database &db, mv::BranchCore &cor
   const auto deletes = core.ForkDeletes();
   out << "deletes v=" << deletes.vertices << " e=" << deletes.edges << "\n";
   for (const auto *name : {"L", "M", "X", "NewL", "N"}) {
-    const auto set = core.LabelTouchedSnapshot(st.NameToLabel(name));
-    out << "label " << name << ":" << std::set<uint64_t>(set->begin(), set->end()).size() << ":";
-    for (const auto gid : std::set<uint64_t>(set->begin(), set->end())) out << gid << ",";
-    out << "\n";
+    out << "label " << name << ":" << core.MayHaveLabelTouched(st.NameToLabel(name)) << "\n";
   }
   for (const auto *name : {"p", "q", "w", "a"}) {
-    const auto pid = st.NameToProperty(name);
-    const auto set = core.PropertyTouchedSnapshot(pid);
-    out << "prop " << name << ":";
-    for (const auto gid : std::set<uint64_t>(set->begin(), set->end())) out << gid << ",";
-    const auto edges = core.EdgePropertyTouchedSnapshot(pid);
-    out << " edges:";
-    for (const auto &[edge, from] : std::map<uint64_t, uint64_t>(edges->begin(), edges->end())) {
-      out << edge << "<-" << from << ",";
-    }
-    out << "\n";
+    out << "prop " << name << ":" << core.MayHavePropertyTouched(st.NameToProperty(name)) << "\n";
   }
   for (const auto gid : {base.v1, base.v2, base.v3, base.v4}) {
     out << "filter v" << gid.AsUint() << " label=" << core.MayHaveLabelChange(gid)
