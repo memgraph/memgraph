@@ -1530,10 +1530,14 @@ void BranchContext::UnionVerticesIterable::Iterator::SeekNext() {
     return;
   }
 
-  if (diff_it_.has_value() && !(*diff_it_ == *diff_end_)) {
-    current_ = **diff_it_;
-    DMG_ASSERT(!ctx_->IsStub(*current_), "the diff engine's vertices_ holds only native vertices.");
+  while (diff_it_.has_value() && !(*diff_it_ == *diff_end_)) {
+    const storage::VertexAccessor native = **diff_it_;
+    DMG_ASSERT(!ctx_->IsStub(native), "the diff engine's vertices_ holds only native vertices.");
     ++(*diff_it_);
+    // The diff iterator checked `native` when it stepped onto it, one emitted row ago: check again, as main's scan
+    // checks the vertex it steps onto.
+    if (!native.IsVisible(view_)) continue;
+    current_ = native;
     done_ = false;
     return;
   }
