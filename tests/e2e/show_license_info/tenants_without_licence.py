@@ -79,6 +79,7 @@ def test_tenant_read_only_without_licence(request):
 
     assert "tenant" in [row[0] for row in execute(cursor, "SHOW DATABASES;")]
     execute(cursor, "USE DATABASE tenant;")
+    assert execute(cursor, "SHOW DATABASE;")[0][0] == "tenant"
     assert execute(cursor, "MATCH (n) RETURN count(n);")[0][0] == 10
     for write in [
         "CREATE ();",

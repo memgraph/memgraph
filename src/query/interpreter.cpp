@@ -9206,12 +9206,6 @@ PreparedQuery PrepareUseDatabaseQuery(ParsedQuery parsed_query, CurrentDB &curre
 
 PreparedQuery PrepareShowDatabaseQuery(ParsedQuery parsed_query, CurrentDB &current_db) {
 #ifdef MG_ENTERPRISE
-  if (!license::global_license_checker.IsEnterpriseValidFast()) {
-    throw QueryException(
-        "Trying to use enterprise feature without a valid license. Check your license status by running SHOW LICENSE "
-        "INFO.");
-  }
-
   return PreparedQuery{
       .header = {"Current"},
       .privileges = std::move(parsed_query.required_privileges),
