@@ -570,6 +570,177 @@ TEST_F(VersioningRecoveryEquivalenceTest, RecoveredBranchHidesTheSameDeletedFork
   EXPECT_EQ(hidden_and_expanded(*ctx), live);
 }
 
+// A stub under a mirrored (L, p) key holds the key's other part as copied base state. Replaying the branch's WAL runs
+// the same writes, so the diff engine's index holds the same stubs live and recovered.
+TEST_F(VersioningRecoveryEquivalenceTest, IndexedStubsAreTheSameLiveAndRecovered) {
+  Base base{};
+  const auto indexed_stubs = [&](memgraph::dbms::Database &db, mv::BranchContext &ctx) {
+    auto &st = *db.storage();
+    auto diff = ctx.diff_engine().Access(ms::READ);
+    std::set<uint64_t> gids;
+    for (auto v :
+         diff->Vertices(st.NameToLabel("L"), std::vector<ms::PropertyPath>{st.NameToProperty("p")}, ms::View::NEW)) {
+      gids.insert(v.Gid().AsUint());
+    }
+    return gids;
+  };
+  std::set<uint64_t> live_stubs;
+  std::string live;
+  {
+    memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/false)};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+    base = CreateBase(db);
+    {
+      auto acc = db.storage()->UniqueAccess();
+      ASSERT_TRUE(acc->CreateIndex(db.storage()->NameToLabel("L"), {db.storage()->NameToProperty("p")}).has_value());
+      Commit(*acc);
+    }
+    ASSERT_TRUE(db.version_store()->CreateBranch("b").has_value());
+    auto ctx = Checkout(db, "b");
+    ASSERT_NE(ctx, nullptr);
+    Env env{db, *ctx, base};
+    env.Txn([&](mv::BranchContext &c, auto &) {  // v1 has L: copied
+      auto v1 = env.Fork(base.v1);
+      ASSERT_TRUE(c.SetProperty(v1, env.Prop("p"), ms::PropertyValue(2)).has_value());
+    });
+    env.Txn([&](mv::BranchContext &c, auto &) {  // v3 has L and no p
+      auto v3 = env.Fork(base.v3);
+      ASSERT_TRUE(c.SetProperty(v3, env.Prop("p"), ms::PropertyValue(7)).has_value());
+    });
+    env.Txn([&](mv::BranchContext &c, auto &) {  // v2 has p only after this; L is new to it
+      auto v2 = env.Fork(base.v2);
+      ASSERT_TRUE(c.SetProperty(v2, env.Prop("p"), ms::PropertyValue(9)).has_value());
+      ASSERT_TRUE(c.AddLabel(v2, env.Label("L")).has_value());
+    });
+    live_stubs = indexed_stubs(db, *ctx);
+    ASSERT_EQ(live_stubs, (std::set<uint64_t>{base.v1.AsUint(), base.v2.AsUint(), base.v3.AsUint()}));
+    live = Visible(Capture(db, *ctx, base));
+  }
+  memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/true)};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+  auto ctx = Checkout(db, "b");
+  ASSERT_NE(ctx, nullptr);
+  EXPECT_EQ(indexed_stubs(db, *ctx), live_stubs);
+  EXPECT_EQ(Visible(Capture(db, *ctx, base)), live);
+}
+
+// Every writer that moves a key leaves the diff engine's index as the same replay re-derives it: a map update that
+// touches two keys, label-first and property-first orders, an init, a set back to the fork value and the removal of
+// one part.
+TEST_F(VersioningRecoveryEquivalenceTest, EveryKeyChangingWriterLeavesTheSameIndexLiveAndRecovered) {
+  Base base{};
+  using Keys = std::map<uint64_t, std::vector<ms::PropertyValue>>;
+  const auto keys_of = [](memgraph::dbms::Database &db,
+                          mv::BranchContext &ctx,
+                          std::string_view label,
+                          std::vector<std::string_view>
+                              properties) {
+    auto &st = *db.storage();
+    auto diff = ctx.diff_engine().Access(ms::READ);
+    std::vector<ms::PropertyId> ids;
+    for (auto const property : properties) ids.push_back(st.NameToProperty(property));
+    std::vector<ms::PropertyPath> paths(ids.begin(), ids.end());
+    Keys keys;
+    for (auto v : diff->Vertices(st.NameToLabel(label), paths, ms::View::NEW)) {
+      auto &key = keys[v.Gid().AsUint()];
+      for (auto const id : ids) key.push_back(*v.GetProperty(id, ms::View::NEW));
+    }
+    return keys;
+  };
+  const auto both = [&](memgraph::dbms::Database &db, mv::BranchContext &ctx) {
+    return std::pair{keys_of(db, ctx, "L", {"p", "q"}), keys_of(db, ctx, "M", {"q"})};
+  };
+  std::pair<Keys, Keys> live_keys;
+  std::string live;
+  {
+    memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/false)};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+    base = CreateBase(db);
+    {
+      auto acc = db.storage()->UniqueAccess();
+      ASSERT_TRUE(acc->CreateIndex(db.storage()->NameToLabel("L"),
+                                   {db.storage()->NameToProperty("p"), db.storage()->NameToProperty("q")})
+                      .has_value());
+      Commit(*acc);
+    }
+    {
+      auto acc = db.storage()->UniqueAccess();
+      ASSERT_TRUE(acc->CreateIndex(db.storage()->NameToLabel("M"), {db.storage()->NameToProperty("q")}).has_value());
+      Commit(*acc);
+    }
+    ASSERT_TRUE(db.version_store()->CreateBranch("b").has_value());
+    auto ctx = Checkout(db, "b");
+    ASSERT_NE(ctx, nullptr);
+    Env env{db, *ctx, base};
+    const auto p = env.Prop("p"), q = env.Prop("q");
+    const auto update = [&](ms::VertexAccessor &v, std::map<ms::PropertyId, ms::PropertyValue> map) {
+      ASSERT_TRUE(ctx->UpdateProperties(v, map).has_value());
+    };
+    // v1 is {L, M} p=1 q=5: a map touching both keys, then back to the fork's p, then q removed and re-set.
+    env.Txn([&](mv::BranchContext &, auto &) {
+      auto v1 = env.Fork(base.v1);
+      update(v1, {{p, ms::PropertyValue(2)}, {q, ms::PropertyValue(6)}});
+    });
+    env.Txn([&](mv::BranchContext &c, auto &) {
+      auto v1 = env.Fork(base.v1);
+      ASSERT_TRUE(c.SetProperty(v1, p, ms::PropertyValue(1)).has_value());
+    });
+    env.Txn([&](mv::BranchContext &c, auto &) {
+      auto v1 = env.Fork(base.v1);
+      ASSERT_TRUE(c.SetProperty(v1, q, ms::PropertyValue()).has_value());
+    });
+    env.Txn([&](mv::BranchContext &c, auto &) {
+      auto v1 = env.Fork(base.v1);
+      ASSERT_TRUE(c.SetProperty(v1, q, ms::PropertyValue(8)).has_value());
+    });
+    // v2 is {M}: the label first, then the map.
+    env.Txn([&](mv::BranchContext &c, auto &) {
+      auto v2 = env.Fork(base.v2);
+      ASSERT_TRUE(c.AddLabel(v2, env.Label("L")).has_value());
+      update(v2, {{p, ms::PropertyValue(3)}, {q, ms::PropertyValue(4)}});
+    });
+    // v3 is {L} without properties: an init.
+    env.Txn([&](mv::BranchContext &c, auto &) {
+      auto v3 = env.Fork(base.v3);
+      std::map<ms::PropertyId, ms::PropertyValue> map{{p, ms::PropertyValue(7)}, {q, ms::PropertyValue(9)}};
+      ASSERT_TRUE(*c.InitProperties(v3, map));
+      ASSERT_TRUE(c.AddLabel(v3, env.Label("M")).has_value());
+    });
+    // v4 is bare: the properties first, then both labels.
+    env.Txn([&](mv::BranchContext &c, auto &) {
+      auto v4 = env.Fork(base.v4);
+      update(v4, {{p, ms::PropertyValue(10)}, {q, ms::PropertyValue(11)}});
+      ASSERT_TRUE(c.AddLabel(v4, env.Label("M")).has_value());
+      ASSERT_TRUE(c.AddLabel(v4, env.Label("L")).has_value());
+    });
+    live_keys = both(db, *ctx);
+    const auto ints = [](std::initializer_list<int64_t> values) {
+      std::vector<ms::PropertyValue> out;
+      for (auto const value : values) out.emplace_back(value);
+      return out;
+    };
+    ASSERT_EQ(live_keys.first,
+              (Keys{{base.v1.AsUint(), ints({1, 8})},
+                    {base.v2.AsUint(), ints({3, 4})},
+                    {base.v3.AsUint(), ints({7, 9})},
+                    {base.v4.AsUint(), ints({10, 11})}}));
+    ASSERT_EQ(live_keys.second,
+              (Keys{{base.v1.AsUint(), ints({8})},
+                    {base.v2.AsUint(), ints({4})},
+                    {base.v3.AsUint(), ints({9})},
+                    {base.v4.AsUint(), ints({11})}}));
+    live = Visible(Capture(db, *ctx, base));
+  }
+  memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/true)};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+  auto ctx = Checkout(db, "b");
+  ASSERT_NE(ctx, nullptr);
+  const auto recovered = both(db, *ctx);
+  EXPECT_EQ(recovered.first, live_keys.first);
+  EXPECT_EQ(recovered.second, live_keys.second);
+  EXPECT_EQ(Visible(Capture(db, *ctx, base)), live);
+}
+
 // ---- No marker id reaches a session ---------------------------------------------------------------------------------
 
 // What `SHOW NODE LABELS` and a property listing are made of is what the branch reports for its vertices: only the

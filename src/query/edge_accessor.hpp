@@ -103,8 +103,12 @@ class EdgeAccessor final {
     return impl_.ReadPropertyValues(ordered_properties, out, view);
   }
 
-  // Read from impl_'s storage; the Bolt encoder omits these properties when asked to.
-  std::vector<storage::PropertyId> VectorIndexedProperties() const { return impl_.VectorIndexedProperties(); }
+  // The Bolt encoder omits these properties when asked to.
+  std::vector<storage::PropertyId> VectorIndexedProperties() const {
+    if (branch_ctx() != nullptr) [[unlikely]]
+      return BranchVectorIndexedProperties();
+    return impl_.VectorIndexedProperties();
+  }
 #else
   auto Properties(storage::View view) const { return impl_.Properties(view); }
 
@@ -203,6 +207,8 @@ class EdgeAccessor final {
   storage::Result<uint64_t> BranchGetPropertySize(storage::PropertyId key, storage::View view) const;
   storage::Result<void> BranchReadPropertyValues(storage::OrderedPropertyPaths const &ordered_properties,
                                                  std::span<storage::PropertyValue> out, storage::View view) const;
+  // A branch-native edge reads main's vector edge indexes: the diff engine mirrors none.
+  std::vector<storage::PropertyId> BranchVectorIndexedProperties() const;
 
   // Branch writes: forwarders to the BranchContext edge write resolver, which writes a fork edge's stub and a native
   // edge directly. A write to an edge the branch deleted fails with DELETED_OBJECT, and with PROPERTIES_DISABLED if

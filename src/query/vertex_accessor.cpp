@@ -22,6 +22,8 @@
 #include <tuple>
 #include <vector>
 
+#include "storage/v2/indices/active_indices.hpp"
+#include "storage/v2/indices/vector_index.hpp"
 #include "versioning/branch_engine.hpp"
 #endif
 
@@ -104,6 +106,12 @@ storage::Result<std::map<storage::PropertyId, storage::PropertyValue>> VertexAcc
 bool VertexAccessor::BranchIsDeleted() const {
   if (impl_.storage_ == &branch_ctx()->diff_engine()) return impl_.vertex_->deleted();
   return branch_ctx()->IsForkVertexDeleted(impl_, storage::View::NEW);
+}
+
+std::vector<storage::PropertyId> VertexAccessor::BranchVectorIndexedProperties(
+    std::span<storage::LabelId const> labels) const {
+  if (impl_.storage_ != &branch_ctx()->diff_engine()) return impl_.VectorIndexedProperties(labels);
+  return branch_ctx()->historical().GetTransaction()->active_indices_->vector_->IndexedProperties(labels);
 }
 
 // The union of the fork and diff-engine edges, not a cheaper count.

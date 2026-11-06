@@ -136,8 +136,10 @@ class VertexAccessor final {
     return impl_.ReadPropertyValues(ordered_properties, out, view);
   }
 
-  // Read from impl_'s storage; the Bolt encoder omits these properties when asked to.
+  // The Bolt encoder omits these properties when asked to.
   std::vector<storage::PropertyId> VectorIndexedProperties(std::span<storage::LabelId const> labels) const {
+    if (branch_ctx() != nullptr) [[unlikely]]
+      return BranchVectorIndexedProperties(labels);
     return impl_.VectorIndexedProperties(labels);
   }
 #else
@@ -281,6 +283,8 @@ class VertexAccessor final {
   storage::Result<void> BranchReadPropertyValues(storage::OrderedPropertyPaths const &ordered_properties,
                                                  std::span<storage::PropertyValue> out, storage::View view) const;
   storage::Result<size_t> BranchDegree(storage::EdgeDirection direction, storage::View view) const;
+  // A vertex in the diff engine (branch-native or a stub) reads main's vector indexes: the diff engine mirrors none.
+  std::vector<storage::PropertyId> BranchVectorIndexedProperties(std::span<storage::LabelId const> labels) const;
 
   // Branch writes: forwarders to the BranchContext write resolver, which writes a fork vertex's stub and a native
   // vertex directly. A write to a vertex the branch deleted fails with DELETED_OBJECT.
