@@ -40,6 +40,7 @@
 #include "dbms/database_info.hpp"
 #include "dbms/rpc.hpp"
 #include "dbms/tenant_profiles.hpp"
+#include "flags/run_time_configurable.hpp"
 #include "kvstore/kvstore.hpp"
 #include "query/stream/streams.hpp"
 #include "query/trigger.hpp"
@@ -56,6 +57,7 @@
 #include "storage/v2/isolation_level.hpp"
 #include "utils/logging.hpp"
 #include "utils/rw_lock.hpp"
+#include "utils/scheduler.hpp"
 #include "utils/uuid.hpp"
 
 namespace memgraph::dbms {
@@ -959,6 +961,8 @@ class DbmsHandler {
     auto config_copy = default_config_;
     config_copy.salient.name = name;
     config_copy.salient.uuid = uuid;
+    // The snapshot schedule can change at run time, so a new database starts from the current one.
+    config_copy.durability.snapshot_interval = utils::SchedulerInterval{flags::run_time::GetStorageSnapshotInterval()};
     spdlog::debug("Creating database '{}' - '{}'", name, std::string{uuid});
     if (rel_dir) {
       storage::UpdatePaths(config_copy, default_config_.durability.storage_directory / *rel_dir);
