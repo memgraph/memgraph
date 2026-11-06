@@ -26,6 +26,7 @@
 #include "auth_test_utils.hpp"
 #include "communication/bolt/v1/value.hpp"
 #include "communication/result_stream_faker.hpp"
+#include "dbms/constants.hpp"
 #include "disk_test_utils.hpp"
 #include "flags/experimental.hpp"
 #include "flags/run_time_configurable.hpp"
@@ -90,6 +91,7 @@ class InterpreterTest : public ::testing::Test {
   memgraph::storage::Config config{
       [&]() {
         memgraph::storage::Config config{};
+        config.salient.name = memgraph::dbms::kDefaultDB;
         config.durability.storage_directory = data_directory;
         config.disk.main_storage_directory = config.durability.storage_directory / "disk";
         if constexpr (std::is_same_v<StorageType, memgraph::storage::DiskStorage>) {
@@ -2745,6 +2747,8 @@ TYPED_TEST(InterpreterTest, AllowLoadCsvConfig) {
         "row"};
 
     memgraph::storage::Config config2{};
+
+    config2.salient.name = memgraph::dbms::kDefaultDB;
     config2.durability.storage_directory = directory_manager.Path();
     config2.disk.main_storage_directory = config2.durability.storage_directory / "disk";
     if constexpr (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
