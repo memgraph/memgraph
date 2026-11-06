@@ -32,8 +32,8 @@ constexpr int64_t kMinSize = 1 << 10;
 constexpr int64_t kMaxSize = 1 << 22;
 constexpr int64_t kSizeMultiplier = 8;
 
-std::vector<uint64_t> RandomInts(int64_t n) {
-  std::mt19937_64 rng(kSeed);
+std::vector<uint64_t> RandomInts(int64_t n, uint64_t seed = kSeed) {
+  std::mt19937_64 rng(seed);
   std::vector<uint64_t> keys(n);
   std::ranges::generate(keys, rng);
   return keys;
@@ -65,11 +65,6 @@ struct Node {
 template <typename T>
 struct AvalanchingAbslHash : absl::Hash<T> {
   using is_avalanching = std::true_type;
-};
-
-// Nodes sit 64 bytes apart, so the low 6 bits of their addresses never vary; drop them and let boost mix the rest
-struct ShiftedPtrHash {
-  std::size_t operator()(Node const *ptr) const noexcept { return reinterpret_cast<std::uintptr_t>(ptr) >> 6; }
 };
 
 std::vector<Node const *> ShuffledPointers(std::vector<Node> const &nodes) {
@@ -117,6 +112,24 @@ static void BM_FlatHashSetInt64_Insert(benchmark::State &state) {
     }
   }
   state.SetItemsProcessed(state.iterations() * num_items);
+}
+
+// Look up as many random keys as the set holds, in random order; misses are random keys from a different seed
+template <typename T>
+static void BM_FlatHashSetInt64_Find(benchmark::State &state) {
+  auto const num_items = state.range(0);
+  auto const keys = RandomInts(num_items);
+  T cont(keys.begin(), keys.end());
+  auto const lookups = LookupKeys(keys, RandomInts(num_items, kSeed + 3), state.range(1));
+
+  for (auto _ : state) {
+    int64_t found = 0;
+    for (auto key : lookups) {
+      found += cont.find(key) != cont.end();
+    }
+    benchmark::DoNotOptimize(found);
+  }
+  state.SetItemsProcessed(state.iterations() * static_cast<int64_t>(lookups.size()));
 }
 
 template <typename T>
@@ -222,8 +235,10 @@ BENCHMARK(BM_FlatHashSetPtr_Find<boost::unordered_flat_set<Node const *>>)->Appl
 BENCHMARK(BM_FlatHashSetPtr_Find<boost::unordered_flat_set<Node const *, absl::Hash<Node const *>>>)->Apply(FindArgs);
 BENCHMARK(BM_FlatHashSetPtr_Insert<boost::unordered_flat_set<Node const *, AvalanchingAbslHash<Node const *>>>)
     ->Apply(SizeArgs);
-BENCHMARK(BM_FlatHashSetPtr_Insert<boost::unordered_flat_set<Node const *, ShiftedPtrHash>>)->Apply(SizeArgs);
 BENCHMARK(BM_FlatHashSetPtr_Find<boost::unordered_flat_set<Node const *, AvalanchingAbslHash<Node const *>>>)
     ->Apply(FindArgs);
-BENCHMARK(BM_FlatHashSetPtr_Find<boost::unordered_flat_set<Node const *, ShiftedPtrHash>>)->Apply(FindArgs);
+BENCHMARK(BM_FlatHashSetInt64_Insert<boost::unordered_flat_set<uint64_t, absl::Hash<uint64_t>>>)->Apply(SizeArgs);
+BENCHMARK(BM_FlatHashSetInt64_Find<absl::flat_hash_set<uint64_t>>)->Apply(FindArgs);
+BENCHMARK(BM_FlatHashSetInt64_Find<boost::unordered_flat_set<uint64_t>>)->Apply(FindArgs);
+BENCHMARK(BM_FlatHashSetInt64_Find<boost::unordered_flat_set<uint64_t, absl::Hash<uint64_t>>>)->Apply(FindArgs);
 BENCHMARK_MAIN();
