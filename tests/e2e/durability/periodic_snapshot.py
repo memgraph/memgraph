@@ -358,6 +358,40 @@ def test_cron_flag_without_license(test_name):
         assert number_of_snapshots(snapshots_dir) > 0, "No snapshot after the licence was set"
 
 
+def test_sec_interval_without_license(test_name):
+    """Without a licence, a schedule in seconds still takes snapshots, and a cron schedule is refused."""
+    instance = {
+        "sec_interval_flag": {
+            "args": [
+                "--log-level=TRACE",
+                "--also-log-to-stderr",
+                "--data-recovery-on-startup=false",
+                "--storage-snapshot-interval-sec=0",
+                "--storage-snapshot-interval=1",
+                "--storage-snapshot-retention-count=20",
+            ],
+            "log_file": f"{get_logs_path(FILE, test_name)}/sec_interval_flag.log",
+            "data_directory": get_data_path(FILE, test_name),
+        }
+    }
+    with patch.dict(os.environ):
+        os.environ.pop("MEMGRAPH_ENTERPRISE_LICENSE", None)
+        os.environ.pop("MEMGRAPH_ORGANIZATION_NAME", None)
+        interactive_mg_runner.start(instance, "sec_interval_flag")
+    cursor = connect(host="localhost", port=7687).cursor()
+
+    with pytest.raises(Exception, match="a valid license is needed"):
+        execute_and_fetch_all(cursor, "SET DATABASE SETTING 'storage.snapshot.interval' TO '*/1 * * * * *';")
+
+    snapshots_dir = snapshots_path(FILE, test_name)
+    with writing_in_the_background():
+        tries = 0
+        while number_of_snapshots(snapshots_dir) == 0 and tries < 10:
+            tries += 1
+            time.sleep(1)
+        assert number_of_snapshots(snapshots_dir) > 0, "No snapshot from a schedule in seconds without a licence"
+
+
 def test_cron_skips_after_license_lost(test_name):
     """Losing the licence stops cron snapshots, and the skip is logged once."""
     license_key = os.environ.get("MEMGRAPH_ENTERPRISE_LICENSE", "")
