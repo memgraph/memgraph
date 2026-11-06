@@ -290,20 +290,22 @@ TEST_F(LicenseTest, DetailedLicenseInfo_ExpiredReportsDate) {
 
 class ScopedEnv {
  public:
-  ScopedEnv(char const *name, std::string const &value) : name_{name} {
+  ScopedEnv(char const *name, std::optional<std::string> const &value) : name_{name} {
     if (auto const *previous = std::getenv(name)) previous_ = previous;
-    setenv(name, value.c_str(), 1);  // NOLINT(concurrency-mt-unsafe)
+    Set(name_, value);
   }
 
   ScopedEnv(ScopedEnv const &) = delete;
   ScopedEnv &operator=(ScopedEnv const &) = delete;
 
-  ~ScopedEnv() {
-    // NOLINTNEXTLINE(concurrency-mt-unsafe)
-    previous_ ? setenv(name_, previous_->c_str(), 1) : unsetenv(name_);
-  }
+  ~ScopedEnv() { Set(name_, previous_); }
 
  private:
+  static void Set(char const *name, std::optional<std::string> const &value) {
+    // NOLINTNEXTLINE(concurrency-mt-unsafe)
+    value ? setenv(name, value->c_str(), 1) : unsetenv(name);
+  }
+
   char const *name_;
   std::optional<std::string> previous_;
 };
@@ -366,6 +368,19 @@ TEST_F(LicenseLogTest, RejectedEnvBesideValidCliIsNotALoss) {
   CheckLicenseValidity(true);
   EXPECT_EQ(Logged("Running in community mode"), 0);
   EXPECT_EQ(Logged("Ignoring a license source. [ENV]"), 1);
+}
+
+TEST_F(LicenseLogTest, IncompleteEnvPairIsReported) {
+  ScopedEnv const env_key{
+      "MEMGRAPH_ENTERPRISE_LICENSE",
+      memgraph::license::Encode({organization_name, 0, 0, memgraph::license::LicenseType::ENTERPRISE})};
+  ScopedEnv const env_org{"MEMGRAPH_ORGANIZATION_NAME", std::nullopt};
+
+  license_checker->CheckEnvLicense();
+  settings->SetValue("organization.name", "");
+
+  EXPECT_EQ(license_checker->GetDetailedLicenseInfo().status,
+            "[ENV] The license key is set, but the organization name is not.");
 }
 
 TEST_F(LicenseLogTest, ExpiryNotLoggedForPerpetualLicense) {
