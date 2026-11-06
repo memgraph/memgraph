@@ -448,7 +448,11 @@ Database::Database(storage::Config config)
           // Read before the pin: every commit at or below it is below the fork.
           const auto durable_ts =
               in_memory_storage->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_;
-          return versioning::ForkPoint{.fork_ts = in_memory_storage->RegisterBranchForkPin(), .durable_ts = durable_ts};
+          const auto fork_ts = in_memory_storage->RegisterBranchForkPin();
+          const auto counts = in_memory_storage->GetApproximateCounts();
+          return versioning::ForkPoint{.fork_ts = fork_ts,
+                                       .counts = {.vertices = counts.vertices, .edges = counts.edges},
+                                       .durable_ts = durable_ts};
         },
         [in_memory_storage](uint64_t fork_ts) { in_memory_storage->ReleaseForkPin(fork_ts); });
     version_store_->SetRetentionFloorCallback(

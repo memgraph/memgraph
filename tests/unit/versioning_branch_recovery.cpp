@@ -454,6 +454,42 @@ void WriteAfterRestart(Env &e, ms::Gid native, int64_t value) {
 }
 }  // namespace
 
+// Main's counts at the fork come from the ledger and the branch's changes from the replay: main's write after the fork
+// does not count, the deleted fork vertex keeps hiding its two fork edges, the native objects are the diff engine's.
+TEST_F(VersioningBranchRecoveryTest, BranchCountsSurviveARestart) {
+  // 4 + 2 native - 1 deleted vertices; 2 + 1 native - 2 hidden edges.
+  constexpr mv::ObjectCounts kForkCounts{.vertices = 4, .edges = 2};
+  constexpr mv::ObjectCounts kBranchCounts{.vertices = 5, .edges = 1};
+  {
+    memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/false)};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+    const auto base = CreateBase(db);
+    ASSERT_TRUE(db.version_store()->CreateBranch("b").has_value());
+    EXPECT_EQ(db.version_store()->Get("b")->fork_counts, kForkCounts);
+    ASSERT_TRUE(NewMainVertex(db).has_value());
+    auto ctx = Checkout(db, "b");
+    ASSERT_NE(ctx, nullptr);
+    EXPECT_EQ(ctx->core()->ApproximateCounts(), kForkCounts);
+    Env env{db, *ctx, base};
+    env.Txn([&](mv::BranchContext &c, auto &) {
+      auto n1 = c.CreateNativeVertex();
+      auto n2 = c.CreateNativeVertex();
+      ASSERT_TRUE(c.CreateNativeEdge(n1, n2, env.EdgeType("T")).has_value());
+      ASSERT_TRUE(*c.DeleteForkVertex(base.v1));
+    });
+    EXPECT_EQ(ctx->core()->ApproximateCounts(), kBranchCounts);
+  }
+
+  memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/true)};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+  EXPECT_EQ(db.version_store()->Get("b")->fork_counts, kForkCounts);
+  bool built = false;
+  auto ctx = Checkout(db, "b", &built);
+  ASSERT_NE(ctx, nullptr);
+  EXPECT_FALSE(built);
+  EXPECT_EQ(ctx->core()->ApproximateCounts(), kBranchCounts);
+}
+
 TEST_F(VersioningBranchRecoveryTest, WritesAcrossTwoRestartsReplayTheWholeChain) {
   Base base{};
   NativeWorkload workload{};

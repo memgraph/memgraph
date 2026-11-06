@@ -436,7 +436,8 @@ std::expected<std::shared_ptr<BranchCore>, std::string> BuildAndReplay(storage::
       main,
       info.fork_ts,
       info.number,
-      BranchCore::RecordedFloors{.vertex_gid_floor = *info.vertex_gid_floor, .edge_gid_floor = *info.edge_gid_floor});
+      BranchCore::RecordedFloors{.vertex_gid_floor = *info.vertex_gid_floor, .edge_gid_floor = *info.edge_gid_floor},
+      info.fork_counts);
   if (!built) return std::unexpected(std::move(built.error().message));
   if (auto replayed = ReplayBranchWal(*built, wal_dir); !replayed) return std::unexpected(std::move(replayed.error()));
   return std::move(*built);

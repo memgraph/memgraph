@@ -8617,14 +8617,19 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
 }
 
 #ifdef MG_ENTERPRISE
-// Exact counts on a branch need a full scan, so they are NULL rather than main's; a `branch` row names the branch.
-// Memory, disk and isolation figures stay the database's.
+// The counts and average degree are the branch's; a `branch` row names the branch. Memory, disk and isolation figures
+// stay the database's.
 std::vector<std::vector<TypedValue>> BranchStorageInfo(std::vector<std::vector<TypedValue>> rows,
-                                                       const std::string &branch) {
+                                                       const versioning::BranchCore &core, const std::string &branch) {
+  const auto counts = core.ApproximateCounts();
   for (auto &row : rows) {
-    if (auto const &key = row[0].ValueString();
-        key == "vertex_count" || key == "edge_count" || key == "average_degree") {
-      row[1] = TypedValue();
+    if (auto const &key = row[0].ValueString(); key == "vertex_count") {
+      row[1] = TypedValue(static_cast<int64_t>(counts.vertices));
+    } else if (key == "edge_count") {
+      row[1] = TypedValue(static_cast<int64_t>(counts.edges));
+    } else if (key == "average_degree") {
+      row[1] = TypedValue(
+          counts.vertices == 0 ? 0.0 : 2.0 * static_cast<double>(counts.edges) / static_cast<double>(counts.vertices));
     }
   }
   rows.push_back({TypedValue("branch"), TypedValue(branch)});
@@ -8729,9 +8734,11 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
       if (database) {
 #ifdef MG_ENTERPRISE
         // The session's branch applies when the database is the one the session is on.
-        std::optional<std::string> branch;
+        std::shared_ptr<versioning::BranchCore> branch_core;
+        std::string branch;
         if (auto const *ctx = current_db.branch_context();
             ctx != nullptr && current_db.db_acc_ && database->get() == current_db.db_acc_->get()) [[unlikely]] {
+          branch_core = ctx->core();
           branch = ctx->name();
         }
 #endif
@@ -8773,10 +8780,10 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
           return std::pair{results, QueryHandlerResult::NOTHING};
         };
 #ifdef MG_ENTERPRISE
-        if (branch) [[unlikely]] {
-          handler = [main_info = std::move(handler), branch = std::move(*branch)] {
+        if (branch_core) [[unlikely]] {
+          handler = [main_info = std::move(handler), core = std::move(branch_core), branch = std::move(branch)] {
             auto [rows, result] = main_info();
-            return std::pair{BranchStorageInfo(std::move(rows), branch), result};
+            return std::pair{BranchStorageInfo(std::move(rows), *core, branch), result};
           };
         }
 #endif
