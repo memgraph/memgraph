@@ -12,6 +12,7 @@ target_sources(mg-versioning
         branch_recovery.hpp
         edge_overlay_index.hpp
         gate.hpp
+        index_key_parts.hpp
         overlay_state.hpp
         overlay_mark_deleted.hpp
         overlay_index.hpp
