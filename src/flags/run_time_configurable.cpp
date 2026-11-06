@@ -764,6 +764,8 @@ bool CronScheduleWithoutLicense() {
   return snapshot_periodic_.IsCron() && !license::global_license_checker.IsEnterpriseValidFast();
 }
 
+// Reads the schedule and the license separately: a tick racing a schedule change decides on the schedule it read,
+// and the next tick decides on the new one. A cron schedule is only set while the license is valid.
 bool SnapshotScheduleLicensed() {
   const bool licensed = !CronScheduleWithoutLicense();
   if (licensed) {
