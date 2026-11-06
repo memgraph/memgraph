@@ -216,12 +216,12 @@ void LicenseChecker::RevalidateLicense(utils::Settings &settings) {
   std::vector<Candidate> valid_candidates;
   std::vector<std::string> failures;
   // An incomplete pair is usually a licence still being set up, one setting at a time; it is not a rejected licence.
-  bool licence_rejected = false;
+  bool license_rejected = false;
 
   auto try_add = [&](std::string_view key, std::string_view org, int priority, std::string_view source_name) {
     auto const reject = [&](std::string_view reason, bool const rejected = true) {
       failures.push_back(fmt::format("[{}] {}", source_name, reason));
-      licence_rejected |= rejected;
+      license_rejected |= rejected;
     };
     if (key.empty() && org.empty()) return;
     if (key.empty()) {
@@ -267,7 +267,7 @@ void LicenseChecker::RevalidateLicense(utils::Settings &settings) {
 
   if (valid_candidates.empty()) {
     auto locked = previous_license_info_.Lock();
-    if (*locked || (failures_changed && licence_rejected)) {
+    if (*locked || (failures_changed && license_rejected)) {
       spdlog::error("No valid license found. Running in community mode.{}",
                     failures.empty() ? "" : " " + utils::Join(failures, " "));
       locked->reset();
