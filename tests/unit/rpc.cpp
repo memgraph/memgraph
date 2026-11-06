@@ -15,6 +15,7 @@
 #include <condition_variable>
 #include <latch>
 #include <mutex>
+#include <numeric>
 #include <thread>
 #include <utility>
 #include <vector>
