@@ -28,6 +28,7 @@
 #include <string_view>
 #include <system_error>
 #include <utility>
+#include <variant>
 
 #include "croncpp.h"
 #include "flags/coord_flag_env_handler.hpp"
@@ -190,6 +191,10 @@ constexpr auto kTimezoneGFlagsKey = kTimezoneSettingKey;
 
 constexpr auto kSnapshotPeriodicSettingKey = "storage.snapshot.interval";
 constexpr auto kSnapshotPeriodicGFlagsKey = "storage-snapshot-interval";
+constexpr std::string_view kCronSnapshotNeedsLicense =
+    "Defining snapshot schedule via cron expressions is an enterprise feature. Check your license status by running "
+    "SHOW LICENSE INFO.";
+constexpr std::string_view kCronSnapshotsSkipped = "Scheduled snapshots are skipped until the license is valid.";
 
 // AWS configuration
 constexpr auto kAwsRegionSettingKey = "aws.region";
@@ -226,6 +231,7 @@ std::atomic<bool> omit_vector_index_properties_on_return_{false};
 std::atomic<uint64_t> file_download_conn_timeout_sec_;
 std::atomic<uint64_t> storage_access_timeout_sec_{1};
 std::atomic<int64_t> log_min_duration_ms_{-1};
+std::atomic<bool> cron_snapshots_skipped_{false};
 std::atomic<bool> log_failed_queries_{false};
 std::atomic<bool> log_query_plan_{true};
 
@@ -261,6 +267,8 @@ class PeriodicObservable : public memgraph::utils::Observable<memgraph::utils::S
     const auto periodic_locked = periodic_.ReadLock();
     observer->Update(*periodic_locked);
   }
+
+  bool IsCron() const { return std::holds_alternative<std::string>(periodic_.ReadLock()->period_or_cron); }
 
   void Modify(std::chrono::seconds pause) {
     *periodic_.Lock() = memgraph::utils::SchedulerInterval(pause, std::nullopt);
@@ -335,7 +343,11 @@ bool ValidPeriodicSnapshot(const std::string_view def) {
   try {
     // Try to get a period in seconds
     const auto period = ValidPeriod(def);
-    return period >= 0L && period <= 7L * 24 * 3600;
+    const bool in_range = period >= 0L && period <= 7L * 24 * 3600;
+    if constexpr (FATAL) {
+      if (!in_range) LOG_FATAL("Snapshot interval must be between 0 and 604800 seconds.");
+    }
+    return in_range;
   } catch (const std::invalid_argument & /* unused */) {
     // Handled later on
     failure = true;
@@ -345,13 +357,12 @@ bool ValidPeriodicSnapshot(const std::string_view def) {
     // NOTE: Cron is an enterprise feature
     const auto cron = cron::make_cron(def);
     if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-      constexpr std::string_view msg =
-          "Defining snapshot schedule via cron expressions is an enterprise feature. Check your license status by "
-          "running SHOW LICENSE INFO.";
       if constexpr (FATAL) {
-        LOG_FATAL(msg);
+        spdlog::error("{} {}", kCronSnapshotNeedsLicense, kCronSnapshotsSkipped);
+        cron_snapshots_skipped_.store(true, std::memory_order_relaxed);
+        return true;
       }
-      spdlog::error(msg);
+      spdlog::error(kCronSnapshotNeedsLicense);
       return false;
     }
     return true;
@@ -386,6 +397,8 @@ void Initialize(utils::Settings &settings) {
    * @param durability - how the setting treats the value in the data directory
    * @param post_update - user defined callback executed post flag update
    * @param validator - user defined value correctness checker
+   * @param validate_startup_value - false applies the startup value without the validator; the caller has validated it.
+   *                                 Ignored for kPersisted.
    */
   auto register_flag = [&](
                            const std::string &flag,
@@ -393,7 +406,8 @@ void Initialize(utils::Settings &settings) {
                            Durability durability,
                            std::function<void(const std::string &)> post_update = [](auto) {},
                            utils::Settings::Validation validator =
-                               [](std::string_view) -> utils::Settings::ValidatorResult { return {}; }) {
+                               [](std::string_view) -> utils::Settings::ValidatorResult { return {}; },
+                           bool validate_startup_value = true) {
     // Get flag info
     gflags::CommandLineFlagInfo info;
     gflags::GetCommandLineFlagInfo(flag.c_str(), &info);
@@ -430,7 +444,12 @@ void Initialize(utils::Settings &settings) {
         spdlog::warn("Ignoring the stored value of setting '{}': {}", key, e.what());
       }
     }
-    settings.SetValue(key, info.current_value);
+    if (validate_startup_value) {
+      settings.SetValue(key, info.current_value);
+    } else {
+      settings.SetValueForce(key, info.current_value);
+      callback();
+    }
   };
 
   /*
@@ -573,7 +592,8 @@ void Initialize(utils::Settings &settings) {
       }
     }
 
-    // FATAL validation at startup; can't be part of the flag defintion, since we need to check for license
+    // Fatal on an invalid schedule. Not part of the flag definition, because a cron schedule also needs the license,
+    // which an unlicensed instance keeps but skips until the license is valid.
     ValidPeriodicSnapshot<true>(FLAGS_storage_snapshot_interval);
     register_flag(
         kSnapshotPeriodicGFlagsKey,
@@ -596,7 +616,8 @@ void Initialize(utils::Settings &settings) {
                 "Please note that a valid license is needed in order to use cron expressions."};
           }
           return {};
-        });
+        },
+        /*validate_startup_value=*/false);
   }
 
   // AWS Section
@@ -739,6 +760,22 @@ void SnapshotPeriodicAttach(std::shared_ptr<utils::Observer<utils::SchedulerInte
 
 void SnapshotPeriodicDetach(std::shared_ptr<utils::Observer<utils::SchedulerInterval>> observer) {
   snapshot_periodic_.Detach(observer);
+}
+
+bool CronScheduleWithoutLicense() {
+  return snapshot_periodic_.IsCron() && !license::global_license_checker.IsEnterpriseValidFast();
+}
+
+// Reads the schedule and the license separately: a tick racing a schedule change decides on the schedule it read,
+// and the next tick decides on the new one. A cron schedule is only set while the license is valid.
+bool SnapshotScheduleLicensed() {
+  const bool licensed = !CronScheduleWithoutLicense();
+  if (licensed) {
+    cron_snapshots_skipped_.store(false, std::memory_order_relaxed);
+  } else if (!cron_snapshots_skipped_.exchange(true, std::memory_order_relaxed)) {
+    spdlog::error("{} {}", kCronSnapshotNeedsLicense, kCronSnapshotsSkipped);
+  }
+  return licensed;
 }
 
 int64_t GetLogMinDurationMs() { return log_min_duration_ms_.load(std::memory_order_acquire); }

@@ -4984,6 +4984,7 @@ std::expected<void, InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Reco
 }
 
 std::optional<SnapshotFileInfo> InMemoryStorage::ShowNextSnapshot() {
+  if (flags::run_time::CronScheduleWithoutLicense()) return std::nullopt;
   auto lock = std::unique_lock{snapshot_lock_};
   auto next = snapshot_runner_.NextExecution();
   if (next) {
@@ -5139,7 +5140,8 @@ void InMemoryStorage::CreateSnapshotHandler(
     // Skip broken databases: they are empty and writing a snapshot would overwrite
     // the operator's untouched corrupt durability files. Skipped silently to avoid
     // per-tick log spam (CreateSnapshot also guards defensively).
-    if (!token.stop_requested() && !IsBroken()) {
+    // A cron schedule without a valid license is skipped too; SnapshotScheduleLicensed logs once when skipping starts.
+    if (!token.stop_requested() && !IsBroken() && flags::run_time::SnapshotScheduleLicensed()) {
       this->create_snapshot_handler("periodic");
     }
   });
