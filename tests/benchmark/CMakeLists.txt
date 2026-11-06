@@ -3,6 +3,8 @@ set(test_prefix ${test_bench_prefix})
 find_package(gflags REQUIRED)
 find_package(antlr4-runtime REQUIRED)
 find_package(range-v3 REQUIRED)
+find_package(absl REQUIRED)
+find_package(Boost REQUIRED)
 
 include_directories(${antlr4-runtime_INCLUDE_DIR})
 
@@ -38,6 +40,12 @@ endfunction(add_benchmark)
 
 add_benchmark(data_structures/ring_buffer.cpp)
 target_link_libraries(${test_prefix}ring_buffer mg-utils)
+
+add_benchmark(data_structures/flat_hash_set.cpp)
+target_link_libraries(${test_prefix}flat_hash_set absl::flat_hash_set Boost::headers)
+
+add_benchmark(data_structures/flat_hash_map.cpp)
+target_link_libraries(${test_prefix}flat_hash_map absl::flat_hash_map Boost::headers)
 
 add_benchmark(query/eval.cpp)
 target_link_libraries(${test_prefix}eval mg-query)
