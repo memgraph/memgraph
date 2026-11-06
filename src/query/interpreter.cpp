@@ -11322,10 +11322,7 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
       bool const reads_only = rw_type == RWType::R || (rw_type == RWType::NONE && reads_only_on_unlicensed_tenant);
       if (db_name != dbms::kDefaultDB && !reads_only) {
         query_execution = nullptr;
-        throw QueryException(
-            "Database '{}' is read-only without a valid license. Check your license status by running SHOW LICENSE "
-            "INFO.",
-            db_name);
+        throw WriteQueryOnUnlicensedTenantException(db_name);
       }
     }
 #endif
