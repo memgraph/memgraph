@@ -11,9 +11,18 @@
 
 #include <gtest/gtest.h>
 #include <array>
+#include <chrono>
 #include <cstdint>
+#include <cstdlib>
 #include <memory>
+#include <optional>
+#include <sstream>
+#include <string>
+#include <string_view>
 #include <vector>
+
+#include <spdlog/sinks/ostream_sink.h>
+#include <spdlog/spdlog.h>
 
 #include "license/license.hpp"
 #include "slk/serialization.hpp"
@@ -231,6 +240,7 @@ TEST_F(LicenseTest, DetailedLicenseInfo_OemCommunityExpired) {
   license_checker->SetCliLicense(license_key, organization_name, *settings);
   auto detailed_license_info = license_checker->GetDetailedLicenseInfo();
   ASSERT_FALSE(detailed_license_info.is_valid);
+  EXPECT_TRUE(detailed_license_info.status.contains("[CLI] The license expired on")) << detailed_license_info.status;
 }
 
 TEST_F(LicenseTest, DetailedLicenseInfo_OemCommunityNonExpiredIsInvalid) {
@@ -255,6 +265,147 @@ TEST_F(LicenseTest, DetailedLicenseInfo_MismatchedOrgName) {
   license_checker->SetCliLicense(license_key, fmt::format("{}wrong", organization_name), *settings);
   auto detailed_license_info = license_checker->GetDetailedLicenseInfo();
   ASSERT_FALSE(detailed_license_info.is_valid);
+  EXPECT_TRUE(detailed_license_info.status.contains(
+      "[CLI] The organization name 'Memgraphwrong' does not match the license key, which is for 'Memgraph'."))
+      << detailed_license_info.status;
+}
+
+TEST_F(LicenseTest, DetailedLicenseInfo_NothingProvided) {
+  auto detailed_license_info = license_checker->GetDetailedLicenseInfo();
+  ASSERT_FALSE(detailed_license_info.is_valid);
+  ASSERT_EQ(detailed_license_info.status, "You have not provided any license.");
+}
+
+TEST_F(LicenseTest, DetailedLicenseInfo_ExpiredReportsDate) {
+  const std::string organization_name{"Memgraph"};
+  constexpr int64_t kSecondDayOfEpoch = 24 * 60 * 60;
+  memgraph::license::License license{
+      organization_name, kSecondDayOfEpoch, 0, memgraph::license::LicenseType::ENTERPRISE};
+  license_checker->SetCliLicense(memgraph::license::Encode(license), organization_name, *settings);
+  auto detailed_license_info = license_checker->GetDetailedLicenseInfo();
+  ASSERT_FALSE(detailed_license_info.is_valid);
+  EXPECT_TRUE(detailed_license_info.status.contains("[CLI] The license expired on 1970-01-02."))
+      << detailed_license_info.status;
+}
+
+class ScopedEnv {
+ public:
+  ScopedEnv(char const *name, std::optional<std::string> const &value) : name_{name} {
+    if (auto const *previous = std::getenv(name)) previous_ = previous;
+    Set(name_, value);
+  }
+
+  ScopedEnv(ScopedEnv const &) = delete;
+  ScopedEnv &operator=(ScopedEnv const &) = delete;
+
+  ~ScopedEnv() { Set(name_, previous_); }
+
+ private:
+  static void Set(char const *name, std::optional<std::string> const &value) {
+    // NOLINTNEXTLINE(concurrency-mt-unsafe)
+    value ? setenv(name, value->c_str(), 1) : unsetenv(name);
+  }
+
+  char const *name_;
+  std::optional<std::string> previous_;
+};
+
+class LicenseLogTest : public LicenseTest {
+ protected:
+  void SetUp() override {
+    LicenseTest::SetUp();
+    spdlog::default_logger()->sinks().push_back(sink);
+  }
+
+  void TearDown() override {
+    std::erase(spdlog::default_logger()->sinks(), sink);
+    LicenseTest::TearDown();
+  }
+
+  void SetCliLicenseExpiringInDays(int64_t const days) {
+    const auto now_sec =
+        std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+    memgraph::license::License license{
+        organization_name, now_sec + days * 24 * 60 * 60, 0, memgraph::license::LicenseType::ENTERPRISE};
+    license_checker->SetCliLicense(memgraph::license::Encode(license), organization_name, *settings);
+  }
+
+  size_t Logged(std::string_view const message) const {
+    auto const text = log.str();
+    size_t count = 0;
+    for (auto pos = text.find(message); pos != std::string::npos; pos = text.find(message, pos + 1)) ++count;
+    return count;
+  }
+
+  size_t Warnings() const { return Logged("Enterprise features stop working"); }
+
+  const std::string organization_name{"Memgraph"};
+  std::ostringstream log;
+  std::shared_ptr<spdlog::sinks::ostream_sink_mt> sink = std::make_shared<spdlog::sinks::ostream_sink_mt>(log);
+};
+
+TEST_F(LicenseLogTest, ExpiryNotLoggedForDistantExpiry) {
+  SetCliLicenseExpiringInDays(60);
+  EXPECT_EQ(Warnings(), 0);
+}
+
+TEST_F(LicenseLogTest, ExpiryLoggedOncePerDay) {
+  SetCliLicenseExpiringInDays(10);
+  EXPECT_EQ(Warnings(), 1);
+
+  settings->SetValue("organization.name", organization_name);
+  EXPECT_EQ(Warnings(), 1);
+}
+
+TEST_F(LicenseLogTest, RejectedEnvBesideValidCliIsNotALoss) {
+  auto const key = memgraph::license::Encode({organization_name, 0, 0, memgraph::license::LicenseType::ENTERPRISE});
+  ScopedEnv const env_key{"MEMGRAPH_ENTERPRISE_LICENSE", key};
+  ScopedEnv const env_org{"MEMGRAPH_ORGANIZATION_NAME", "Memgraphwrong"};
+
+  license_checker->CheckEnvLicense();
+  license_checker->SetCliLicense(key, organization_name, *settings);
+
+  CheckLicenseValidity(true);
+  EXPECT_EQ(Logged("Running in community mode"), 0);
+  EXPECT_EQ(Logged("Ignoring a license source. [ENV]"), 1);
+}
+
+TEST_F(LicenseLogTest, IncompleteEnvPairIsReported) {
+  ScopedEnv const env_key{
+      "MEMGRAPH_ENTERPRISE_LICENSE",
+      memgraph::license::Encode({organization_name, 0, 0, memgraph::license::LicenseType::ENTERPRISE})};
+  ScopedEnv const env_org{"MEMGRAPH_ORGANIZATION_NAME", std::nullopt};
+
+  license_checker->CheckEnvLicense();
+  settings->SetValue("organization.name", "");
+
+  EXPECT_EQ(license_checker->GetDetailedLicenseInfo().status,
+            "[ENV] The license key is set, but the organization name is not.");
+}
+
+TEST_F(LicenseLogTest, ExpiryNotLoggedForPerpetualLicense) {
+  auto const key = memgraph::license::Encode({organization_name, 0, 0, memgraph::license::LicenseType::ENTERPRISE});
+  license_checker->SetCliLicense(key, organization_name, *settings);
+  EXPECT_EQ(Warnings(), 0);
+}
+
+TEST_F(LicenseLogTest, LossLoggedOncePerChange) {
+  settings->SetValue("enterprise.license",
+                     memgraph::license::Encode({organization_name, 0, 0, memgraph::license::LicenseType::ENTERPRISE}));
+  settings->SetValue("organization.name", organization_name);
+  CheckLicenseValidity(true);
+
+  settings->SetValue("organization.name", "Memgraphwrong");
+  settings->SetValue("organization.name", "Memgraphwrong");
+  CheckLicenseValidity(false);
+  EXPECT_EQ(Logged("Running in community mode"), 1);
+}
+
+TEST_F(LicenseLogTest, IncompletePairIsNotALoss) {
+  settings->SetValue("organization.name", organization_name);
+  CheckLicenseValidity(false);
+  EXPECT_EQ(Logged("No valid license found. [DB] The organization name is set, but the license key is not."), 1);
+  EXPECT_EQ(Logged("Running in community mode"), 0);
 }
 
 // ===========================================================================
