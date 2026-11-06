@@ -16,7 +16,8 @@
 #include <optional>
 #include <variant>
 
-#include "absl/container/flat_hash_map.h"
+#include <boost/unordered/unordered_flat_map.hpp>
+#include "absl/hash/hash.h"
 
 #include "metrics/metric_handles.hpp"
 #include "metrics/scoped_gauge.hpp"
@@ -77,7 +78,7 @@ class ExistenceConstraints {
   };
 
   using IndividualConstraintPtr = std::shared_ptr<IndividualConstraint>;
-  using Container = absl::flat_hash_map<ConstraintKey, IndividualConstraintPtr>;
+  using Container = boost::unordered_flat_map<ConstraintKey, IndividualConstraintPtr, absl::Hash<ConstraintKey>>;
   using ContainerPtr = std::shared_ptr<Container const>;
 
   struct ActiveConstraints {

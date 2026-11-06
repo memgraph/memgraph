@@ -54,7 +54,6 @@ template <typename Value, typename Func, typename... Keys>
 void Store(Value &&value, VertexInfoCache &caches, Func &&getCache, View view, Keys &&...keys) {
   auto &cache = (view == View::OLD) ? getCache(caches.old_) : getCache(caches.new_);
   using key_type = typename std::remove_cvref_t<decltype(cache)>::key_type;
-  // absl hash maps are not exception-safe: an allocation refused while one grows leaves it corrupted.
   // AtomicMemoryBlock tracks the allocations but does not refuse them.
   utils::AtomicMemoryBlock([&] { cache.emplace(key_type{std::forward<Keys>(keys)...}, std::forward<Value>(value)); });
 }

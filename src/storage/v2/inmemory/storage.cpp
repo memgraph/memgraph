@@ -1653,8 +1653,8 @@ void InMemoryStorage::InMemoryAccessor::Abort(ProgressCallback const &on_progres
     // Applies each undo delta in the chain, and optionally unlinks the deltas
     // from the vertex head.
     auto process_vertex_deltas = [&](Vertex *vertex, Delta *start, bool delta_chunk_attached_to_vertex) {
-      auto remove_in_edges = absl::flat_hash_set<EdgeRef>{};
-      auto remove_out_edges = absl::flat_hash_set<EdgeRef>{};
+      auto remove_in_edges = boost::unordered_flat_set<EdgeRef, absl::Hash<EdgeRef>>{};
+      auto remove_out_edges = boost::unordered_flat_set<EdgeRef, absl::Hash<EdgeRef>>{};
 
       Delta *current = start;
       while (current != nullptr &&

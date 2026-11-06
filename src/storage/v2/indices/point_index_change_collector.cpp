@@ -18,8 +18,7 @@
 
 namespace memgraph::storage {
 
-// absl hash containers are not exception-safe: an allocation refused while one grows leaves it
-// corrupted. Every growth below runs in an AtomicMemoryBlock, which tracks but does not refuse.
+// Every growth below runs in an AtomicMemoryBlock, which tracks allocations but does not refuse them.
 
 void PointIndexChangeCollector::UpdateOnChangeLabel(LabelId label, Vertex const *vertex) {
   if (current_changes_.empty()) return;
@@ -58,7 +57,7 @@ auto PointIndexChangeCollector::PreviousChanges() const -> TrackedChanges const 
   if (!previous_changes_) {
     // Lazy initialization - create empty sets for all current keys
     auto rng = current_changes_ | std::views::keys |
-               std::views::transform([](auto &key) { return std::pair{key, absl::flat_hash_set<Vertex const *>{}}; });
+               std::views::transform([](auto &key) { return std::pair{key, ChangedVertices{}}; });
     previous_changes_ = TrackedChanges{rng.begin(), rng.end()};
   }
   return *previous_changes_;
@@ -76,9 +75,7 @@ void PointIndexChangeCollector::ArchiveCurrentChanges() {
 
 PointIndexChangeCollector::PointIndexChangeCollector(PointIndexContext &ctx)
     : current_changes_{std::invoke([&]() {
-        auto rng = ctx.IndexKeys() | std::views::transform([](auto key) {
-                     return std::pair{key, absl::flat_hash_set<Vertex const *>{}};
-                   });
+        auto rng = ctx.IndexKeys() | std::views::transform([](auto key) { return std::pair{key, ChangedVertices{}}; });
         return TrackedChanges{rng.begin(), rng.end()};
       })},
       /// Note: previous_changes_ will be lazy initialized when needed

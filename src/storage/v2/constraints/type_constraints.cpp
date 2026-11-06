@@ -133,7 +133,7 @@ auto TypeConstraints::GetActiveConstraints() const -> std::shared_ptr<ActiveCons
     utils::SkipListDb<Vertex>::Accessor vertices, LabelId label, PropertyId property, TypeConstraintKind type,
     ProgressCallback const &on_progress, CheckCancelFunction const &cancel_check) {
   auto validator = TypeConstraintsValidator{};
-  auto constraint = absl::flat_hash_map<PropertyId, TypeConstraintKind>{{property, type}};
+  auto constraint = PropertyTypeConstraints{{property, type}};
   validator.add(label, constraint);
 
   for (auto const &vertex : vertices) {
@@ -176,8 +176,7 @@ bool TypeConstraints::InstallConstraint_(LabelId label, PropertyId property, Ind
       if (auto l2p_it = new_container->l2p_constraints_.find(label); l2p_it != new_container->l2p_constraints_.end()) {
         l2p_it->second.emplace(property, type);
       } else {
-        new_container->l2p_constraints_.emplace(label,
-                                                absl::flat_hash_map<PropertyId, TypeConstraintKind>{{property, type}});
+        new_container->l2p_constraints_.emplace(label, PropertyTypeConstraints{{property, type}});
       }
     }
     container = std::move(new_container);
@@ -208,8 +207,7 @@ void TypeConstraints::PublishConstraint(LabelId label, PropertyId property, Type
     if (l2p_it != new_container->l2p_constraints_.end()) {
       l2p_it->second.emplace(property, type);
     } else {
-      new_container->l2p_constraints_.emplace(label,
-                                              absl::flat_hash_map<PropertyId, TypeConstraintKind>{{property, type}});
+      new_container->l2p_constraints_.emplace(label, PropertyTypeConstraints{{property, type}});
     }
 
     container = std::move(new_container);
@@ -252,7 +250,7 @@ void TypeConstraints::DropGraphClearConstraints() {
   container_.WithLock([](ContainerPtr &container) { container = std::make_shared<Container const>(); });
 }
 
-absl::flat_hash_map<PropertyId, TypeConstraintKind> TypeConstraints::GetTypeConstraintsForLabel(LabelId label) const {
+PropertyTypeConstraints TypeConstraints::GetTypeConstraintsForLabel(LabelId label) const {
   auto container = container_.ReadCopy();
   auto it = container->l2p_constraints_.find(label);
   if (it == container->l2p_constraints_.end()) {

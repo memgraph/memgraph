@@ -16,6 +16,8 @@
 #include <memory>
 #include <optional>
 #include <unordered_map>
+
+#include <boost/unordered/unordered_flat_set.hpp>
 #include <vector>
 
 #include <spdlog/spdlog.h>
@@ -117,14 +119,17 @@ struct AsyncIndexHelper {
   void DispatchRequests(AsyncIndexer &async_indexer);
 
  private:
+  using LabelSet = boost::unordered_flat_set<LabelId, std::hash<LabelId>>;
+  using EdgeTypeSet = boost::unordered_flat_set<EdgeTypeId, std::hash<EdgeTypeId>>;
+
   struct LabelIndexInfo {
-    absl::flat_hash_set<LabelId> existing_;
-    absl::flat_hash_set<LabelId> requested_;
+    LabelSet existing_;
+    LabelSet requested_;
   };
 
   struct EdgeTypeIndexInfo {
-    absl::flat_hash_set<EdgeTypeId> existing_;
-    absl::flat_hash_set<EdgeTypeId> requested_;
+    EdgeTypeSet existing_;
+    EdgeTypeSet requested_;
   };
 
   std::optional<LabelIndexInfo> label_index_ = std::nullopt;
