@@ -496,6 +496,9 @@ def test_negative_interval_flag_refused(test_name):
     }
     with pytest.raises(AssertionError, match="failed to start"):
         interactive_mg_runner.start(instance, "negative_interval_flag")
+    logs_dir = os.path.join(interactive_mg_runner.BUILD_DIR, "e2e", "logs", get_logs_path(FILE, test_name))
+    logs = "".join(open(os.path.join(logs_dir, name)).read() for name in os.listdir(logs_dir))
+    assert "Snapshot interval must be between 0 and 604800 seconds." in logs
 
 
 # Interface doesn't support failure, so can't reliably test if both flags cause a fault
