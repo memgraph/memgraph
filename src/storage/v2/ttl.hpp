@@ -225,9 +225,9 @@ class TTL final {
   void Resume() { ttl_.Resume(); }
 
   /**
-   * @brief Set the function to check if this is a main instance
+   * @brief Set the function that decides whether each TTL run may delete
    *
-   * @param check_fn Function that returns true if this is a main instance, false if replica
+   * @param check_fn Function that returns true when TTL may run, such as on a writeable main with a valid license
    */
   void SetUserCheck(std::function<bool()> check_fn) { user_check_.Update(std::move(check_fn)); }
 
@@ -239,8 +239,7 @@ class TTL final {
   metrics::CounterHandle deleted_nodes_{};
   metrics::CounterHandle deleted_edges_{};
 
-  // User-defined function to check if this is a main instance
-  // Returns true if this is a main instance, false if replica
+  // User-defined function that returns true when TTL may run
   struct UserCheck {
     UserCheck() = default;
 
