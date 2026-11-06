@@ -78,9 +78,17 @@ def test_tenant_read_only_without_licence(request):
     assert "tenant" in [row[0] for row in execute(cursor, "SHOW DATABASES;")]
     execute(cursor, "USE DATABASE tenant;")
     assert execute(cursor, "MATCH (n) RETURN count(n);")[0][0] == 10
-    for write in ["CREATE ();", "CREATE INDEX ON :Label;"]:
+    for write in [
+        "CREATE ();",
+        "CREATE INDEX ON :Label;",
+        "CREATE CONSTRAINT ON (n:Label) ASSERT n.prop IS UNIQUE;",
+        "STORAGE MODE IN_MEMORY_ANALYTICAL;",
+        "DROP GRAPH;",
+    ]:
         with pytest.raises(mgclient.DatabaseError, match="read-only without a valid license"):
             execute(cursor, write)
+    execute(cursor, "SHOW TRIGGERS;")
+    execute(cursor, "SHOW STREAMS;")
     execute(cursor, "USE DATABASE memgraph;")
     execute(cursor, "CREATE ();")
     with pytest.raises(mgclient.DatabaseError):

@@ -3473,6 +3473,25 @@ Callback HandleSettingQuery(SettingQuery *setting_query, const Parameters &param
 
 #ifdef MG_ENTERPRISE
 namespace {
+// Whether a tenant without a valid license accepts a query that the planner does not type as a read or a write: one
+// that leaves the tenant's data alone, reads it, or copies it out.
+bool ReadsOnlyOnUnlicensedTenant(Query *query) {
+  if (!query->Traits().operates_on_graph_data) return true;
+  if (auto const *trigger_query = utils::Downcast<TriggerQuery>(query)) {
+    return trigger_query->action_ == TriggerQuery::Action::SHOW_TRIGGERS;
+  }
+  if (auto const *stream_query = utils::Downcast<StreamQuery>(query)) {
+    return stream_query->action_ == StreamQuery::Action::SHOW_STREAMS;
+  }
+  if (auto const *description_query = utils::Downcast<DescriptionQuery>(query)) {
+    return description_query->action_ == DescriptionQuery::Action::SHOW_ALL;
+  }
+  return utils::Downcast<ExplainQuery>(query) || utils::Downcast<DatabaseInfoQuery>(query) ||
+         utils::Downcast<ShowEnumsQuery>(query) || utils::Downcast<ShowSnapshotsQuery>(query) ||
+         utils::Downcast<ShowNextSnapshotQuery>(query) || utils::Downcast<IsolationLevelQuery>(query) ||
+         utils::Downcast<CreateSnapshotQuery>(query);
+}
+
 // Whether an unlicensed instance in FIPS mode accepts the query: SHOW LICENSE INFO, so a client can tell why it is
 // refused, SHOW DATABASE SETTINGS, and setting one of the two settings that license it, so that a license delivered
 // over Bolt can still reach it and a client can read before it writes.
@@ -10962,6 +10981,8 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
       // the session's next real query pay for the rebuild.
       cached_fga_->Reset();
     }
+    // Decided before the query moves into its Prepare function.
+    bool const reads_only_on_unlicensed_tenant = ReadsOnlyOnUnlicensedTenant(parsed_query.query);
 #endif
 
     if (utils::Downcast<CypherQuery>(parsed_query.query)) {
@@ -11293,16 +11314,21 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
         query_execution = nullptr;
         throw WriteQueryOnMainException();
       }
-      if (current_db_.db_acc_ && current_db_.db_acc_->get()->name() != dbms::kDefaultDB &&
-          !license::global_license_checker.IsEnterpriseValidFast()) {
+#endif
+    }
+#ifdef MG_ENTERPRISE
+    if (current_db_.db_acc_ && !license::global_license_checker.IsEnterpriseValidFast()) {
+      auto const &db_name = current_db_.db_acc_->get()->name();
+      bool const reads_only = rw_type == RWType::R || (rw_type == RWType::NONE && reads_only_on_unlicensed_tenant);
+      if (db_name != dbms::kDefaultDB && !reads_only) {
         query_execution = nullptr;
         throw QueryException(
             "Database '{}' is read-only without a valid license. Check your license status by running SHOW LICENSE "
             "INFO.",
-            current_db_.db_acc_->get()->name());
+            db_name);
       }
-#endif
     }
+#endif
 
     // Set the target db to the current db (some queries have different target from the current db)
     if (!query_execution->prepared_query->db) {
