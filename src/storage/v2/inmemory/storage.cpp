@@ -4984,6 +4984,7 @@ std::expected<void, InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Reco
 }
 
 std::optional<SnapshotFileInfo> InMemoryStorage::ShowNextSnapshot() {
+  if (flags::run_time::CronScheduleWithoutLicense()) return std::nullopt;
   auto lock = std::unique_lock{snapshot_lock_};
   auto next = snapshot_runner_.NextExecution();
   if (next) {
