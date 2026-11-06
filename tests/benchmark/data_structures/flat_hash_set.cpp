@@ -16,6 +16,7 @@
 #include <cstdint>
 #include <random>
 #include <string>
+#include <type_traits>
 #include <vector>
 
 #include "absl/container/flat_hash_set.h"
@@ -58,6 +59,17 @@ std::vector<K> RandomSample(std::vector<K> keys, int64_t n) {
 // Stands in for a storage object such as a Vertex; only its address is used as a key
 struct Node {
   std::array<std::byte, 64> payload;
+};
+
+// absl::Hash marked as already well mixed, so boost skips its own mixing step
+template <typename T>
+struct AvalanchingAbslHash : absl::Hash<T> {
+  using is_avalanching = std::true_type;
+};
+
+// Nodes sit 64 bytes apart, so the low 6 bits of their addresses never vary; drop them and let boost mix the rest
+struct ShiftedPtrHash {
+  std::size_t operator()(Node const *ptr) const noexcept { return reinterpret_cast<std::uintptr_t>(ptr) >> 6; }
 };
 
 std::vector<Node const *> ShuffledPointers(std::vector<Node> const &nodes) {
@@ -208,4 +220,10 @@ BENCHMARK(BM_FlatHashSetPtr_Insert<boost::unordered_flat_set<Node const *, absl:
 BENCHMARK(BM_FlatHashSetPtr_Find<absl::flat_hash_set<Node const *>>)->Apply(FindArgs);
 BENCHMARK(BM_FlatHashSetPtr_Find<boost::unordered_flat_set<Node const *>>)->Apply(FindArgs);
 BENCHMARK(BM_FlatHashSetPtr_Find<boost::unordered_flat_set<Node const *, absl::Hash<Node const *>>>)->Apply(FindArgs);
+BENCHMARK(BM_FlatHashSetPtr_Insert<boost::unordered_flat_set<Node const *, AvalanchingAbslHash<Node const *>>>)
+    ->Apply(SizeArgs);
+BENCHMARK(BM_FlatHashSetPtr_Insert<boost::unordered_flat_set<Node const *, ShiftedPtrHash>>)->Apply(SizeArgs);
+BENCHMARK(BM_FlatHashSetPtr_Find<boost::unordered_flat_set<Node const *, AvalanchingAbslHash<Node const *>>>)
+    ->Apply(FindArgs);
+BENCHMARK(BM_FlatHashSetPtr_Find<boost::unordered_flat_set<Node const *, ShiftedPtrHash>>)->Apply(FindArgs);
 BENCHMARK_MAIN();
