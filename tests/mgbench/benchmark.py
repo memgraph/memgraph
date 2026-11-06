@@ -32,6 +32,7 @@ import setup
 from benchmark_context import BenchmarkContext
 from benchmark_results import BenchmarkResults
 from constants import *
+from stall_watchdog import stall_watchdog
 from workload_mode import BENCHMARK_MODE_ISOLATED, BENCHMARK_MODE_MIXED, BENCHMARK_MODE_REALISTIC
 from workloads.base import Workload
 
@@ -1094,6 +1095,18 @@ def is_read_query(group: str, query: str) -> bool:
     return not any(marker in f"{group}/{query}" for marker in WRITING_QUERY_MARKERS)
 
 
+class WatchedBoltClient(runners.BoltClient):
+    """A client whose every call is bounded: a stall dumps the server and client stacks, then fails the run."""
+
+    def __init__(self, server_pid, **kwargs):
+        super().__init__(**kwargs)
+        self._server_pid = server_pid
+
+    def execute(self, *args, **kwargs):
+        with stall_watchdog(f"client call on {self._databases}", self._server_pid):
+            return super().execute(*args, **kwargs)
+
+
 def run_branch_benchmark(benchmark_context, workload, bench_queries, results):
     """
     Measures the read queries of a workload on branches with 10% and 90% of the dataset changed, next to
@@ -1128,8 +1141,12 @@ def run_branch_benchmark(benchmark_context, workload, bench_queries, results):
         main_client, vendor_runner, generated_queries, workload, IN_MEMORY_TRANSACTIONAL
     )
 
+    def server_pid():
+        proc = getattr(vendor_runner, "_proc_mg", None)
+        return proc.pid if proc is not None else None
+
     branch_clients = {
-        name: runners.BoltClient(benchmark_context=branch_context, databases=f"memgraph@{name}")
+        name: WatchedBoltClient(server_pid, benchmark_context=branch_context, databases=f"memgraph@{name}")
         for name in BRANCH_FRACTIONS
     }
     vendor_runner.start_db(BRANCH_SETUP)
