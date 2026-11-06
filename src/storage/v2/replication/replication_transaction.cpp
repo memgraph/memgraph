@@ -48,16 +48,14 @@ auto StartTxnErrorToReason(StartTxnReplicationError const &error) -> ReplicaFail
 }
 }  // namespace
 
-// For replicas with a transaction stream, append transaction end. STRICT_SYNC sends deltas as part of the first 2PC
-// phase; SYNC finalizes and commits immediately. ASYNC has no stream and is caught up later from durability files.
-auto TransactionReplication::ShipDeltas(uint64_t durability_commit_timestamp, CommitArgs const &commit_args) -> bool {
+// Waits for every fused task and records its result. A replica without a task already failed to start this
+// transaction, which the constructor recorded. ASYNC replicas are caught up later from durability files.
+auto TransactionReplication::CollectShipResults(CommitArgs const &commit_args) -> bool {
   if (locked_clients->empty()) return true;
 
   MG_ASSERT(commit_args.replication_allowed(),
             "Any clients assumes we are MAIN, we should have gatekeeper_access_wrapper so we can correctly "
             "handle ASYNC tasks");
-
-  auto const &db_acc = commit_args.database_protector();
 
   auto const record_failure = [&](ReplicationStorageClient const *client, ShipResult const &finalized) {
     if (finalized.has_value()) {
@@ -83,20 +81,6 @@ auto TransactionReplication::ShipDeltas(uint64_t durability_commit_timestamp, Co
           {.name = client_name, .mode = ReplicationModeToString(client->Mode()), .reason = reason});
     }
   };
-
-  // A streamless replica got no fused task; its bookkeeping is quick and RPC-free, so run it inline.
-  // Queueing it would make the commit thread await this replica's worker, whose queue may hold a task
-  // that blocks on the engine_lock_ this thread holds — a deadlock.
-  for (auto &&[client, replica_stream] : ranges::views::zip(*locked_clients, streams)) {
-    if (replica_stream) {
-      continue;
-    }
-    auto *raw_client = client.get();
-    if (raw_client->Mode() == replication_coordination_glue::ReplicationMode::ASYNC) {
-      continue;
-    }
-    record_failure(raw_client, ShipOne(raw_client, replica_stream, durability_commit_timestamp, db_acc));
-  }
 
   // Collect every fused task before rethrowing anything: an abandoned task keeps running against this
   // frame's db_acc, streams and this. record_failure allocates, so it stays inside the try: a
@@ -193,7 +177,7 @@ auto TransactionReplication::FinalizeTransaction(bool const decision, utils::UUI
 
   bool strict_sync_replicas_succ{true};
   // Collect every future before rethrowing anything: an abandoned task keeps running against this,
-  // which the caller's unwind destroys — same rule as ShipDeltas. The push_back allocates, so it
+  // which the caller's unwind destroys — same rule as CollectShipResults. The push_back allocates, so it
   // stays inside the try: a bad_alloc from it must not exit the loop before the drain finished.
   std::exception_ptr first_error;
   for (auto &[client, commit_result] : decisions) {
