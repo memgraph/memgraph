@@ -12,8 +12,11 @@
 #include <gtest/gtest-typed-test.h>
 #include <gtest/gtest.h>
 
+#include <bit>
+#include <cfloat>
 #include <cmath>
 #include <cstdint>
+#include <cstdlib>
 #include <filesystem>
 #include <limits>
 #include <map>
@@ -30,6 +33,7 @@
 #include "helpers/stub_property_fga_checker.hpp"
 #include "query/auth_checker.hpp"
 #include "query/config.hpp"
+#include "query/cypher_numeric_literal.hpp"
 #include "query/dump.hpp"
 #include "query/interpreter.hpp"
 #include "query/interpreter_context.hpp"
@@ -1238,6 +1242,20 @@ TYPED_TEST(DumpTest, VectorEdgeIndices) {
         "v.__mg_id__ = 1 CREATE (u)-[:`EdgeType` {`vector_property`: [1.0, 1.0]}]->(v);",
         kDropInternalIndex,
         kRemoveInternalLabelProperty);
+  }
+}
+
+TEST(CypherLiteralSpelling, SignedZeroKeepsSign) {
+  EXPECT_EQ(memgraph::query::CypherCoordinateLiteral(-0.0), "-0.0");
+  EXPECT_EQ(memgraph::query::CypherCoordinateLiteral(1.0), "1");
+  EXPECT_EQ(memgraph::query::CypherNumericLiteral(-0.0), "-0.0");
+}
+
+TEST(CypherLiteralSpelling, NumericLiteralExtremesRoundTripBitExact) {
+  for (double const value : {DBL_MAX, DBL_MIN, std::numeric_limits<double>::denorm_min()}) {
+    auto const text = memgraph::query::CypherNumericLiteral(value);
+    EXPECT_EQ(text.find('+'), std::string::npos) << text;
+    EXPECT_EQ(std::bit_cast<uint64_t>(std::strtod(text.c_str(), nullptr)), std::bit_cast<uint64_t>(value)) << text;
   }
 }
 

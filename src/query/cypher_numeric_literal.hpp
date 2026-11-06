@@ -54,9 +54,11 @@ std::string CypherNumericLiteral(T value) {
   return text;
 }
 
-// Shortest round-tripping coordinate spelling; non-finites need an expression because `inf` is not a token.
+// Shortest spelling that re-parses to the same double, sign of zero included; integral values stay bare since
+// coordinates are always doubles. Non-finites are written as expressions because `inf` is not a token.
 inline std::string CypherCoordinateLiteral(double value) {
   if (auto const non_finite = detail::NonFiniteLiteral(value)) return *non_finite;
+  if (value == 0.0 && std::signbit(value)) return "-0.0";
   return detail::StripExponentPlus(fmt::format("{}", value));
 }
 
