@@ -86,6 +86,33 @@ bool BatchCommitted(const std::expected<void, storage::StorageManipulationError>
   return replication != nullptr && replication->transaction_committed;
 }
 
+// Mirrors main's index definitions (not contents) so the planner picks index scans on the branch. The diff engine's
+// indexes hold the branch-native objects and the stubs of changed fork objects.
+void MirrorMainIndexDefinitionsIntoDiffEngine(storage::InMemoryStorage &diff_engine,
+                                              const storage::IndicesInfo &main_indices) {
+  // One accessor per index: CreateIndex downgrades READ_ONLY access to READ.
+  auto const mirror = [&diff_engine](auto &&create) {
+    auto acc = diff_engine.ReadOnlyAccess();
+    auto const created = create(*acc);
+    MG_ASSERT(created.has_value(),
+              "BranchCore::Build: mirroring one of main's indexes onto the empty diff engine failed.");
+    auto protector = diff_engine.make_database_protector();
+    MG_ASSERT(protector != nullptr, "BranchCore::Build: no database protector for the diff engine.");
+    auto const committed = acc->PrepareForCommitPhase(storage::CommitArgs::make_main(std::move(protector)));
+    MG_ASSERT(committed.has_value(), "BranchCore::Build: index-definition mirror commit failed.");
+  };
+  for (const auto &label : main_indices.label) {
+    mirror([&](storage::Storage::Accessor &acc) { return acc.CreateIndex(label); });
+  }
+  for (const auto &entry : main_indices.label_properties) {
+    mirror(
+        [&](storage::Storage::Accessor &acc) { return acc.CreateIndex(entry.label, entry.properties, entry.order); });
+  }
+  for (const auto &property : main_indices.vertex_property) {
+    mirror([&](storage::Storage::Accessor &acc) { return acc.CreateGlobalVertexIndex(property); });
+  }
+}
+
 }  // namespace
 
 bool BranchCore::WritesWal(const storage::InMemoryStorage &main) {
@@ -186,20 +213,24 @@ std::expected<std::shared_ptr<BranchCore>, BranchCore::BuildError> BranchCore::B
 
   // Done before the core is visible to any session, so the diff engine never needs UNIQUE access afterwards. Mirror
   // commits are rebuilt on every build, so they stay out of the branch WAL.
+  const auto main_indices = historical->ListAllIndices();
   {
     const storage::InMemoryStorage::SuppressWalScope no_wal{*diff_engine};
+    MirrorMainIndexDefinitionsIntoDiffEngine(*diff_engine, main_indices);
     MirrorMainEnumsIntoDiffEngine(*diff_engine, historical->GetEnumStoreShared());
   }
 
   // After the fork pin: every gid visible at fork_ts is below these floors. Gids below them may also be objects main
   // created after fork_ts but before this read, which fork_ts does not see. Every allocation after the read, main's or
   // any branch's, is at or above them.
-  return std::shared_ptr<BranchCore>(
+  auto core = std::shared_ptr<BranchCore>(
       new BranchCore(&main,
                      fork_ts,
                      std::move(diff_engine),
                      recorded ? recorded->vertex_gid_floor : main.vertex_id_.load(std::memory_order_acquire),
                      recorded ? recorded->edge_gid_floor : main.edge_id_.load(std::memory_order_acquire)));
+  core->key_parts_ = IndexKeyParts{main_indices.label_properties};
+  return core;
 }
 
 BranchCore::BranchCore(storage::InMemoryStorage *main, uint64_t fork_ts,

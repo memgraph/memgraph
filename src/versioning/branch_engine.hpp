@@ -136,7 +136,7 @@ class BranchCore {
 
   uint64_t edge_gid_floor() const { return edge_gid_floor_; }
 
-  // The parts of the label+property keys of the indexes the diff engine mirrors; empty while it mirrors none.
+  // The parts of the label+property keys of the indexes the diff engine mirrors.
   const IndexKeyParts &key_parts() const noexcept { return key_parts_; }
 
   // The fork vertices and edges deleted or hidden by the committed branch transactions so far.
