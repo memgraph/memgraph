@@ -73,7 +73,7 @@ def test_tenant_read_only_without_licence(request):
     execute(cursor, "UNWIND range(1, 10) AS i CREATE ();")
     execute(cursor, "USE DATABASE memgraph;")
 
-    set_organization_name(cursor, ORGANIZATION_NAME.swapcase())
+    set_organization_name(cursor, ORGANIZATION_NAME + "-invalid")
 
     assert "tenant" in [row[0] for row in execute(cursor, "SHOW DATABASES;")]
     execute(cursor, "USE DATABASE tenant;")
