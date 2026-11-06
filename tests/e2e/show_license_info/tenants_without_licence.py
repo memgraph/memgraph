@@ -19,6 +19,8 @@ from unittest.mock import patch
 import interactive_mg_runner
 import mgclient
 import pytest
+from neo4j import GraphDatabase
+from neo4j.exceptions import ClientError
 
 interactive_mg_runner.SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 interactive_mg_runner.PROJECT_DIR = os.path.normpath(
@@ -89,6 +91,11 @@ def test_tenant_read_only_without_licence(request):
             execute(cursor, write)
     execute(cursor, "SHOW TRIGGERS;")
     execute(cursor, "SHOW STREAMS;")
+    with GraphDatabase.driver("bolt://localhost:7687", auth=("", "")) as driver:
+        with driver.session(database="tenant") as session:
+            assert session.run("MATCH (n) RETURN count(n) AS count;").single()["count"] == 10
+            with pytest.raises(ClientError, match="read-only without a valid license"):
+                session.run("CREATE ();").consume()
     execute(cursor, "USE DATABASE memgraph;")
     execute(cursor, "CREATE ();")
     with pytest.raises(mgclient.DatabaseError):
