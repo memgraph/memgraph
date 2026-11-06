@@ -55,6 +55,8 @@ enum class text_search_mode;
 #include <cstdint>
 #ifdef MG_ENTERPRISE
 #include <algorithm>
+#include <functional>
+#include <limits>
 #include <memory>
 #endif
 #include <optional>
@@ -125,19 +127,115 @@ class SubgraphVertexAccessor final {
 
 namespace memgraph::query {
 
+#ifdef MG_ENTERPRISE
+/// The elements of a branch index scan, pulled one at a time in scan order. The stream owns the storage scans it reads.
+template <typename T>
+class BranchStream {
+ public:
+  BranchStream() = default;
+  BranchStream(BranchStream const &) = delete;
+  BranchStream &operator=(BranchStream const &) = delete;
+  virtual ~BranchStream() = default;
+
+  virtual std::optional<T> Next() = 0;
+
+  /// Rows pulled so far from the storage scans the stream merges, whether yielded or not.
+  virtual uint64_t SourceRows() const { return 0; }
+};
+
+/// A branch index scan in index order, pulled lazily from a BranchStream or from a vector (the full-scan fallback).
+/// View::NEW re-checks an element as the scan steps onto it, skipping one the running statement deleted or moved out;
+/// one moved in is not yielded. View::OLD checks nothing. Single-pass.
+template <typename T>
+class BranchScan final {
+ public:
+  using StillMatches = std::function<bool(T &)>;
+
+  class Iterator {
+   public:
+    Iterator(BranchScan *scan, size_t index) : scan_(scan), index_(index) {}
+
+    T const &operator*() const { return *scan_->current_; }
+
+    Iterator &operator++() {
+      index_ = scan_->Advance() ? index_ + 1 : kEnd;
+      return *this;
+    }
+
+    bool operator==(Iterator const &other) const { return index_ == other.index_; }
+
+   private:
+    BranchScan *scan_;
+    size_t index_;
+  };
+
+  explicit BranchScan(std::vector<T> elements, StillMatches still_matches = {})
+      : stream_(std::make_unique<VectorStream>(std::move(elements), std::move(still_matches))) {}
+
+  explicit BranchScan(std::unique_ptr<BranchStream<T>> stream) : stream_(std::move(stream)) {}
+
+  Iterator begin() {
+    if (!started_) {
+      started_ = true;
+      Advance();
+    }
+    return {this, current_ ? size_t{0} : kEnd};
+  }
+
+  Iterator end() { return {this, kEnd}; }
+
+  uint64_t SourceRows() const { return stream_->SourceRows(); }
+
+ private:
+  static constexpr size_t kEnd = std::numeric_limits<size_t>::max();
+
+  class VectorStream final : public BranchStream<T> {
+   public:
+    VectorStream(std::vector<T> elements, StillMatches still_matches)
+        : elements_(std::move(elements)), still_matches_(std::move(still_matches)) {}
+
+    std::optional<T> Next() override {
+      while (still_matches_ && next_ < elements_.size() && !still_matches_(elements_[next_])) ++next_;
+      if (next_ >= elements_.size()) return std::nullopt;
+      return elements_[next_++];
+    }
+
+   private:
+    std::vector<T> elements_;
+    StillMatches still_matches_;
+    size_t next_{0};
+  };
+
+  bool Advance() {
+    current_ = stream_->Next();
+    return current_.has_value();
+  }
+
+  std::unique_ptr<BranchStream<T>> stream_;
+  std::optional<T> current_;
+  bool started_{false};
+};
+
+#endif
 class VerticesIterable final {
 #ifdef MG_ENTERPRISE
   using VertexSet = std::unordered_set<VertexAccessor, std::hash<VertexAccessor>, std::equal_to<void>,
                                        utils::Allocator<VertexAccessor>>;
   using UnionIterable = versioning::BranchContext::UnionVerticesIterable;
 
-  // A branch scan's iterator sits behind one alternative of the iterator's variant, so that main's iterator keeps the
-  // shape and the per-row cost it has without branches; a branch scan steps through the box, out of line.
+  // A branch index scan: streamed from main@fork's and the diff engine's indexes, or a vector for the full-scan
+  // fallback.
+  using Materialized = BranchScan<VertexAccessor>;
+
+  // Both branch scans' iterators sit behind one alternative of the iterator's variant, so that main's iterator keeps
+  // the shape and the per-row cost it has without branches; a branch scan steps through the box, out of line.
   class BoxedBranchIterator {
-    using Inner = UnionIterable::Iterator;
+    using Inner = std::variant<UnionIterable::Iterator, Materialized::Iterator>;
 
    public:
     explicit BoxedBranchIterator(UnionIterable::Iterator it) : it_(std::make_unique<Inner>(std::move(it))) {}
+
+    explicit BoxedBranchIterator(Materialized::Iterator it) : it_(std::make_unique<Inner>(std::move(it))) {}
 
     BoxedBranchIterator(const BoxedBranchIterator &other) : it_(std::make_unique<Inner>(*other.it_)) {}
 
@@ -150,10 +248,12 @@ class VerticesIterable final {
     BoxedBranchIterator &operator=(BoxedBranchIterator &&) noexcept = default;
     ~BoxedBranchIterator() = default;
 
-    VertexAccessor operator*() const { return VertexAccessor(**it_); }
+    VertexAccessor operator*() const {
+      return std::visit([](auto &it) { return VertexAccessor(*it); }, *it_);
+    }
 
     BoxedBranchIterator &operator++() {
-      ++*it_;
+      std::visit([](auto &it) { ++it; }, *it_);
       return *this;
     }
 
@@ -163,7 +263,8 @@ class VerticesIterable final {
     std::unique_ptr<Inner> it_;
   };
 
-  std::variant<storage::VerticesIterable, VertexSet *, std::shared_ptr<UnionIterable>> iterable_;
+  std::variant<storage::VerticesIterable, VertexSet *, std::shared_ptr<UnionIterable>, std::shared_ptr<Materialized>>
+      iterable_;
 #else
   std::variant<storage::VerticesIterable, std::unordered_set<VertexAccessor, std::hash<VertexAccessor>,
                                                              std::equal_to<void>, utils::Allocator<VertexAccessor>> *>
@@ -199,8 +300,8 @@ class VerticesIterable final {
       return f(*std::get_if<2>(&self.it_));
     }
 
-    // Main's alternatives are dispatched inline, so a main scan pays no per-row visit over the branch alternative; a
-    // branch scan steps out of line.
+    // Main's alternatives are checked inline first: a std::visit over all three measurably slowed main's scans per
+    // row. A branch index scan steps out of line.
     template <typename Self, typename F>
     static decltype(auto) Dispatch(Self &self, F &&f) {
       if (auto *it = std::get_if<0>(&self.it_)) [[likely]]
@@ -249,22 +350,32 @@ class VerticesIterable final {
 #ifdef MG_ENTERPRISE
   explicit VerticesIterable(UnionIterable iterable) : iterable_(std::make_shared<UnionIterable>(std::move(iterable))) {}
 
+  explicit VerticesIterable(std::shared_ptr<Materialized> vertices) : iterable_(std::move(vertices)) {}
+
   Iterator begin() {
-    return std::visit(utils::Overloaded{[](VertexSet *set) { return Iterator(set->begin()); },
-                                        [](storage::VerticesIterable &iterable) { return Iterator(iterable.begin()); },
-                                        [](std::shared_ptr<UnionIterable> &iterable) {
-                                          return Iterator(BoxedBranchIterator(iterable->begin()));
-                                        }},
-                      iterable_);
+    return std::visit(
+        utils::Overloaded{
+            [](VertexSet *set) { return Iterator(set->begin()); },
+            [](storage::VerticesIterable &iterable) { return Iterator(iterable.begin()); },
+            [](std::shared_ptr<UnionIterable> &iterable) { return Iterator(BoxedBranchIterator(iterable->begin())); },
+            [](std::shared_ptr<Materialized> &vertices) { return Iterator(BoxedBranchIterator(vertices->begin())); }},
+        iterable_);
   }
 
   Iterator end() {
-    return std::visit(utils::Overloaded{[](VertexSet *set) { return Iterator(set->end()); },
-                                        [](storage::VerticesIterable &iterable) { return Iterator(iterable.end()); },
-                                        [](std::shared_ptr<UnionIterable> &iterable) {
-                                          return Iterator(BoxedBranchIterator(iterable->end()));
-                                        }},
-                      iterable_);
+    return std::visit(
+        utils::Overloaded{
+            [](VertexSet *set) { return Iterator(set->end()); },
+            [](storage::VerticesIterable &iterable) { return Iterator(iterable.end()); },
+            [](std::shared_ptr<UnionIterable> &iterable) { return Iterator(BoxedBranchIterator(iterable->end())); },
+            [](std::shared_ptr<Materialized> &vertices) { return Iterator(BoxedBranchIterator(vertices->end())); }},
+        iterable_);
+  }
+
+  /// Rows a branch index scan has pulled from its storage scans so far; 0 for any other iterable.
+  uint64_t BranchSourceRows() const {
+    auto const *scan = std::get_if<std::shared_ptr<Materialized>>(&iterable_);
+    return scan != nullptr ? (*scan)->SourceRows() : 0;
   }
 #else
   Iterator begin() {
@@ -508,6 +619,19 @@ class DbAccessor final {
   std::optional<EdgeAccessor> BranchFindEdge(storage::Gid gid, storage::View view);
   std::optional<EdgeAccessor> BranchFindEdge(storage::Gid edge_gid, storage::Gid from_vertex_gid, storage::View view);
   VerticesIterable BranchVertices(storage::View view);
+  // Index scans: main@fork's index merged with the diff engine's, rows rechecked on branch state; a full scan when the
+  // index is not ready at the fork or on the diff engine.
+  VerticesIterable BranchVertices(storage::View view, storage::LabelId label);
+  VerticesIterable BranchVertices(storage::View view, storage::LabelId label,
+                                  std::span<storage::PropertyPath const> properties,
+                                  std::span<storage::PropertyValueRange const> property_ranges,
+                                  storage::IndexOrder order);
+  VerticesIterable BranchVertices(storage::View view, storage::PropertyId property);
+  VerticesIterable BranchVertices(storage::View view, storage::PropertyId property,
+                                  std::optional<utils::Bound<storage::PropertyValue>> const &lower,
+                                  std::optional<utils::Bound<storage::PropertyValue>> const &upper);
+  VerticesIterable BranchVertices(storage::View view, storage::PropertyId property,
+                                  storage::PropertyValueRange const &range);
 
   // Per-key count on a branch: main@fork's plus the diff engine's, so base objects the branch deleted or took out of
   // the key are not subtracted. No index on both sides: the whole branch count.
@@ -607,6 +731,10 @@ class DbAccessor final {
 #endif
 
   VerticesIterable Vertices(storage::View view, storage::LabelId label) {
+#ifdef MG_ENTERPRISE
+    if (branch_ctx_ != nullptr) [[unlikely]]
+      return BranchVertices(view, label);
+#endif
     return VerticesIterable(accessor_->Vertices(label, view));
   }
 
@@ -614,10 +742,18 @@ class DbAccessor final {
                             std::span<storage::PropertyPath const> properties,
                             std::span<storage::PropertyValueRange const> property_ranges,
                             storage::IndexOrder order = storage::IndexOrder::ASC) {
+#ifdef MG_ENTERPRISE
+    if (branch_ctx_ != nullptr) [[unlikely]]
+      return BranchVertices(view, label, properties, property_ranges, order);
+#endif
     return VerticesIterable(accessor_->Vertices(label, properties, property_ranges, view, order));
   }
 
   VerticesIterable Vertices(storage::View view, storage::PropertyId property) {
+#ifdef MG_ENTERPRISE
+    if (branch_ctx_ != nullptr) [[unlikely]]
+      return BranchVertices(view, property);
+#endif
     return VerticesIterable(accessor_->Vertices(property, view));
   }
 
@@ -628,11 +764,19 @@ class DbAccessor final {
   VerticesIterable Vertices(storage::View view, storage::PropertyId property,
                             std::optional<utils::Bound<storage::PropertyValue>> const &lower,
                             std::optional<utils::Bound<storage::PropertyValue>> const &upper) {
+#ifdef MG_ENTERPRISE
+    if (branch_ctx_ != nullptr) [[unlikely]]
+      return BranchVertices(view, property, lower, upper);
+#endif
     return VerticesIterable(accessor_->Vertices(property, lower, upper, view));
   }
 
   VerticesIterable Vertices(storage::View view, storage::PropertyId property,
                             storage::PropertyValueRange const &range) {
+#ifdef MG_ENTERPRISE
+    if (branch_ctx_ != nullptr) [[unlikely]]
+      return BranchVertices(view, property, range);
+#endif
     return VerticesIterable(accessor_->Vertices(property, range, view));
   }
 

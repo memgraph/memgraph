@@ -44,6 +44,7 @@
 #include "versioning/branch_info.hpp"
 #include "versioning/edge_overlay_index.hpp"
 #include "versioning/hidden_base_edges.hpp"
+#include "versioning/index_key_parts.hpp"
 #include "versioning/overlay_index.hpp"
 
 namespace memgraph::versioning {
@@ -100,6 +101,9 @@ class BranchCore {
   storage::EdgeTypeId NameToEdgeType(std::string_view name) { return main_->NameToEdgeType(name); }
 
   const ForkPoint &fork() const { return fork_; }
+
+  // The parts of the label+property keys of the indexes the diff engine mirrors.
+  const IndexKeyParts &key_parts() const noexcept { return key_parts_; }
 
   // Main's approximate counts at the fork (its uncollected deleted vertices and open transactions' objects included),
   // plus the diff engine's (branch-created objects), minus the base vertices and edges deleted or hidden by committed
@@ -198,6 +202,8 @@ class BranchCore {
   storage::InMemoryStorage *main_;  // Not owned.
   ForkPoint fork_;
   uint64_t fork_ts_;
+  // Set once by Build, before the core is shared.
+  IndexKeyParts key_parts_;
   std::unique_ptr<storage::InMemoryStorage> diff_engine_;
 
   std::atomic<uint64_t> deleted_base_vertices_{0};

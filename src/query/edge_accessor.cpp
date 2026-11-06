@@ -17,6 +17,8 @@
 #include <optional>
 #include <utility>
 
+#include "storage/v2/indices/active_indices.hpp"
+#include "storage/v2/indices/vector_edge_index.hpp"
 #include "versioning/branch_engine.hpp"
 #endif
 
@@ -74,6 +76,12 @@ storage::Result<void> EdgeAccessor::BranchReadPropertyValues(storage::OrderedPro
                                                              std::span<storage::PropertyValue> out,
                                                              storage::View view) const {
   return branch_ctx()->ReadPropertyValues(impl_, ordered_properties, out, view);
+}
+
+std::vector<storage::PropertyId> EdgeAccessor::BranchVectorIndexedProperties() const {
+  if (impl_.storage_ != &branch_ctx()->diff_engine()) return impl_.VectorIndexedProperties();
+  return branch_ctx()->historical().GetTransaction()->active_indices_->vector_edge_->IndexedProperties(
+      impl_.EdgeType());
 }
 
 storage::Result<storage::PropertyValue> EdgeAccessor::BranchSetProperty(storage::PropertyId key,

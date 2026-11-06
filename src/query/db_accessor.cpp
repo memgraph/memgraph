@@ -13,6 +13,7 @@
 #ifdef MG_ENTERPRISE
 #include <algorithm>
 #include <iterator>
+#include <span>
 #include <unordered_set>
 #endif
 #include <cppitertools/filter.hpp>
@@ -249,6 +250,448 @@ VerticesIterable DbAccessor::BranchVertices(storage::View view) {
     return VerticesIterable(branch_ctx_->historical().Vertices(storage::View::OLD));
   }
   return VerticesIterable(branch_ctx_->Vertices(view));
+}
+
+namespace {
+using VertexScan = BranchScan<VertexAccessor>;
+// A vertex's index key: one value per indexed property path (empty for a label scan).
+using BranchKey = std::vector<storage::PropertyValue>;
+
+bool VertexHasLabel(VertexAccessor &vertex, storage::View view, storage::LabelId label) {
+  auto has_label = vertex.HasLabel(view, label);
+  return has_label.has_value() && *has_label;
+}
+
+// Only View::NEW checks the elements again as the scan steps (see BranchScan).
+VerticesIterable YieldScan(storage::View view, std::vector<VertexAccessor> elements,
+                           VertexScan::StillMatches still_matches) {
+  if (view != storage::View::NEW) still_matches = {};
+  return VerticesIterable(std::make_shared<VertexScan>(std::move(elements), std::move(still_matches)));
+}
+
+// Full scan, O(V log V): the fallback when the index is not ready on main@fork or the diff engine. `key_of` owns what
+// it uses, as the scan keeps a copy. Matches come back in key order (the planner elides ORDER BY over an index); ties
+// keep ctx.Vertices order (base vertices, then the diff engine's native ones).
+template <typename KeyOf>
+VerticesIterable FallbackScan(versioning::BranchContext &ctx, storage::View view, KeyOf key_of,
+                              storage::IndexOrder order = storage::IndexOrder::ASC) {
+  std::vector<std::pair<BranchKey, VertexAccessor>> keyed;
+  for (auto raw : ctx.Vertices(view)) {
+    VertexAccessor candidate(raw, &ctx);
+    if (auto key = key_of(candidate)) keyed.emplace_back(std::move(*key), candidate);
+  }
+  bool const asc = order == storage::IndexOrder::ASC;
+  std::ranges::stable_sort(keyed,
+                           [asc](auto const &a, auto const &b) { return asc ? a.first < b.first : b.first < a.first; });
+  std::vector<VertexAccessor> result;
+  result.reserve(keyed.size());
+  for (auto &entry : keyed) result.push_back(entry.second);
+  return YieldScan(view, std::move(result), [key_of](VertexAccessor &v) { return key_of(v).has_value(); });
+}
+
+// A key from `get_property` (a vertex's value of a property, or an error), one value per indexed path. A missing part
+// (top-level or nested) is null, as in main's index; none only if a read fails (the vertex is deleted on the branch).
+template <typename GetProperty>
+std::optional<BranchKey> ReadKeyWith(GetProperty &&get_property, std::span<storage::PropertyPath const> properties) {
+  BranchKey key;
+  key.reserve(properties.size());
+  for (auto const &path : properties) {
+    auto top = get_property(path.front());
+    if (!top.has_value()) return std::nullopt;
+    if (path.size() == 1) {
+      key.push_back(std::move(*top));
+      continue;
+    }
+    auto const *nested = storage::ReadNestedPropertyValue(*top, path.as_span().subspan(1));
+    key.push_back(nested == nullptr ? storage::PropertyValue() : *nested);
+  }
+  return key;
+}
+
+// A single-property range as the storage scan applies it: bounds, IS_NOT_NULL and the planner's value predicate.
+bool BranchValueInRange(storage::PropertyValueRange const &range, storage::PropertyValue const &value) {
+  if (!range.IsValueInRange(value)) return false;
+  if (range.type_ == storage::PropertyRangeType::IS_NOT_NULL && value.IsNull()) return false;
+  auto const &pred = range.GetValuePredicate();
+  return !pred || (*pred)(value);
+}
+
+// As the storage index: the ranges constrain a leading prefix of the key, each with its value predicate; an all-null
+// key is never indexed.
+bool BranchKeyInRange(BranchKey const &key, std::span<storage::PropertyValueRange const> property_ranges) {
+  for (size_t i = 0; i < property_ranges.size() && i < key.size(); ++i) {
+    if (!BranchValueInRange(property_ranges[i], key[i])) return false;
+  }
+  return !std::ranges::all_of(key, [](auto const &value) { return value.IsNull(); });
+}
+
+// An index scan on a branch: F, main@fork's index (View::OLD), merged lazily with D, the diff engine's index
+// (branch-native objects, plus overlays of base objects whose key the branch changed). One owner per object, by its key
+// K_b on the branch and K_f at the fork: F yields it iff it matches and K_b == K_f; D yields a native hit iff it
+// matches, an overlay hit iff it matches and K_b != K_f. A keyed scan merges by (key, direction), F first on ties; a
+// keyless one (label) yields F, then D. View::NEW instead reads D in full on open and F skips its gids, then re-checks
+// D rows and branch-written F rows as it steps. Under READ_COMMITTED a commit moving a key mid-scan can yield an object
+// twice or not at all, as main's index does.
+template <typename Q, typename Raw, typename Iterable>
+class IndexStream final : public BranchStream<Q> {
+ public:
+  struct Spec {
+    storage::View view;
+    bool keyed;
+    storage::IndexOrder order;
+    // The key of `q` on the branch at `view` if it matches the scan, else none. Owns what it uses.
+    std::function<std::optional<BranchKey>(Q &)> branch_key;
+    // The key of a base object at the fork (not range-checked), none if it has no key there.
+    std::function<std::optional<BranchKey>(Raw const &)> base_key;
+    // Whether the branch may have changed a base row's match or key (a filter probe: false is exact, true is not).
+    std::function<bool(Raw const &)> may_have_changed;
+    // Whether a base row may have been written by the branch since the scan opened (View::NEW re-checks such rows).
+    std::function<bool(Raw const &)> written;
+    // Whether `gid` can name a base object; `find_base` is the base object a D hit stands for (its overlay), if any.
+    std::function<bool(storage::Gid)> is_base_candidate;
+    std::function<std::optional<Raw>(Raw const &)> find_base;
+  };
+
+  IndexStream(versioning::BranchContext &ctx, Spec spec, Iterable base, Iterable diff)
+      : ctx_(&ctx),
+        spec_(std::move(spec)),
+        base_(std::move(base)),
+        diff_(std::move(diff)),
+        f_it_(base_.begin()),
+        f_end_(base_.end()),
+        d_it_(diff_.begin()),
+        d_end_(diff_.end()) {
+    if (spec_.view == storage::View::NEW) CollectDiffHits();
+  }
+
+  std::optional<Q> Next() override {
+    for (;;) {
+      if (!f_head_ && !f_done_) PullBase();
+      if (!d_head_ && !d_done_ && (spec_.keyed || f_done_)) PullDiff();
+      bool take_diff = false;
+      if (!f_head_ && !d_head_) return std::nullopt;
+      if (!f_head_) {
+        take_diff = true;
+      } else if (d_head_ && spec_.keyed) {
+        take_diff = DiffBeforeBase();
+      }
+      auto &head = take_diff ? d_head_ : f_head_;
+      auto item = std::move(head->item);
+      auto const base_row = head->base.has_value() && spec_.written(*head->base);
+      head.reset();
+      // Only a row the branch wrote can have changed since the scan opened.
+      if (spec_.view == storage::View::NEW && (take_diff || base_row) && !spec_.branch_key(item)) continue;
+      return item;
+    }
+  }
+
+  uint64_t SourceRows() const override { return source_rows_; }
+
+ private:
+  struct Head {
+    Q item;
+    std::optional<Raw> base;  // set for a row of F
+    std::optional<BranchKey> key;
+  };
+
+  bool BaseRowOwned(Raw const &raw) {
+    if (spec_.view == storage::View::NEW) return !diff_owned_.contains(raw.Gid());
+    if (!spec_.may_have_changed(raw)) return true;
+    Q candidate(raw, ctx_);
+    auto const branch_key = spec_.branch_key(candidate);
+    if (!branch_key) return false;
+    auto const base_key = spec_.base_key(raw);
+    return base_key && *base_key == *branch_key;
+  }
+
+  std::optional<Head> DiffHit(Raw const &raw) {
+    if (!spec_.is_base_candidate(raw.Gid())) {
+      Q native(raw, ctx_);
+      auto key = spec_.branch_key(native);
+      if (!key) return std::nullopt;
+      return Head{std::move(native), std::nullopt, std::move(key)};
+    }
+    auto base = spec_.find_base(raw);
+    if (!base) return std::nullopt;
+    Q candidate(*base, ctx_);
+    auto key = spec_.branch_key(candidate);
+    if (!key) return std::nullopt;
+    if (auto const base_key = spec_.base_key(*base); base_key && *base_key == *key) return std::nullopt;
+    return Head{std::move(candidate), std::nullopt, std::move(key)};
+  }
+
+  void PullBase() {
+    while (f_it_ != f_end_) {
+      Raw const raw = *f_it_;
+      ++f_it_;
+      ++source_rows_;
+      if (!BaseRowOwned(raw)) continue;
+      f_head_.emplace(Head{Q(raw, ctx_), raw, std::nullopt});
+      return;
+    }
+    f_done_ = true;
+  }
+
+  void PullDiff() {
+    if (spec_.view == storage::View::NEW) {
+      if (d_pos_ < d_hits_.size()) {
+        d_head_ = std::move(d_hits_[d_pos_++]);
+      } else {
+        d_done_ = true;
+      }
+      return;
+    }
+    while (d_it_ != d_end_) {
+      Raw const raw = *d_it_;
+      ++d_it_;
+      ++source_rows_;
+      if (auto hit = DiffHit(raw)) {
+        d_head_ = std::move(hit);
+        return;
+      }
+    }
+    d_done_ = true;
+  }
+
+  void CollectDiffHits() {
+    for (; d_it_ != d_end_; ++d_it_) {
+      ++source_rows_;
+      auto hit = DiffHit(*d_it_);
+      if (!hit) continue;
+      if (spec_.is_base_candidate(hit->item.Gid())) diff_owned_.insert(hit->item.Gid());
+      d_hits_.push_back(std::move(*hit));
+    }
+  }
+
+  bool DiffBeforeBase() {
+    if (!f_head_->key) f_head_->key = spec_.base_key(*f_head_->base).value_or(BranchKey{});
+    return spec_.order == storage::IndexOrder::ASC ? *d_head_->key < *f_head_->key : *f_head_->key < *d_head_->key;
+  }
+
+  versioning::BranchContext *ctx_;
+  Spec spec_;
+  // Their iterators point into them, so they are never moved.
+  Iterable base_;
+  Iterable diff_;
+  Iterable::Iterator f_it_;
+  Iterable::Iterator f_end_;
+  Iterable::Iterator d_it_;
+  Iterable::Iterator d_end_;
+  std::optional<Head> f_head_;
+  std::optional<Head> d_head_;
+  bool f_done_{false};
+  bool d_done_{false};
+  // View::NEW: D's hits at the scan's start, and the base gids among them.
+  std::vector<Head> d_hits_;
+  size_t d_pos_{0};
+  std::unordered_set<storage::Gid> diff_owned_;
+  uint64_t source_rows_{0};
+};
+
+using VertexIndexStream = IndexStream<VertexAccessor, storage::VertexAccessor, storage::VerticesIterable>;
+
+// The vertex scan's hooks: `label_in_key` says whether a label's membership is part of the key, `key_properties` are
+// the root properties of the key's parts.
+VertexIndexStream::Spec VertexStreamSpec(
+    versioning::BranchContext &ctx, storage::View view, bool keyed, storage::IndexOrder order, bool label_in_key,
+    std::vector<storage::PropertyId> key_properties,
+    std::function<std::optional<BranchKey>(VertexAccessor &)> branch_key,
+    std::function<std::optional<BranchKey>(storage::VertexAccessor const &)> base_key) {
+  auto *const core = std::addressof(*ctx.core());
+  return {.view = view,
+          .keyed = keyed,
+          .order = order,
+          .branch_key = std::move(branch_key),
+          .base_key = std::move(base_key),
+          .may_have_changed =
+              [core, label_in_key, key_properties = std::move(key_properties)](storage::VertexAccessor const &raw) {
+                if (!raw.vertex_->branched()) return false;
+                auto const gid = raw.Gid();
+                return core->MayHaveVertexDeleted(gid) || (label_in_key && core->MayHaveLabelChange(gid)) ||
+                       std::ranges::any_of(key_properties,
+                                           [&](auto key) { return core->MayHavePropertyFieldChange(gid, key); });
+              },
+          .written = [](storage::VertexAccessor const &raw) { return raw.vertex_->branched(); },
+          .is_base_candidate = [&ctx](storage::Gid gid) { return ctx.IsBaseCandidateVertex(gid); },
+          .find_base = [&ctx](storage::VertexAccessor const &raw) { return ctx.FindBaseVertex(raw.Gid()); }};
+}
+
+VerticesIterable StreamScan(versioning::BranchContext &ctx, VertexIndexStream::Spec spec,
+                            storage::VerticesIterable base, storage::VerticesIterable diff) {
+  return VerticesIterable(std::make_shared<VertexScan>(
+      std::make_unique<VertexIndexStream>(ctx, std::move(spec), std::move(base), std::move(diff))));
+}
+
+// Nothing relevant changed on the branch (the caller checked) and the diff index has no hit: main@fork's index stream,
+// lazily. View::OLD only: the stream is never re-checked, and a NEW scan sees the running statement's writes.
+// `index_size()` is the diff index's skiplist size, which counts uncommitted and un-GC'd entries too, so 0 means no hit
+// for anyone.
+template <typename IndexSize, typename DiffScan, typename BaseScan>
+std::optional<VerticesIterable> LazyBaseOnlyScan(storage::Storage::Accessor &diff, IndexSize &&index_size,
+                                                 DiffScan &&diff_scan, BaseScan &&base_scan) {
+  if (diff.ApproximateVertexCount() != 0 && index_size() != 0) {
+    auto hits = diff_scan();
+    if (hits.begin() != hits.end()) return std::nullopt;
+  }
+  return VerticesIterable(base_scan());
+}
+
+// Global vertex-property scan, ascending by value.
+template <typename BaseScan, typename DiffScan, typename InRange>
+VerticesIterable BranchPropertyScan(storage::Storage::Accessor &diff, versioning::BranchContext &ctx,
+                                    storage::View view, storage::PropertyId property, BaseScan &&base_scan,
+                                    DiffScan &&diff_scan, InRange in_range) {
+  auto read_key = [view, property, in_range](VertexAccessor &v) -> std::optional<BranchKey> {
+    auto value = v.GetProperty(view, property);
+    if (!value.has_value() || value->IsNull() || !in_range(*value)) return std::nullopt;
+    return BranchKey{std::move(*value)};
+  };
+  if (!ctx.historical().VertexPropertyIndexReady(property) || !diff.VertexPropertyIndexReady(property)) {
+    return FallbackScan(ctx, view, read_key);
+  }
+  if (view == storage::View::OLD && !ctx.core()->MayHavePropertyTouched(property) && !ctx.MayHaveAnyVertexDeleted()) {
+    auto const index_size = [&] { return diff.ApproximateVertexCount(property); };
+    if (auto lazy = LazyBaseOnlyScan(diff, index_size, diff_scan, base_scan)) return std::move(*lazy);
+  }
+  auto base_key = [property](storage::VertexAccessor const &v) -> std::optional<BranchKey> {
+    auto value = v.GetProperty(property, storage::View::OLD);
+    if (!value.has_value() || value->IsNull()) return std::nullopt;
+    return BranchKey{std::move(*value)};
+  };
+  return StreamScan(
+      ctx,
+      VertexStreamSpec(
+          ctx, view, true, storage::IndexOrder::ASC, false, {property}, std::move(read_key), std::move(base_key)),
+      base_scan(),
+      diff_scan());
+}
+}  // namespace
+
+// Unsorted: main@fork's rows, then the diff engine's (see VertexIndexStream).
+VerticesIterable DbAccessor::BranchVertices(storage::View view, storage::LabelId label) {
+  auto &ctx = *branch_ctx_;
+  auto &historical = ctx.historical();
+  auto has_label = [view, label](VertexAccessor &v) -> std::optional<BranchKey> {
+    if (!VertexHasLabel(v, view, label)) return std::nullopt;
+    return BranchKey{};
+  };
+  if (!historical.LabelIndexReady(label) || !accessor_->LabelIndexReady(label)) {
+    return FallbackScan(ctx, view, has_label);
+  }
+
+  auto const base_scan = [&] { return historical.Vertices(label, storage::View::OLD); };
+  auto const diff_scan = [&] { return accessor_->Vertices(label, view); };
+
+  if (view == storage::View::OLD && !ctx.core()->MayHaveLabelTouched(label) && !ctx.MayHaveAnyVertexDeleted()) {
+    auto const index_size = [&] { return accessor_->ApproximateVertexCount(label); };
+    if (auto lazy = LazyBaseOnlyScan(*accessor_, index_size, diff_scan, base_scan)) return std::move(*lazy);
+  }
+
+  auto base_has_label = [label](storage::VertexAccessor const &v) -> std::optional<BranchKey> {
+    auto has = v.HasLabel(label, storage::View::OLD);
+    if (!has.has_value() || !*has) return std::nullopt;
+    return BranchKey{};
+  };
+  return StreamScan(
+      ctx,
+      VertexStreamSpec(
+          ctx, view, false, storage::IndexOrder::ASC, true, {}, std::move(has_label), std::move(base_has_label)),
+      base_scan(),
+      diff_scan());
+}
+
+VerticesIterable DbAccessor::BranchVertices(storage::View view, storage::LabelId label,
+                                            std::span<storage::PropertyPath const> properties,
+                                            std::span<storage::PropertyValueRange const> property_ranges,
+                                            storage::IndexOrder order) {
+  auto &ctx = *branch_ctx_;
+  auto &core = *ctx.core();
+  auto &historical = ctx.historical();
+  auto const make_match_key = [&] {
+    return [view,
+            label,
+            owned_properties = std::vector<storage::PropertyPath>(properties.begin(), properties.end()),
+            owned_ranges = std::vector<storage::PropertyValueRange>(property_ranges.begin(), property_ranges.end())](
+               VertexAccessor &v) -> std::optional<BranchKey> {
+      if (!VertexHasLabel(v, view, label)) return std::nullopt;
+      auto key = ReadKeyWith([&](storage::PropertyId id) { return v.GetProperty(view, id); }, owned_properties);
+      if (!key || !BranchKeyInRange(*key, owned_ranges)) return std::nullopt;
+      return key;
+    };
+  };
+  if (!historical.LabelPropertyIndexReady(label, properties) ||
+      !accessor_->LabelPropertyIndexReady(label, properties)) {
+    return FallbackScan(ctx, view, make_match_key(), order);
+  }
+
+  auto const index_size = [&] { return accessor_->ApproximateVertexCount(label, properties); };
+  auto const diff_scan = [&] { return accessor_->Vertices(label, properties, property_ranges, view, order); };
+  auto const base_scan = [&] {
+    return historical.Vertices(label, properties, property_ranges, storage::View::OLD, order);
+  };
+
+  if (view == storage::View::OLD) {
+    bool maybe_touched = core.MayHaveLabelTouched(label) || ctx.MayHaveAnyVertexDeleted();
+    for (auto it = properties.begin(); !maybe_touched && it != properties.end(); ++it) {
+      maybe_touched = core.MayHavePropertyTouched(it->front());
+    }
+    if (!maybe_touched) {
+      if (auto lazy = LazyBaseOnlyScan(*accessor_, index_size, diff_scan, base_scan)) return std::move(*lazy);
+    }
+  }
+
+  std::vector<storage::PropertyId> key_properties;
+  key_properties.reserve(properties.size());
+  for (auto const &path : properties) key_properties.push_back(path.front());
+
+  auto base_key = [label, owned_properties = std::vector<storage::PropertyPath>(properties.begin(), properties.end())](
+                      storage::VertexAccessor const &v) -> std::optional<BranchKey> {
+    auto has = v.HasLabel(label, storage::View::OLD);
+    if (!has.has_value() || !*has) return std::nullopt;
+    return ReadKeyWith([&](storage::PropertyId id) { return v.GetProperty(id, storage::View::OLD); }, owned_properties);
+  };
+  return StreamScan(
+      ctx,
+      VertexStreamSpec(ctx, view, true, order, true, std::move(key_properties), make_match_key(), std::move(base_key)),
+      base_scan(),
+      diff_scan());
+}
+
+VerticesIterable DbAccessor::BranchVertices(storage::View view, storage::PropertyId property) {
+  return BranchPropertyScan(
+      *accessor_,
+      *branch_ctx_,
+      view,
+      property,
+      [&] { return branch_ctx_->historical().Vertices(property, storage::View::OLD); },
+      [&] { return accessor_->Vertices(property, view); },
+      [](storage::PropertyValue const &) { return true; });
+}
+
+VerticesIterable DbAccessor::BranchVertices(storage::View view, storage::PropertyId property,
+                                            std::optional<utils::Bound<storage::PropertyValue>> const &lower,
+                                            std::optional<utils::Bound<storage::PropertyValue>> const &upper) {
+  auto const range = storage::PropertyValueRange::Bounded(lower, upper);
+  return BranchPropertyScan(
+      *accessor_,
+      *branch_ctx_,
+      view,
+      property,
+      [&] { return branch_ctx_->historical().Vertices(property, lower, upper, storage::View::OLD); },
+      [&] { return accessor_->Vertices(property, lower, upper, view); },
+      [range](storage::PropertyValue const &value) { return range.IsValueInRange(value); });
+}
+
+VerticesIterable DbAccessor::BranchVertices(storage::View view, storage::PropertyId property,
+                                            storage::PropertyValueRange const &range) {
+  return BranchPropertyScan(
+      *accessor_,
+      *branch_ctx_,
+      view,
+      property,
+      [&] { return branch_ctx_->historical().Vertices(property, range, storage::View::OLD); },
+      [&] { return accessor_->Vertices(property, range, view); },
+      [range](storage::PropertyValue const &value) { return BranchValueInRange(range, value); });
 }
 
 storage::Result<std::optional<std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>>>

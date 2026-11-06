@@ -260,6 +260,37 @@ TEST_F(VersioningBranchCoreConfigTest, DiffEngineSharesMainsArenaAndGaugeAndDefa
   EXPECT_FALSE(static_cast<ms::Storage &>(Diff()).GetInfo().durability_snapshot_enabled);
 }
 
+TEST(VersioningIndexKeyParts, EachPartKnowsTheKeysItBelongsTo) {
+  auto const a = ms::LabelId::FromUint(1), b = ms::LabelId::FromUint(2);
+  auto const x = ms::PropertyId::FromUint(1), y = ms::PropertyId::FromUint(2), z = ms::PropertyId::FromUint(3);
+  std::vector<ms::LabelPropertyIndexEntry> entries;
+  entries.push_back({.label = a, .properties = {ms::PropertyPath{x}}, .order = ms::IndexOrder::ASC});
+  entries.push_back({.label = a, .properties = {ms::PropertyPath{x}}, .order = ms::IndexOrder::DESC});
+  entries.push_back({.label = a, .properties = {ms::PropertyPath{x}, ms::PropertyPath{y, z}, ms::PropertyPath{y}}});
+  entries.push_back({.label = b, .properties = {ms::PropertyPath{y, z}}});
+  mv::IndexKeyParts const parts{entries};
+  ASSERT_EQ(parts.keys().size(), 3U) << "one key under both orders; a nested path counts as its root";
+  EXPECT_EQ(parts.keys()[1].properties, (std::vector<ms::PropertyId>{x, y})) << "roots in index order, distinct";
+
+  auto const keys_of_label = [&](ms::LabelId label) {
+    std::vector<size_t> sizes;
+    parts.ForEachKeyOfLabel(label, [&](const mv::IndexKeyParts::Key &key) { sizes.push_back(key.properties.size()); });
+    return sizes;
+  };
+  auto const keys_of_property = [&](ms::PropertyId property) {
+    std::vector<ms::LabelId> labels;
+    parts.ForEachKeyOfProperty(property, [&](const mv::IndexKeyParts::Key &key) { labels.push_back(key.label); });
+    return labels;
+  };
+  EXPECT_EQ(keys_of_label(a), (std::vector<size_t>{1, 2}));
+  EXPECT_EQ(keys_of_label(b), (std::vector<size_t>{1}));
+  EXPECT_TRUE(keys_of_label(ms::LabelId::FromUint(9)).empty());
+  EXPECT_EQ(keys_of_property(x), (std::vector<ms::LabelId>{a, a}));
+  EXPECT_EQ(keys_of_property(y), (std::vector<ms::LabelId>{a, b}));
+  EXPECT_EQ(keys_of_property(z), (std::vector<ms::LabelId>{}));
+  EXPECT_TRUE(mv::IndexKeyParts{}.empty());
+}
+
 TEST_F(VersioningBranchCoreTest, DiffEngineSharesMainsNameIdMapperAndReportsMainsName) {
   EXPECT_EQ(Diff().GetSharedNameIdMapper(), storage_->GetSharedNameIdMapper());
   const auto label = Diff().NameToLabel("CreatedOnTheBranch");
@@ -285,22 +316,27 @@ TEST_F(VersioningBranchCoreSwitchedModeTest, DiffEngineRunsInMainsCurrentStorage
   EXPECT_EQ(acc->GetTransaction()->storage_mode, ms::StorageMode::IN_MEMORY_TRANSACTIONAL);
 }
 
-TEST_F(VersioningBranchCoreDefinitionsTest, DiffEngineMirrorsNoConstraintVectorOrTextDefinitions) {
+TEST_F(VersioningBranchCoreDefinitionsTest, DiffEngineMirrorsOnlyTheVertexIndexDefinitionsNoConstraintVectorOrText) {
+  const auto main_indices = storage_->Access(ms::READ)->ListAllIndices();
+  ASSERT_FALSE(main_indices.label.empty());
+  ASSERT_FALSE(main_indices.label_properties.empty());
+  ASSERT_FALSE(main_indices.vector_indices_spec.empty());
+  ASSERT_FALSE(main_indices.text_indices.empty());
   {
-    const auto main_indices = storage_->Access(ms::READ)->ListAllIndices();
-    ASSERT_FALSE(main_indices.label.empty());
-    ASSERT_FALSE(main_indices.label_properties.empty());
-    ASSERT_FALSE(main_indices.vector_indices_spec.empty());
-    ASSERT_FALSE(main_indices.text_indices.empty());
     const auto main_constraints = storage_->Access(ms::READ)->ListAllConstraints();
     ASSERT_FALSE(main_constraints.existence.empty());
     ASSERT_FALSE(main_constraints.unique.empty());
   }
   auto acc = Diff().Access(ms::READ);
   const auto indices = acc->ListAllIndices();
-  EXPECT_TRUE(indices.label.empty());
-  EXPECT_TRUE(indices.label_properties.empty());
-  EXPECT_TRUE(indices.vertex_property.empty());
+  EXPECT_EQ(indices.label, main_indices.label);
+  ASSERT_EQ(indices.label_properties.size(), main_indices.label_properties.size());
+  for (size_t i = 0; i < indices.label_properties.size(); ++i) {
+    EXPECT_EQ(indices.label_properties[i].label, main_indices.label_properties[i].label) << "entry " << i;
+    EXPECT_EQ(indices.label_properties[i].properties, main_indices.label_properties[i].properties) << "entry " << i;
+    EXPECT_EQ(indices.label_properties[i].order, main_indices.label_properties[i].order) << "entry " << i;
+  }
+  EXPECT_EQ(indices.vertex_property, main_indices.vertex_property);
   EXPECT_TRUE(indices.edge_type.empty());
   EXPECT_TRUE(indices.edge_type_property.empty());
   EXPECT_TRUE(indices.edge_property.empty());
@@ -2559,6 +2595,406 @@ TEST_F(VersioningBranchWriteTest, NonDetachDeleteOfAnOverlayWithANativeInEdgeRef
     ASSERT_TRUE(Ctx().current_diff_txn()->CreateEdge(&native, &*anchor, Core().NameToEdgeType("N")).has_value());
     EXPECT_EQ(Ctx().DeleteBaseVertex(a, false).error(), ms::Error::VERTEX_HAS_EDGES);
   });
+}
+
+// An overlay holds the base's labels but only the properties the branch changed, while the diff engine's stock index
+// insert reads the overlay's own properties: a write moving one part of a mirrored key first copies the base's other
+// properties onto the overlay (no delta).
+class VersioningBranchKeyCopyTest : public VersioningBranchWriteTest {
+ protected:
+  void MainIndex(ms::LabelId label, std::vector<ms::PropertyPath> properties) {
+    auto acc = storage_->UniqueAccess();
+    ASSERT_TRUE(acc->CreateIndex(label, std::move(properties)).has_value());
+    Commit(*acc);
+  }
+
+  std::set<uint64_t> IndexedOverlays(ms::LabelId label, const std::vector<ms::PropertyPath> &properties) {
+    auto acc = Diff().Access(ms::READ);
+    std::set<uint64_t> gids;
+    for (auto v : acc->Vertices(label, properties, ms::View::NEW)) gids.insert(v.Gid().AsUint());
+    return gids;
+  }
+
+  // gid -> key values read off the overlay: a yielded entry is validated against it, so the overlay holds every part.
+  using Keys = std::map<uint64_t, std::vector<ms::PropertyValue>>;
+
+  Keys IndexedKeys(ms::LabelId label, const std::vector<ms::PropertyId> &properties) {
+    auto acc = Diff().Access(ms::READ);
+    std::vector<ms::PropertyPath> paths(properties.begin(), properties.end());
+    Keys keys;
+    for (auto v : acc->Vertices(label, paths, ms::View::NEW)) {
+      auto &key = keys[v.Gid().AsUint()];
+      for (auto const property : properties) key.push_back(*v.GetProperty(property, ms::View::NEW));
+    }
+    return keys;
+  }
+
+  ms::Vertex *RawOverlay(ms::Gid gid) { return Core().overlay_index().Find(gid).overlay; }
+
+  static bool HoldsLabel(ms::Vertex *overlay, ms::LabelId label) {
+    std::shared_lock guard{overlay->lock};
+    return std::ranges::contains(overlay->labels, label);
+  }
+
+  static bool HoldsProperty(ms::Vertex *overlay, ms::PropertyId key) {
+    std::shared_lock guard{overlay->lock};
+    return overlay->properties.HasProperty(key);
+  }
+
+  static auto HeldLabelCount(ms::Vertex *overlay, ms::LabelId label) {
+    std::shared_lock guard{overlay->lock};
+    return std::ranges::count(overlay->labels, label);
+  }
+
+  static ms::PropertyValue HeldProperty(ms::Vertex *overlay, ms::PropertyId key) {
+    std::shared_lock guard{overlay->lock};
+    return overlay->properties.GetProperty(key);
+  }
+
+  static std::vector<ms::Delta::Action> Actions(ms::Vertex *overlay) {
+    std::vector<ms::Delta::Action> actions;
+    std::shared_lock guard{overlay->lock};
+    for (const ms::Delta *delta = overlay->delta(); delta != nullptr; delta = delta->next.load()) {
+      actions.push_back(delta->action);
+    }
+    return actions;
+  }
+
+  template <typename Body>
+  void OnBase(ms::Gid gid, Body &&body) {
+    Fork();
+    Writing(gid, std::forward<Body>(body));
+  }
+
+  template <typename Body>
+  void Writing(ms::Gid gid, Body &&body) {
+    Write([&] {
+      auto base_vertex = *Ctx().FindBaseVertex(gid);
+      body(base_vertex);
+    });
+  }
+};
+
+TEST_F(VersioningBranchKeyCopyTest, SettingALabelCopiesTheIndexedPropertyTheBaseHas) {
+  auto const l = Label("L");
+  auto const x = Prop("x");
+  auto const v = CreateMainVertex({}, {{x, Int(1)}});
+  MainIndex(l, {x});
+  std::vector<ms::Delta::Action> actions;
+  OnBase(v, [&](ms::VertexAccessor &base_vertex) {
+    ASSERT_TRUE(Ctx().AddLabel(base_vertex, l).has_value());
+    actions = Actions(RawOverlay(v));
+  });
+  EXPECT_EQ(IndexedOverlays(l, {x}), std::set<uint64_t>{v.AsUint()}) << "the overlay is under (L, x) in the diff index";
+  EXPECT_EQ(HeldProperty(RawOverlay(v), x), Int(1)) << "x was copied from the base";
+  EXPECT_EQ(actions, std::vector<ms::Delta::Action>{ms::Delta::Action::REMOVE_LABEL})
+      << "the copy left no delta: only the label write has one";
+  Read([&] {
+    auto base_vertex = *Ctx().FindBaseVertex(v);
+    EXPECT_EQ(*Ctx().GetProperty(base_vertex, x, ms::View::NEW), Int(1));
+    EXPECT_EQ(LabelSet(Ctx().Labels(base_vertex, ms::View::NEW)), std::set<ms::LabelId>{l});
+  });
+}
+
+TEST_F(VersioningBranchKeyCopyTest, ACompositeKeyGetsEveryPartTheBaseHas) {
+  auto const l = Label("L"), other = Label("Other");
+  auto const x = Prop("x"), y = Prop("y"), z = Prop("z");
+  auto const v = CreateMainVertex({l, other}, {{x, Int(1)}, {y, Int(2)}, {z, Int(3)}});
+  MainIndex(l, {x, y});
+  std::vector<ms::Delta::Action> actions;
+  OnBase(v, [&](ms::VertexAccessor &base_vertex) {
+    ASSERT_TRUE(Ctx().SetProperty(base_vertex, y, Int(20)).has_value());
+    actions = Actions(RawOverlay(v));
+  });
+  EXPECT_EQ(IndexedKeys(l, {x, y}), (Keys{{v.AsUint(), {Int(1), Int(20)}}}));
+  EXPECT_EQ(IndexedOverlays(l, {x, y}), std::set<uint64_t>{v.AsUint()});
+  auto *const overlay = RawOverlay(v);
+  EXPECT_TRUE(HoldsLabel(overlay, l)) << "the overlay holds every base label from its creation";
+  EXPECT_TRUE(HoldsLabel(overlay, other));
+  EXPECT_EQ(HeldProperty(overlay, x), Int(1)) << "the partner part was copied";
+  EXPECT_FALSE(HoldsProperty(overlay, z)) << "a property outside the key was not";
+  EXPECT_EQ(HeldProperty(overlay, y), Int(20));
+  EXPECT_EQ(actions, std::vector<ms::Delta::Action>{ms::Delta::Action::SET_PROPERTY})
+      << "the copies left no delta: only the property write has one";
+  Read([&] {
+    auto base_vertex = *Ctx().FindBaseVertex(v);
+    EXPECT_EQ(LabelSet(Ctx().Labels(base_vertex, ms::View::NEW)), (std::set<ms::LabelId>{l, other}));
+    EXPECT_TRUE(*Ctx().HasLabel(base_vertex, l, ms::View::NEW));
+  });
+}
+
+TEST_F(VersioningBranchKeyCopyTest, RemovingOnePartOfACompositeKeyCopiesTheRest) {
+  auto const l = Label("L");
+  auto const x = Prop("x"), y = Prop("y");
+  auto const v = CreateMainVertex({l}, {{x, Int(1)}, {y, Int(2)}});
+  MainIndex(l, {x, y});
+  OnBase(v, [&](ms::VertexAccessor &base_vertex) {
+    ASSERT_TRUE(Ctx().SetProperty(base_vertex, x, ms::PropertyValue{}).has_value());
+  });
+  auto *const overlay = RawOverlay(v);
+  EXPECT_TRUE(HoldsLabel(overlay, l));
+  EXPECT_EQ(HeldProperty(overlay, y), Int(2)) << "the rest of the key, which stays non-null";
+  EXPECT_TRUE(HeldProperty(overlay, x).IsNull());
+  Read([&] {
+    auto base_vertex = *Ctx().FindBaseVertex(v);
+    EXPECT_TRUE(Ctx().GetProperty(base_vertex, x, ms::View::NEW)->IsNull());
+    EXPECT_EQ(*Ctx().GetProperty(base_vertex, y, ms::View::NEW), Int(2));
+  });
+}
+
+TEST_F(VersioningBranchKeyCopyTest, WritesThatCannotMoveAKeyCopyNothing) {
+  auto const l = Label("L"), other = Label("Other");
+  auto const x = Prop("x"), unrelated = Prop("u");
+  auto const v = CreateMainVertex({l}, {{x, Int(1)}, {unrelated, Int(9)}});
+  auto const w = CreateMainVertex({l}, {{x, Int(2)}});
+  MainIndex(l, {x});
+  Fork();
+  Writing(v, [&](ms::VertexAccessor &base_vertex) {
+    ASSERT_TRUE(Ctx().SetProperty(base_vertex, unrelated, Int(10)).has_value());
+    ASSERT_TRUE(Ctx().AddLabel(base_vertex, other).has_value()) << "a label no key uses";
+  });
+  auto *const overlay = RawOverlay(v);
+  EXPECT_TRUE(HeldProperty(overlay, x).IsNull());
+  Writing(w, [&](ms::VertexAccessor &base_vertex) { ASSERT_TRUE(Ctx().RemoveLabel(base_vertex, l).has_value()); });
+  EXPECT_TRUE(HeldProperty(RawOverlay(w), x).IsNull()) << "a label removal copies nothing";
+  EXPECT_TRUE(IndexedOverlays(l, {x}).empty());
+}
+
+TEST_F(VersioningBranchKeyCopyTest, ASinglePartKeyCopiesNothingBeyondItsOwnProperty) {
+  auto const l = Label("L");
+  auto const x = Prop("x"), z = Prop("z");
+  auto const v = CreateMainVertex({l}, {{x, Int(1)}, {z, Int(3)}});
+  MainIndex(l, {x});
+  std::vector<ms::Delta::Action> actions;
+  OnBase(v, [&](ms::VertexAccessor &base_vertex) {
+    ASSERT_TRUE(Ctx().SetProperty(base_vertex, x, Int(2)).has_value());
+    ASSERT_TRUE(Ctx().AddLabel(base_vertex, Label("M")).has_value()) << "a label no key uses";
+    actions = Actions(RawOverlay(v));
+  });
+  auto *const overlay = RawOverlay(v);
+  EXPECT_EQ(HeldProperty(overlay, x), Int(2));
+  EXPECT_FALSE(HoldsProperty(overlay, z)) << "a property outside the key is never copied";
+  EXPECT_EQ(actions, (std::vector<ms::Delta::Action>{ms::Delta::Action::REMOVE_LABEL, ms::Delta::Action::SET_PROPERTY}))
+      << "no copy: only the two writes have deltas";
+  EXPECT_EQ(IndexedOverlays(l, {x}), std::set<uint64_t>{v.AsUint()});
+}
+
+TEST_F(VersioningBranchKeyCopyTest, ACopyNeverReplacesWhatTheBranchAlreadyHolds) {
+  auto const l = Label("L");
+  auto const x = Prop("x");
+  auto const v = CreateMainVertex({}, {{x, Int(1)}});
+  MainIndex(l, {x});
+  OnBase(v,
+         [&](ms::VertexAccessor &base_vertex) { ASSERT_TRUE(Ctx().SetProperty(base_vertex, x, Int(7)).has_value()); });
+  Writing(v, [&](ms::VertexAccessor &base_vertex) { ASSERT_TRUE(Ctx().AddLabel(base_vertex, l).has_value()); });
+  EXPECT_EQ(HeldProperty(RawOverlay(v), x), Int(7)) << "the branch's own value stays";
+  EXPECT_EQ(IndexedOverlays(l, {x}), std::set<uint64_t>{v.AsUint()});
+}
+
+TEST_F(VersioningBranchKeyCopyTest, ARemovedBaseLabelStaysRemovedAndReaddingItIndexesTheOverlay) {
+  auto const l = Label("L");
+  auto const x = Prop("x");
+  auto const v = CreateMainVertex({l}, {{x, Int(1)}});
+  MainIndex(l, {x});
+  OnBase(v, [&](ms::VertexAccessor &base_vertex) { ASSERT_TRUE(Ctx().RemoveLabel(base_vertex, l).has_value()); });
+  Writing(v,
+          [&](ms::VertexAccessor &base_vertex) { ASSERT_TRUE(Ctx().SetProperty(base_vertex, x, Int(2)).has_value()); });
+  EXPECT_FALSE(HoldsLabel(RawOverlay(v), l)) << "the branch removed the label and a later write does not restore it";
+  EXPECT_TRUE(IndexedOverlays(l, {x}).empty()) << "and no entry exists while the vertex lacks L";
+  Writing(v, [&](ms::VertexAccessor &base_vertex) { ASSERT_TRUE(Ctx().AddLabel(base_vertex, l).has_value()); });
+  EXPECT_EQ(IndexedOverlays(l, {x}), std::set<uint64_t>{v.AsUint()}) << "re-adding L puts the overlay under (L, 2)";
+  Read([&] {
+    auto base_vertex = *Ctx().FindBaseVertex(v);
+    EXPECT_TRUE(*Ctx().HasLabel(base_vertex, l, ms::View::NEW));
+    EXPECT_EQ(*Ctx().GetProperty(base_vertex, x, ms::View::NEW), Int(2));
+  });
+}
+
+TEST_F(VersioningBranchKeyCopyTest, ARemovedLabelOfAKeyedOverlayReadsAsRemovedUntilReadded) {
+  auto const l = Label("L");
+  auto const x = Prop("x");
+  auto const v = CreateMainVertex({l}, {});
+  MainIndex(l, {x});
+  OnBase(v,
+         [&](ms::VertexAccessor &base_vertex) { ASSERT_TRUE(Ctx().SetProperty(base_vertex, x, Int(2)).has_value()); });
+  ASSERT_TRUE(HoldsLabel(RawOverlay(v), l));
+  Writing(v, [&](ms::VertexAccessor &base_vertex) { EXPECT_TRUE(*Ctx().RemoveLabel(base_vertex, l)); });
+  Read([&] {
+    auto base_vertex = *Ctx().FindBaseVertex(v);
+    EXPECT_FALSE(*Ctx().HasLabel(base_vertex, l, ms::View::NEW));
+    EXPECT_TRUE(Ctx().Labels(base_vertex, ms::View::NEW)->empty());
+    EXPECT_FALSE(*Ctx().HasAnyLabel(base_vertex, ms::View::NEW));
+  });
+  Writing(v, [&](ms::VertexAccessor &base_vertex) { EXPECT_TRUE(*Ctx().AddLabel(base_vertex, l)); });
+  Read([&] {
+    auto base_vertex = *Ctx().FindBaseVertex(v);
+    EXPECT_TRUE(*Ctx().HasLabel(base_vertex, l, ms::View::NEW));
+    EXPECT_EQ(LabelSet(Ctx().Labels(base_vertex, ms::View::NEW)), std::set<ms::LabelId>{l});
+  });
+}
+
+TEST_F(VersioningBranchKeyCopyTest, UpdatingPropertiesCopiesThePartsOfEveryKeyTheMapMoves) {
+  auto const l = Label("L"), m = Label("M");
+  auto const a = Prop("a"), b = Prop("b"), c = Prop("c"), d = Prop("d"), z = Prop("z");
+  auto const v = CreateMainVertex({l, m}, {{a, Int(1)}, {b, Int(2)}, {c, Int(3)}, {d, Int(4)}, {z, Int(5)}});
+  MainIndex(l, {a, b});
+  MainIndex(l, {a, z});
+  MainIndex(m, {c, d});
+  OnBase(v, [&](ms::VertexAccessor &base_vertex) {
+    Props map{{a, Int(10)}, {c, Int(30)}, {z, Int(50)}};
+    ASSERT_TRUE(Ctx().UpdateProperties(base_vertex, map).has_value());
+  });
+  EXPECT_EQ(IndexedKeys(l, {a, b}), (Keys{{v.AsUint(), {Int(10), Int(2)}}}));
+  EXPECT_EQ(IndexedKeys(l, {a, z}), (Keys{{v.AsUint(), {Int(10), Int(50)}}}));
+  EXPECT_EQ(IndexedKeys(m, {c, d}), (Keys{{v.AsUint(), {Int(30), Int(4)}}}));
+  auto *const overlay = RawOverlay(v);
+  EXPECT_EQ(HeldLabelCount(overlay, l), 1) << "two moved keys of L copy it once";
+  EXPECT_EQ(HeldLabelCount(overlay, m), 1);
+  EXPECT_EQ(HeldProperty(overlay, b), Int(2));
+  EXPECT_EQ(HeldProperty(overlay, d), Int(4));
+  Read([&] {
+    auto base_vertex = *Ctx().FindBaseVertex(v);
+    EXPECT_EQ(*Ctx().Properties(base_vertex, ms::View::NEW),
+              (Props{{a, Int(10)}, {b, Int(2)}, {c, Int(30)}, {d, Int(4)}, {z, Int(50)}}));
+  });
+}
+
+TEST_F(VersioningBranchKeyCopyTest, InitialisingPropertiesCopiesTheBaseLabelOfTheKey) {
+  auto const l = Label("L");
+  auto const a = Prop("a"), b = Prop("b");
+  auto const v = CreateMainVertex({l}, {});
+  MainIndex(l, {a, b});
+  OnBase(v, [&](ms::VertexAccessor &base_vertex) {
+    Props map{{a, Int(1)}, {b, Int(2)}};
+    ASSERT_TRUE(*Ctx().InitProperties(base_vertex, map));
+  });
+  EXPECT_EQ(IndexedKeys(l, {a, b}), (Keys{{v.AsUint(), {Int(1), Int(2)}}}));
+  EXPECT_TRUE(HoldsLabel(RawOverlay(v), l));
+}
+
+TEST_F(VersioningBranchKeyCopyTest, ReplacingPropertiesIndexesOnlyTheKeysTheMapCompletes) {
+  auto const l = Label("L");
+  auto const a = Prop("a"), b = Prop("b");
+  auto const whole = CreateMainVertex({l}, {{a, Int(1)}, {b, Int(2)}});
+  auto const half = CreateMainVertex({l}, {{a, Int(1)}, {b, Int(2)}});
+  MainIndex(l, {a, b});
+  Fork();
+  Writing(whole, [&](ms::VertexAccessor &base_vertex) {
+    ASSERT_TRUE(Ctx().ClearProperties(base_vertex).has_value());
+    ASSERT_TRUE(HoldsProperty(RawOverlay(whole), b));
+    EXPECT_TRUE(HeldProperty(RawOverlay(whole), b).IsNull()) << "the clear leaves b as an explicit null: no copy";
+    Props map{{a, Int(5)}, {b, Int(6)}};
+    ASSERT_TRUE(Ctx().UpdateProperties(base_vertex, map).has_value());
+  });
+  Writing(half, [&](ms::VertexAccessor &base_vertex) {
+    ASSERT_TRUE(Ctx().ClearProperties(base_vertex).has_value());
+    Props map{{a, Int(7)}};
+    ASSERT_TRUE(Ctx().UpdateProperties(base_vertex, map).has_value());
+  });
+  EXPECT_EQ(IndexedKeys(l, {a, b}), (Keys{{whole.AsUint(), {Int(5), Int(6)}}}))
+      << "the vertex the replace left without b is under no key";
+  ASSERT_TRUE(HoldsProperty(RawOverlay(half), b));
+  EXPECT_TRUE(HeldProperty(RawOverlay(half), b).IsNull()) << "the cleared b stays an explicit null, not copied back";
+  Read([&] {
+    auto base_vertex = *Ctx().FindBaseVertex(half);
+    EXPECT_EQ(*Ctx().Properties(base_vertex, ms::View::NEW), (Props{{a, Int(7)}}));
+  });
+}
+
+TEST_F(VersioningBranchKeyCopyTest, SettingSeveralLabelsCopiesThePartsOfEachKey) {
+  auto const l1 = Label("L1"), l2 = Label("L2");
+  auto const a = Prop("a"), b = Prop("b");
+  auto const v = CreateMainVertex({}, {{a, Int(1)}, {b, Int(2)}});
+  MainIndex(l1, {a});
+  MainIndex(l2, {a, b});
+  OnBase(v, [&](ms::VertexAccessor &base_vertex) {
+    ASSERT_TRUE(*Ctx().AddLabel(base_vertex, l1));
+    ASSERT_TRUE(*Ctx().AddLabel(base_vertex, l2));
+  });
+  EXPECT_EQ(IndexedKeys(l1, {a}), (Keys{{v.AsUint(), {Int(1)}}}));
+  EXPECT_EQ(IndexedKeys(l2, {a, b}), (Keys{{v.AsUint(), {Int(1), Int(2)}}}));
+  EXPECT_EQ(HeldLabelCount(RawOverlay(v), l1), 1);
+  EXPECT_EQ(HeldLabelCount(RawOverlay(v), l2), 1);
+}
+
+TEST_F(VersioningBranchKeyCopyTest, RemovalsDeletesAndNoOpsCopyNothing) {
+  auto const l = Label("L"), m = Label("M");
+  auto const s = Prop("s"), x = Prop("x"), y = Prop("y"), z = Prop("z");
+  auto const removed = CreateMainVertex({l}, {{s, Int(1)}});
+  auto const deleted = CreateMainVertex({m}, {{x, Int(1)}, {y, Int(2)}});
+  auto const absent = CreateMainVertex({m}, {{x, Int(1)}});
+  auto const unrelated = CreateMainVertex({m}, {{x, Int(1)}, {y, Int(2)}});
+  MainIndex(l, {s});
+  MainIndex(m, {x, y});
+  Fork();
+  Writing(removed, [&](ms::VertexAccessor &base_vertex) {
+    ASSERT_TRUE(Ctx().SetProperty(base_vertex, s, ms::PropertyValue{}).has_value()) << "REMOVE of a single-part key";
+  });
+  {
+    auto *const overlay = RawOverlay(removed);
+    EXPECT_TRUE(HoldsProperty(overlay, s)) << "the write itself leaves an explicit null";
+    EXPECT_TRUE(HeldProperty(overlay, s).IsNull());
+    for (auto const other : {x, y, z}) EXPECT_FALSE(HoldsProperty(overlay, other));
+  }
+  Write([&] { ASSERT_TRUE(*Ctx().DeleteBaseVertex(deleted, false)); });
+  EXPECT_TRUE(HeldProperty(RawOverlay(deleted), x).IsNull());
+  Writing(absent, [&](ms::VertexAccessor &base_vertex) {
+    ASSERT_TRUE(Ctx().SetProperty(base_vertex, y, ms::PropertyValue{}).has_value())
+        << "REMOVE of a property nobody holds";
+  });
+  EXPECT_FALSE(HoldsProperty(RawOverlay(absent), x));
+  Writing(unrelated, [&](ms::VertexAccessor &base_vertex) {
+    Props map{{z, Int(1)}};
+    ASSERT_TRUE(Ctx().UpdateProperties(base_vertex, map).has_value()) << "a map that names no key part";
+  });
+  EXPECT_FALSE(HoldsProperty(RawOverlay(unrelated), x));
+  EXPECT_TRUE(IndexedKeys(l, {s}).empty());
+  EXPECT_TRUE(IndexedKeys(m, {x, y}).empty());
+}
+
+TEST_F(VersioningBranchKeyCopyTest, AddingALabelAfterRemovingAPartNeverBringsThePartBack) {
+  auto const l = Label("L");
+  auto const x = Prop("x");
+  auto const v = CreateMainVertex({}, {{x, Int(1)}});
+  MainIndex(l, {x});
+  OnBase(v, [&](ms::VertexAccessor &base_vertex) {
+    ASSERT_TRUE(Ctx().SetProperty(base_vertex, x, ms::PropertyValue{}).has_value());
+  });
+  Writing(v, [&](ms::VertexAccessor &base_vertex) { ASSERT_TRUE(*Ctx().AddLabel(base_vertex, l)); });
+  EXPECT_TRUE(HeldProperty(RawOverlay(v), x).IsNull()) << "the branch removed x: the label copy does not restore it";
+  EXPECT_TRUE(IndexedKeys(l, {x}).empty());
+  Read([&] {
+    auto base_vertex = *Ctx().FindBaseVertex(v);
+    EXPECT_TRUE(Ctx().GetProperty(base_vertex, x, ms::View::NEW)->IsNull());
+  });
+}
+
+TEST_F(VersioningBranchKeyCopyTest, AnAbortedUpdateDoesNotKeepTheNextWriteOutOfTheIndex) {
+  auto const l = Label("L");
+  auto const a = Prop("a"), b = Prop("b");
+  auto const v = CreateMainVertex({l}, {{a, Int(1)}, {b, Int(2)}});
+  MainIndex(l, {a, b});
+  Fork();
+  {
+    auto acc = Diff().Access(ms::WRITE);
+    Begin(acc.get());
+    auto base_vertex = *Ctx().FindBaseVertex(v);
+    Props map{{a, Int(5)}};
+    ASSERT_TRUE(Ctx().UpdateProperties(base_vertex, map).has_value());
+    Ctx().EndTransaction();
+    acc->Abort();
+  }
+  EXPECT_TRUE(IndexedKeys(l, {a, b}).empty()) << "the stale entry is hidden by validation";
+  Read([&] {
+    auto base_vertex = *Ctx().FindBaseVertex(v);
+    EXPECT_EQ(*Ctx().Properties(base_vertex, ms::View::NEW), (Props{{a, Int(1)}, {b, Int(2)}}));
+    EXPECT_EQ(LabelSet(Ctx().Labels(base_vertex, ms::View::NEW)), std::set<ms::LabelId>{l}) << "a copy changes no read";
+  });
+  Writing(v, [&](ms::VertexAccessor &base_vertex) {
+    Props map{{a, Int(7)}};
+    ASSERT_TRUE(Ctx().UpdateProperties(base_vertex, map).has_value());
+  });
+  EXPECT_EQ(IndexedKeys(l, {a, b}), (Keys{{v.AsUint(), {Int(7), Int(2)}}}));
 }
 
 // ---- Edge writes: a base edge is written through its overlay (an Edge in the EdgeOverlayIndex, with the overlays of
