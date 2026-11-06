@@ -35,8 +35,7 @@ struct PointIndex {
   PointIndex(std::span<Entry<IndexPointWGS2d>> points2dWGS, std::span<Entry<IndexPointCartesian2d>> points2dCartesian,
              std::span<Entry<IndexPointWGS3d>> points3dWGS, std::span<Entry<IndexPointCartesian3d>> points3dCartesian);
 
-  auto CreateNewPointIndex(LabelPropKey labelPropKey, absl::flat_hash_set<Vertex const *> const &changed_vertices) const
-      -> PointIndex;
+  auto CreateNewPointIndex(LabelPropKey labelPropKey, ChangedVertices const &changed_vertices) const -> PointIndex;
 
   auto EntryCount() const -> std::size_t {
     return wgs_2d_index_->size() + wgs_3d_index_->size() + cartesian_2d_index_->size() + cartesian_3d_index_->size();
@@ -245,8 +244,8 @@ bool PointIndexStorage::PointIndexExists(LabelId labelId, PropertyId propertyId)
   return indexes->contains(LabelPropKey{labelId, propertyId});
 }
 
-auto PointIndex::CreateNewPointIndex(LabelPropKey labelPropKey,
-                                     absl::flat_hash_set<Vertex const *> const &changed_vertices) const -> PointIndex {
+auto PointIndex::CreateNewPointIndex(LabelPropKey labelPropKey, ChangedVertices const &changed_vertices) const
+    -> PointIndex {
   DMG_ASSERT(!changed_vertices.empty(), "Expect at least one change");
 
   // These are at this stage uncommitted changes + must have come from this txn, no need to check MVCC history

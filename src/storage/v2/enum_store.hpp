@@ -14,9 +14,9 @@
 #include "storage/v2/enum.hpp"
 #include "storage/v2/name_id_mapper.hpp"
 
+#include <boost/unordered/unordered_flat_map.hpp>
 #include <range/v3/view/enumerate.hpp>
 #include <range/v3/view/zip.hpp>
-#include "absl/container/flat_hash_map.h"
 #include "strong_type/strong_type.hpp"
 
 #include <algorithm>
@@ -204,8 +204,18 @@ struct EnumStore {
   std::vector<std::string> etype_strs_;
   std::vector<std::vector<std::string>> evalue_strs_;
 
-  absl::flat_hash_map<std::string, EnumTypeId> etype_lookup_;
-  std::vector<absl::flat_hash_map<std::string, EnumValueId>> evalue_lookups_;
+  // Transparent so lookups by string_view do not build a std::string
+  struct StringHash {
+    using is_transparent = void;
+
+    std::size_t operator()(std::string_view s) const noexcept { return std::hash<std::string_view>{}(s); }
+  };
+
+  template <typename V>
+  using StringMap = boost::unordered_flat_map<std::string, V, StringHash, std::equal_to<>>;
+
+  StringMap<EnumTypeId> etype_lookup_;
+  std::vector<StringMap<EnumValueId>> evalue_lookups_;
 };
 
 }  // namespace memgraph::storage

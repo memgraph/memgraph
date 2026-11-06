@@ -22,8 +22,6 @@
 #include "query/frontend/semantic/symbol.hpp"
 #include "utils/logging.hpp"
 
-#include <absl/container/flat_hash_map.h>
-
 namespace memgraph::query {
 
 class SymbolTable final {

@@ -45,7 +45,7 @@
 #include "utils/temporal.hpp"
 #include "utils/uuid.hpp"
 
-#include "absl/container/flat_hash_map.h"
+#include <boost/unordered/unordered_flat_map.hpp>
 
 namespace memgraph::query {
 namespace {
@@ -2186,7 +2186,7 @@ TypedValue Description(const TypedValue *args, int64_t nargs, const FunctionCont
   return TypedValue(TypedValue::TString(*desc, ctx.memory));
 }
 
-auto const builtin_functions = absl::flat_hash_map<std::string, func_info>{
+auto const builtin_functions = boost::unordered_flat_map<std::string, func_info>{
     // Predicate functions
     {"ISEMPTY", func_info{.func_ = IsEmpty, .is_pure_ = true}},
 

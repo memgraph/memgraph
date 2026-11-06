@@ -19,8 +19,10 @@
 #include <variant>
 #include <vector>
 
+#include <boost/unordered/unordered_flat_map.hpp>
+#include <boost/unordered/unordered_flat_set.hpp>
 #include <nlohmann/json.hpp>
-#include "absl/container/flat_hash_set.h"
+#include "absl/hash/hash.h"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_store.hpp"
 #include "storage/v2/property_value.hpp"
@@ -123,8 +125,8 @@ struct TextEdgeIndexSpec {
 };
 
 struct TextIndexPending {
-  absl::flat_hash_set<const Vertex *> to_add;
-  absl::flat_hash_set<const Vertex *> to_remove;
+  boost::unordered_flat_set<const Vertex *, absl::Hash<const Vertex *>> to_add;
+  boost::unordered_flat_set<const Vertex *, absl::Hash<const Vertex *>> to_remove;
 };
 
 struct EdgeWithVertices {
@@ -143,13 +145,15 @@ struct EdgeWithVertices {
 };
 
 struct TextEdgeIndexPending {
-  absl::flat_hash_set<EdgeWithVertices> to_add;
-  absl::flat_hash_set<const Edge *> to_remove;
+  boost::unordered_flat_set<EdgeWithVertices, absl::Hash<EdgeWithVertices>> to_add;
+  boost::unordered_flat_set<const Edge *, absl::Hash<const Edge *>> to_remove;
 };
 
 // Text index change collector for transaction-level batching
-using TextIndexChangeCollector = absl::flat_hash_map<TextIndexData *, TextIndexPending>;
-using TextEdgeIndexChangeCollector = absl::flat_hash_map<TextEdgeIndexData *, TextEdgeIndexPending>;
+using TextIndexChangeCollector =
+    boost::unordered_flat_map<TextIndexData *, TextIndexPending, absl::Hash<TextIndexData *>>;
+using TextEdgeIndexChangeCollector =
+    boost::unordered_flat_map<TextEdgeIndexData *, TextEdgeIndexPending, absl::Hash<TextEdgeIndexData *>>;
 
 void TrackTextIndexChange(TextIndexChangeCollector &collector, std::span<TextIndexData *> indices, const Vertex *vertex,
                           TextIndexOp op);

@@ -15,7 +15,8 @@
 #include <memory>
 #include <utility>
 
-#include "absl/container/flat_hash_map.h"
+#include <boost/unordered/unordered_flat_map.hpp>
+#include "absl/hash/hash.h"
 
 #include "metrics/metric_handles.hpp"
 #include "metrics/scoped_gauge.hpp"
@@ -48,8 +49,10 @@ class TypeConstraints {
   using IndividualConstraintPtr = std::shared_ptr<IndividualConstraint>;
 
   struct Container {
-    absl::flat_hash_map<std::pair<LabelId, PropertyId>, IndividualConstraintPtr> constraints_;
-    absl::flat_hash_map<LabelId, absl::flat_hash_map<PropertyId, TypeConstraintKind>> l2p_constraints_;
+    boost::unordered_flat_map<std::pair<LabelId, PropertyId>, IndividualConstraintPtr,
+                              absl::Hash<std::pair<LabelId, PropertyId>>>
+        constraints_;
+    boost::unordered_flat_map<LabelId, PropertyTypeConstraints, std::hash<LabelId>> l2p_constraints_;
   };
 
   using ContainerPtr = std::shared_ptr<Container const>;
@@ -105,7 +108,7 @@ class TypeConstraints {
   void DropGraphClearConstraints();
 
   /// Returns constraints for a specific label, used for registration in property store
-  auto GetTypeConstraintsForLabel(LabelId label) const -> absl::flat_hash_map<PropertyId, TypeConstraintKind>;
+  auto GetTypeConstraintsForLabel(LabelId label) const -> PropertyTypeConstraints;
 
  private:
   /// Get individual constraint for in-place status modification.
