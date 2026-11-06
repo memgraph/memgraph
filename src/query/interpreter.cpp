@@ -4252,6 +4252,12 @@ void CheckParallelExecution(std::optional<size_t> &parallel_execution, plan::Log
     plan::ParallelChecker parallel_checker;
     parallel_checker.CheckParallelized(plan);
     if (parallel_checker.is_parallelized_) {
+      // Chunked scans open the diff engine alone, never the main+diff union a branch reads.
+      if (dba->branch_context() != nullptr) {
+        throw QueryException(
+            "USING PARALLEL EXECUTION is not supported on a branch in v1. Remove the directive, or run the query on "
+            "main: USE BRANCH main.");
+      }
       if (interpreter_context->worker_pool != nullptr) {
         dba->DisableDeltaChainCache();
       } else {
