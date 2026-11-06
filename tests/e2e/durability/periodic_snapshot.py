@@ -436,8 +436,11 @@ def test_cron_skips_after_license_lost(test_name):
 
         execute_and_fetch_all(cursor, "SET DATABASE SETTING 'enterprise.license' TO '';")
         assert execute_and_fetch_all(cursor, "SHOW NEXT SNAPSHOT;") == []
-        time.sleep(1)
-        before = number_of_snapshots(snapshots_dir)
+        # A snapshot already being written when the licence is cleared still lands; sample once the count settles.
+        before = -1
+        while (count := number_of_snapshots(snapshots_dir)) != before:
+            before = count
+            time.sleep(2)
         time.sleep(3)
         assert number_of_snapshots(snapshots_dir) == before
 
