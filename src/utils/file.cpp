@@ -334,7 +334,7 @@ void InputFile::Close() noexcept {
   }
 
   if (ret != 0) {
-    spdlog::error("While trying to close {} an error occured: {} ({})", path_, strerror(errno), errno);
+    spdlog::error("While trying to close {} an error occurred: {} ({})", path_, strerror(errno), errno);
   }
 
   fd_ = -1;
