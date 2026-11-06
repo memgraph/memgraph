@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 #pragma once
 
+#include <algorithm>
 #include "storage/v2/edge_direction.hpp"
 #include "storage/v2/edge_ref.hpp"
 #include "storage/v2/id_types.hpp"

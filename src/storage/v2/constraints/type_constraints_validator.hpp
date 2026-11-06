@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <algorithm>
 #include "storage/v2/id_types.hpp"
 
 #include "storage/v2/constraints/type_constraints_kind.hpp"
