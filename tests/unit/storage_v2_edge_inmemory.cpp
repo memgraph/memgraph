@@ -12,6 +12,7 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include <cmath>
 #include <limits>
 
 #include "materialise_edges.hpp"
@@ -5437,6 +5438,54 @@ TEST(StorageWithProperties, EdgeNonexistentPropertyAPI) {
   ASSERT_EQ(*edge->GetProperty(property, memgraph::storage::View::NEW), memgraph::storage::PropertyValue("value"));
 
   ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+}
+
+// With the flag false, a map write of a value equal to the stored one but stored differently is
+// skipped in the store, and must leave the stored representation as it was after an abort.
+TEST(StorageWithProperties, EdgeMapWriteOfAnEqualValueKeepsTheStoredRepresentationAcrossAbort) {
+  using memgraph::storage::PropertyValue;
+  using memgraph::storage::View;
+  std::unique_ptr<memgraph::storage::Storage> store(new memgraph::storage::InMemoryStorage(
+      {.salient = {.items = {.properties_on_edges = true, .delta_on_identical_property_update = false}}}));
+  auto const property = store->NameToProperty("p");
+  auto const key = store->NameToProperty("a");
+  auto const nested = [&](PropertyValue value) { return PropertyValue(PropertyValue::map_t{{key, std::move(value)}}); };
+  auto const check =
+      [&](std::string_view name, PropertyValue const &seeded, PropertyValue const &written, auto const &kept) {
+        SCOPED_TRACE(name);
+        memgraph::storage::Gid gid{};
+        {
+          auto acc = store->Access(memgraph::storage::WRITE);
+          auto vertex = acc->CreateVertex();
+          gid = vertex.Gid();
+          auto edge = acc->CreateEdge(&vertex, &vertex, acc->NameToEdgeType("et")).value();
+          ASSERT_TRUE(edge.SetProperty(property, seeded).has_value());
+          ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+        }
+        auto const edge_of = [&](auto &acc) { return acc->FindVertex(gid, View::OLD)->OutEdges(View::OLD)->edges[0]; };
+        {
+          auto acc = store->Access(memgraph::storage::WRITE);
+          std::map<memgraph::storage::PropertyId, PropertyValue> properties{{property, written}};
+          auto const deltas_before = acc->GetTransaction()->deltas.size();
+          ASSERT_TRUE(edge_of(acc).UpdateProperties(properties).has_value());
+          auto const now = edge_of(acc).GetProperty(property, View::NEW);
+          ASSERT_TRUE(now.has_value());
+          EXPECT_TRUE(kept(*now)) << "the skipped map write changed the stored representation";
+          EXPECT_EQ(acc->GetTransaction()->deltas.size(), deltas_before);
+          acc->Abort();
+        }
+        auto acc = store->Access(memgraph::storage::READ);
+        auto const value = edge_of(acc).GetProperty(property, View::OLD);
+        ASSERT_TRUE(value.has_value());
+        EXPECT_TRUE(kept(*value)) << "the aborted map write left its new representation in the store";
+      };
+  check("int then double", PropertyValue(7), PropertyValue(7.0), [](PropertyValue const &v) { return v.IsInt(); });
+  check("nested int then double", nested(PropertyValue(7)), nested(PropertyValue(7.0)), [&](PropertyValue const &v) {
+    return v.IsMap() && v.ValueMap().at(key).IsInt();
+  });
+  check("zero then negative zero", PropertyValue(0.0), PropertyValue(-0.0), [](PropertyValue const &v) {
+    return v.IsDouble() && !std::signbit(v.ValueDouble());
+  });
 }
 
 TEST_P(StorageEdgeTest, ConcurrentTransactionsCanCreateNonSequentialOperations) {
