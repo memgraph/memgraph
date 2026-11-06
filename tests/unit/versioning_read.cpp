@@ -1858,8 +1858,9 @@ TEST_F(VersioningReadReferenceEdgeTest, EdgeByIdOnABranchAnswersAsMainDoes) {
   EXPECT_EQ(IntRows(faker, "MATCH ()-[e:E]->() RETURN count(e)").at(0).at(0), 1) << "the edge is on the branch";
 }
 
-// BL-0241: the planner and mgp read approximate counts off the DbAccessor. A branch's count is main's plus the
-// branch-native objects less the fork vertices the branch deleted, not the diff engine's alone.
+// BL-0241: the planner and mgp read approximate counts off the DbAccessor. A branch's count is main's at the fork plus
+// the branch-native objects less the fork objects the branch deleted: not the diff engine's alone, and not main's live
+// count, which moves with main's later writes.
 TEST_F(VersioningReadTest, ApproximateCountsOnABranchCoverTheForkState) {
   faker.Interpret("UNWIND range(1, 20) AS i CREATE (:C {i: i})-[:R]->(:D)");
   faker.Interpret("CREATE (:Lone)");
@@ -1877,6 +1878,10 @@ TEST_F(VersioningReadTest, ApproximateCountsOnABranchCoverTheForkState) {
         EXPECT_EQ(dba.EdgesCount(), main_edges);
       },
       /*commit=*/false);
+
+  InterpreterFaker main_session{&interpreter_context, db};
+  main_session.Interpret("CREATE (:Later)-[:R]->(:Later)");
+  ASSERT_EQ(Main()->Access(ms::READ)->ApproximateVertexCount(), main_vertices + 2) << "main moved on";
 
   InBranchTxn([&](mv::BranchContext &ctx) {
     auto first = ctx.CreateNativeVertex();
