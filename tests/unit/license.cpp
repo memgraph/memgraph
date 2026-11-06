@@ -318,7 +318,7 @@ class LicenseLogTest : public LicenseTest {
   }
 
   void TearDown() override {
-    spdlog::default_logger()->sinks().pop_back();
+    std::erase(spdlog::default_logger()->sinks(), sink);
     LicenseTest::TearDown();
   }
 
