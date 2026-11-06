@@ -1600,8 +1600,10 @@ std::expected<std::vector<MetricInfo>, std::string> PrometheusMetrics::GetDbMetr
   out.push_back({"MergeOperator", "Operator", "Counter", static_cast<int64_t>(h.merge_operator.Value())});
   out.push_back({"OptionalOperator", "Operator", "Counter", static_cast<int64_t>(h.optional_operator.Value())});
   out.push_back({"UnwindOperator", "Operator", "Counter", static_cast<int64_t>(h.unwind_operator.Value())});
-  out.push_back(
-      {"CardinalityScaleOperator", "Operator", "Counter", static_cast<int64_t>(h.cardinality_scale_operator.Value())});
+  out.push_back({.name = "CardinalityScaleOperator",
+                 .type = "Operator",
+                 .metric_type = "Counter",
+                 .value = static_cast<int64_t>(h.cardinality_scale_operator.Value())});
   out.push_back({"DistinctOperator", "Operator", "Counter", static_cast<int64_t>(h.distinct_operator.Value())});
   out.push_back({"UnionOperator", "Operator", "Counter", static_cast<int64_t>(h.union_operator.Value())});
   out.push_back({"CartesianOperator", "Operator", "Counter", static_cast<int64_t>(h.cartesian_operator.Value())});
@@ -1970,7 +1972,10 @@ std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfoForJson() {
   out.push_back({"MergeOperator", "Operator", "Counter", total_merge_operator});
   out.push_back({"OptionalOperator", "Operator", "Counter", total_optional_operator});
   out.push_back({"UnwindOperator", "Operator", "Counter", total_unwind_operator});
-  out.push_back({"CardinalityScaleOperator", "Operator", "Counter", total_cardinality_scale_operator});
+  out.push_back({.name = "CardinalityScaleOperator",
+                 .type = "Operator",
+                 .metric_type = "Counter",
+                 .value = total_cardinality_scale_operator});
   out.push_back({"DistinctOperator", "Operator", "Counter", total_distinct_operator});
   out.push_back({"UnionOperator", "Operator", "Counter", total_union_operator});
   out.push_back({"CartesianOperator", "Operator", "Counter", total_cartesian_operator});

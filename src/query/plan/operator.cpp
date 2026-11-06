@@ -8360,6 +8360,8 @@ std::string CardinalityScale::ToString(const DbAccessor * /*dba*/) const {
   return fmt::format("CardinalityScale {{n={}}}", scale_factor_);
 }
 
+namespace {
+
 class CardinalityScaleCursor : public Cursor {
  public:
   CardinalityScaleCursor(const CardinalityScale &self, utils::MemoryResource *mem,
@@ -8367,7 +8369,7 @@ class CardinalityScaleCursor : public Cursor {
       : self_(self), input_cursor_(self.input_->MakeCursor(mem, metric_handles)) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
-    OOMExceptionEnabler oom_exception;
+    const OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP("CardinalityScale");
 
     while (true) {
@@ -8400,6 +8402,8 @@ class CardinalityScaleCursor : public Cursor {
   // rows still owed for the current input row; 0 means "pull the next input row"
   size_t remaining_ = 0;
 };
+
+}  // namespace
 
 UniqueCursorPtr CardinalityScale::MakeCursor(utils::MemoryResource *mem,
                                              metrics::DatabaseMetricHandles &metric_handles) const {
