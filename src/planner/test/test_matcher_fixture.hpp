@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <algorithm>
 #include "planner/pattern/vm/compiler.hpp"
 #include "planner/pattern/vm/executor.hpp"
 #include "test_binding_helpers.hpp"

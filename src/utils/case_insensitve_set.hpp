@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <algorithm>
 #include <boost/unordered/unordered_flat_set.hpp>
 #include <string_view>
 #include "boost/functional/hash.hpp"
