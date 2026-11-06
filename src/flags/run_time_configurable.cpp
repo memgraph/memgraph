@@ -338,7 +338,11 @@ bool ValidPeriodicSnapshot(const std::string_view def) {
   try {
     // Try to get a period in seconds
     const auto period = ValidPeriod(def);
-    return period >= 0L && period <= 7L * 24 * 3600;
+    const bool in_range = period >= 0L && period <= 7L * 24 * 3600;
+    if constexpr (FATAL) {
+      if (!in_range) LOG_FATAL("Snapshot interval must be between 0 and 604800 seconds.");
+    }
+    return in_range;
   } catch (const std::invalid_argument & /* unused */) {
     // Handled later on
     failure = true;
@@ -583,7 +587,8 @@ void Initialize(utils::Settings &settings) {
       }
     }
 
-    // FATAL validation at startup; can't be part of the flag defintion, since we need to check for license
+    // Fatal on an invalid schedule. Not part of the flag definition, because a cron schedule also needs the license,
+    // which an unlicensed instance keeps but skips until the license is valid.
     ValidPeriodicSnapshot<true>(FLAGS_storage_snapshot_interval);
     register_flag(
         kSnapshotPeriodicGFlagsKey,
