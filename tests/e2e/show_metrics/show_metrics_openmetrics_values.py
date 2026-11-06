@@ -64,6 +64,7 @@ EXPECTED_OPENMETRICS_PER_DB_FAMILIES = {
     "merge_operator_total",
     "optional_operator_total",
     "unwind_operator_total",
+    "cardinality_scale_operator_total",
     "distinct_operator_total",
     "union_operator_total",
     "cartesian_operator_total",
