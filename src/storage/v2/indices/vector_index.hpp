@@ -12,6 +12,7 @@
 #pragma once
 
 #include <algorithm>
+#include <optional>
 #include <span>
 #include <string_view>
 
@@ -188,10 +189,8 @@ using VectorIndexContainer = std::unordered_map<uint64_t, std::shared_ptr<IndexI
 /// so ActiveIndices snapshots remain stable while Create/Drop swap in a new version.
 class VectorIndex {
  public:
-  using LabelToAdd = std::set<LabelId>;
-  using LabelToRemove = std::set<LabelId>;
-  using PropertyToAbort = std::map<PropertyId, PropertyValue>;
-  using AbortableInfo = std::map<Vertex *, std::tuple<LabelToAdd, LabelToRemove, PropertyToAbort>>;
+  // Oldest before-image per affected property; nullopt when only an index-label change touched it.
+  using AbortableInfo = std::map<Vertex *, std::map<PropertyId, std::optional<PropertyValue>>>;
 
   struct AbortProcessor {
     std::map<LabelId, std::vector<PropertyId>> l2p;
