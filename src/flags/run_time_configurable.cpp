@@ -359,6 +359,7 @@ bool ValidPeriodicSnapshot(const std::string_view def) {
     if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
       if constexpr (FATAL) {
         spdlog::error("{} {}", kCronSnapshotNeedsLicense, kCronSnapshotsSkipped);
+        cron_snapshots_skipped_.store(true, std::memory_order_relaxed);
         return true;
       }
       spdlog::error(kCronSnapshotNeedsLicense);

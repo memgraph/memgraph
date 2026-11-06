@@ -357,6 +357,10 @@ def test_cron_flag_without_license(test_name):
             time.sleep(1)
         assert number_of_snapshots(snapshots_dir) > 0, "No snapshot after the licence was set"
 
+    logs_dir = os.path.join(interactive_mg_runner.BUILD_DIR, "e2e", "logs", get_logs_path(FILE, test_name))
+    logs = "".join(open(os.path.join(logs_dir, name)).read() for name in os.listdir(logs_dir))
+    assert logs.count("Scheduled snapshots are skipped until the license is valid.") == 1
+
 
 def test_sec_interval_without_license(test_name):
     """Without a licence, a schedule in seconds still takes snapshots, and a cron schedule is refused."""
