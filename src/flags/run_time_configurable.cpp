@@ -191,6 +191,10 @@ constexpr auto kTimezoneGFlagsKey = kTimezoneSettingKey;
 
 constexpr auto kSnapshotPeriodicSettingKey = "storage.snapshot.interval";
 constexpr auto kSnapshotPeriodicGFlagsKey = "storage-snapshot-interval";
+constexpr std::string_view kCronSnapshotNeedsLicense =
+    "Defining snapshot schedule via cron expressions is an enterprise feature. Check your license status by running "
+    "SHOW LICENSE INFO.";
+constexpr std::string_view kCronSnapshotsSkipped = "Scheduled snapshots are skipped until the license is valid.";
 
 // AWS configuration
 constexpr auto kAwsRegionSettingKey = "aws.region";
@@ -227,6 +231,7 @@ std::atomic<bool> omit_vector_index_properties_on_return_{false};
 std::atomic<uint64_t> file_download_conn_timeout_sec_;
 std::atomic<uint64_t> storage_access_timeout_sec_{1};
 std::atomic<int64_t> log_min_duration_ms_{-1};
+std::atomic<bool> cron_snapshots_skipped_{false};
 std::atomic<bool> log_failed_queries_{false};
 std::atomic<bool> log_query_plan_{true};
 
@@ -352,14 +357,11 @@ bool ValidPeriodicSnapshot(const std::string_view def) {
     // NOTE: Cron is an enterprise feature
     const auto cron = cron::make_cron(def);
     if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-      constexpr std::string_view msg =
-          "Defining snapshot schedule via cron expressions is an enterprise feature. Check your license status by "
-          "running SHOW LICENSE INFO.";
       if constexpr (FATAL) {
-        spdlog::error("{} Scheduled snapshots are skipped until the license is valid.", msg);
+        spdlog::error("{} {}", kCronSnapshotNeedsLicense, kCronSnapshotsSkipped);
         return true;
       }
-      spdlog::error(msg);
+      spdlog::error(kCronSnapshotNeedsLicense);
       return false;
     }
     return true;
@@ -758,7 +760,13 @@ void SnapshotPeriodicDetach(std::shared_ptr<utils::Observer<utils::SchedulerInte
 }
 
 bool SnapshotScheduleLicensed() {
-  return !snapshot_periodic_.IsCron() || license::global_license_checker.IsEnterpriseValidFast();
+  const bool licensed = !snapshot_periodic_.IsCron() || license::global_license_checker.IsEnterpriseValidFast();
+  if (licensed) {
+    cron_snapshots_skipped_.store(false, std::memory_order_relaxed);
+  } else if (!cron_snapshots_skipped_.exchange(true, std::memory_order_relaxed)) {
+    spdlog::error("{} {}", kCronSnapshotNeedsLicense, kCronSnapshotsSkipped);
+  }
+  return licensed;
 }
 
 int64_t GetLogMinDurationMs() { return log_min_duration_ms_.load(std::memory_order_acquire); }

@@ -358,6 +358,55 @@ def test_cron_flag_without_license(test_name):
         assert number_of_snapshots(snapshots_dir) > 0, "No snapshot after the licence was set"
 
 
+def test_cron_skips_after_license_lost(test_name):
+    """Losing the licence stops cron snapshots, and the skip is logged once."""
+    license_key = os.environ.get("MEMGRAPH_ENTERPRISE_LICENSE", "")
+    organization_name = os.environ.get("MEMGRAPH_ORGANIZATION_NAME", "")
+    if not (license_key and organization_name):
+        pytest.skip("needs an enterprise license (MEMGRAPH_ENTERPRISE_LICENSE + MEMGRAPH_ORGANIZATION_NAME)")
+    instance = {
+        "cron_flag": {
+            "args": [
+                "--log-level=TRACE",
+                "--also-log-to-stderr",
+                "--data-recovery-on-startup=false",
+                "--storage-snapshot-interval-sec=0",
+                "--storage-snapshot-interval=300",
+                "--storage-snapshot-retention-count=20",
+            ],
+            "log_file": f"{get_logs_path(FILE, test_name)}/cron_flag.log",
+            "data_directory": get_data_path(FILE, test_name),
+        }
+    }
+    with patch.dict(os.environ):
+        del os.environ["MEMGRAPH_ENTERPRISE_LICENSE"]
+        del os.environ["MEMGRAPH_ORGANIZATION_NAME"]
+        interactive_mg_runner.start(instance, "cron_flag")
+    snapshots_dir = snapshots_path(FILE, test_name)
+    cursor = connect(host="localhost", port=7687).cursor()
+    execute_and_fetch_all(cursor, f"SET DATABASE SETTING 'organization.name' TO '{organization_name}';")
+    execute_and_fetch_all(cursor, f"SET DATABASE SETTING 'enterprise.license' TO '{license_key}';")
+    execute_and_fetch_all(cursor, "SET DATABASE SETTING 'storage.snapshot.interval' TO '*/1 * * * * *';")
+
+    with writing_in_the_background():
+        tries = 0
+        while number_of_snapshots(snapshots_dir) == 0 and tries < 10:
+            tries += 1
+            time.sleep(1)
+        assert number_of_snapshots(snapshots_dir) > 0, "No snapshot while licensed"
+
+        execute_and_fetch_all(cursor, "SET DATABASE SETTING 'enterprise.license' TO '';")
+        time.sleep(1)
+        before = number_of_snapshots(snapshots_dir)
+        time.sleep(3)
+        assert number_of_snapshots(snapshots_dir) == before
+
+    # The log file name gains a date suffix, so read every file in the test's log directory.
+    logs_dir = os.path.join(interactive_mg_runner.BUILD_DIR, "e2e", "logs", get_logs_path(FILE, test_name))
+    logs = "".join(open(os.path.join(logs_dir, name)).read() for name in os.listdir(logs_dir))
+    assert logs.count("Scheduled snapshots are skipped until the license is valid.") == 1
+
+
 def test_negative_interval_flag_refused(test_name):
     """A negative snapshot interval stops startup instead of scheduling snapshots back to back."""
     instance = {
