@@ -131,7 +131,7 @@ bool BranchCore::WritesWal(const storage::InMemoryStorage &main) {
 
 std::expected<std::shared_ptr<BranchCore>, BranchCore::BuildError> BranchCore::Build(
     storage::InMemoryStorage &main, uint64_t fork_ts, std::optional<uint64_t> branch_number,
-    std::optional<RecordedFloors> recorded) {
+    std::optional<RecordedFloors> recorded, std::optional<ObjectCounts> fork_counts) {
   // Attribute the diff engine's allocations to main's tenant arena pool.
   const memory::DbArenaScope db_arena_scope{main.DbArenaPool()};
 
@@ -229,6 +229,10 @@ std::expected<std::shared_ptr<BranchCore>, BranchCore::BuildError> BranchCore::B
     MirrorMainEnumsIntoDiffEngine(*diff_engine, historical->GetEnumStoreShared());
   }
 
+  if (!fork_counts) {
+    const auto current = main.GetApproximateCounts();
+    fork_counts = ObjectCounts{.vertices = current.vertices, .edges = current.edges};
+  }
   // After the fork pin: every gid visible at fork_ts is below these floors. Gids below them may also be objects main
   // created after fork_ts but before this read, which fork_ts does not see. Every allocation after the read, main's or
   // any branch's, is at or above them.
@@ -237,24 +241,38 @@ std::expected<std::shared_ptr<BranchCore>, BranchCore::BuildError> BranchCore::B
                      fork_ts,
                      std::move(diff_engine),
                      recorded ? recorded->vertex_gid_floor : main.vertex_id_.load(std::memory_order_acquire),
-                     recorded ? recorded->edge_gid_floor : main.edge_id_.load(std::memory_order_acquire)));
+                     recorded ? recorded->edge_gid_floor : main.edge_id_.load(std::memory_order_acquire),
+                     *fork_counts));
   core->key_parts_ = IndexKeyParts{main_indices.label_properties};
   return core;
 }
 
 BranchCore::BranchCore(storage::InMemoryStorage *main, uint64_t fork_ts,
                        std::unique_ptr<storage::InMemoryStorage> diff_engine, uint64_t vertex_gid_floor,
-                       uint64_t edge_gid_floor)
+                       uint64_t edge_gid_floor, ObjectCounts fork_counts)
     : main_(main),
       fork_ts_(fork_ts),
       vertex_gid_floor_(vertex_gid_floor),
       edge_gid_floor_(edge_gid_floor),
+      fork_counts_(fork_counts),
       diff_engine_(std::move(diff_engine)) {
   // A stub keeps its fork gid, and the diff engine's index scans skip entries at or above its own counters, so the
   // counters start at the floors: every stub is below them whether or not the branch has a native object yet. Natives
   // take their gids from main's counters (CreateNativeVertex/Edge), which raise these again by fetch_max.
   atomic_fetch_max_explicit(&diff_engine_->vertex_id_, vertex_gid_floor_, std::memory_order_acq_rel);
   atomic_fetch_max_explicit(&diff_engine_->edge_id_, edge_gid_floor_, std::memory_order_acq_rel);
+}
+
+ObjectCounts BranchCore::ApproximateCounts() const {
+  // The delete counts and the diff engine's counts are read apart, so a concurrent commit can make the deletes exceed
+  // the objects they are subtracted from for a moment.
+  const auto net = [](uint64_t base, uint64_t added, uint64_t deleted) {
+    return base + added > deleted ? base + added - deleted : 0;
+  };
+  const auto native = diff_engine_->GetApproximateCounts();
+  const auto deleted = ForkDeletes();
+  return {.vertices = net(fork_counts_.vertices, native.vertices, deleted.vertices),
+          .edges = net(fork_counts_.edges, native.edges, deleted.edges)};
 }
 
 // The diff engine's deltas and indexes point at stubs, so it goes before the stub indexes (declared after it, hence
@@ -454,17 +472,9 @@ std::optional<storage::EdgeAccessor> BranchContext::ResolveEdge(storage::Gid edg
   return edge;
 }
 
-int64_t BranchContext::ApproximateVertexCount() {
-  auto const deleted = core_->ForkDeletes().vertices;
-  auto const total = historical().ApproximateVertexCount() + current_diff_txn()->ApproximateVertexCount();
-  return static_cast<int64_t>(total > deleted ? total - deleted : 0);
-}
+int64_t BranchContext::ApproximateVertexCount() { return static_cast<int64_t>(core_->ApproximateCounts().vertices); }
 
-int64_t BranchContext::ApproximateEdgeCount() {
-  auto const deleted = core_->ForkDeletes().edges;
-  auto const total = historical().ApproximateEdgeCount() + current_diff_txn()->ApproximateEdgeCount();
-  return static_cast<int64_t>(total > deleted ? total - deleted : 0);
-}
+int64_t BranchContext::ApproximateEdgeCount() { return static_cast<int64_t>(core_->ApproximateCounts().edges); }
 
 std::optional<storage::EdgeAccessor> BranchContext::FindEdgeInAnchors(storage::Gid edge_gid, storage::View view) {
   // The engine's scan covers vertices_ only; an edge whose FROM vertex is a stub is found through the stubs.
