@@ -13,29 +13,35 @@ import math
 import sys
 
 import pytest
-
 from common import memgraph
 
 SETUP = [
-    "CREATE (:Scalar {big: 1e20, integral: 2.0, large: 3e38})",
+    "CREATE (:Scalar {big: 1e20, integral: 2.0, large: 3e38, negzero: -0.0})",
     "CREATE (:Lists {doubles: [1e20, 2.0, 3e38], numerics: [1, 1e20, 2.0], "
-    "special: [1.0/0.0, -1.0/0.0, 0.0/0.0]})",
+    "special: [1.0/0.0, -1.0/0.0, 0.0/0.0], negzero: [1.0, -0.0]})",
     "CREATE VECTOR INDEX f32_idx ON :Vec32(v) WITH CONFIG {'dimension': 2, 'capacity': 10}",
-    "CREATE (:Vec32 {v: [123456.789, 0.1]})",
+    "CREATE (:Vec32 {tag: 'plain', v: [123456.789, 0.1]})",
+    "CREATE (:Vec32 {tag: 'negzero', v: [-0.0, 0.1]})",
     "CREATE VECTOR INDEX f16_idx ON :Vec16(v) WITH CONFIG {'dimension': 1, 'capacity': 10, 'scalar_kind': 'f16'}",
     "CREATE (:Vec16 {v: [70000.0]})",
     "CREATE (:Pts {big: POINT({x: 1e20, y: 2, srid: 7203}), "
     "pinf: POINT({x: 1.0/0.0, y: 2, srid: 7203}), "
     "ninf: POINT({x: -1.0/0.0, y: 2, srid: 7203}), "
-    "nan: POINT({x: 0.0/0.0, y: 2, srid: 7203})})",
+    "nan: POINT({x: 0.0/0.0, y: 2, srid: 7203}), "
+    "negzero: POINT({x: -0.0, y: 1.0, srid: 7203}), "
+    "negzero3d: POINT({x: 1.0, y: -0.0, z: -0.0, srid: 9757}), "
+    "negzerowgs: POINT({longitude: -0.0, latitude: 1.0, srid: 4326})})",
 ]
 
 PROBES = [
-    "MATCH (n:Scalar) RETURN n.big AS big, n.integral AS integral, n.large AS large",
-    "MATCH (n:Lists) RETURN n.doubles AS doubles, n.numerics AS numerics, n.special AS special",
-    "MATCH (n:Vec32) RETURN n.v AS v",
+    "MATCH (n:Scalar) RETURN n.big AS big, n.integral AS integral, n.large AS large, n.negzero AS negzero",
+    "MATCH (n:Lists) RETURN n.doubles AS doubles, n.numerics AS numerics, n.special AS special, n.negzero AS negzero",
+    "MATCH (n:Vec32 {tag: 'plain'}) RETURN n.v AS v",
     "MATCH (n:Vec16) RETURN n.v AS v",
-    "MATCH (n:Pts) RETURN n.big.x AS big, n.pinf.x AS pinf, n.ninf.x AS ninf, n.nan.x AS nan",
+    "MATCH (n:Pts) RETURN n.big.x AS big, n.pinf.x AS pinf, n.ninf.x AS ninf, n.nan.x AS nan, "
+    "n.negzero.x AS negzero, n.negzero3d.y AS negzero3d_y, n.negzero3d.z AS negzero3d_z, "
+    "n.negzerowgs.longitude AS negzerowgs",
+    "MATCH (n:Vec32 {tag: 'negzero'}) RETURN n.v AS v",
 ]
 
 
@@ -45,14 +51,16 @@ def read(memgraph, query):
     return rows[0]
 
 
+def assert_negative_zero(value, what):
+    assert value == 0.0 and math.copysign(1.0, value) == -1.0, f"{what}: expected -0.0, got {value!r}"
+
+
 def drop_vector_indexes(memgraph):
     # gqlalchemy's drop_indexes() renders a vector index as `DROP INDEX ON ::Label(prop)`,
     # which the server rejects, so the test removes its own indexes instead.
+    # Dropping an absent index is only a notification, so a real failure surfaces here.
     for index in ("f32_idx", "f16_idx"):
-        try:
-            memgraph.execute(f"DROP VECTOR INDEX {index}")
-        except Exception:  # noqa: BLE001 - absent after a failed re-import
-            pass
+        memgraph.execute(f"DROP VECTOR INDEX {index}")
 
 
 def test_dump_float_roundtrip(memgraph):
@@ -88,6 +96,7 @@ def test_dump_float_roundtrip(memgraph):
         for name in ("big", "large"):
             assert isinstance(scalar_after[name], float), f"{name} came back as {type(scalar_after[name])}"
             assert scalar_after[name] == scalar_before[name], f"{name}: {scalar_before[name]} -> {scalar_after[name]}"
+        assert_negative_zero(scalar_after["negzero"], "scalar property")
         assert isinstance(scalar_after["integral"], float), f"integral came back as {type(scalar_after['integral'])}"
         assert scalar_after["integral"] == 2.0
 
@@ -102,16 +111,28 @@ def test_dump_float_roundtrip(memgraph):
         assert math.isinf(special[0]) and special[0] > 0
         assert math.isinf(special[1]) and special[1] < 0
         assert math.isnan(special[2])
+        assert lists_after["negzero"][0] == 1.0
+        assert_negative_zero(lists_after["negzero"][1], "list element")
 
         assert after[2]["v"] == before[2]["v"], f"vector f32: {before[2]['v']} -> {after[2]['v']}"
         vec16 = after[3]["v"]
         assert len(vec16) == 1 and math.isinf(vec16[0]), f"vector f16: {vec16}"
+        assert vec16 == before[3]["v"], f"vector f16: {before[3]['v']} -> {vec16}"
+        assert math.copysign(1.0, vec16[0]) == math.copysign(1.0, before[3]["v"][0])
+
+        vec_negzero = after[5]["v"]
+        assert len(vec_negzero) == 2 and vec_negzero[1] == before[5]["v"][1]
+        assert_negative_zero(vec_negzero[0], "vector f32 element")
 
         points_before, points_after = before[4], after[4]
         assert points_after["big"] == points_before["big"] == 1e20
         assert math.isinf(points_after["pinf"]) and points_after["pinf"] > 0
         assert math.isinf(points_after["ninf"]) and points_after["ninf"] < 0
         assert math.isnan(points_after["nan"])
+        assert_negative_zero(points_after["negzero"], "point x")
+        assert_negative_zero(points_after["negzero3d_y"], "3d point y")
+        assert_negative_zero(points_after["negzero3d_z"], "3d point z")
+        assert_negative_zero(points_after["negzerowgs"], "wgs point longitude")
     finally:
         drop_vector_indexes(memgraph)
 
