@@ -32,6 +32,7 @@
 #include "dbms/database.hpp"
 #include "memory/db_arena.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/key_bloom.hpp"
 #include "storage/v2/property_value.hpp"
 #include "versioning/branch_engine.hpp"
 #include "versioning/version_store.hpp"
@@ -479,6 +480,242 @@ INSTANTIATE_TEST_SUITE_P(Seeds, RandomizedRecoveryTest,
                            return std::string{kEdgeSetups[(info.param - 1) / kSeedsPerSetup].name} + "Seed" +
                                   std::to_string(info.param);
                          });
+
+// True if the branch's key bloom has every key the diff index holds (null-only keys are never indexed).
+template <typename Keys>
+bool BloomCoversDiffKeys(memgraph::dbms::Database &db, mv::BranchContext &ctx, std::string_view label,
+                         std::vector<std::string_view> properties, Keys const &keys) {
+  auto &st = *db.storage();
+  std::vector<ms::PropertyPath> paths;
+  for (auto const property : properties) paths.emplace_back(st.NameToProperty(property));
+  for (auto const &[gid, key] : keys) {
+    if (std::ranges::all_of(key, [](auto const &value) { return value.IsNull(); })) continue;
+    if (!ctx.core()->MayHaveDiffKey(ms::KeyHash(st.NameToLabel(label), paths, key))) return false;
+  }
+  return true;
+}
+
+// The keys the diff index holds for `label` over `properties` (one value per property), as the index stores them.
+std::vector<std::vector<ms::PropertyValue>> DiffIndexKeys(memgraph::dbms::Database &db, mv::BranchContext &ctx,
+                                                          std::string_view label,
+                                                          std::vector<std::string_view> properties) {
+  auto &st = *db.storage();
+  auto diff = ctx.diff_engine().Access(ms::READ);
+  std::vector<ms::PropertyId> ids;
+  for (auto const property : properties) ids.push_back(st.NameToProperty(property));
+  std::vector<ms::PropertyPath> paths(ids.begin(), ids.end());
+  std::vector<std::vector<ms::PropertyValue>> keys;
+  for (auto v : diff->Vertices(st.NameToLabel(label), paths, ms::View::NEW)) {
+    auto &key = keys.emplace_back();
+    for (auto const id : ids) key.push_back(*v.GetProperty(id, ms::View::NEW));
+  }
+  return keys;
+}
+
+// Every insertion into the diff index feeds the branch's key bloom, and each of the two insertion hooks is what does
+// it: with a hook off, the key is in the index and not in the bloom, so a lookup could not rely on a miss.
+TEST_F(VersioningRecoveryEquivalenceTest, EveryDiffIndexInsertionFeedsTheKeyBloomAndEachHookIsNeeded) {
+  TestDatabase db{MakeConfig(/*recover_on_startup=*/false)};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+  auto const base = CreateBase(db);
+  {
+    auto acc = db.storage()->UniqueAccess();
+    ASSERT_TRUE(acc->CreateIndex(db.storage()->NameToLabel("L"), {db.storage()->NameToProperty("p")}).has_value());
+    Commit(*acc);
+  }
+  ASSERT_TRUE(db.version_store()->CreateBranch("b").has_value());
+  auto ctx = Checkout(db, "b");
+  ASSERT_NE(ctx, nullptr);
+  Env env{db, *ctx, base};
+  auto const p = env.Prop("p");
+  auto const probe = [&](int64_t value) {
+    std::vector<ms::PropertyPath> paths{ms::PropertyPath(p)};
+    std::vector<ms::PropertyValue> key{ms::PropertyValue(value)};
+    return ctx->core()->MayHaveDiffKey(ms::KeyHash(env.Label("L"), paths, key));
+  };
+  auto const in_index = [&](int64_t value) {
+    for (auto const &key : DiffIndexKeys(db, *ctx, "L", {"p"})) {
+      if (key.size() == 1 && key[0].IsInt() && key[0].ValueInt() == value) return true;
+    }
+    return false;
+  };
+  EXPECT_FALSE(probe(31)) << "nothing was written";
+
+  // v3 is {L}: a property write is an UpdateOnSetProperty insertion.
+  env.Txn([&](mv::BranchContext &c, auto &) {
+    auto v3 = env.BaseVertex(base.v3);
+    ASSERT_TRUE(c.SetProperty(v3, p, ms::PropertyValue(31)).has_value());
+  });
+  ASSERT_TRUE(in_index(31));
+  EXPECT_TRUE(probe(31));
+  // v4 is bare: the property first (no entry yet), then the label, an UpdateOnAddLabel insertion of a value the label
+  // write did not set.
+  env.Txn([&](mv::BranchContext &c, auto &) {
+    auto v4 = env.BaseVertex(base.v4);
+    ASSERT_TRUE(c.SetProperty(v4, p, ms::PropertyValue(32)).has_value());
+    ASSERT_TRUE(c.AddLabel(v4, env.Label("L")).has_value());
+  });
+  ASSERT_TRUE(in_index(32));
+  EXPECT_TRUE(probe(32));
+  // A key reached through an equal double is the same key.
+  {
+    std::vector<ms::PropertyPath> paths{ms::PropertyPath(p)};
+    std::vector<ms::PropertyValue> as_double{ms::PropertyValue(32.0)};
+    EXPECT_TRUE(ctx->core()->MayHaveDiffKey(ms::KeyHash(env.Label("L"), paths, as_double)));
+  }
+}
+
+// Every key-moving writer leaves the same index live and replayed: two-key map update, label-first and property-first
+// orders, init, set back to the base value, part removal, base label removed then re-added after a key change.
+TEST_F(VersioningRecoveryEquivalenceTest, EveryKeyChangingWriterLeavesTheSameIndexLiveAndRecovered) {
+  Base base{};
+  using Keys = std::map<uint64_t, std::vector<ms::PropertyValue>>;
+  const auto keys_of = [](memgraph::dbms::Database &db,
+                          mv::BranchContext &ctx,
+                          std::string_view label,
+                          std::vector<std::string_view>
+                              properties) {
+    auto &st = *db.storage();
+    auto diff = ctx.diff_engine().Access(ms::READ);
+    EXPECT_TRUE(ctx.BeginTransaction(diff.get()).has_value());
+    std::vector<ms::PropertyId> ids;
+    for (auto const property : properties) ids.push_back(st.NameToProperty(property));
+    std::vector<ms::PropertyPath> paths(ids.begin(), ids.end());
+    Keys keys;
+    for (auto v : diff->Vertices(st.NameToLabel(label), paths, ms::View::NEW)) {
+      if (ctx.IsBaseCandidateVertex(v.Gid())) {
+        auto const base_vertex = ctx.FindBaseVertex(v.Gid());
+        if (base_vertex.has_value()) {
+          EXPECT_EQ(ctx.BaseIdentity(v).vertex_, base_vertex->vertex_) << "g" << v.Gid().AsUint();
+        }
+      }
+      auto &key = keys[v.Gid().AsUint()];
+      for (auto const id : ids) key.push_back(*v.GetProperty(id, ms::View::NEW));
+    }
+    ctx.EndTransaction();
+    return keys;
+  };
+  const auto both = [&](memgraph::dbms::Database &db, mv::BranchContext &ctx) {
+    return std::pair{keys_of(db, ctx, "L", {"p", "q"}), keys_of(db, ctx, "M", {"q"})};
+  };
+  std::pair<Keys, Keys> live_keys;
+  std::string live;
+  {
+    TestDatabase db{MakeConfig(/*recover_on_startup=*/false)};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+    base = CreateBase(db);
+    {
+      auto acc = db.storage()->UniqueAccess();
+      ASSERT_TRUE(acc->CreateIndex(db.storage()->NameToLabel("L"),
+                                   {db.storage()->NameToProperty("p"), db.storage()->NameToProperty("q")})
+                      .has_value());
+      Commit(*acc);
+    }
+    {
+      auto acc = db.storage()->UniqueAccess();
+      ASSERT_TRUE(acc->CreateIndex(db.storage()->NameToLabel("M"), {db.storage()->NameToProperty("q")}).has_value());
+      Commit(*acc);
+    }
+    ms::Gid v5;  // {L} p=12 q=13
+    {
+      auto acc = db.Access(ms::WRITE);
+      auto v = acc->CreateVertex();
+      ASSERT_TRUE(v.AddLabel(db.storage()->NameToLabel("L")).has_value());
+      ASSERT_TRUE(v.SetProperty(db.storage()->NameToProperty("p"), ms::PropertyValue(12)).has_value());
+      ASSERT_TRUE(v.SetProperty(db.storage()->NameToProperty("q"), ms::PropertyValue(13)).has_value());
+      v5 = v.Gid();
+      Commit(*acc);
+    }
+    ASSERT_TRUE(db.version_store()->CreateBranch("b").has_value());
+    auto ctx = Checkout(db, "b");
+    ASSERT_NE(ctx, nullptr);
+    Env env{db, *ctx, base};
+    const auto p = env.Prop("p"), q = env.Prop("q");
+    const auto update = [&](ms::VertexAccessor &v, std::map<ms::PropertyId, ms::PropertyValue> map) {
+      ASSERT_TRUE(ctx->UpdateProperties(v, map).has_value());
+    };
+    // v1 is {L, M} p=1 q=5: a map touching both keys, then back to the fork's p, then q removed and re-set.
+    env.Txn([&](mv::BranchContext &, auto &) {
+      auto v1 = env.BaseVertex(base.v1);
+      update(v1, {{p, ms::PropertyValue(2)}, {q, ms::PropertyValue(6)}});
+    });
+    env.Txn([&](mv::BranchContext &c, auto &) {
+      auto v1 = env.BaseVertex(base.v1);
+      ASSERT_TRUE(c.SetProperty(v1, p, ms::PropertyValue(1)).has_value());
+    });
+    env.Txn([&](mv::BranchContext &c, auto &) {
+      auto v1 = env.BaseVertex(base.v1);
+      ASSERT_TRUE(c.SetProperty(v1, q, ms::PropertyValue()).has_value());
+    });
+    env.Txn([&](mv::BranchContext &c, auto &) {
+      auto v1 = env.BaseVertex(base.v1);
+      ASSERT_TRUE(c.SetProperty(v1, q, ms::PropertyValue(8)).has_value());
+    });
+    // v2 is {M}: the label first, then the map.
+    env.Txn([&](mv::BranchContext &c, auto &) {
+      auto v2 = env.BaseVertex(base.v2);
+      ASSERT_TRUE(c.AddLabel(v2, env.Label("L")).has_value());
+      update(v2, {{p, ms::PropertyValue(3)}, {q, ms::PropertyValue(4)}});
+    });
+    // v3 is {L} without properties: an init.
+    env.Txn([&](mv::BranchContext &c, auto &) {
+      auto v3 = env.BaseVertex(base.v3);
+      std::map<ms::PropertyId, ms::PropertyValue> map{{p, ms::PropertyValue(7)}, {q, ms::PropertyValue(9)}};
+      ASSERT_TRUE(*c.InitProperties(v3, map));
+      ASSERT_TRUE(c.AddLabel(v3, env.Label("M")).has_value());
+    });
+    // v4 is bare: the properties first, then both labels.
+    env.Txn([&](mv::BranchContext &c, auto &) {
+      auto v4 = env.BaseVertex(base.v4);
+      update(v4, {{p, ms::PropertyValue(10)}, {q, ms::PropertyValue(11)}});
+      ASSERT_TRUE(c.AddLabel(v4, env.Label("M")).has_value());
+      ASSERT_TRUE(c.AddLabel(v4, env.Label("L")).has_value());
+    });
+    // v5 loses L, then a key property is set while L is off, then L comes back.
+    env.Txn([&](mv::BranchContext &c, auto &) {
+      auto v = env.BaseVertex(v5);
+      ASSERT_TRUE(*c.RemoveLabel(v, env.Label("L")));
+    });
+    env.Txn([&](mv::BranchContext &c, auto &) {
+      auto v = env.BaseVertex(v5);
+      ASSERT_TRUE(c.SetProperty(v, p, ms::PropertyValue(14)).has_value());
+    });
+    env.Txn([&](mv::BranchContext &c, auto &) {
+      auto v = env.BaseVertex(v5);
+      ASSERT_TRUE(*c.AddLabel(v, env.Label("L")));
+    });
+    live_keys = both(db, *ctx);
+    const auto ints = [](std::initializer_list<int64_t> values) {
+      std::vector<ms::PropertyValue> out;
+      for (auto const value : values) out.emplace_back(value);
+      return out;
+    };
+    ASSERT_EQ(live_keys.first,
+              (Keys{{base.v1.AsUint(), ints({1, 8})},
+                    {base.v2.AsUint(), ints({3, 4})},
+                    {base.v3.AsUint(), ints({7, 9})},
+                    {base.v4.AsUint(), ints({10, 11})},
+                    {v5.AsUint(), ints({14, 13})}}));
+    ASSERT_EQ(live_keys.second,
+              (Keys{{base.v1.AsUint(), ints({8})},
+                    {base.v2.AsUint(), ints({4})},
+                    {base.v3.AsUint(), ints({9})},
+                    {base.v4.AsUint(), ints({11})}}));
+    EXPECT_TRUE(BloomCoversDiffKeys(db, *ctx, "L", {"p", "q"}, live_keys.first));
+    EXPECT_TRUE(BloomCoversDiffKeys(db, *ctx, "M", {"q"}, live_keys.second));
+    live = Visible(Capture(db, *ctx, base));
+  }
+  TestDatabase db{MakeConfig(/*recover_on_startup=*/true)};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+  auto ctx = Checkout(db, "b");
+  ASSERT_NE(ctx, nullptr);
+  const auto recovered = both(db, *ctx);
+  EXPECT_EQ(recovered.first, live_keys.first);
+  EXPECT_EQ(recovered.second, live_keys.second);
+  EXPECT_TRUE(BloomCoversDiffKeys(db, *ctx, "L", {"p", "q"}, recovered.first)) << "after the WAL replay";
+  EXPECT_TRUE(BloomCoversDiffKeys(db, *ctx, "M", {"q"}, recovered.second)) << "after the WAL replay";
+  EXPECT_EQ(Visible(Capture(db, *ctx, base)), live);
+}
 
 // A reader opened after the restart keeps its snapshot while a writer commits and main moves on; a later reader sees
 // the writer's commits and still reads main as of the fork.

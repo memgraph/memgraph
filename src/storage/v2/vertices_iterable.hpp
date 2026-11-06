@@ -20,6 +20,10 @@
 
 namespace memgraph::storage {
 
+#ifdef MG_ENTERPRISE
+class FilteredVerticesIterable;
+#endif
+
 class VerticesIterable final {
   using AscIterable = InMemoryLabelPropertyIndex::Iterable<InMemoryLabelPropertyIndex::Entry<>>;
   using DescIterable = InMemoryLabelPropertyIndex::Iterable<InMemoryLabelPropertyIndex::DescEntry<>>;
@@ -33,6 +37,10 @@ class VerticesIterable final {
                             Desc1Iterable, Asc2Iterable, Desc2Iterable, VertexPropertyIterable>;
 
   Data data_;
+
+#ifdef MG_ENTERPRISE
+  friend class FilteredVerticesIterable;
+#endif
 
  public:
   explicit VerticesIterable(AllVerticesIterable v) : data_(std::move(v)) {}

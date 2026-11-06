@@ -799,6 +799,14 @@ class Accessor {
 
   virtual bool LabelPropertyIndexReady(LabelId label, std::span<PropertyPath const> properties) const = 0;
 
+#ifdef MG_ENTERPRISE
+  // Historical accessors only: is the index of exactly this order visible at the accessor's timestamp?
+  virtual bool HistoricalLabelPropertyIndexReady(LabelId /*label*/, std::span<PropertyPath const> /*properties*/,
+                                                 IndexOrder /*order*/) const {
+    LOG_FATAL("HistoricalLabelPropertyIndexReady is implemented only for in-memory storage");
+  }
+#endif
+
   virtual bool LabelPropertyIndexExists(LabelId label, std::span<PropertyPath const> properties) const = 0;
 
   auto RelevantLabelPropertiesIndicesInfo(std::span<LabelId const> labels,

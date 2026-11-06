@@ -20,6 +20,7 @@
 
 #include <gtest/gtest.h>
 
+#include "storage/v2/key_bloom.hpp"
 #include "storage/v2/vertex_row_filter.hpp"
 #include "versioning/branch_change_filter.hpp"
 
@@ -375,6 +376,30 @@ void CheckBitsIndependentOfWord(size_t words, GidOf &&gid_of) {
 }
 
 }  // namespace
+
+TEST(VersioningBranchChangeFilter, KeyBloomIsLazyAndNeverMissesAfterFirstInsert) {
+  ms::KeyBloom bloom(8192);
+  for (uint64_t k = 0; k < 1'000; ++k) ASSERT_FALSE(bloom.MayContain(SplitMix(k))) << k;
+  for (uint64_t k = 0; k < 1'000; ++k) bloom.Insert(SplitMix(k));
+  for (uint64_t k = 0; k < 1'000; ++k) ASSERT_TRUE(bloom.MayContain(SplitMix(k))) << k;
+}
+
+TEST(VersioningBranchChangeFilter, KeyBloomConcurrentFirstInserts) {
+  constexpr int kWriters = 8;
+  constexpr uint64_t kPerWriter = 2'000;
+  ms::KeyBloom bloom(8192);
+  std::atomic<bool> go{false};
+  std::vector<std::thread> writers;
+  for (int w = 0; w < kWriters; ++w) {
+    writers.emplace_back([&, w] {
+      while (!go.load(std::memory_order_acquire)) std::this_thread::yield();
+      for (uint64_t i = 0; i < kPerWriter; ++i) bloom.Insert(SplitMix(w * kPerWriter + i));
+    });
+  }
+  go.store(true, std::memory_order_release);
+  for (auto &t : writers) t.join();
+  for (uint64_t k = 0; k < kWriters * kPerWriter; ++k) ASSERT_TRUE(bloom.MayContain(SplitMix(k))) << k;
+}
 
 TEST(VersioningBranchChangeFilter, BloomBitPositionsAreIndependentOfTheWordIndex) {
   for (unsigned log2_words : {12U, 14U, 16U, 18U, 20U}) {

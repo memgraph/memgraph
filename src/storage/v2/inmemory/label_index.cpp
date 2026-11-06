@@ -24,9 +24,13 @@
 #include "utils/counter.hpp"
 
 namespace {
+// `Filtered` is the branch scan's instantiation: the same loop plus one veto per branched row. The default is the loop
+// main always ran, with no branch-related instruction in it.
+template <bool Filtered = false, typename Filter = void>
 void AdvanceUntilValid_(auto &index_iterator, const auto &end, auto *&current_vertex,
                         memgraph::storage::VertexAccessor &current_vertex_accessor, auto *storage, auto *transaction,
-                        auto view, auto label, memgraph::storage::Gid max_gid) {
+                        auto view, auto label, memgraph::storage::Gid max_gid,
+                        [[maybe_unused]] Filter const *filter = nullptr) {
   for (; index_iterator != end; ++index_iterator) {
     if (index_iterator->vertex == current_vertex) {
       continue;
@@ -43,6 +47,12 @@ void AdvanceUntilValid_(auto &index_iterator, const auto &end, auto *&current_ve
     auto accessor = memgraph::storage::VertexAccessor{index_iterator->vertex, storage, transaction};
     auto res = accessor.HasLabel(label, view);
     if (res.has_value() and res.value()) {
+#ifdef MG_ENTERPRISE
+      if constexpr (Filtered) {
+        if (accessor.vertex_->branched() && filter->Hides(accessor.vertex_->gid, accessor)) [[unlikely]]
+          continue;
+      }
+#endif
       current_vertex = accessor.vertex_;
       current_vertex_accessor = accessor;
       break;
@@ -324,9 +334,11 @@ void InMemoryLabelIndex::ActiveIndices::AbortEntries(LabelIndex::AbortableInfo c
   }
 }
 
-InMemoryLabelIndex::Iterable::Iterable(utils::SkipListDb<InMemoryLabelIndex::Entry>::Accessor index_accessor,
-                                       utils::SkipListDb<Vertex>::ConstAccessor vertices_accessor, LabelId label,
-                                       View view, Storage *storage, Transaction *transaction, Gid max_gid)
+template <bool Filtered>
+InMemoryLabelIndex::IterableT<Filtered>::IterableT(
+    utils::SkipListDb<InMemoryLabelIndex::Entry>::Accessor index_accessor,
+    utils::SkipListDb<Vertex>::ConstAccessor vertices_accessor, LabelId label, View view, Storage *storage,
+    Transaction *transaction, Gid max_gid)
     : pin_accessor_(std::move(vertices_accessor)),
       index_accessor_(std::move(index_accessor)),
       label_(label),
@@ -335,8 +347,9 @@ InMemoryLabelIndex::Iterable::Iterable(utils::SkipListDb<InMemoryLabelIndex::Ent
       transaction_(transaction),
       max_gid_(max_gid) {}
 
-InMemoryLabelIndex::Iterable::Iterator::Iterator(Iterable *self,
-                                                 utils::SkipListDb<InMemoryLabelIndex::Entry>::Iterator index_iterator)
+template <bool Filtered>
+InMemoryLabelIndex::IterableT<Filtered>::Iterator::Iterator(
+    IterableT *self, utils::SkipListDb<InMemoryLabelIndex::Entry>::Iterator index_iterator)
     : self_(self),
       index_iterator_(index_iterator),
       current_vertex_accessor_(nullptr, self_->storage_, nullptr),
@@ -344,13 +357,30 @@ InMemoryLabelIndex::Iterable::Iterator::Iterator(Iterable *self,
   AdvanceUntilValid();
 }
 
-InMemoryLabelIndex::Iterable::Iterator &InMemoryLabelIndex::Iterable::Iterator::operator++() {
+template <bool Filtered>
+InMemoryLabelIndex::IterableT<Filtered>::Iterator &InMemoryLabelIndex::IterableT<Filtered>::Iterator::operator++() {
   ++index_iterator_;
   AdvanceUntilValid();
   return *this;
 }
 
-void InMemoryLabelIndex::Iterable::Iterator::AdvanceUntilValid() {
+template <bool Filtered>
+void InMemoryLabelIndex::IterableT<Filtered>::Iterator::AdvanceUntilValid() {
+#ifdef MG_ENTERPRISE
+  if constexpr (Filtered) {
+    AdvanceUntilValid_<true, VertexRowFilter>(index_iterator_,
+                                              self_->index_accessor_.end(),
+                                              current_vertex_,
+                                              current_vertex_accessor_,
+                                              self_->storage_,
+                                              self_->transaction_,
+                                              self_->view_,
+                                              self_->label_,
+                                              self_->max_gid_,
+                                              self_->filter_.get());
+    return;
+  }
+#endif
   AdvanceUntilValid_(index_iterator_,
                      self_->index_accessor_.end(),
                      current_vertex_,
@@ -361,6 +391,11 @@ void InMemoryLabelIndex::Iterable::Iterator::AdvanceUntilValid() {
                      self_->label_,
                      self_->max_gid_);
 }
+
+template class InMemoryLabelIndex::IterableT<false>;
+#ifdef MG_ENTERPRISE
+template class InMemoryLabelIndex::IterableT<true>;
+#endif
 
 uint64_t InMemoryLabelIndex::ActiveIndices::ApproximateVertexCount(LabelId label) const {
   auto it = index_container_->find(label);

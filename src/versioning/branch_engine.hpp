@@ -34,6 +34,7 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/ordered_property_paths.hpp"
 #include "storage/v2/inmemory/storage.hpp"
+#include "storage/v2/key_bloom.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/result.hpp"
 #include "storage/v2/schema_info_types.hpp"
@@ -45,6 +46,7 @@
 #include "versioning/branch_info.hpp"
 #include "versioning/edge_overlay_index.hpp"
 #include "versioning/hidden_base_edges.hpp"
+#include "versioning/index_key_parts.hpp"
 #include "versioning/overlay_index.hpp"
 
 namespace memgraph::versioning {
@@ -107,6 +109,9 @@ class BranchCore {
 
   const ForkPoint &fork() const { return fork_; }
 
+  // The parts of the label+property keys of the indexes the diff engine mirrors.
+  const IndexKeyParts &key_parts() const noexcept { return key_parts_; }
+
   // Main's approximate counts at the fork (its uncollected deleted vertices and open transactions' objects included),
   // plus the diff engine's (branch-created objects), minus the base vertices and edges deleted or hidden by committed
   // branch transactions; never below zero. Independent of main's later writes.
@@ -154,6 +159,12 @@ class BranchCore {
 
   bool MayHaveVertexDeleted(storage::Gid gid) const noexcept { return change_filters_.MayHaveVertexDeleted(gid); }
 
+  bool MayHaveVertexChange(storage::Gid gid) const noexcept { return change_filters_.MayHaveVertexChange(gid); }
+
+  storage::GidBloomProbe VertexChangeProbe() const noexcept { return change_filters_.VertexChangeProbe(); }
+
+  storage::GidBloomProbe VertexDroppedProbe() const noexcept { return change_filters_.VertexDroppedProbe(); }
+
   bool MayHaveAnyVertexDeleted() const noexcept { return change_filters_.MayHaveAnyVertexDeleted(); }
 
   // Clear: the branch never added or removed the label on a base vertex.
@@ -191,6 +202,10 @@ class BranchCore {
     return change_filters_.MayHaveBaseEdgeDeleted(edge_gid);
   }
 
+  // False if no entry whose label+property key hashes to `key_hash` (storage::KeyHash) was ever inserted into the diff
+  // engine's indexes: a lookup of that key then has nothing to find there.
+  bool MayHaveDiffKey(uint64_t key_hash) const noexcept { return lookup_key_bloom_.MayContain(key_hash); }
+
   OverlayIndex &overlay_index() { return overlay_index_; }
 
   EdgeOverlayIndex &edge_overlay_index() { return edge_overlay_index_; }
@@ -205,6 +220,8 @@ class BranchCore {
   storage::InMemoryStorage *main_;  // Not owned.
   ForkPoint fork_;
   uint64_t fork_ts_;
+  // Set once by Build, before the core is shared.
+  IndexKeyParts key_parts_;
   // The diff engine's unreleased-delta gauge, unregistered; declared before the engine so it outlives it.
   std::unique_ptr<prometheus::Gauge> delta_gauge_;
   std::unique_ptr<storage::InMemoryStorage> diff_engine_;
@@ -213,6 +230,10 @@ class BranchCore {
   std::atomic<uint64_t> deleted_base_edges_{0};
 
   BranchChangeFilters change_filters_;
+
+  // Fed by the diff engine's label+property indexes (SetKeyBloom, in the constructor); its 64 KiB are allocated on the
+  // first entry.
+  storage::KeyBloom lookup_key_bloom_{8192};
 
   // Own the overlays the diff engine's deltas and indexes point at. Declared after diff_engine_ and teardown_scope_, so
   // they are destroyed before the scope and after the engine, which ~BranchCore resets first.
