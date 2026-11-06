@@ -268,7 +268,8 @@ void LicenseChecker::RevalidateLicense(utils::Settings &settings) {
   if (valid_candidates.empty()) {
     auto locked = previous_license_info_.Lock();
     if (*locked || (failures_changed && licence_rejected)) {
-      spdlog::error("No valid license found. Running in community mode. {}", utils::Join(failures, " "));
+      spdlog::error("No valid license found. Running in community mode.{}",
+                    failures.empty() ? "" : " " + utils::Join(failures, " "));
       locked->reset();
     } else if (failures_changed && !failures.empty()) {
       spdlog::warn("No valid license found. {}", utils::Join(failures, " "));
