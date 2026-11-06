@@ -583,40 +583,26 @@ TEST(VersioningIndexKeyParts, EachPartKnowsTheKeysItBelongsTo) {
   EXPECT_TRUE(mv::IndexKeyParts{}.empty());
 }
 
-TEST_F(VersioningBranchCoreTest, TouchedSnapshotsAreCachedUntilTheNextInsertAndIncludeDeletes) {
+TEST_F(VersioningBranchCoreTest, TouchedGatesStartClearAndStaySetOnceRecorded) {
   const auto label = storage_->NameToLabel("L");
-  const auto other_label = storage_->NameToLabel("Other");
   const auto pid = storage_->NameToProperty("p");
-  const auto gid = [](uint64_t g) { return ms::Gid::FromUint(g); };
 
   EXPECT_FALSE(core_->MayHaveLabelTouched(label));
   EXPECT_FALSE(core_->MayHavePropertyTouched(pid));
-  EXPECT_TRUE(core_->LabelTouchedSnapshot(label)->empty());
 
-  core_->RecordLabelTouched(label, gid(0));
+  core_->RecordLabelTouched(label);
   EXPECT_TRUE(core_->MayHaveLabelTouched(label));
-  auto first = core_->LabelTouchedSnapshot(label);
-  EXPECT_EQ(*first, mv::BranchCore::LabelTouchedSet{0});
-  EXPECT_EQ(core_->LabelTouchedSnapshot(label), first) << "no insert since: the cached set is shared";
-  core_->RecordLabelTouched(label, gid(0));
-  EXPECT_EQ(core_->LabelTouchedSnapshot(label), first) << "a repeated insert changes nothing";
+  EXPECT_FALSE(core_->MayHavePropertyTouched(pid)) << "the two gates are independent";
+  core_->RecordLabelTouched(label);
+  EXPECT_TRUE(core_->MayHaveLabelTouched(label));
 
-  core_->RecordVertexDeleted(gid(1));
-  EXPECT_TRUE(core_->MayHaveVertexDeleted(gid(1)));
-  EXPECT_TRUE(core_->MayHaveAnyVertexDeleted());
-  EXPECT_EQ(*core_->LabelTouchedSnapshot(label), (mv::BranchCore::LabelTouchedSet{0, 1}));
-  EXPECT_EQ(*core_->LabelTouchedSnapshot(other_label), mv::BranchCore::LabelTouchedSet{1})
-      << "every label scan must resolve a deleted gid";
-  EXPECT_EQ(*first, mv::BranchCore::LabelTouchedSet{0}) << "a handed-out snapshot is immutable";
-
-  core_->RecordPropertyTouched(pid, gid(0));
+  core_->RecordPropertyTouched(pid);
   EXPECT_TRUE(core_->MayHavePropertyTouched(pid));
-  EXPECT_EQ(*core_->PropertyTouchedSnapshot(pid), mv::BranchCore::LabelTouchedSet{0});
 
-  core_->RecordEdgePropertyTouched(pid, gid(0), gid(1));
-  core_->RecordEdgePropertyTouched(pid, gid(0), gid(5));
-  EXPECT_EQ(*core_->EdgePropertyTouchedSnapshot(pid), (mv::BranchCore::EdgeTouchedMap{{0, 1}}))
-      << "the first FROM gid recorded for an edge is kept";
+  EXPECT_FALSE(core_->MayHaveAnyVertexDeleted());
+  core_->RecordVertexDeleted(ms::Gid::FromUint(1));
+  EXPECT_TRUE(core_->MayHaveVertexDeleted(ms::Gid::FromUint(1)));
+  EXPECT_TRUE(core_->MayHaveAnyVertexDeleted());
 }
 
 TEST_F(VersioningBranchCoreTest, ChangeFilterForwardersReachTheCoresFilters) {
@@ -699,24 +685,6 @@ TEST_F(VersioningBranchCoreLightEdgeTest, TeardownWithEdgeStubsAndLightEdges) {
   WriteThroughStubs(*core_, Diff(), true);
   core_.reset();
 }
-
-#if USE_JEMALLOC
-// The touched sets grow with the number of changes a branch makes, so they are the tenant's memory.
-TEST_F(VersioningBranchCoreTest, TouchedSetsAreChargedToMainsArenaPool) {
-  constexpr uint64_t kGids = 200'000;
-  const auto label = storage_->NameToLabel("L");
-  const auto pid = storage_->NameToProperty("p");
-  const auto before = db_tracker_.Amount();
-  for (uint64_t gid = 0; gid < kGids; ++gid) {
-    core_->RecordLabelTouched(label, ms::Gid::FromUint(gid));
-    core_->RecordPropertyTouched(pid, ms::Gid::FromUint(gid));
-    core_->RecordVertexDeleted(ms::Gid::FromUint(gid + kGids));
-    core_->RecordEdgePropertyTouched(pid, ms::Gid::FromUint(gid), ms::Gid::FromUint(0));
-  }
-  // At least the 8 key bytes of each of the four sets' entries.
-  EXPECT_GT(db_tracker_.Amount() - before, static_cast<int64_t>(4 * kGids * sizeof(uint64_t)));
-}
-#endif
 
 ///// BRANCH READS: THE STUBS MERGED OVER THE FORK STATE
 
@@ -1005,15 +973,15 @@ class VersioningBranchEngineTest : public testing::Test {
     Core().RecordLabelChange(gid);
     Core().RecordPropertyChange(gid);
     for (auto const *state : {&before, &after}) {
-      for (auto const label : state->added_labels) Core().RecordLabelTouched(label, gid);
-      for (auto const label : state->removed_labels) Core().RecordLabelTouched(label, gid);
+      for (auto const label : state->added_labels) Core().RecordLabelTouched(label);
+      for (auto const label : state->removed_labels) Core().RecordLabelTouched(label);
       for (auto const &[pid, value] : state->properties.Properties()) {
         Core().RecordPropertyFieldChange(gid, pid);
-        Core().RecordPropertyTouched(pid, gid);
+        Core().RecordPropertyTouched(pid);
       }
       for (auto const pid : state->removed_pids) {
         Core().RecordPropertyFieldChange(gid, pid);
-        Core().RecordPropertyTouched(pid, gid);
+        Core().RecordPropertyTouched(pid);
       }
     }
     if (after.deleted) Core().RecordVertexDeleted(gid);

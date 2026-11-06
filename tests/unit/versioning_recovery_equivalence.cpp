@@ -46,7 +46,7 @@ namespace {
 class VersioningRecoveryEquivalenceTest : public RecoveryTest {};
 
 // What a session reads and the fork-delete counts: the part of the bookkeeping that replay must reproduce exactly. The
-// filters and touched sets of a replay are a subset of the live ones (a write that changes nothing leaves no record).
+// filters and touched gates of a replay are a subset of the live ones (a write that changes nothing leaves no record).
 std::string Visible(Captured captured) {
   captured.bookkeeping = captured.bookkeeping.substr(0, captured.bookkeeping.find('\n') + 1);
   return captured.Render();

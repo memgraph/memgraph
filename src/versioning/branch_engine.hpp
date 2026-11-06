@@ -26,10 +26,7 @@
 #include <utility>
 #include <vector>
 
-#include "absl/container/flat_hash_map.h"
-#include "absl/container/flat_hash_set.h"
 #include "absl/functional/function_ref.h"
-#include "absl/hash/hash.h"
 #include "memory/db_arena_fwd.hpp"
 #include "storage/v2/commit_args.hpp"
 #include "storage/v2/edge_accessor.hpp"
@@ -43,7 +40,6 @@
 #include "storage/v2/vertex_accessor.hpp"
 #include "storage/v2/vertices_iterable.hpp"
 #include "storage/v2/view.hpp"
-#include "utils/db_aware_allocator.hpp"
 #include "utils/logging.hpp"
 #include "versioning/branch_change_filter.hpp"
 #include "versioning/branch_info.hpp"
@@ -159,16 +155,17 @@ class BranchCore {
 
   void RecordEdgeChange(storage::Gid endpoint_gid) noexcept { change_filters_.RecordEdgeChange(endpoint_gid); }
 
-  // Also feeds the exact deleted-gid set read by LabelTouchedSnapshot. Call before the stub write.
-  void RecordVertexDeleted(storage::Gid gid);
+  // Call before the stub write.
+  void RecordVertexDeleted(storage::Gid gid) noexcept { change_filters_.RecordVertexDeleted(gid); }
 
   bool MayHaveVertexDeleted(storage::Gid gid) const noexcept { return change_filters_.MayHaveVertexDeleted(gid); }
 
   bool MayHaveAnyVertexDeleted() const noexcept { return change_filters_.MayHaveAnyVertexDeleted(); }
 
-  // Lock-free emptiness gates for the touched sets (monotonic bloom over id mod 256). A txn visible to a reader set the
-  // bit (release, in Record*Touched before its commit), and the reader observes that commit only via timestamp
-  // synchronisation, so a clear bit (acquire) equals an empty snapshot. False "maybe" only costs the snapshot path.
+  // Lock-free gates (monotonic bloom over id mod 256): a clear bit means the branch has not written the label's
+  // membership or the property's value of any fork object. A txn visible to a reader set the bit (release, in
+  // Record*Touched before its commit), and the reader observes that commit only via timestamp synchronisation, so a
+  // clear bit (acquire) is exact. A false "maybe" only costs the slow path.
   bool MayHaveLabelTouched(storage::LabelId label) const noexcept {
     return (label_touched_gate_[GateWord(label.AsUint())].load(std::memory_order_acquire) & GateBit(label.AsUint())) !=
            0;
@@ -179,26 +176,18 @@ class BranchCore {
            0;
   }
 
-  // Exact, insert-only record of fork gids whose membership of `label` may differ on this branch. Call before the
-  // stub write; a rolled-back write leaves the gid recorded (superset, never a miss).
-  void RecordLabelTouched(storage::LabelId label, storage::Gid gid);
+  // Call before the stub write; a rolled-back write leaves the bit set (superset, never a miss).
+  void RecordLabelTouched(storage::LabelId label) noexcept {
+    label_touched_gate_[GateWord(label.AsUint())].fetch_or(GateBit(label.AsUint()), std::memory_order_release);
+  }
 
-  // Immutable set of fork gids that a scan of `label` must resolve: the label's touched gids plus every deleted gid.
-  // Cached per label until the next insert, so repeated scans share one copy.
-  using LabelTouchedSet =
-      absl::flat_hash_set<uint64_t, absl::Hash<uint64_t>, std::equal_to<>, memory::DbAwareAllocator<uint64_t>>;
-  std::shared_ptr<const LabelTouchedSet> LabelTouchedSnapshot(storage::LabelId label);
+  void RecordPropertyTouched(storage::PropertyId pid) noexcept {
+    property_touched_gate_[GateWord(pid.AsUint())].fetch_or(GateBit(pid.AsUint()), std::memory_order_release);
+  }
 
   void RecordPropertyFieldChange(storage::Gid gid, storage::PropertyId pid) noexcept {
     change_filters_.RecordPropertyField(gid, pid);
   }
-
-  // Exact, insert-only record of fork gids whose value of `pid` the branch may have written. Call before the stub
-  // write; a rolled-back write leaves the gid recorded.
-  void RecordPropertyTouched(storage::PropertyId pid, storage::Gid gid);
-
-  // Immutable set of fork gids that a scan on `pid` must resolve, cached per property until the next insert.
-  std::shared_ptr<const LabelTouchedSet> PropertyTouchedSnapshot(storage::PropertyId pid);
 
   bool MayHavePropertyFieldChange(storage::Gid gid, storage::PropertyId pid) const noexcept {
     return change_filters_.MayHavePropertyFieldChange(gid, pid);
@@ -229,15 +218,6 @@ class BranchCore {
     return change_filters_.MayHaveForkEdgeDeleted(edge_gid);
   }
 
-  // Exact, insert-only record of the fork edges whose value of `pid` the branch may have written, each with its FROM
-  // vertex gid (to find the fork edge). Call before the stub write; a rolled-back write leaves the edge recorded.
-  void RecordEdgePropertyTouched(storage::PropertyId pid, storage::Gid edge_gid, storage::Gid from_gid);
-
-  // Immutable edge -> FROM vertex map that a scan on `pid` must resolve, cached per property until the next insert.
-  using EdgeTouchedMap = absl::flat_hash_map<uint64_t, uint64_t, absl::Hash<uint64_t>, std::equal_to<>,
-                                             memory::DbAwareAllocator<std::pair<const uint64_t, uint64_t>>>;
-  std::shared_ptr<const EdgeTouchedMap> EdgePropertyTouchedSnapshot(storage::PropertyId pid);
-
   StubIndex &stub_index() { return stub_index_; }
 
   EdgeStubIndex &edge_stub_index() { return edge_stub_index_; }
@@ -262,13 +242,6 @@ class BranchCore {
 
   BranchChangeFilters change_filters_;
 
-  // Exact per-label touched gids and deleted gids; memory grows with the number of recorded changes. Writes are rare
-  // next to scans, hence a plain mutex. Every insert bumps `touched_version_`, invalidating the snapshot caches.
-  struct CachedLabelSnapshot {
-    uint64_t version;
-    std::shared_ptr<const LabelTouchedSet> set;
-  };
-
   static constexpr size_t kTouchedGateBits = 256;
 
   static size_t GateWord(uint64_t id) noexcept { return (id % kTouchedGateBits) >> 6U; }
@@ -277,22 +250,6 @@ class BranchCore {
 
   std::array<std::atomic<uint64_t>, kTouchedGateBits / 64> label_touched_gate_{};
   std::array<std::atomic<uint64_t>, kTouchedGateBits / 64> property_touched_gate_{};
-
-  std::mutex touched_mutex_;
-  absl::flat_hash_map<storage::LabelId, LabelTouchedSet> label_touched_;
-  LabelTouchedSet deleted_exact_;
-  uint64_t touched_version_{1};
-  absl::flat_hash_map<storage::LabelId, CachedLabelSnapshot> label_snapshots_;
-  absl::flat_hash_map<storage::PropertyId, LabelTouchedSet> property_touched_;
-  absl::flat_hash_map<storage::PropertyId, CachedLabelSnapshot> property_snapshots_;
-
-  struct CachedEdgeSnapshot {
-    uint64_t version;
-    std::shared_ptr<const EdgeTouchedMap> map;
-  };
-
-  absl::flat_hash_map<storage::PropertyId, EdgeTouchedMap> edge_property_touched_;
-  absl::flat_hash_map<storage::PropertyId, CachedEdgeSnapshot> edge_property_snapshots_;
 
   // Own the stubs the diff engine's deltas and indexes point at. Declared after diff_engine_ and teardown_scope_, so
   // they are destroyed before the scope and after the engine, which ~BranchCore resets first.

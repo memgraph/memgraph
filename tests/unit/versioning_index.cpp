@@ -40,6 +40,7 @@
 #include "storage/v2/edge_accessor.hpp"
 #include "tests/test_commit_args_helper.hpp"
 #include "utils/on_scope_exit.hpp"
+#include "utils/priority_thread_pool.hpp"
 #include "utils/settings.hpp"
 #include "versioning_fixture.hpp"
 
@@ -2415,4 +2416,520 @@ TEST_F(VersioningIndexTest, StreamedEdgeScansEqualFullScansAfterRandomWrites) {
     expect_equal("seed " + std::to_string(seed) + " inside one transaction");
     faker.Interpret("COMMIT");
   }
+}
+
+namespace {
+// The statement's rows, or its error, as text.
+std::string Outcome(InterpreterFaker &session, const std::string &query) {
+  try {
+    std::string out;
+    for (const auto &row : IntRows(session, query)) {
+      for (auto value : row) out += std::to_string(value) + ' ';
+      out += '|';
+    }
+    return out;
+  } catch (const std::exception &e) {
+    return std::string("error: ") + e.what();
+  }
+}
+
+constexpr auto kSeedV =
+    "CREATE (:A {i:1, v:3}), (:A {i:2, v:3}), (:A {i:3, v:3}), (:A {i:4, v:3}), (:B {i:5, v:2}), (:B {i:6, v:2})";
+// A fork vertex with an overlay, and branch-native vertices in and out of the scan. Main orders the vertices it created
+// after the fork by allocation, which a branch-native vertex cannot share, so only the order-blind cases scan them.
+constexpr auto kPrepV = "MATCH (n {i:2}) SET n.t = 1; CREATE (:A {i:7, v:3}), (:B {i:8, v:2})";
+constexpr auto kTouchV = "MATCH (n {i:2}) SET n.t = 1";
+constexpr auto kSeedE =
+    "CREATE (a:N {i:1}), (b:N {i:2}), (a)-[:R {w:3, i:1}]->(b), (a)-[:R {w:3, i:2}]->(b), (b)-[:R {w:3, i:3}]->(a),"
+    " (b)-[:R {w:3, i:4}]->(b), (a)-[:R {w:2, i:5}]->(b), (b)-[:Q {w:5, i:6}]->(a)";
+constexpr auto kPrepE =
+    "MATCH ()-[e {i:2}]->() SET e.t = 1; MATCH (a:N {i:1}) CREATE (a)-[:R {w:3, i:7}]->(a), (a)-[:R {w:2, i:8}]->(a)";
+constexpr auto kTouchE = "MATCH ()-[e {i:2}]->() SET e.t = 1";
+// A scan yields what matched when it started, and drops what stopped matching. An object the statement moves into the
+// scan is yielded by main or not as its index position falls (by memory address, so it varies between runs), by the
+// branch never.
+constexpr auto kStartMatches = "1 |2 |3 |4 |";
+
+struct ScanOracleCase {
+  const char *name;
+  const char *ddl;
+  const char *drop;  // set: main drops and re-creates the index after the fork, so the branch takes the fallback scan
+  const char *seed;
+  const char *prep;
+  const char *op;  // the plan's scan operator, if any
+  const char *statement;
+  const char *check;
+  // What the branch scan yields where main's depends on the index position of what the statement moved into the scan.
+  const char *branch_rows = nullptr;
+};
+
+// MERGE scans at View::NEW while its own rows write; the writes reach objects the scan has not stepped onto yet.
+const std::vector<ScanOracleCase> kScanOracleCases = {
+    {"LabelDeleteAhead",
+     "CREATE INDEX ON :A",
+     nullptr,
+     "CREATE (:A {i:1}), (:A {i:2}), (:A {i:3}), (:A {i:4})",
+     nullptr,
+     "ScanAllByLabel",
+     "MATCH (z:A {i: 4}) MERGE (n:A) FOREACH (x IN [1] | DELETE z) RETURN count(n)",
+     "MATCH (n) RETURN count(n)"},
+    {"LabelDelete",
+     "CREATE INDEX ON :A",
+     nullptr,
+     kSeedV,
+     kPrepV,
+     "ScanAllByLabel",
+     "MATCH (z:A) WITH collect(z) AS zs MERGE (n:A) FOREACH (x IN zs | DETACH DELETE x) RETURN count(*)",
+     "MATCH (n) RETURN count(n)"},
+    {"LabelRemove",
+     "CREATE INDEX ON :A",
+     nullptr,
+     kSeedV,
+     kPrepV,
+     "ScanAllByLabel",
+     "MATCH (z:A) WITH collect(z) AS zs MERGE (n:A) FOREACH (x IN zs | REMOVE x:A) RETURN count(*)",
+     "MATCH (n:A) RETURN count(n)"},
+    {"LabelAdd",
+     "CREATE INDEX ON :A",
+     nullptr,
+     kSeedV,
+     kTouchV,
+     "ScanAllByLabel",
+     "MATCH (z:B) WITH collect(z) AS zs MERGE (n:A) FOREACH (x IN zs | SET x:A) RETURN n.i ORDER BY n.i",
+     "MATCH (n:A) RETURN n.i ORDER BY n.i",
+     kStartMatches},
+    {"LabelCreate",
+     "CREATE INDEX ON :A",
+     nullptr,
+     kSeedV,
+     kPrepV,
+     "ScanAllByLabel",
+     "MERGE (n:A) FOREACH (x IN CASE WHEN n.i = 1 THEN [1] ELSE [] END | CREATE (:A {i: 100})) RETURN n.i ORDER BY n.i",
+     "MATCH (n:A) RETURN n.i ORDER BY n.i"},
+    {"LabelPropertyDelete",
+     "CREATE INDEX ON :A(v)",
+     nullptr,
+     kSeedV,
+     kPrepV,
+     "ScanAllByLabelProperties",
+     "MATCH (z:A) WITH collect(z) AS zs MERGE (n:A {v: 3}) FOREACH (x IN zs | DETACH DELETE x) RETURN count(*)",
+     "MATCH (n) RETURN count(n)"},
+    {"LabelPropertyMoveOutUntouched",
+     "CREATE INDEX ON :A(v)",
+     nullptr,
+     kSeedV,
+     nullptr,
+     "ScanAllByLabelProperties",
+     "MATCH (z:A) WITH collect(z) AS zs MERGE (n:A {v: 3}) FOREACH (x IN zs | SET x.v = 4) RETURN count(*)",
+     "MATCH (n:A {v: 4}) RETURN n.i ORDER BY n.i"},
+    {"LabelPropertyRemoveLabel",
+     "CREATE INDEX ON :A(v)",
+     nullptr,
+     kSeedV,
+     kPrepV,
+     "ScanAllByLabelProperties",
+     "MATCH (z:A) WITH collect(z) AS zs MERGE (n:A {v: 3}) FOREACH (x IN zs | REMOVE x:A) RETURN count(*)",
+     "MATCH (n:A) RETURN count(n)"},
+    {"LabelPropertyMoveOut",
+     "CREATE INDEX ON :A(v)",
+     nullptr,
+     kSeedV,
+     kPrepV,
+     "ScanAllByLabelProperties",
+     "MATCH (z:A) WITH collect(z) AS zs MERGE (n:A {v: 3}) FOREACH (x IN zs | SET x.v = 4) RETURN count(*)",
+     "MATCH (n:A {v: 4}) RETURN n.i ORDER BY n.i"},
+    {"LabelPropertyMoveIn",
+     "CREATE INDEX ON :A(v)",
+     nullptr,
+     kSeedV,
+     kTouchV,
+     "ScanAllByLabelProperties",
+     "MATCH (z:B) WITH collect(z) AS zs MERGE (n:A {v: 3}) FOREACH (x IN zs | SET x:A, x.v = 3) RETURN n.i ORDER BY "
+     "n.i",
+     "MATCH (n:A {v: 3}) RETURN n.i ORDER BY n.i",
+     kStartMatches},
+    {"LabelPropertyMoveInByValue",
+     "CREATE INDEX ON :A(v)",
+     nullptr,
+     kSeedV,
+     "MATCH (n:B) SET n:A",
+     "ScanAllByLabelProperties",
+     "MATCH (z:A {v: 2}) WITH collect(z) AS zs MERGE (n:A {v: 3}) FOREACH (x IN zs | SET x.v = 3) RETURN n.i ORDER BY "
+     "n.i",
+     "MATCH (n:A {v: 3}) RETURN n.i ORDER BY n.i",
+     kStartMatches},
+    {"LabelPropertyCreate",
+     "CREATE INDEX ON :A(v)",
+     nullptr,
+     kSeedV,
+     kPrepV,
+     "ScanAllByLabelProperties",
+     "MERGE (n:A {v: 3}) FOREACH (x IN CASE WHEN n.i = 1 THEN [1] ELSE [] END | CREATE (:A {i: 100, v: 3}))"
+     " RETURN n.i ORDER BY n.i",
+     "MATCH (n:A {v: 3}) RETURN n.i ORDER BY n.i"},
+    {"LabelPropertyRescanPerRow",
+     "CREATE INDEX ON :A(v)",
+     nullptr,
+     kSeedV,
+     kPrepV,
+     "ScanAllByLabelProperties",
+     "UNWIND [1, 2, 3] AS k MERGE (n:A {v: k % 2}) RETURN count(*)",
+     "MATCH (n:A) RETURN count(n)"},
+    {"PropertyDelete",
+     "CREATE GLOBAL INDEX ON :(v)",
+     nullptr,
+     kSeedV,
+     kPrepV,
+     "ScanAllByVertexProperty",
+     "MATCH (z) WITH collect(z) AS zs MERGE (n {v: 3}) FOREACH (x IN zs | DETACH DELETE x) RETURN count(*)",
+     "MATCH (n) RETURN count(n)"},
+    {"PropertyDeleteUntouched",
+     "CREATE GLOBAL INDEX ON :(v)",
+     nullptr,
+     kSeedV,
+     nullptr,
+     "ScanAllByVertexProperty",
+     "MATCH (z) WITH collect(z) AS zs MERGE (n {v: 3}) FOREACH (x IN zs | DETACH DELETE x) RETURN count(*)",
+     "MATCH (n) RETURN count(n)"},
+    {"PropertyMoveOut",
+     "CREATE GLOBAL INDEX ON :(v)",
+     nullptr,
+     kSeedV,
+     kPrepV,
+     "ScanAllByVertexProperty",
+     "MATCH (z) WITH collect(z) AS zs MERGE (n {v: 3}) FOREACH (x IN zs | SET x.v = 4) RETURN count(*)",
+     "MATCH (n {v: 4}) RETURN n.i ORDER BY n.i"},
+    {"PropertyMoveIn",
+     "CREATE GLOBAL INDEX ON :(v)",
+     nullptr,
+     kSeedV,
+     kTouchV,
+     "ScanAllByVertexProperty",
+     "MATCH (z:B) WITH collect(z) AS zs MERGE (n {v: 3}) FOREACH (x IN zs | SET x.v = 3) RETURN n.i ORDER BY n.i",
+     "MATCH (n {v: 3}) RETURN n.i ORDER BY n.i",
+     kStartMatches},
+    {"PropertyCreate",
+     "CREATE GLOBAL INDEX ON :(v)",
+     nullptr,
+     kSeedV,
+     kPrepV,
+     "ScanAllByVertexProperty",
+     "MERGE (n {v: 3}) FOREACH (x IN CASE WHEN n.i = 1 THEN [1] ELSE [] END | CREATE ({i: 100, v: 3}))"
+     " RETURN n.i ORDER BY n.i",
+     "MATCH (n {v: 3}) RETURN n.i ORDER BY n.i"},
+    {"FullScanDelete",
+     nullptr,
+     nullptr,
+     kSeedV,
+     kPrepV,
+     "ScanAll",
+     "MATCH (z:A) WITH collect(z) AS zs MERGE (n:A) FOREACH (x IN zs | DETACH DELETE x) RETURN count(*)",
+     "MATCH (n) RETURN count(n)"},
+    {"FullScanSetLabel",
+     nullptr,
+     nullptr,
+     kSeedV,
+     kPrepV,
+     "ScanAll",
+     "MATCH (z:B) WITH collect(z) AS zs MERGE (n:A) FOREACH (x IN zs | SET x:A) RETURN n.i ORDER BY n.i",
+     "MATCH (n:A) RETURN n.i ORDER BY n.i"},
+    {"FullScanCreate",
+     nullptr,
+     nullptr,
+     kSeedV,
+     kPrepV,
+     "ScanAll",
+     "MERGE (n:A) FOREACH (x IN CASE WHEN n.i = 1 THEN [1] ELSE [] END | CREATE (:A {i: 100})) RETURN n.i ORDER BY n.i",
+     "MATCH (n:A) RETURN n.i ORDER BY n.i"},
+    {"EdgeTypeDelete",
+     "CREATE EDGE INDEX ON :R",
+     nullptr,
+     kSeedE,
+     kPrepE,
+     "ScanAllByEdgeType",
+     "MATCH ()-[z:R]->() WITH collect(z) AS zs MERGE ()-[r:R]->() FOREACH (x IN zs | DELETE x) RETURN count(*)",
+     "MATCH ()-[e]->() RETURN count(e)"},
+    {"EdgeTypeEndpointDelete",
+     "CREATE EDGE INDEX ON :R",
+     nullptr,
+     kSeedE,
+     nullptr,
+     "ScanAllByEdgeType",
+     "MATCH (z:N {i: 2}) MERGE ()-[r:R]->() FOREACH (x IN [1] | DETACH DELETE z) RETURN count(*)",
+     "MATCH ()-[e]->() RETURN count(e)"},
+    {"EdgeTypeCreate",
+     "CREATE EDGE INDEX ON :R",
+     nullptr,
+     kSeedE,
+     kPrepE,
+     "ScanAllByEdgeType",
+     "MATCH (a:N {i: 1}) MERGE ()-[r:R]->() FOREACH (x IN CASE WHEN r.i = 1 THEN [1] ELSE [] END |"
+     " CREATE (a)-[:R {w: 3, i: 100}]->(a)) RETURN r.i ORDER BY r.i",
+     "MATCH ()-[e:R]->() RETURN e.i ORDER BY e.i"},
+    {"EdgeTypePropertyDelete",
+     "CREATE EDGE INDEX ON :R(w)",
+     nullptr,
+     kSeedE,
+     kPrepE,
+     "ScanAllByEdgeTypeProperty",
+     "MATCH ()-[z:R]->() WITH collect(z) AS zs MERGE ()-[r:R {w: 3}]->() FOREACH (x IN zs | DELETE x) RETURN count(*)",
+     "MATCH ()-[e]->() RETURN count(e)"},
+    {"EdgeTypePropertyMoveOut",
+     "CREATE EDGE INDEX ON :R(w)",
+     nullptr,
+     kSeedE,
+     kPrepE,
+     "ScanAllByEdgeTypeProperty",
+     "MATCH ()-[z:R]->() WITH collect(z) AS zs MERGE ()-[r:R {w: 3}]->() FOREACH (x IN zs | SET x.w = 4)"
+     " RETURN count(*)",
+     "MATCH ()-[e {w: 4}]->() RETURN e.i ORDER BY e.i"},
+    {"EdgeTypePropertyMoveIn",
+     "CREATE EDGE INDEX ON :R(w)",
+     nullptr,
+     kSeedE,
+     kTouchE,
+     "ScanAllByEdgeTypeProperty",
+     "MATCH ()-[z:R {w: 2}]->() WITH collect(z) AS zs MERGE ()-[r:R {w: 3}]->() FOREACH (x IN zs | SET x.w = 3)"
+     " RETURN r.i ORDER BY r.i",
+     "MATCH ()-[e {w: 3}]->() RETURN e.i ORDER BY e.i",
+     kStartMatches},
+    {"EdgeTypePropertyCreate",
+     "CREATE EDGE INDEX ON :R(w)",
+     nullptr,
+     kSeedE,
+     kPrepE,
+     "ScanAllByEdgeTypeProperty",
+     "MATCH (a:N {i: 1}), ()-[y {i: 5}]->() MERGE ()-[r:R {w: 3}]->()"
+     " FOREACH (x IN CASE WHEN r.i = 1 THEN [1] ELSE [] END | CREATE (a)-[:R {w: 3, i: 100}]->(a) SET y.w = 2)"
+     " RETURN r.i ORDER BY r.i",
+     "MATCH ()-[e {w: 3}]->() RETURN e.i ORDER BY e.i"},
+    {"EdgePropertyDelete",
+     "CREATE GLOBAL EDGE INDEX ON :(w)",
+     nullptr,
+     kSeedE,
+     kPrepE,
+     "ScanAllByEdgeProperty",
+     "MATCH ()-[z]->() WITH collect(z) AS zs MERGE ()-[r:R {w: 3}]->() FOREACH (x IN zs | DELETE x) RETURN count(*)",
+     "MATCH ()-[e]->() RETURN count(e)"},
+    {"EdgePropertyMoveOut",
+     "CREATE GLOBAL EDGE INDEX ON :(w)",
+     nullptr,
+     kSeedE,
+     kPrepE,
+     "ScanAllByEdgeProperty",
+     "MATCH ()-[z]->() WITH collect(z) AS zs MERGE ()-[r:R {w: 3}]->() FOREACH (x IN zs | SET x.w = 4)"
+     " RETURN count(*)",
+     "MATCH ()-[e {w: 4}]->() RETURN e.i ORDER BY e.i"},
+    {"EdgePropertyMoveIn",
+     "CREATE GLOBAL EDGE INDEX ON :(w)",
+     nullptr,
+     kSeedE,
+     kTouchE,
+     "ScanAllByEdgeProperty",
+     "MATCH ()-[z {w: 2}]->() WITH collect(z) AS zs MERGE ()-[r:R {w: 3}]->() FOREACH (x IN zs | SET x.w = 3)"
+     " RETURN r.i ORDER BY r.i",
+     "MATCH ()-[e {w: 3}]->() RETURN e.i ORDER BY e.i",
+     kStartMatches},
+    // A delete of an object the scan has not stepped onto yet, on a branch nothing else touched: the scan must not
+    // take the lazy fork-only stream.
+    {"LabelPropertyDeleteAhead",
+     "CREATE INDEX ON :A(v)",
+     nullptr,
+     kSeedV,
+     nullptr,
+     "ScanAllByLabelProperties",
+     "MATCH (z:A {i: 4}) MERGE (n:A {v: 3}) FOREACH (x IN [1] | DELETE z) RETURN count(n)",
+     "MATCH (n) RETURN count(n)"},
+    {"PropertyDeleteAhead",
+     "CREATE GLOBAL INDEX ON :(v)",
+     nullptr,
+     kSeedV,
+     nullptr,
+     "ScanAllByVertexProperty",
+     "MATCH (z {i: 4}) MERGE (n {v: 3}) FOREACH (x IN [1] | DELETE z) RETURN count(n)",
+     "MATCH (n) RETURN count(n)"},
+    {"EdgeTypeDeleteAhead",
+     "CREATE EDGE INDEX ON :R",
+     nullptr,
+     kSeedE,
+     nullptr,
+     "ScanAllByEdgeType",
+     "MATCH ()-[z:R {i: 4}]->() MERGE ()-[r:R]->() FOREACH (x IN [1] | DELETE z) RETURN count(r)",
+     "MATCH ()-[e]->() RETURN count(e)"},
+    {"EdgeTypePropertyDeleteAhead",
+     "CREATE EDGE INDEX ON :R(w)",
+     nullptr,
+     kSeedE,
+     nullptr,
+     "ScanAllByEdgeTypeProperty",
+     "MATCH ()-[z:R {i: 4}]->() MERGE ()-[r:R {w: 3}]->() FOREACH (x IN [1] | DELETE z) RETURN count(r)",
+     "MATCH ()-[e]->() RETURN count(e)"},
+    {"EdgePropertyDeleteAhead",
+     "CREATE GLOBAL EDGE INDEX ON :(w)",
+     nullptr,
+     kSeedE,
+     nullptr,
+     "ScanAllByEdgeProperty",
+     "MATCH ()-[z {i: 4}]->() MERGE ()-[r:R {w: 3}]->() FOREACH (x IN [1] | DELETE z) RETURN count(r)",
+     "MATCH ()-[e]->() RETURN count(e)"},
+    // The fallback scans, for an index main dropped and re-created after the fork.
+    {"RebuiltLabelAdd",
+     "CREATE INDEX ON :A",
+     "DROP INDEX ON :A",
+     kSeedV,
+     kTouchV,
+     "ScanAllByLabel",
+     "MATCH (z:B) WITH collect(z) AS zs MERGE (n:A) FOREACH (x IN zs | SET x:A) RETURN n.i ORDER BY n.i",
+     "MATCH (n:A) RETURN n.i ORDER BY n.i",
+     kStartMatches},
+    {"RebuiltLabelPropertyMoveIn",
+     "CREATE INDEX ON :A(v)",
+     "DROP INDEX ON :A(v)",
+     kSeedV,
+     kTouchV,
+     "ScanAllByLabelProperties",
+     "MATCH (z:B) WITH collect(z) AS zs MERGE (n:A {v: 3}) FOREACH (x IN zs | SET x:A, x.v = 3) RETURN n.i ORDER BY "
+     "n.i",
+     "MATCH (n:A {v: 3}) RETURN n.i ORDER BY n.i",
+     kStartMatches},
+    {"RebuiltPropertyMoveOut",
+     "CREATE GLOBAL INDEX ON :(v)",
+     "DROP GLOBAL INDEX ON :(v)",
+     kSeedV,
+     kPrepV,
+     "ScanAllByVertexProperty",
+     "MATCH (z) WITH collect(z) AS zs MERGE (n {v: 3}) FOREACH (x IN zs | SET x.v = 4) RETURN count(*)",
+     "MATCH (n {v: 4}) RETURN n.i ORDER BY n.i"},
+    {"RebuiltEdgeTypeDelete",
+     "CREATE EDGE INDEX ON :R",
+     "DROP EDGE INDEX ON :R",
+     kSeedE,
+     kPrepE,
+     "ScanAllByEdgeType",
+     "MATCH ()-[z:R]->() WITH collect(z) AS zs MERGE ()-[r:R]->() FOREACH (x IN zs | DELETE x) RETURN count(*)",
+     "MATCH ()-[e]->() RETURN count(e)"},
+    {"RebuiltEdgeTypePropertyMoveIn",
+     "CREATE EDGE INDEX ON :R(w)",
+     "DROP EDGE INDEX ON :R(w)",
+     kSeedE,
+     kTouchE,
+     "ScanAllByEdgeTypeProperty",
+     "MATCH ()-[z:R {w: 2}]->() WITH collect(z) AS zs MERGE ()-[r:R {w: 3}]->() FOREACH (x IN zs | SET x.w = 3)"
+     " RETURN r.i ORDER BY r.i",
+     "MATCH ()-[e {w: 3}]->() RETURN e.i ORDER BY e.i",
+     kStartMatches},
+    {"RebuiltEdgePropertyMoveOut",
+     "CREATE GLOBAL EDGE INDEX ON :(w)",
+     "DROP GLOBAL EDGE INDEX ON :(w)",
+     kSeedE,
+     kPrepE,
+     "ScanAllByEdgeProperty",
+     "MATCH ()-[z]->() WITH collect(z) AS zs MERGE ()-[r:R {w: 3}]->() FOREACH (x IN zs | SET x.w = 4)"
+     " RETURN count(*)",
+     "MATCH ()-[e {w: 4}]->() RETURN e.i ORDER BY e.i"},
+};
+
+class VersioningScanOracleTest : public VersioningIndexTest, public ::testing::WithParamInterface<ScanOracleCase> {};
+}  // namespace
+
+// A scan in flight sees the writes of its own statement the way main's does: an object deleted, moved out of the scan
+// or stripped of the label before the scan reaches it is skipped, and one created after the scan started is not. Main,
+// untouched by the branch, is the oracle (but for what a statement moves into the scan, see kStartMatches).
+TEST_P(VersioningScanOracleTest, BranchScanMatchesMainUnderSameStatementWrites) {
+  const auto &c = GetParam();
+  if (c.ddl != nullptr) faker.Interpret(c.ddl);
+  faker.Interpret(c.seed);
+  Fork();
+  const auto rebuild_index = [&] {
+    faker.Interpret(c.drop);
+    faker.Interpret(c.ddl);
+  };
+  if (c.drop != nullptr) {
+    UseMain();
+    rebuild_index();
+    Use(faker, "b");
+  }
+  if (c.prep != nullptr) RunStatements(faker, c.prep);
+  ExpectPlanUses(faker, c.statement, c.op);
+  const auto branch_rows = Outcome(faker, c.statement);
+  const auto branch_state = Outcome(faker, c.check);
+
+  UseMain();
+  if (c.prep != nullptr) RunStatements(faker, c.prep);
+  const auto main_rows = Outcome(faker, c.statement);
+  EXPECT_EQ(branch_rows, c.branch_rows != nullptr ? std::string{c.branch_rows} : main_rows);
+  EXPECT_EQ(branch_state, Outcome(faker, c.check));
+}
+
+INSTANTIATE_TEST_SUITE_P(Cases, VersioningScanOracleTest, ::testing::ValuesIn(kScanOracleCases),
+                         [](const ::testing::TestParamInfo<ScanOracleCase> &info) {
+                           return std::string{info.param.name};
+                         });
+
+// The lazy fork-only scans are taken while a lock-free gate says nothing relevant changed on the branch, so every write
+// sets its gate when it executes, before it commits, and an abort leaves it set.
+TEST_F(VersioningIndexTest, BranchChangeGatesAreSetByTheWriteBeforeItCommits) {
+  faker.Interpret("CREATE (:L {id: 1, p: 1}), (:L {id: 2, p: 2}), (:K {id: 3, p: 3}), (:L {id: 4, p: 4})");
+  auto &main = *db->storage();
+  auto const label = main.NameToLabel("L");
+  auto const property = main.NameToProperty("p");
+
+  struct Case {
+    std::string write;
+    std::function<bool(memgraph::versioning::BranchCore &)> gate;
+  };
+
+  std::vector<Case> const cases{
+      {"MATCH (n {id: 1}) REMOVE n:L", [&](auto &core) { return core.MayHaveLabelTouched(label); }},
+      {"MATCH (n {id: 3}) SET n:L", [&](auto &core) { return core.MayHaveLabelTouched(label); }},
+      {"MATCH (n {id: 2}) SET n.p = -1", [&](auto &core) { return core.MayHavePropertyTouched(property); }},
+      {"MATCH (n {id: 4}) DETACH DELETE n", [&](auto &core) { return core.MayHaveAnyVertexDeleted(); }},
+  };
+  for (size_t i = 0; i < cases.size(); ++i) {
+    auto const &c = cases[i];
+    Fork("g" + std::to_string(i));
+    auto &core = *faker.interpreter.current_db_.branch_context()->core();
+    ASSERT_FALSE(c.gate(core)) << c.write;
+    faker.Interpret("BEGIN");
+    faker.Interpret(c.write);
+    EXPECT_TRUE(c.gate(core)) << "before commit: " << c.write;
+    faker.Interpret("ROLLBACK");
+    EXPECT_TRUE(c.gate(core)) << "after abort: " << c.write;
+  }
+}
+
+// The chunked scans of USING PARALLEL EXECUTION open main's storage or the diff engine alone, never the union that a
+// branch reads, so a branch refuses them instead of answering from one half.
+TEST_F(VersioningIndexTest, ParallelExecutionOnABranchIsRefused) {
+  memgraph::utils::PriorityThreadPool pool{2, 1};
+  interpreter_context.worker_pool = &pool;
+  faker.Interpret("CREATE INDEX ON :A");
+  faker.Interpret("CREATE INDEX ON :A(v)");
+  faker.Interpret("CREATE GLOBAL INDEX ON :(v)");
+  faker.Interpret("CREATE EDGE INDEX ON :R");
+  faker.Interpret("CREATE EDGE INDEX ON :R(w)");
+  faker.Interpret("CREATE GLOBAL EDGE INDEX ON :(w)");
+  faker.Interpret("UNWIND range(1, 50) AS i CREATE (a:A {v: i})-[:R {w: i}]->(:A {v: -i})");
+  Fork();
+  faker.Interpret("CREATE (:A {v: 1000})-[:R {w: 1000}]->(:A {v: 1001})");
+
+  for (auto const *scan : {"(n)",
+                           "(n:A)",
+                           "(n:A) WHERE n.v > 0",
+                           "(n) WHERE n.v > 0",
+                           "()-[n:R]->()",
+                           "()-[n:R]->() WHERE n.w > 0",
+                           "()-[n]->() WHERE n.w > 0"}) {
+    auto const query = std::string{"USING PARALLEL EXECUTION MATCH "} + scan + " RETURN count(n)";
+    UseMain();
+    EXPECT_THAT(memgraph::tests::versioning_fixture::ExplainText(faker, query), ::testing::HasSubstr("P Scan"));
+    EXPECT_NO_THROW(faker.Interpret(query)) << query;
+    Use(faker, "b");
+    EXPECT_THAT(memgraph::tests::versioning_fixture::ThrownMessage([&] { faker.Interpret(query); }),
+                ::testing::HasSubstr("not supported on a branch"))
+        << query;
+    // A branch still answers the same statement without the directive.
+    EXPECT_NO_THROW(faker.Interpret(std::string{"MATCH "} + scan + " RETURN count(n)")) << query;
+  }
+  interpreter_context.worker_pool = nullptr;
 }
