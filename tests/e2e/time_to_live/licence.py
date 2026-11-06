@@ -75,7 +75,7 @@ def test_ttl_deletes_nothing_without_licence(request):
     cursor = start_licensed_by_settings(request.node.name)
     execute_and_fetch_all(cursor, 'ENABLE TTL EVERY "1s";')
 
-    set_organization_name(cursor, ORGANIZATION_NAME.swapcase())
+    set_organization_name(cursor, ORGANIZATION_NAME + "-invalid")
     execute_and_fetch_all(cursor, "UNWIND range(1, 10) AS i CREATE (:TTL {ttl: 0});")
     time.sleep(3)
     assert ttl_nodes(cursor) == 10
