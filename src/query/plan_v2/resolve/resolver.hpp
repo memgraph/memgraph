@@ -20,13 +20,13 @@
 #include "planner/extract/extract.hpp"
 #include "query/exceptions.hpp"
 #include "query/plan_v2/cost/cost_model.hpp"
+#include "query/plan_v2/cost/extraction_env.hpp"
 #include "query/plan_v2/egraph/alternative.hpp"
 #include "query/plan_v2/egraph/child_layout.hpp"
 #include "query/plan_v2/egraph/egraph_internal.hpp"
 #include "query/plan_v2/egraph/symbol_dispatch.hpp"
 #include "query/plan_v2/egraph/symbol_lists.hpp"
-#include "query/plan_v2/resolve/extraction_env.hpp"
-#include "query/plan_v2/resolve/variable_set.hpp"
+#include "query/plan_v2/scope/variable_set.hpp"
 #include "utils/logging.hpp"
 
 namespace memgraph::query::plan::v2 {
@@ -62,8 +62,16 @@ struct UniformResolveChildren {
 template <symbol S>
 struct symbol_resolve_traits;  // primary intentionally undefined; every symbol must specialise.
 
-// Alive Bind / Unwind child threading (both share the [input, sym, payload]
-// layout). own_sym is the sym child. Pipe gets:
+// Bind and Unwind share the [input, sym, payload] layout, which is what lets
+// the threading below index either of them through bind's constants. All three
+// positions are load-bearing, not just the sym: indexing an Unwind by bind's
+// `input` or `expr` while those diverged would thread its list as the row pipe.
+static_assert(child::bind::input == child::unwind::input && child::bind::sym == child::unwind::sym &&
+                  child::bind::expr == child::unwind::list,
+              "Bind and Unwind must agree on all three child positions; the resolver indexes both through "
+              "child::bind");
+
+// Alive Bind / Unwind child threading. own_sym is the sym child. Pipe gets:
 //   in_scope       = parent.in_scope
 //   must_introduce = chosen.introduces − {own_sym}
 // Expr gets:
@@ -85,12 +93,24 @@ inline void ResolveBindDead(planner::core::ENode<symbol> const &enode, ResolverK
   visit(ResolverKey{enode.children()[child::bind::input], parent_key.in_scope, parent_key.must_introduce});
 }
 
+// Dead Unwind keeps the list child in the resolution (for cost/extraction
+// consistency) but elides the sym binding. CardinalityScale takes its row
+// count from the list's statically-known length fact and never evaluates the
+// list at runtime. Pipe carries the parent's demand through; the list is an
+// expression read in the parent's scope.
+inline void ResolveUnwindDead(planner::core::ENode<symbol> const &enode, ResolverKey const &parent_key, auto visit) {
+  using namespace child::unwind;
+  auto const &children = enode.children();
+  visit(ResolverKey{children[input], parent_key.in_scope, parent_key.must_introduce});
+  visit(ResolverKey{children[list], parent_key.in_scope, {}});
+}
+
 // A row-pipe binder (Bind / Unwind) is "alive" when the chosen alt introduces
 // its sym, and "dead" when the bound value is unused downstream.
 inline bool BinderIsAlive(planner::core::ENode<symbol> const &enode, VariableSet const &chosen_introduces,
                           SymbolContext const &syms) {
-  using namespace child::bind;  // sym position shared with unwind
-  return enode.children().size() == 3 && chosen_introduces.test(syms.variable_index.bit_of(enode.children()[sym]));
+  using namespace child::bind;  // shared layout asserted above
+  return enode.children().size() == arity && chosen_introduces.test(syms.variable_index.bit_of(enode.children()[sym]));
 }
 
 template <>
@@ -111,12 +131,17 @@ struct symbol_resolve_traits<symbol::Bind> {
 
 template <>
 struct symbol_resolve_traits<symbol::Unwind> {
+  // Alive vs dead derived from `sym ∈ chosen.introduces`, mirroring Bind. The
+  // dead alt (sym unreferenced, list length known) elides the binding into a
+  // CardinalityScale; the alive alt is the row-generative bind.
   static void resolve_children(planner::core::ENode<symbol> const &enode, ResolverKey const &parent_key,
                                VariableSet const &chosen_introduces, SymbolContext const &syms,
                                planner::core::extract::ChildSink<ResolverKey> auto visit) {
-    DMG_ASSERT(BinderIsAlive(enode, chosen_introduces, syms),
-               "Unwind alt must always be alive (Unwind always binds its sym)");
-    ResolveBindUnwindAlive(enode, parent_key, chosen_introduces, syms, visit);
+    if (BinderIsAlive(enode, chosen_introduces, syms)) {
+      ResolveBindUnwindAlive(enode, parent_key, chosen_introduces, syms, visit);
+    } else {
+      ResolveUnwindDead(enode, parent_key, visit);
+    }
   }
 };
 

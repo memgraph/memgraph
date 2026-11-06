@@ -15,10 +15,10 @@
 #include <string_view>
 
 #include "query/exceptions.hpp"
+#include "query/plan_v2/egraph/analysis.hpp"
 #include "query/plan_v2/egraph/symbol.hpp"
-#include "query/plan_v2/resolve/analysis.hpp"
-#include "query/plan_v2/resolve/variable_index.hpp"
-#include "query/plan_v2/resolve/variable_set.hpp"
+#include "query/plan_v2/scope/variable_index.hpp"
+#include "query/plan_v2/scope/variable_set.hpp"
 
 import memgraph.planner.core.egraph;
 

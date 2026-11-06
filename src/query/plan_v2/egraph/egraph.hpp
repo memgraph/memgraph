@@ -50,10 +50,13 @@ struct egraph {
   }
 
   auto MakeNamedOutput(std::string_view name, eclass sym, eclass expr) -> eclass;
-  auto MakeFunction(std::string_view name, std::span<eclass const> args) -> eclass;
+  /// `is_pure` is the function's purity, resolved by the caller from the
+  /// executor's authoritative table; it gates treating the call's output as a
+  /// statically-known fact and is cached on the FunctionInfo.
+  auto MakeFunction(std::string_view name, std::span<eclass const> args, bool is_pure) -> eclass;
 
-  auto MakeFunction(std::string_view name, std::initializer_list<eclass> args) -> eclass {
-    return MakeFunction(name, std::span<eclass const>{args});
+  auto MakeFunction(std::string_view name, std::initializer_list<eclass> args, bool is_pure) -> eclass {
+    return MakeFunction(name, std::span<eclass const>{args}, is_pure);
   }
 
   auto MakeUnwind(eclass input, eclass sym, eclass list_expr) -> eclass;
@@ -63,11 +66,14 @@ struct egraph {
     return MakeSubquery(outer_input, inner_root, std::span<eclass const>{exposed_syms});
   }
 
-  /// Look up the FunctionInfo (name + cached BuiltinKind) for a function id
-  /// previously assigned by MakeFunction.  Used by the cost-model estimator
-  /// and the builder to translate a Function e-node back to its name without
-  /// materialising the whole interner.  Returns nullptr if the id is unknown.
-  auto FunctionInfoById(std::uint64_t id) const -> FunctionInfo const *;
+  /// Derive the analysis facts an e-class's own e-nodes establish from their
+  /// children, and answer how many facts that widened. A builtin's result length
+  /// or folded value is derived here rather than when the e-node is built,
+  /// because an argument can be proved constant long after the call was made.
+  ///
+  /// Saturation does this itself once per pass. A caller that reads a fact off a
+  /// graph it assembled by hand owes one call first.
+  auto RefreshAnalysis() -> std::size_t;
 
   // Binary operators (arithmetic / comparison / boolean) - generated from EGRAPH_BINARY_OPS.
 #define MG_DECL_MAKE_BINARY(Name, ...) auto Make##Name(eclass lhs, eclass rhs) -> eclass;

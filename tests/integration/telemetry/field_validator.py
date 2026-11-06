@@ -216,6 +216,7 @@ EXPECTED_EVENT_COUNTERS = {
     "BecomeLeaderSuccess",
     "BoltMessages",
     "CallProcedureOperator",
+    "CardinalityScaleOperator",
     "CartesianOperator",
     "CommitedTransactions",
     "ConditionalOperator",

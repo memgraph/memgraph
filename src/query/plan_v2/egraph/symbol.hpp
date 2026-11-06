@@ -97,6 +97,35 @@ EGRAPH_SYMBOL_KIND_SYMBOLS(MG_DEFN_PRED)
       "symbol::" #Name " must belong to exactly one e-class kind list in symbol_lists.hpp");
 EGRAPH_ALL_SYMBOLS(MG_ASSERT_ONE_KIND)
 #undef MG_ASSERT_ONE_KIND
+
+// Whether evaluating this symbol reads a binding's value. Collecting the
+// symbols that do is what decides a binding is unused and may be elided.
+template <symbol S>
+constexpr bool reads_symbol_v = false;
+#define MG_DEFN_PRED(Name) \
+  template <>              \
+  inline constexpr bool reads_symbol_v<symbol::Name> = true;
+EGRAPH_SYM_READING_SYMBOLS(MG_DEFN_PRED)
+#undef MG_DEFN_PRED
+
+template <symbol S>
+constexpr bool names_symbol_without_reading_v = false;
+#define MG_DEFN_PRED(Name) \
+  template <>              \
+  inline constexpr bool names_symbol_without_reading_v<symbol::Name> = true;
+EGRAPH_NON_SYM_READING_SYMBOLS(MG_DEFN_PRED)
+#undef MG_DEFN_PRED
+
+// Reading and not-reading partition every symbol exactly once. A new symbol
+// left out of both fails here rather than being silently taken for a non-reader,
+// which would let a binder it reads from be elided.
+#define MG_ASSERT_ONE_SYM_READ(Name)                                                              \
+  static_assert(reads_symbol_v<symbol::Name> + names_symbol_without_reading_v<symbol::Name> == 1, \
+                "symbol::" #Name                                                                  \
+                " must appear in exactly one of EGRAPH_SYM_READING_SYMBOLS / "                    \
+                "EGRAPH_NON_SYM_READING_SYMBOLS in symbol_lists.hpp");
+EGRAPH_ALL_SYMBOLS(MG_ASSERT_ONE_SYM_READ)
+#undef MG_ASSERT_ONE_SYM_READ
 // NOLINTEND(cppcoreguidelines-macro-usage)
 
 /// Canonical enumeration of all symbols. Consumed by `TypedEGraph` (via

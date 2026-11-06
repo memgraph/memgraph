@@ -169,6 +169,7 @@ def test_all_show_metrics_info_values_are_present(memgraph):
         {"name": "AggregateOperator", "type": "Operator", "metric type": "Counter"},
         {"name": "ApplyOperator", "type": "Operator", "metric type": "Counter"},
         {"name": "CallProcedureOperator", "type": "Operator", "metric type": "Counter"},
+        {"name": "CardinalityScaleOperator", "type": "Operator", "metric type": "Counter"},
         {"name": "CartesianOperator", "type": "Operator", "metric type": "Counter"},
         {"name": "ConditionalOperator", "type": "Operator", "metric type": "Counter"},
         {"name": "ConstructNamedPathOperator", "type": "Operator", "metric type": "Counter"},

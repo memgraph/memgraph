@@ -20,15 +20,15 @@
 
 #include "planner/extract/extract.hpp"
 #include "planner/extract/extractor.hpp"
-#include "query/plan_v2/cost/builtin_estimator.hpp"
 #include "query/plan_v2/cost/cost_model.hpp"
 #include "query/plan_v2/egraph/alternative.hpp"
 #include "query/plan_v2/egraph/child_layout.hpp"
 #include "query/plan_v2/egraph/egraph_internal.hpp"
 #include "query/plan_v2/frontend/builder.hpp"
+#include "query/plan_v2/resolve/pre_extraction.hpp"
 #include "query/plan_v2/resolve/resolver.hpp"
-#include "query/plan_v2/resolve/variable_index.hpp"
-#include "query/plan_v2/resolve/variable_set.hpp"
+#include "query/plan_v2/scope/variable_index.hpp"
+#include "query/plan_v2/scope/variable_set.hpp"
 #include "utils/on_scope_exit.hpp"
 
 namespace memgraph::query::plan::v2 {
@@ -51,36 +51,7 @@ QueryPlannerContext &QueryPlannerContext::operator=(QueryPlannerContext &&) noex
 
 namespace {
 
-struct PreExtractionData {
-  VariableIndex variable_index;
-  VariableSet referenced_syms;
-};
-
 using enum symbol;
-
-/// One walk of canonical eclass ids: assign VariableIndex bits to Symbol
-/// e-classes and collect Identifier-referenced symbols. O(num_enodes).
-/// TODO: do we care about globally referenced_syms? Or do we need to make
-/// additional consideration for what is referenced by the top-level outputs?
-auto BuildPreExtractionData(EGraph const &core) -> PreExtractionData {
-  PreExtractionData out;
-  boost::container::small_vector<planner::core::EClassId, 32> identifier_referenced;
-  for (auto eclass_id : core.canonical_eclass_ids()) {
-    for (auto enode_id : core.eclass(eclass_id).nodes()) {
-      auto const &enode = core.get_enode(enode_id);
-      auto const sym = enode.symbol();
-      if (sym == Symbol) {
-        out.variable_index.assign(eclass_id);
-      } else if (sym == Identifier && !enode.children().empty()) {
-        // The sym child is canonical: EGraph::emplace canonicalizes children
-        // at insert time and rebuild() re-canonicalizes via canonicalize_in_place().
-        identifier_referenced.push_back(enode.children()[child::identifier::sym]);
-      }
-    }
-  }
-  out.referenced_syms = out.variable_index.to_variable_set(identifier_referenced);
-  return out;
-}
 
 /// Singleton invariant: each Symbol e-class corresponds to one variable.
 /// Compile-time guard on Symbol's shape + debug-build check that no rewrite
@@ -147,10 +118,11 @@ auto BuildOperatorTree(auto const &impl, QueryPlannerContext::Impl &ctx) -> Buil
   // Dense build cache indexed by `build_order` position. The resolver's
   // `seen` map guarantees each ResolverKey is emitted exactly once.
   auto build_state = BuildState{
-      .literal_info = impl.graph.template storage<Literal>().info,
-      .named_output_info = impl.graph.template storage<NamedOutput>().info,
+      .literal_info = impl.graph.template storage<Literal>().values.reverse(),
+      .named_output_info = impl.graph.template storage<NamedOutput>().names.reverse(),
       .symbol_store = impl.graph.template storage<Symbol>().store,
-      .function_info = impl.graph.template storage<Function>().info,
+      .function_info = impl.graph.template storage<Function>().functions.reverse(),
+      .egraph = impl.graph.core(),
   };
   auto const resolved_entries = ctx.build.resolved_entries();
   auto built = std::vector<BuildResult>{};
@@ -194,9 +166,7 @@ auto ConvertToLogicalOperator(egraph const &e, eclass root, QueryPlannerContext 
                            .outer_scope = VariableSet{},
                            .referenced_syms = std::move(pre.referenced_syms)};
 
-  auto const active_estimator = BuiltinEstimator{e};
-  auto const &root_frontier = ComputeFrontiersAndCheckRoot(
-      impl.graph.core(), CostCtx{.estimator = active_estimator, .syms = syms}, true_root, ctx);
+  auto const &root_frontier = ComputeFrontiersAndCheckRoot(impl.graph.core(), CostCtx{.syms = syms}, true_root, ctx);
 
   ResolveSelection(impl.graph.core(), syms, true_root, ctx);
 

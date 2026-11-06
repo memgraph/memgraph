@@ -20,11 +20,11 @@
 #include <utility>
 
 #include "query/exceptions.hpp"
+#include "query/plan_v2/egraph/analysis.hpp"
+#include "query/plan_v2/egraph/constant_identity.hpp"
 #include "query/plan_v2/egraph/egraph.hpp"
 #include "query/plan_v2/egraph/egraph_internal.hpp"
 #include "query/plan_v2/egraph/symbol.hpp"
-#include "query/plan_v2/resolve/analysis.hpp"
-#include "query/plan_v2/resolve/constant_identity.hpp"
 #include "storage/v2/property_value.hpp"
 
 import memgraph.planner.core.egraph;
@@ -141,17 +141,17 @@ TEST(AnalysisMerge, AgreeingConstantsAreKept) {
 
 TEST(AnalysisMerge, OneSidedListLengthIsTaken) {
   analysis lhs{ExpressionAnalysis{}};
-  analysis rhs{ExpressionAnalysis{.known_list_length = std::size_t{3}}};
+  analysis rhs{ExpressionAnalysis{.known_length = KnownLength{.of = LengthOf::List, .value = 3}}};
   lhs.merge(rhs);
   auto const *e = lhs.expression();
   ASSERT_NE(e, nullptr);
-  ASSERT_TRUE(e->known_list_length.has_value());
-  EXPECT_EQ(*e->known_list_length, 3U);
+  ASSERT_TRUE(e->known_length.has_value());
+  EXPECT_EQ(e->known_length->value, 3U);
 }
 
 TEST(AnalysisMerge, ConflictingListLengthsThrow) {
-  analysis lhs{ExpressionAnalysis{.known_list_length = std::size_t{3}}};
-  analysis rhs{ExpressionAnalysis{.known_list_length = std::size_t{4}}};
+  analysis lhs{ExpressionAnalysis{.known_length = KnownLength{.of = LengthOf::List, .value = 3}}};
+  analysis rhs{ExpressionAnalysis{.known_length = KnownLength{.of = LengthOf::List, .value = 4}}};
   EXPECT_THROW(lhs.merge(rhs), PlannerBug);
 }
 
@@ -239,7 +239,7 @@ TEST_F(MakeAnalysis, LiteralCarriesConstant) {
 TEST_F(MakeAnalysis, ScalarLiteralHasNoListLength) {
   auto const *e = Expression(eg_.MakeLiteral(ExternalPropertyValue{int64_t{7}}));
   ASSERT_NE(e, nullptr);
-  EXPECT_FALSE(e->known_list_length.has_value());
+  EXPECT_FALSE(e->known_length.has_value());
 }
 
 TEST_F(MakeAnalysis, ListLiteralCarriesLength) {
@@ -247,8 +247,8 @@ TEST_F(MakeAnalysis, ListLiteralCarriesLength) {
       ExternalPropertyValue{int64_t{1}}, ExternalPropertyValue{int64_t{2}}, ExternalPropertyValue{int64_t{3}}}};
   auto const *e = Expression(eg_.MakeLiteral(list));
   ASSERT_NE(e, nullptr);
-  ASSERT_TRUE(e->known_list_length.has_value());
-  EXPECT_EQ(*e->known_list_length, 3U);
+  ASSERT_TRUE(e->known_length.has_value());
+  EXPECT_EQ(e->known_length->value, 3U);
 }
 
 TEST_F(MakeAnalysis, OperatorSymbolGetsOperatorArm) {
@@ -286,6 +286,124 @@ TEST_F(MakeAnalysis, NaNInternsOnce) {
   auto const a = eg_.MakeLiteral(ExternalPropertyValue{std::numeric_limits<double>::quiet_NaN()});
   auto const b = eg_.MakeLiteral(ExternalPropertyValue{std::nan("0x1234")});
   EXPECT_EQ(a.value_of(), b.value_of());
+}
+
+// --- Interning: the reverse table survives the map growing -----------------
+// A reverse entry that points at an interned key outlives the insertion that
+// made it, so the key must keep its address as the map grows. Interning past
+// any plausible initial bucket count and reading every entry back is what tells
+// a node-stable map from a flat one; a flat one passes every other test here.
+
+TEST_F(MakeAnalysis, InternedLiteralsSurviveMapGrowth) {
+  constexpr std::size_t kCount = 2000;
+  std::vector<eclass> ids;
+  ids.reserve(kCount);
+  for (std::size_t i = 0; i < kCount; ++i) {
+    ids.push_back(eg_.MakeLiteral(ExternalPropertyValue{static_cast<int64_t>(i)}));
+  }
+
+  // Forward direction: each e-class still carries the constant it was made with.
+  for (std::size_t i = 0; i < kCount; ++i) {
+    auto const *e = Expression(ids[i]);
+    ASSERT_NE(e, nullptr) << "entry " << i;
+    ASSERT_TRUE(e->known_constant_value.has_value()) << "entry " << i;
+    EXPECT_EQ(e->known_constant_value->ValueInt(), static_cast<int64_t>(i)) << "entry " << i;
+  }
+
+  // Reverse direction: the table the Builder reads agrees for every id.
+  auto const &reverse = impl_of(eg_).graph.storage<symbol::Literal>().values.reverse();
+  ASSERT_EQ(reverse.size(), kCount);
+  for (std::size_t i = 0; i < kCount; ++i) {
+    ASSERT_NE(reverse[i], nullptr) << "reverse entry " << i;
+    ASSERT_TRUE(reverse[i]->IsInt()) << "reverse entry " << i;
+    EXPECT_EQ(reverse[i]->ValueInt(), static_cast<int64_t>(i)) << "reverse entry " << i;
+  }
+}
+
+TEST_F(MakeAnalysis, InternedOutputNamesSurviveMapGrowth) {
+  constexpr std::size_t kCount = 2000;
+  auto const sym = eg_.MakeSymbol(0, "s");
+  auto const expr = eg_.MakeLiteral(ExternalPropertyValue{int64_t{1}});
+  for (std::size_t i = 0; i < kCount; ++i) {
+    eg_.MakeNamedOutput("name_" + std::to_string(i), sym, expr);
+  }
+
+  auto const &reverse = impl_of(eg_).graph.storage<symbol::NamedOutput>().names.reverse();
+  ASSERT_EQ(reverse.size(), kCount);
+  for (std::size_t i = 0; i < kCount; ++i) {
+    EXPECT_EQ(reverse[i], "name_" + std::to_string(i)) << "reverse entry " << i;
+  }
+}
+
+// --- The refresh derives what an e-node's children imply -------------------
+// A fact an e-node's own arguments fix is derived on refresh, not when the node
+// is built, so it is established however late its arguments became known. Make
+// seeds only what an e-node's identity alone settles, which is why each of these
+// asserts the fact is absent until the refresh runs.
+
+class RefreshAnalysis : public MakeAnalysis {
+ protected:
+  auto ListLiteral(std::size_t n) -> eclass {
+    auto elements = ExternalPropertyValue::list_t{};
+    for (std::size_t i = 0; i < n; ++i) elements.emplace_back(ExternalPropertyValue{static_cast<int64_t>(i)});
+    return eg_.MakeLiteral(ExternalPropertyValue{std::move(elements)});
+  }
+};
+
+TEST_F(RefreshAnalysis, ConcatenatingTwoKnownLengthListsSumsTheirLengths) {
+  auto const concat = eg_.MakeAdd(ListLiteral(2), ListLiteral(3));
+  ASSERT_NE(Expression(concat), nullptr);
+  EXPECT_FALSE(Expression(concat)->known_length.has_value());
+
+  eg_.RefreshAnalysis();
+  ASSERT_TRUE(Expression(concat)->known_length.has_value());
+  EXPECT_EQ(Expression(concat)->known_length->value, 5U);
+}
+
+TEST_F(RefreshAnalysis, AddingTwoIntegersFixesNoListLength) {
+  // known_list_length is carried only for lists, so numeric addition must not
+  // claim one: the operands hold none, and a length here would also assert that
+  // the sum is a list.
+  auto const sum = eg_.MakeAdd(eg_.MakeLiteral(ExternalPropertyValue{int64_t{2}}),
+                               eg_.MakeLiteral(ExternalPropertyValue{int64_t{3}}));
+  eg_.RefreshAnalysis();
+  ASSERT_NE(Expression(sum), nullptr);
+  EXPECT_FALSE(Expression(sum)->known_length.has_value());
+}
+
+TEST_F(RefreshAnalysis, SizeOfAKnownLengthListFoldsToThatLength) {
+  auto const size = eg_.MakeFunction("size", {ListLiteral(3)}, /*is_pure=*/true);
+  ASSERT_NE(Expression(size), nullptr);
+  EXPECT_FALSE(Expression(size)->known_constant_value.has_value());
+
+  eg_.RefreshAnalysis();
+  ExpectConstant(Arm(size), ExternalPropertyValue{int64_t{3}});
+}
+
+TEST_F(RefreshAnalysis, SizeOfAnImpureCallFoldsToNothing) {
+  // Purity gates the fact: an impure call's result is not statically known
+  // however much is known about its argument.
+  auto const size = eg_.MakeFunction("size", {ListLiteral(3)}, /*is_pure=*/false);
+  eg_.RefreshAnalysis();
+  ASSERT_NE(Expression(size), nullptr);
+  EXPECT_FALSE(Expression(size)->known_constant_value.has_value());
+}
+
+TEST_F(RefreshAnalysis, AppendingANonListFixesNoLength) {
+  // `'ab' + [1,2]` appends the string as a single element, so its length is 3,
+  // not 2+2. Summing the operands' lengths is sound only for list + list, which
+  // is why only a list's length answers known_list_length().
+  auto const appended = eg_.MakeAdd(eg_.MakeLiteral(ExternalPropertyValue{"ab"}), ListLiteral(2));
+  eg_.RefreshAnalysis();
+  ASSERT_NE(Expression(appended), nullptr);
+  EXPECT_FALSE(Expression(appended)->known_length.has_value());
+}
+
+TEST_F(RefreshAnalysis, AConcatenationOverAnUnknownListFixesNoLength) {
+  auto const concat = eg_.MakeAdd(ListLiteral(2), eg_.MakeParameterLookup(0));
+  eg_.RefreshAnalysis();
+  ASSERT_NE(Expression(concat), nullptr);
+  EXPECT_FALSE(Expression(concat)->known_length.has_value());
 }
 
 }  // namespace
