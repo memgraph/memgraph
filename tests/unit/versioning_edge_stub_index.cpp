@@ -42,6 +42,24 @@ TEST(VersioningEdgeStubIndex, InsertFindAndDeltaLessStub) {
   EXPECT_EQ(index.Find(6), nullptr);
 }
 
+TEST(VersioningEdgeStubIndex, RecordsTheForkEdgeOfTheCallThatCreatesTheStub) {
+  EdgeStubIndex index;
+  ms::Edge fork_edge(ms::Gid::FromUint(9), nullptr);
+  EXPECT_FALSE(index.FindFork(9).has_value());
+
+  auto *stub = index.GetOrCreate(9, ms::EdgeRef{&fork_edge});
+  ASSERT_TRUE(index.FindFork(9).has_value());
+  EXPECT_EQ(index.FindFork(9)->ptr, &fork_edge);
+  EXPECT_NE(stub, &fork_edge);
+
+  ms::Edge another(ms::Gid::FromUint(9), nullptr);
+  EXPECT_EQ(index.GetOrCreate(9, ms::EdgeRef{&another}), stub);
+  EXPECT_EQ(index.FindFork(9)->ptr, &fork_edge) << "the first creation's fork edge stands";
+
+  index.GetOrCreate(10);
+  EXPECT_FALSE(index.FindFork(10).has_value()) << "a stub created without one has none";
+}
+
 TEST(VersioningEdgeStubIndex, ForEachVisitsEveryStubOnceAndStopsEarly) {
   EdgeStubIndex index;
   constexpr uint64_t kCount = 1000;

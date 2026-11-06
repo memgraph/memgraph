@@ -37,6 +37,8 @@
 #include <gtest/gtest.h>
 
 #include "flags/run_time_configurable.hpp"
+#include "storage/v2/edge_accessor.hpp"
+#include "tests/test_commit_args_helper.hpp"
 #include "utils/on_scope_exit.hpp"
 #include "utils/settings.hpp"
 #include "versioning_fixture.hpp"
@@ -152,6 +154,27 @@ TEST_F(VersioningIndexTest, NeighboursQueryOnABranchPlansAndWorksAsMain) {
   faker.Interpret("CREATE (:L {id: 5000})");
   EXPECT_EQ(ExplainText(faker, kQuery), main_plan);
   EXPECT_LE(hits(), 2 * main_hits + 16);
+}
+
+// The edge-type counts the planner reads on a branch are main's at the fork plus the branch's own (BL-0254).
+TEST_F(VersioningIndexPlannerCountsTest, EdgeTypeScansOnABranchPlanAsMain) {
+  faker.Interpret("CREATE EDGE INDEX ON :FOLLOWS");
+  faker.Interpret("CREATE INDEX ON :Other");
+  auto const queries = std::array{
+      "MATCH ()-[r:FOLLOWS]->() RETURN count(r)",
+      "MATCH (a:User)-[r:FOLLOWS]->(b:User) RETURN count(r)",
+      "MATCH (a:Other)-[r:FOLLOWS]->(b:User) RETURN count(r)",
+  };
+  std::vector<std::string> main_plans;
+  for (auto const *query : queries) main_plans.push_back(ExplainText(faker, query));
+  ASSERT_TRUE(PlanHasOperator(main_plans.front(), "ScanAllByEdgeType")) << main_plans.front();
+
+  Fork();
+  size_t i = 0;
+  for (auto const *query : queries) EXPECT_EQ(ExplainText(faker, query), main_plans[i++]) << query;
+  faker.Interpret("UNWIND range(1, 4) AS i CREATE (:User {id: 2000 + i})-[:FOLLOWS]->(:Other)");
+  i = 0;
+  for (auto const *query : queries) EXPECT_EQ(ExplainText(faker, query), main_plans[i++]) << query;
 }
 
 TEST_F(VersioningIndexTest, BranchLabelIndexScanMatchesLabelMembership) {
@@ -292,6 +315,24 @@ struct MirroredIndexCase {
 };
 
 constexpr MirroredIndexCase kMirroredIndexCases[] = {
+    {"EdgeType",
+     "CREATE EDGE INDEX ON :KNOWS",
+     "CREATE (:N)-[:KNOWS]->(:N)",
+     "MATCH ()-[r:KNOWS]->() RETURN r",
+     "ScanAllByEdgeType",
+     false},
+    {"EdgeTypeProperty",
+     "CREATE EDGE INDEX ON :KNOWS(w)",
+     "CREATE (:N)-[:KNOWS {w: 1}]->(:N)",
+     "MATCH ()-[r:KNOWS]->() WHERE r.w > 0 RETURN r.w ORDER BY r.w",
+     "ScanAllByEdgeTypeProperty",
+     true},
+    {"GlobalEdgeProperty",
+     "CREATE GLOBAL EDGE INDEX ON :(w)",
+     "CREATE (:N)-[:KNOWS {w: 1}]->(:N)",
+     "MATCH ()-[r]->() WHERE r.w > 0 RETURN r.w ORDER BY r.w",
+     "ScanAllByEdgeProperty",
+     true},
     {"GlobalVertexProperty",
      "CREATE GLOBAL INDEX ON :(w)",
      "CREATE (:V {w: 1}), (:V {w: 2})",
@@ -1394,6 +1435,906 @@ TEST_F(VersioningIndexTest, StreamedScansEqualFullScansAfterRandomKeyChanges) {
           break;
         default:
           statement = match + "SET n.a = n.a";
+          break;
+      }
+      if (pick(5) == 0) {
+        faker.Interpret("BEGIN");
+        faker.Interpret(statement);
+        faker.Interpret("ROLLBACK");
+      } else {
+        faker.Interpret(statement);
+      }
+      expect_equal("seed " + std::to_string(seed) + " after `" + statement + "`");
+    }
+    faker.Interpret("BEGIN");
+    expect_equal("seed " + std::to_string(seed) + " inside one transaction");
+    faker.Interpret("COMMIT");
+  }
+}
+
+TEST_F(VersioningIndexTest, BranchEdgeTypeIndexScanReflectsBranchMutations) {
+  faker.Interpret("CREATE EDGE INDEX ON :KNOWS");
+  faker.Interpret(
+      "CREATE (a:N {n:'a'}), (b:N {n:'b'}), (c:N {n:'c'}), (a)-[:KNOWS]->(b), (b)-[:KNOWS]->(c), (a)-[:KNOWS]->(c), "
+      "(a)-[:LIKES]->(c)");
+  Fork();
+
+  faker.Interpret("MATCH (:N {n:'a'})-[r:KNOWS]->(:N {n:'b'}) DELETE r");
+  faker.Interpret("MATCH (c:N {n:'c'}), (a:N {n:'a'}) CREATE (c)-[:KNOWS]->(a)");
+  faker.Interpret("MATCH (b:N {n:'b'}) DETACH DELETE b");
+
+  const std::string query = "MATCH (x)-[r:KNOWS]->(y) RETURN x.n + '->' + y.n AS e ORDER BY e";
+  ExpectPlanUses(faker, query, "ScanAllByEdgeType");
+  EXPECT_EQ(StringRows(faker, query), (Strings{"a->c", "c->a"}));
+  UseMain();
+  EXPECT_EQ(StringRows(faker, query), (Strings{"a->b", "a->c", "b->c"}));
+}
+
+// The planner drops ORDER BY for an edge-property index scan, so the merge alone must yield ascending values.
+TEST_F(VersioningIndexTest, BranchEdgePropertyIndexScansAreOrderedOverBranchMutations) {
+  faker.Interpret("CREATE EDGE INDEX ON :KNOWS(w)");
+  faker.Interpret("CREATE GLOBAL EDGE INDEX ON :(w)");
+  // Creation order differs from w order.
+  faker.Interpret(
+      "CREATE (a:N {n:'a'}), (b:N {n:'b'}), (c:N {n:'c'}), (e:N {n:'e'}), (a)-[:KNOWS {w: 50}]->(b), "
+      "(b)-[:KNOWS {w: 20}]->(c), (a)-[:KNOWS {w: 40}]->(c), (c)-[:KNOWS {w: 10}]->(e), (a)-[:LIKES {w: 30}]->(e)");
+  Fork();
+
+  faker.Interpret("MATCH (:N {n:'b'})-[r:KNOWS]->(:N {n:'c'}) SET r.w = 99");
+  faker.Interpret("MATCH (:N {n:'a'})-[r:KNOWS]->(:N {n:'c'}) DELETE r");
+  faker.Interpret("MATCH (e:N {n:'e'}), (a:N {n:'a'}) CREATE (e)-[:KNOWS {w: 25}]->(a), (e)-[:FOLLOWS {w: 5}]->(a)");
+  faker.Interpret("MATCH (:N {n:'a'})-[r:LIKES]->() SET r.w = 60");
+
+  const std::string typed = "MATCH ()-[r:KNOWS]->() WHERE r.w > 0 RETURN r.w ORDER BY r.w";
+  const std::string global = "MATCH ()-[r]->() WHERE r.w > 0 RETURN r.w ORDER BY r.w";
+  ExpectPlanUses(faker, typed, "ScanAllByEdgeTypeProperty");
+  ExpectPlanUses(faker, global, "ScanAllByEdgeProperty");
+  EXPECT_EQ(IntRows(faker, typed), (Rows{{10}, {25}, {50}, {99}}));
+  EXPECT_EQ(IntRows(faker, global), (Rows{{5}, {10}, {25}, {50}, {60}, {99}}));
+  UseMain();
+  EXPECT_EQ(IntRows(faker, global), (Rows{{10}, {20}, {30}, {40}, {50}}));
+}
+
+// A fork edge is found at its branch value only; an unrelated property write keeps the fork value findable.
+TEST_F(VersioningIndexTest, BranchEdgePropertyIndexScansReadForkEdgesAtTheirBranchValue) {
+  faker.Interpret("CREATE EDGE INDEX ON :R(w)");
+  faker.Interpret("CREATE GLOBAL EDGE INDEX ON :(w)");
+  faker.Interpret(
+      "CREATE (:A {id:1})-[:R {w:1}]->(:B {id:2}), (:A {id:3})-[:R {w:5}]->(:B {id:4}), "
+      "(:A {id:5})-[:R {w:7}]->(:B {id:6}), (:A {id:7})-[:Q {w:3}]->(:B {id:8})");
+  Fork();
+
+  faker.Interpret("MATCH (:A {id:1})-[r:R]->() SET r.w = 9");
+  faker.Interpret("MATCH (:A {id:3})-[r:R]->() SET r.x = 1");
+  faker.Interpret("MATCH (:A {id:5})-[r:R]->() REMOVE r.w");
+  faker.Interpret("MATCH (:A {id:7})-[r:Q]->() SET r.w = 2");  // another type: the global index only
+
+  auto const typed = [&](const std::string &where) {
+    return IntRows(faker, "MATCH ()-[r:R]->() WHERE " + where + " RETURN r.w ORDER BY r.w");
+  };
+  ExpectPlanUses(faker, "MATCH ()-[r:R]->() WHERE r.w = 1 RETURN r.w", "ScanAllByEdgeTypeProperty");
+  ExpectPlanUses(faker, "MATCH ()-[r]->() WHERE r.w IS NOT NULL RETURN r.w", "ScanAllByEdgeProperty");
+  EXPECT_EQ(typed("r.w = 1"), Rows{});
+  EXPECT_EQ(typed("r.w = 9"), (Rows{{9}}));
+  EXPECT_EQ(typed("r.w = 5"), (Rows{{5}}));
+  EXPECT_EQ(typed("r.w = 7"), Rows{});
+  EXPECT_EQ(typed("r.w > 0"), (Rows{{5}, {9}}));
+  EXPECT_EQ(typed("r.w >= 5 AND r.w < 9"), (Rows{{5}}));
+  EXPECT_EQ(IntRows(faker, "MATCH ()-[r]->() WHERE r.w IS NOT NULL RETURN r.w ORDER BY r.w"), (Rows{{2}, {5}, {9}}));
+  EXPECT_EQ(IntRows(faker, "MATCH ()-[r]->() WHERE r.w = 3 RETURN count(r)"), (Rows{{0}}));
+}
+
+// A fork edge that gains the property is found only through the branch's record of it, through rollback and delete.
+TEST_F(VersioningIndexTest, BranchEdgePropertyIndexScanFollowsGainedPropertyThroughRollbackAndDelete) {
+  faker.Interpret("CREATE EDGE INDEX ON :R(w)");
+  faker.Interpret("CREATE GLOBAL EDGE INDEX ON :(w)");
+  faker.Interpret(
+      "CREATE (:A {id:1})-[:R {w:4}]->(:B {id:2}), (:A {id:3})-[:R {z:1}]->(:B {id:4}), "
+      "(:A {id:5})-[:Q {z:1}]->(:B {id:6})");
+  Fork();
+
+  auto const all_typed = [&] { return IntRows(faker, "MATCH ()-[r:R]->() WHERE r.w > 0 RETURN r.w ORDER BY r.w"); };
+  auto const all_global = [&] {
+    return IntRows(faker, "MATCH ()-[r]->() WHERE r.w IS NOT NULL RETURN r.w ORDER BY r.w");
+  };
+  faker.Interpret("BEGIN");
+  faker.Interpret("MATCH (:A {id:3})-[r:R]->() SET r.w = 3");
+  faker.Interpret("MATCH (:A {id:5})-[r:Q]->() SET r.w = 6");
+  EXPECT_EQ(IntRows(faker, "MATCH ()-[r:R]->() WHERE r.w = 3 RETURN count(r)"), (Rows{{1}}));
+  EXPECT_EQ(all_typed(), (Rows{{3}, {4}}));
+  EXPECT_EQ(all_global(), (Rows{{3}, {4}, {6}}));
+  faker.Interpret("ROLLBACK");
+  EXPECT_EQ(all_typed(), (Rows{{4}}));
+  EXPECT_EQ(all_global(), (Rows{{4}}));
+
+  faker.Interpret("MATCH (:A {id:3})-[r:R]->() SET r.w = 3");
+  faker.Interpret("MATCH (:A {id:5})-[r:Q]->() SET r.w = 6");
+  EXPECT_EQ(all_global(), (Rows{{3}, {4}, {6}}));
+  faker.Interpret("MATCH (:A {id:3})-[r:R]->() SET r.w = 8");
+  EXPECT_EQ(all_typed(), (Rows{{4}, {8}}));
+  EXPECT_EQ(IntRows(faker, "MATCH ()-[r:R]->() WHERE r.w >= 4 AND r.w < 8 RETURN r.w"), (Rows{{4}}));
+  faker.Interpret("MATCH (:A {id:3})-[r:R]->() DELETE r");
+  EXPECT_EQ(all_typed(), (Rows{{4}}));
+  EXPECT_EQ(all_global(), (Rows{{4}, {6}}));
+
+  UseMain();
+  EXPECT_EQ(all_global(), (Rows{{4}}));
+}
+
+// An edge index main drops after the fork is not visible at it: the planner still picks the mirrored index and the
+// branch answers, in order, from a scan.
+TEST_F(VersioningIndexTest, BranchOrderedEdgePropertyScanSurvivesMainDroppingIndex) {
+  struct Case {
+    const char *ddl;
+    const char *drop;
+    const char *match;
+    const char *op;
+  };
+
+  static constexpr Case kCases[] = {
+      {"CREATE EDGE INDEX ON :T(p)", "DROP EDGE INDEX ON :T(p)", "()-[r:T]->()", "ScanAllByEdgeTypeProperty"},
+      {"CREATE GLOBAL EDGE INDEX ON :(p)", "DROP GLOBAL EDGE INDEX ON :(p)", "()-[r]->()", "ScanAllByEdgeProperty"},
+  };
+  int branch = 0;
+  for (const auto &c : kCases) {
+    SCOPED_TRACE(c.ddl);
+    UseMain();
+    faker.Interpret("MATCH (n) DETACH DELETE n");
+    faker.Interpret(c.ddl);
+    // Creation order differs from p order.
+    faker.Interpret("CREATE (:V)-[:T {p: 3}]->(:V), (:V)-[:T {p: 1}]->(:V), (:V)-[:T {p: 2}]->(:V)");
+    const auto name = "d" + std::to_string(branch++);
+    Fork(name);
+    UseMain();
+    faker.Interpret(c.drop);
+    Use(faker, name);
+
+    const std::string presence = std::string{"MATCH "} + c.match + " WHERE r.p IS NOT NULL RETURN r.p ORDER BY r.p";
+    const std::string range = std::string{"MATCH "} + c.match + " WHERE r.p > 1 RETURN r.p ORDER BY r.p";
+    ExpectPlanUses(faker, range, c.op);
+    EXPECT_EQ(IntRows(faker, presence), (Rows{{1}, {2}, {3}}));
+    EXPECT_EQ(IntRows(faker, range), (Rows{{2}, {3}}));
+  }
+}
+
+namespace {
+constexpr auto kSeedEdges =
+    "CREATE (a:N {n:'a'}), (b:N {n:'b'}), (c:N {n:'c'}),"
+    " (a)-[:R {w:1, t:'e1'}]->(b), (b)-[:R {w:2, t:'e2'}]->(c), (a)-[:Q {w:3, t:'e3'}]->(c)";
+constexpr auto kEdgeMainDrift =
+    "MATCH ()-[e {t:'e1'}]->() DELETE e;"
+    "MATCH ()-[e {t:'e2'}]->() SET e.w = 20;"
+    "MATCH (a:N {n:'a'}), (c:N {n:'c'}) CREATE (a)-[:R {w:4, t:'e4'}]->(c);"
+    "MATCH ()-[e {t:'e3'}]->() DELETE e";
+constexpr auto kEdgeBranchWrites =
+    "MATCH (c:N {n:'c'}), (a:N {n:'a'}) CREATE (c)-[:R {w:7, t:'bn'}]->(a);"
+    "MATCH ()-[e {t:'e1'}]->() SET e.w = 10";
+
+struct LateEdgeIndexCase {
+  const char *name;
+  bool rebuilt;
+  bool branch_writes_before;
+  TagP expected_r;
+  std::vector<int64_t> probe_w;
+};
+
+const std::vector<LateEdgeIndexCase> kLateEdgeIndexCases = {
+    {"LateMainDrift", false, false, {{"e1", 1}, {"e2", 2}}, {1, 2, 4, 20}},
+    {"LateMainDriftAndBranchWritesBefore", false, true, {{"bn", 7}, {"e1", 10}, {"e2", 2}}, {1, 2, 4, 7, 10, 20}},
+    {"RebuiltMainDrift", true, false, {{"e1", 1}, {"e2", 2}}, {1, 2, 4, 20}},
+};
+
+class VersioningLateEdgeIndexTest : public VersioningIndexTest,
+                                    public ::testing::WithParamInterface<LateEdgeIndexCase> {};
+}  // namespace
+
+TEST_P(VersioningLateEdgeIndexTest, BranchReadsForkStateAndOwnWrites) {
+  const auto &c = GetParam();
+  if (c.rebuilt) {
+    faker.Interpret("CREATE EDGE INDEX ON :R");
+    faker.Interpret("CREATE EDGE INDEX ON :R(w)");
+  }
+  faker.Interpret(kSeedEdges);
+  Fork();
+  if (c.branch_writes_before) RunStatements(faker, kEdgeBranchWrites);
+  UseMain();
+  RunStatements(faker, kEdgeMainDrift);
+  if (c.rebuilt) {
+    faker.Interpret("DROP EDGE INDEX ON :R");
+    faker.Interpret("DROP EDGE INDEX ON :R(w)");
+  }
+  faker.Interpret("CREATE EDGE INDEX ON :R");
+  faker.Interpret("CREATE EDGE INDEX ON :R(w)");
+  Use(faker, "b");
+
+  const std::string type_idx = "MATCH ()-[e:R]->() RETURN e.t AS t ORDER BY t";
+  const std::string type_scan = "MATCH ()-[e]->() WHERE type(e) = 'R' RETURN e.t AS t ORDER BY t";
+  const std::string prop_idx = "MATCH ()-[e:R]->() WHERE e.w > 0 RETURN e.t AS t ORDER BY t";
+  EXPECT_EQ(PlanHasOperator(ExplainText(faker, type_idx), "ScanAllByEdgeType"), c.rebuilt);
+  EXPECT_EQ(PlanHasOperator(ExplainText(faker, prop_idx), "ScanAllByEdgeTypeProperty"), c.rebuilt);
+
+  const auto want = Tags(c.expected_r);
+  EXPECT_EQ(StringRows(faker, type_scan), want) << "the scan disagrees with the hand-derived state";
+  EXPECT_EQ(StringRows(faker, type_idx), want);
+  EXPECT_EQ(StringRows(faker, prop_idx), want);
+  for (auto w : c.probe_w) {
+    EXPECT_EQ(StringRows(faker, "MATCH ()-[e:R]->() WHERE e.w = " + std::to_string(w) + " RETURN e.t AS t ORDER BY t"),
+              Tags(c.expected_r, w))
+        << "w = " << w;
+  }
+}
+
+INSTANTIATE_TEST_SUITE_P(Cases, VersioningLateEdgeIndexTest, ::testing::ValuesIn(kLateEdgeIndexCases),
+                         [](const ::testing::TestParamInfo<LateEdgeIndexCase> &info) {
+                           return std::string{info.param.name};
+                         });
+
+TEST_F(VersioningIndexTest, BranchRebuiltGlobalEdgePropertyIndexReadsForkState) {
+  faker.Interpret("CREATE GLOBAL EDGE INDEX ON :(w)");
+  faker.Interpret(kSeedEdges);
+  Fork();
+  UseMain();
+  RunStatements(faker, kEdgeMainDrift);
+  faker.Interpret("DROP GLOBAL EDGE INDEX ON :(w)");
+  faker.Interpret("CREATE GLOBAL EDGE INDEX ON :(w)");
+  Use(faker, "b");
+
+  const std::string range = "MATCH ()-[e]->() WHERE e.w > 0 RETURN e.t ORDER BY e.w";
+  ExpectPlanUses(faker, range, "ScanAllByEdgeProperty");
+  EXPECT_EQ(StringRows(faker, range), (Strings{"e1", "e2", "e3"}));
+  const std::vector<std::pair<int64_t, Strings>> probes = {{1, {"e1"}}, {2, {"e2"}}, {3, {"e3"}}, {4, {}}, {20, {}}};
+  for (const auto &[w, want] : probes) {
+    EXPECT_EQ(StringRows(faker, "MATCH ()-[e]->() WHERE e.w = " + std::to_string(w) + " RETURN e.t"), want)
+        << "w = " << w;
+  }
+}
+
+// Edge-index scans inside one long transaction return the same set every time while another session commits property
+// changes, a delete and a create on the branch and main commits more; the type scan, the typed and the global
+// property scans and a full-scan filter agree, at the transaction's snapshot and again after it.
+TEST_F(VersioningIndexTest, EdgeIndexScansInOneTransactionStayStableWhileOthersCommit) {
+  faker.Interpret("CREATE EDGE INDEX ON :R");
+  faker.Interpret("CREATE EDGE INDEX ON :R(w)");
+  faker.Interpret("CREATE GLOBAL EDGE INDEX ON :(w)");
+  faker.Interpret("UNWIND range(1, 12) AS i CREATE (:N {id: i})-[:R {id: i, w: i % 4}]->(:M)");
+  Fork();
+  auto writers = SessionsOnBranch(1);
+  auto &writer = *writers[0];
+  InterpreterFaker main_session{&interpreter_context, db};
+  interpreter_context.auth_checker = &faker.auth_checker;
+  UseMain(main_session);
+
+  auto const typed = "MATCH ()-[r:R]->() WHERE r.w = 2 RETURN r.id ORDER BY r.id";
+  auto const global = "MATCH ()-[r]->() WHERE r.w = 2 RETURN r.id ORDER BY r.id";
+  auto const by_type = "MATCH ()-[r:R]->() RETURN r.id ORDER BY r.id";
+  auto const full_typed = "MATCH ()-[r]->() WHERE type(r) = 'R' AND r.w + 0 = 2 RETURN r.id ORDER BY r.id";
+  auto const full_by_type = "MATCH ()-[r]->() WHERE type(r) = 'R' RETURN r.id ORDER BY r.id";
+  ExpectPlanUses(faker, typed, "ScanAllByEdgeTypeProperty");
+  ExpectPlanUses(faker, global, "ScanAllByEdgeProperty");
+  ExpectPlanUses(faker, by_type, "ScanAllByEdgeType");
+  auto const expect_scans_agree = [&] {
+    EXPECT_EQ(IntRows(faker, typed), IntRows(faker, full_typed));
+    EXPECT_EQ(IntRows(faker, global), IntRows(faker, full_typed));
+    EXPECT_EQ(IntRows(faker, by_type), IntRows(faker, full_by_type));
+  };
+
+  faker.Interpret("BEGIN");
+  auto const typed_before = IntRows(faker, typed);
+  auto const by_type_before = IntRows(faker, by_type);
+  ASSERT_EQ(typed_before, (Rows{{2}, {6}, {10}}));
+  ASSERT_EQ(by_type_before.size(), 12U);
+  expect_scans_agree();
+
+  writer.Interpret("MATCH ()-[r:R]->() WHERE r.id <= 6 SET r.w = 2");
+  writer.Interpret("MATCH ()-[r:R {id: 8}]->() DELETE r");
+  writer.Interpret("MATCH ()-[r:R {id: 10}]->() REMOVE r.w");
+  writer.Interpret("MATCH (n:N {id: 1}) CREATE (n)-[:R {id: 100, w: 2}]->(:M)");
+  main_session.Interpret("MATCH ()-[r:R]->() WHERE r.id > 6 SET r.w = 2");
+  main_session.Interpret("MATCH (n:N {id: 1}) CREATE (n)-[:R {id: 200, w: 2}]->(:M)");
+
+  EXPECT_EQ(IntRows(faker, typed), typed_before);
+  EXPECT_EQ(IntRows(faker, by_type), by_type_before);
+  expect_scans_agree();
+  faker.Interpret("COMMIT");
+
+  expect_scans_agree();
+  EXPECT_EQ(IntRows(faker, typed), (Rows{{1}, {2}, {3}, {4}, {5}, {6}, {100}}));
+  EXPECT_EQ(IntRows(faker, by_type).size(), 12U) << "main's later edges and property writes never reach the branch";
+}
+
+// Bounded stress over the edge indexes: one branch writer moves a property flag from one fork edge to the next in a
+// single transaction, main keeps flagging every edge, and readers must see, in each transaction, exactly one flagged
+// edge from the typed scan, the global scan and a full-scan filter, all the same edge.
+TEST_F(VersioningIndexTest, ConcurrentEdgeIndexScansSeeExactlyOneHolderOfAMovingProperty) {
+  constexpr int kEdges = 10;
+  constexpr int kRounds = 150;
+  faker.Interpret("CREATE EDGE INDEX ON :R(flag)");
+  faker.Interpret("CREATE GLOBAL EDGE INDEX ON :(flag)");
+  faker.Interpret("UNWIND range(0, 9) AS i CREATE (:N)-[:R {id: i, flag: 0}]->(:M)");
+  faker.Interpret("MATCH ()-[r:R {id: 0}]->() SET r.flag = 1");
+  Fork();
+  auto sessions = SessionsOnBranch(3);
+  InterpreterFaker main_session{&interpreter_context, db};
+  interpreter_context.auth_checker = &faker.auth_checker;
+  UseMain(main_session);
+  std::atomic<int> writers_left{2};
+
+  {
+    std::vector<std::jthread> threads;
+    threads.emplace_back([&session = *sessions[0], &writers_left] {
+      for (int round = 0; round < kRounds; ++round) {
+        session.Interpret("BEGIN");
+        session.Interpret("MATCH ()-[r:R {id: " + std::to_string(round % kEdges) + "}]->() SET r.flag = 0");
+        session.Interpret("MATCH ()-[r:R {id: " + std::to_string((round + 1) % kEdges) + "}]->() SET r.flag = 1");
+        session.Interpret("COMMIT");
+      }
+      --writers_left;
+    });
+    threads.emplace_back([&session = main_session, &writers_left] {
+      for (int round = 0; round < kRounds; ++round) session.Interpret("MATCH ()-[r:R]->() SET r.flag = 1");
+      --writers_left;
+    });
+    for (int r = 1; r < 3; ++r) {
+      threads.emplace_back([&session = *sessions[r], &writers_left] {
+        do {
+          session.Interpret("BEGIN");
+          auto const typed = IntRows(session, "MATCH ()-[r:R]->() WHERE r.flag = 1 RETURN r.id");
+          auto const global = IntRows(session, "MATCH ()-[r]->() WHERE r.flag = 1 RETURN r.id");
+          auto const full = IntRows(session, "MATCH ()-[r]->() WHERE r.flag + 0 = 1 RETURN r.id");
+          auto const again = IntRows(session, "MATCH ()-[r:R]->() WHERE r.flag = 1 RETURN r.id");
+          session.Interpret("COMMIT");
+          ASSERT_EQ(typed.size(), 1U) << "the flag moved atomically, main's copies never leak";
+          ASSERT_EQ(global, typed);
+          ASSERT_EQ(full, typed);
+          ASSERT_EQ(again, typed) << "the snapshot moved inside one transaction";
+        } while (writers_left.load() > 0);
+      });
+    }
+  }
+
+  EXPECT_EQ(IntRows(faker, "MATCH ()-[r:R]->() WHERE r.flag = 1 RETURN r.id"), (Rows{{kRounds % kEdges}}));
+  EXPECT_EQ(IntRows(main_session, "MATCH ()-[r:R]->() WHERE r.flag = 1 RETURN count(r)"), (Rows{{kEdges}}));
+}
+
+namespace {
+
+// What the branch should hold of the edges, kept by hand next to the Cypher that changes it.
+struct ModelEdge {
+  int64_t from;
+  int64_t to;
+  std::string type;
+  std::optional<int64_t> w;
+};
+
+struct EdgeWorld {
+  std::set<int64_t> vertices;
+  std::map<int64_t, ModelEdge> edges;
+};
+
+Rows EdgeIdRows(EdgeWorld const &world, auto &&keep) {
+  Rows rows;
+  for (auto const &[id, edge] : world.edges) {
+    if (keep(edge)) rows.push_back({id});
+  }
+  return rows;
+}
+
+// One seeded random write on the branch (now and then one that is rolled back), applied to `world` as well. Fork edges
+// are written and deleted, fork vertices detach-deleted (their edges are hidden), and native edges created.
+void RandomEdgeWrite(InterpreterFaker &session, std::mt19937 &rng, EdgeWorld &world, int64_t &next_native_id) {
+  auto const pick = [&](int64_t bound) { return static_cast<int64_t>(rng() % static_cast<uint64_t>(bound)); };
+  auto const pick_edge = [&]() -> std::optional<int64_t> {
+    if (world.edges.empty()) return std::nullopt;
+    auto it = world.edges.begin();
+    std::advance(it, pick(static_cast<int64_t>(world.edges.size())));
+    return it->first;
+  };
+  bool const rolled_back = pick(6) == 0;
+  auto const run = [&](std::string const &statement) {
+    if (!rolled_back) {
+      session.Interpret(statement);
+      return;
+    }
+    session.Interpret("BEGIN");
+    session.Interpret(statement);
+    session.Interpret("ROLLBACK");
+  };
+  auto const match_edge = [](int64_t id) { return "MATCH ()-[r {id: " + std::to_string(id) + "}]->() "; };
+
+  auto const kind = pick(8);
+  auto const id = pick_edge();
+  if (kind >= 6 || !id) {
+    if (world.vertices.size() < 2) return;
+    auto pick_vertex = [&] {
+      auto it = world.vertices.begin();
+      std::advance(it, pick(static_cast<int64_t>(world.vertices.size())));
+      return *it;
+    };
+    auto const from = pick_vertex();
+    auto to = pick_vertex();
+    while (to == from) to = pick_vertex();
+    auto const native = next_native_id++;
+    auto const type = pick(2) == 0 ? "R" : "Q";
+    auto const w = pick(3) == 0 ? std::nullopt : std::optional<int64_t>{pick(8)};
+    run("MATCH (a {id: " + std::to_string(from) + "}), (b {id: " + std::to_string(to) + "}) CREATE (a)-[:" + type +
+        " {id: " + std::to_string(native) + (w ? ", w: " + std::to_string(*w) : "") + "}]->(b)");
+    if (!rolled_back) world.edges[native] = ModelEdge{from, to, type, w};
+    return;
+  }
+  auto &edge = world.edges.at(*id);
+  switch (kind) {
+    case 0:
+    case 1: {
+      auto const w = pick(8);
+      run(match_edge(*id) + "SET r.w = " + std::to_string(w));
+      if (!rolled_back) edge.w = w;
+      break;
+    }
+    case 2:
+      run(match_edge(*id) + "REMOVE r.w");
+      if (!rolled_back) edge.w.reset();
+      break;
+    case 3:
+      run(match_edge(*id) + "DELETE r");
+      if (!rolled_back) world.edges.erase(*id);
+      break;
+    case 4: {
+      auto const vertex = pick(2) == 0 ? edge.from : edge.to;
+      run("MATCH (n {id: " + std::to_string(vertex) + "}) DETACH DELETE n");
+      if (!rolled_back) {
+        world.vertices.erase(vertex);
+        std::erase_if(world.edges,
+                      [&](auto const &entry) { return entry.second.from == vertex || entry.second.to == vertex; });
+      }
+      break;
+    }
+    default:
+      run(match_edge(*id) + "SET r.z = 1");  // another property: no scan on `w` changes
+      break;
+  }
+}
+
+}  // namespace
+
+// Fork edges are rewritten, lose their property or are deleted, fork vertices are detach-deleted (hiding their fork
+// edges) and native edges appear, some of it rolled back: the edge-type scan, the typed and the global property scan
+// (in index order) and a full scan must each equal the model after every write, and in one explicit transaction too.
+TEST_F(VersioningIndexTest, BranchEdgeScansEqualAModelOfForkAndNativeWrites) {
+  faker.Interpret("CREATE EDGE INDEX ON :R");
+  faker.Interpret("CREATE EDGE INDEX ON :R(w)");
+  faker.Interpret("CREATE GLOBAL EDGE INDEX ON :(w)");
+  EdgeWorld world;
+  constexpr int64_t kVertices = 8;
+  for (int64_t id = 0; id < kVertices; ++id) {
+    faker.Interpret("CREATE (:N {id: " + std::to_string(id) + "})");
+    world.vertices.insert(id);
+  }
+  for (int64_t id = 0; id < 18; ++id) {
+    ModelEdge edge{id % kVertices,
+                   (id * 3 + 1) % kVertices,
+                   id % 3 == 0 ? "Q" : "R",
+                   id % 4 == 0 ? std::nullopt : std::optional<int64_t>{id % 5}};
+    faker.Interpret("MATCH (a:N {id: " + std::to_string(edge.from) + "}), (b:N {id: " + std::to_string(edge.to) +
+                    "}) CREATE (a)-[:" + edge.type + " {id: " + std::to_string(id) +
+                    (edge.w ? ", w: " + std::to_string(*edge.w) : "") + "}]->(b)");
+    world.edges[id] = edge;
+  }
+  Fork();
+  ExpectPlanUses(faker, "MATCH ()-[r:R]->() RETURN r.id", "ScanAllByEdgeType");
+  ExpectPlanUses(faker, "MATCH ()-[r:R]->() WHERE r.w >= 0 RETURN r.id", "ScanAllByEdgeTypeProperty");
+  ExpectPlanUses(faker, "MATCH ()-[r]->() WHERE r.w >= 0 RETURN r.id", "ScanAllByEdgeProperty");
+
+  auto const expect_model = [&](std::string const &where) {
+    auto const is_r = [](ModelEdge const &e) { return e.type == "R"; };
+    auto const has_w = [](ModelEdge const &e) { return e.w.has_value(); };
+    auto const everything = [](ModelEdge const &) { return true; };
+    EXPECT_EQ(IntRows(faker, "MATCH ()-[r:R]->() RETURN r.id ORDER BY r.id"), EdgeIdRows(world, is_r)) << where;
+    EXPECT_EQ(IntRows(faker, "MATCH ()-[r:R]->() WHERE r.w >= 0 RETURN r.id ORDER BY r.id"),
+              EdgeIdRows(world, [&](auto const &e) { return is_r(e) && has_w(e); }))
+        << where;
+    EXPECT_EQ(IntRows(faker, "MATCH ()-[r:R]->() WHERE r.w >= 2 AND r.w < 6 RETURN r.id ORDER BY r.id"),
+              EdgeIdRows(world, [&](auto const &e) { return is_r(e) && has_w(e) && *e.w >= 2 && *e.w < 6; }))
+        << where;
+    EXPECT_EQ(IntRows(faker, "MATCH ()-[r]->() WHERE r.w >= 0 RETURN r.id ORDER BY r.id"), EdgeIdRows(world, has_w))
+        << where;
+    EXPECT_EQ(IntRows(faker, "MATCH ()-[r]->() RETURN r.id ORDER BY r.id"), EdgeIdRows(world, everything)) << where;
+    EXPECT_EQ(IntRows(faker, "MATCH ()-[r]->() WHERE type(r) = 'R' RETURN r.id ORDER BY r.id"), EdgeIdRows(world, is_r))
+        << where;
+    Rows typed_by_w;
+    Rows global_by_w;
+    for (auto const &[id, e] : world.edges) {
+      if (!has_w(e)) continue;
+      global_by_w.push_back({*e.w});
+      if (is_r(e)) typed_by_w.push_back({*e.w});
+    }
+    std::ranges::sort(typed_by_w);
+    std::ranges::sort(global_by_w);
+    EXPECT_EQ(IntRows(faker, "MATCH ()-[r:R]->() WHERE r.w >= 0 RETURN r.w ORDER BY r.w"), typed_by_w) << where;
+    EXPECT_EQ(IntRows(faker, "MATCH ()-[r]->() WHERE r.w >= 0 RETURN r.w ORDER BY r.w"), global_by_w) << where;
+  };
+
+  expect_model("at the fork");
+  int64_t next_native_id = 100;
+  for (uint32_t seed = 1; seed <= 5; ++seed) {
+    std::mt19937 rng(seed);
+    for (int step = 0; step < 30; ++step) {
+      RandomEdgeWrite(faker, rng, world, next_native_id);
+      expect_model("seed " + std::to_string(seed) + " step " + std::to_string(step));
+    }
+    faker.Interpret("BEGIN");
+    expect_model("seed " + std::to_string(seed) + " inside one transaction");
+    faker.Interpret("COMMIT");
+  }
+}
+
+// The scans trust the change records: a write to a fork edge's stub that nothing recorded is not read, and the diff
+// engine's property-index hit on that stub is never handed to the query layer as an edge. A diff scan only sees edges
+// below its engine's edge counter, which a branch-native edge raises past every fork gid, so the branch has one.
+TEST_F(VersioningIndexTest, BranchEdgeScansSkipUnrecordedStubsAndNeverYieldAStubHit) {
+  namespace ms = memgraph::storage;
+  faker.Interpret("CREATE EDGE INDEX ON :R");
+  faker.Interpret("CREATE EDGE INDEX ON :R(w)");
+  faker.Interpret("CREATE GLOBAL EDGE INDEX ON :(w)");
+  faker.Interpret("UNWIND range(0, 3) AS i CREATE (:N {id: i})-[:R {id: i, w: i}]->(:M)");
+  auto const ids = IntRows(faker, "MATCH (n)-[r:R {id: 1}]->() RETURN id(r), id(n)");
+  ASSERT_EQ(ids.size(), 1U);
+  Fork();
+  faker.Interpret("MATCH (a:N {id: 0}), (b:N {id: 1}) CREATE (a)-[:R {id: 50, w: 50}]->(b)");
+
+  faker.Interpret("BEGIN");
+  faker.Interpret("RETURN 1");
+  auto *ctx = faker.interpreter.current_db_.branch_context();
+  ASSERT_NE(ctx, nullptr);
+  auto const gid = ms::Gid::FromUint(static_cast<uint64_t>(ids[0][0]));
+  auto fork = ctx->FindForkEdge(gid, ms::Gid::FromUint(static_cast<uint64_t>(ids[0][1])));
+  ASSERT_TRUE(fork.has_value());
+  faker.Interpret("ROLLBACK");
+
+  // Committed in its own diff transaction, so every later scan of the diff index sees the stub's entries.
+  {
+    auto acc = ctx->diff_engine().Access(ms::StorageAccessType::WRITE);
+    auto stub = ms::EdgeAccessor::Create(ms::EdgeRef{ctx->core()->edge_stub_index().GetOrCreate(gid.AsUint())},
+                                         fork->EdgeType(),
+                                         fork->from_vertex_,
+                                         fork->to_vertex_,
+                                         &ctx->diff_engine(),
+                                         acc->GetTransaction(),
+                                         ms::View::NEW);
+    ASSERT_TRUE(stub.has_value());
+    ASSERT_TRUE(stub->SetProperty(db->storage()->NameToProperty("w"), ms::PropertyValue(int64_t{99})).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  EXPECT_EQ(IntRows(faker, "MATCH ()-[r:R]->() WHERE r.w = 99 RETURN r.id"), (Rows{}));
+  EXPECT_EQ(IntRows(faker, "MATCH ()-[r]->() WHERE r.w = 99 RETURN r.id"), (Rows{}));
+  EXPECT_EQ(IntRows(faker, "MATCH ()-[r:R]->() WHERE r.w >= 0 RETURN r.id ORDER BY r.id"),
+            (Rows{{0}, {1}, {2}, {3}, {50}}));
+  EXPECT_EQ(IntRows(faker, "MATCH ()-[r]->() WHERE r.w >= 0 RETURN r.id ORDER BY r.id"),
+            (Rows{{0}, {1}, {2}, {3}, {50}}));
+  EXPECT_EQ(IntRows(faker, "MATCH ()-[r:R]->() RETURN count(r)"), (Rows{{5}}));
+  EXPECT_EQ(IntRows(faker, "MATCH ()-[r {id: 1}]->() RETURN r.w"), (Rows{{1}}));
+}
+
+// Edge index scans skip the merge when nothing says the branch changed a hit, so the first write of each kind to a fork
+// edge must already be recorded: on a fresh branch each write is the only one, and every scan must show it.
+TEST_F(VersioningIndexTest, EdgeIndexScansNeverHideTheFirstStubWriteOfAKind) {
+  faker.Interpret("CREATE EDGE INDEX ON :R");
+  faker.Interpret("CREATE EDGE INDEX ON :R(w)");
+  faker.Interpret("CREATE GLOBAL EDGE INDEX ON :(w)");
+  faker.Interpret("UNWIND range(0, 3) AS i CREATE (:N {id: i})-[:R {id: i, w: i}]->(:M {id: i})");
+
+  struct Case {
+    std::string write;
+    Rows type_rows;
+    Rows typed_rows;
+    Rows global_rows;
+  };
+
+  std::vector<Case> const cases{
+      {"MATCH ()-[r {id: 1}]->() SET r.w = -5", {{0}, {1}, {2}, {3}}, {{0}, {2}, {3}}, {{0}, {2}, {3}}},
+      {"MATCH ()-[r {id: 2}]->() REMOVE r.w", {{0}, {1}, {2}, {3}}, {{0}, {1}, {3}}, {{0}, {1}, {3}}},
+      {"MATCH ()-[r {id: 3}]->() DELETE r", {{0}, {1}, {2}}, {{0}, {1}, {2}}, {{0}, {1}, {2}}},
+      {"MATCH (m:M {id: 3}) DETACH DELETE m", {{0}, {1}, {2}}, {{0}, {1}, {2}}, {{0}, {1}, {2}}},
+      {"MATCH (n:N {id: 0}) DETACH DELETE n", {{1}, {2}, {3}}, {{1}, {2}, {3}}, {{1}, {2}, {3}}},
+      {"MATCH (a:N {id: 0}), (b:M {id: 1}) CREATE (a)-[:R {id: 9, w: 9}]->(b)",
+       {{0}, {1}, {2}, {3}, {9}},
+       {{0}, {1}, {2}, {3}, {9}},
+       {{0}, {1}, {2}, {3}, {9}}},
+  };
+  for (size_t i = 0; i < cases.size(); ++i) {
+    auto const &c = cases[i];
+    Fork("b" + std::to_string(i));
+    faker.Interpret(c.write);
+    EXPECT_EQ(IntRows(faker, "MATCH ()-[r:R]->() RETURN r.id ORDER BY r.id"), c.type_rows) << c.write;
+    EXPECT_EQ(IntRows(faker, "MATCH ()-[r:R]->() WHERE r.w >= 0 RETURN r.id ORDER BY r.id"), c.typed_rows) << c.write;
+    EXPECT_EQ(IntRows(faker, "MATCH ()-[r]->() WHERE r.w >= 0 RETURN r.id ORDER BY r.id"), c.global_rows) << c.write;
+  }
+}
+
+// ---- Streamed edge index scans: the two streams of EdgeIndexStream (main@fork's index, the diff engine's index)
+
+// Every row of the range comes from a stub: main's index holds no edge in it. The scans are ascending and unsorted by
+// the planner, so the merge alone orders them.
+TEST_F(VersioningIndexTest, StreamedEdgeRangeScanYieldsStubsWithNoNativeEdgeOnTheBranch) {
+  faker.Interpret("CREATE EDGE INDEX ON :R(w)");
+  faker.Interpret("CREATE GLOBAL EDGE INDEX ON :(w)");
+  faker.Interpret("UNWIND range(0, 9) AS i CREATE (:N)-[:R {id: i, w: i}]->(:M)");
+  Fork();
+  faker.Interpret("MATCH ()-[r:R]->() WHERE r.id IN [7, 2, 5] SET r.w = r.id + 100");
+
+  auto const typed = "MATCH ()-[r:R]->() WHERE r.w >= 100 RETURN r.id, r.w ORDER BY r.w";
+  auto const global = "MATCH ()-[r]->() WHERE r.w >= 100 RETURN r.id, r.w ORDER BY r.w";
+  ExpectPlanUses(faker, typed, "ScanAllByEdgeTypeProperty");
+  ExpectPlanUses(faker, global, "ScanAllByEdgeProperty");
+  EXPECT_EQ(IntRows(faker, typed), (Rows{{2, 102}, {5, 105}, {7, 107}}));
+  EXPECT_EQ(IntRows(faker, global), (Rows{{2, 102}, {5, 105}, {7, 107}}));
+  EXPECT_EQ(IntRows(faker, "MATCH ()-[r:R]->() WHERE r.w >= 0 RETURN r.id ORDER BY r.w"),
+            (Rows{{0}, {1}, {3}, {4}, {6}, {8}, {9}, {2}, {5}, {7}}));
+  EXPECT_EQ(IntRows(faker, "MATCH ()-[r]->() WHERE r.w >= 0 RETURN r.id ORDER BY r.w"),
+            (Rows{{0}, {1}, {3}, {4}, {6}, {8}, {9}, {2}, {5}, {7}}));
+}
+
+// A fork edge set to another value and back is yielded once, at its fork position, by every scan.
+TEST_F(VersioningIndexTest, StreamedEdgeScansYieldAKeySetBackToTheForkValueOnce) {
+  faker.Interpret("CREATE EDGE INDEX ON :R(w)");
+  faker.Interpret("CREATE EDGE INDEX ON :R");
+  faker.Interpret("CREATE GLOBAL EDGE INDEX ON :(w)");
+  faker.Interpret("UNWIND range(1, 5) AS i CREATE (:N)-[:R {id: i, w: i * 10}]->(:M)");
+  Fork();
+  faker.Interpret("MATCH ()-[r:R {id: 3}]->() SET r.w = 99");
+  faker.Interpret("MATCH ()-[r:R {id: 3}]->() SET r.w = 30");
+
+  auto const typed = "MATCH ()-[r:R]->() WHERE r.w >= 0 RETURN r.id ORDER BY r.w";
+  auto const global = "MATCH ()-[r]->() WHERE r.w >= 0 RETURN r.id ORDER BY r.w";
+  ExpectPlanUses(faker, typed, "ScanAllByEdgeTypeProperty");
+  ExpectPlanUses(faker, global, "ScanAllByEdgeProperty");
+  EXPECT_EQ(IntRows(faker, typed), (Rows{{1}, {2}, {3}, {4}, {5}}));
+  EXPECT_EQ(IntRows(faker, global), (Rows{{1}, {2}, {3}, {4}, {5}}));
+  EXPECT_EQ(IntRows(faker, "MATCH ()-[r:R]->() WHERE r.w = 30 RETURN r.id"), (Rows{{3}}));
+  EXPECT_EQ(IntRows(faker, "MATCH ()-[r:R]->() WHERE r.w = 99 RETURN r.id"), (Rows{}));
+  EXPECT_EQ(IntRows(faker, "MATCH ()-[r:R]->() RETURN r.id ORDER BY r.id"), (Rows{{1}, {2}, {3}, {4}, {5}}));
+}
+
+// The diff engine's index still lists a deleted edge's stub, and the delete marker of an endpoint's DETACH DELETE is
+// per edge: the scans must not yield the edge, and must keep its neighbours.
+TEST_F(VersioningIndexTest, StreamedEdgeScansDropAnEdgeDeletedItselfOrWithAnEndpoint) {
+  faker.Interpret("CREATE EDGE INDEX ON :R(w)");
+  faker.Interpret("CREATE EDGE INDEX ON :R");
+  faker.Interpret("CREATE GLOBAL EDGE INDEX ON :(w)");
+  faker.Interpret("UNWIND range(1, 6) AS i CREATE (:N {id: i})-[:R {id: i, w: i}]->(:M {id: i})");
+  Fork();
+  faker.Interpret("MATCH ()-[r:R {id: 2}]->() SET r.w = 20");
+  faker.Interpret("MATCH ()-[r:R {id: 2}]->() DELETE r");
+  faker.Interpret("MATCH ()-[r:R {id: 4}]->() SET r.w = 40");
+  faker.Interpret("MATCH (n:N {id: 4}) DETACH DELETE n");  // hides an edge that already has a stub in the diff index
+  faker.Interpret("MATCH (m:M {id: 5}) DETACH DELETE m");  // hides an edge nothing else touched
+
+  auto const typed = "MATCH ()-[r:R]->() WHERE r.w >= 0 RETURN r.id ORDER BY r.w";
+  auto const global = "MATCH ()-[r]->() WHERE r.w >= 0 RETURN r.id ORDER BY r.w";
+  auto const by_type = "MATCH ()-[r:R]->() RETURN r.id ORDER BY r.id";
+  ExpectPlanUses(faker, typed, "ScanAllByEdgeTypeProperty");
+  ExpectPlanUses(faker, global, "ScanAllByEdgeProperty");
+  ExpectPlanUses(faker, by_type, "ScanAllByEdgeType");
+  EXPECT_EQ(IntRows(faker, typed), (Rows{{1}, {3}, {6}}));
+  EXPECT_EQ(IntRows(faker, global), (Rows{{1}, {3}, {6}}));
+  EXPECT_EQ(IntRows(faker, by_type), (Rows{{1}, {3}, {6}}));
+  EXPECT_EQ(IntRows(faker, "MATCH ()-[r:R]->() RETURN count(r)"), (Rows{{3}}));
+  EXPECT_EQ(IntRows(faker, "MATCH ()-[r:R]->() WHERE r.w = 40 RETURN count(r)"), (Rows{{0}}));
+  UseMain();
+  EXPECT_EQ(IntRows(faker, typed).size(), 6U);
+}
+
+// Branch-native edges below, between and above the fork's values, and one whose value changes after its creation, sit
+// among the fork rows in key order.
+TEST_F(VersioningIndexTest, StreamedEdgeScansMergeNativeEdgesAmongForkRows) {
+  faker.Interpret("CREATE EDGE INDEX ON :R(w)");
+  faker.Interpret("CREATE EDGE INDEX ON :R");
+  faker.Interpret("CREATE GLOBAL EDGE INDEX ON :(w)");
+  faker.Interpret("UNWIND range(1, 5) AS i CREATE (:N {id: i})-[:R {id: i, w: i * 10}]->(:M {id: i})");
+  Fork();
+  faker.Interpret("MATCH (a:N {id: 1}), (b:M {id: 1}) CREATE (a)-[:R {id: 100, w: 5}]->(b)");
+  faker.Interpret("MATCH (a:N {id: 2}), (b:M {id: 3}) CREATE (a)-[:R {id: 101, w: 25}]->(b)");
+  faker.Interpret("MATCH (a:N {id: 3}), (b:M {id: 4}) CREATE (a)-[:R {id: 102, w: 70}]->(b)");
+  faker.Interpret("MATCH (a:N {id: 4}), (b:M {id: 5}) CREATE (a)-[:R {id: 103, w: 1}]->(b)");
+  faker.Interpret("MATCH ()-[r:R {id: 103}]->() SET r.w = 35");
+  faker.Interpret("MATCH (a:N {id: 5}), (b:M {id: 5}) CREATE (a)-[:Q {id: 104, w: 3}]->(b)");
+
+  auto const typed = "MATCH ()-[r:R]->() WHERE r.w >= 0 RETURN r.id ORDER BY r.w";
+  auto const global = "MATCH ()-[r]->() WHERE r.w >= 0 RETURN r.id ORDER BY r.w";
+  EXPECT_EQ(IntRows(faker, typed), (Rows{{100}, {1}, {2}, {101}, {3}, {103}, {4}, {5}, {102}}));
+  EXPECT_EQ(IntRows(faker, global), (Rows{{104}, {100}, {1}, {2}, {101}, {3}, {103}, {4}, {5}, {102}}));
+  EXPECT_EQ(IntRows(faker, "MATCH ()-[r:R]->() RETURN count(r)"), (Rows{{9}}));
+}
+
+// A key-changing edge write that was rolled back, or is still open in another session, leaves main's row where it was.
+TEST_F(VersioningIndexTest, StreamedEdgeScansKeepMainsRowForAnAbortedOrUncommittedKeyChange) {
+  faker.Interpret("CREATE EDGE INDEX ON :R(w)");
+  faker.Interpret("CREATE GLOBAL EDGE INDEX ON :(w)");
+  faker.Interpret("UNWIND range(1, 4) AS i CREATE (:N)-[:R {id: i, w: i}]->(:M)");
+  Fork();
+  auto writers = SessionsOnBranch(1);
+  auto &writer = *writers[0];
+
+  faker.Interpret("BEGIN");
+  faker.Interpret("MATCH ()-[r:R {id: 2}]->() SET r.w = 50");
+  faker.Interpret("ROLLBACK");
+  auto const typed = "MATCH ()-[r:R]->() WHERE r.w >= 0 RETURN r.id ORDER BY r.w";
+  auto const global = "MATCH ()-[r]->() WHERE r.w >= 0 RETURN r.id ORDER BY r.w";
+  ExpectPlanUses(faker, typed, "ScanAllByEdgeTypeProperty");
+  EXPECT_EQ(IntRows(faker, typed), (Rows{{1}, {2}, {3}, {4}}));
+  EXPECT_EQ(IntRows(faker, global), (Rows{{1}, {2}, {3}, {4}}));
+
+  writer.Interpret("BEGIN");
+  writer.Interpret("MATCH ()-[r:R {id: 3}]->() SET r.w = 60");
+  writer.Interpret("MATCH ()-[r:R {id: 4}]->() DELETE r");
+  EXPECT_EQ(IntRows(faker, typed), (Rows{{1}, {2}, {3}, {4}})) << "another session's open writes are invisible";
+  EXPECT_EQ(IntRows(faker, global), (Rows{{1}, {2}, {3}, {4}}));
+  writer.Interpret("COMMIT");
+  EXPECT_EQ(IntRows(faker, typed), (Rows{{1}, {2}, {3}}));
+  EXPECT_EQ(IntRows(faker, global), (Rows{{1}, {2}, {3}}));
+  EXPECT_EQ(IntRows(faker, "MATCH ()-[r:R]->() WHERE r.w = 60 RETURN r.id"), (Rows{{3}}));
+}
+
+// LIMIT stops the merge early: a scan pulls only the rows it yields (plus one of look-ahead per stream), however large
+// main's index is and however many edges the branch changed.
+TEST_F(VersioningIndexTest, StreamedEdgeScansPullOnlyWhatALimitConsumes) {
+  faker.Interpret("CREATE EDGE INDEX ON :R(w)");
+  faker.Interpret("CREATE EDGE INDEX ON :R");
+  faker.Interpret("CREATE GLOBAL EDGE INDEX ON :(w)");
+  faker.Interpret("UNWIND range(1, 3000) AS i CREATE (:N)-[:R {id: i, w: i}]->(:M)");
+  Fork();
+  faker.Interpret("MATCH ()-[r:R {id: 2000}]->() SET r.w = 5000");
+  faker.Interpret("MATCH ()-[r:R {id: 2500}]->() SET r.w = 0");
+
+  faker.Interpret("BEGIN");
+  faker.Interpret("RETURN 1");
+  StreamProbe probe(faker, "R", "w");
+  auto dba = probe.Dba();
+  auto const view = memgraph::storage::View::OLD;
+  auto const range = memgraph::storage::PropertyValueRange::IsNotNull();
+
+  auto typed = dba.Edges(view, probe.edge_type(), probe.property(), range);
+  EXPECT_EQ(probe.Ids(typed, 3), (std::vector<int64_t>{2500, 1, 2}));
+  EXPECT_LE(typed.BranchSourceRows(), 12U) << "an ordered merge pulls a few rows, not the 3000";
+
+  auto global = dba.Edges(view, probe.property(), range);
+  EXPECT_EQ(probe.Ids(global, 1), (std::vector<int64_t>{2500}));
+  EXPECT_LE(global.BranchSourceRows(), 8U);
+
+  auto by_type = dba.Edges(view, probe.edge_type());
+  EXPECT_EQ(probe.Ids(by_type, 1).size(), 1U);
+  EXPECT_LE(by_type.BranchSourceRows(), 4U) << "an unordered scan yields main's rows first without touching the diff";
+  faker.Interpret("ROLLBACK");
+
+  EXPECT_EQ(IntRows(faker, "MATCH ()-[r:R]->() WHERE r.w >= 0 RETURN r.id ORDER BY r.w LIMIT 2"), (Rows{{2500}, {1}}));
+}
+
+// Under snapshot isolation an edge scan already under way sees the rows of its start, whatever other sessions commit
+// while it steps: each row once, none lost to a key that moves ahead of or behind the cursor.
+TEST_F(VersioningIndexTest, StreamedEdgeScanInFlightIsStableWhileAnotherSessionCommitsKeyChanges) {
+  faker.Interpret("CREATE EDGE INDEX ON :R(w)");
+  faker.Interpret("CREATE EDGE INDEX ON :R");
+  faker.Interpret("CREATE GLOBAL EDGE INDEX ON :(w)");
+  faker.Interpret("UNWIND range(1, 12) AS i CREATE (:N {id: i})-[:R {id: i, w: i}]->(:M)");
+  Fork();
+  auto writers = SessionsOnBranch(1);
+  auto &writer = *writers[0];
+  writer.Interpret("MATCH ()-[r:R {id: 4}]->() SET r.w = 40");  // before the scan opens: a D row
+
+  faker.Interpret("BEGIN");
+  faker.Interpret("RETURN 1");
+  StreamProbe probe(faker, "R", "w");
+  auto dba = probe.Dba();
+  auto const range = memgraph::storage::PropertyValueRange::IsNotNull();
+  auto const view = memgraph::storage::View::OLD;
+
+  auto reference = dba.Edges(view, probe.edge_type(), probe.property(), range);
+  auto const expected = probe.Ids(reference);
+  ASSERT_EQ(expected, (std::vector<int64_t>{1, 2, 3, 5, 6, 7, 8, 9, 10, 11, 12, 4}));
+
+  auto typed = dba.Edges(view, probe.edge_type(), probe.property(), range);
+  auto const seen = probe.Ids(typed, std::numeric_limits<size_t>::max(), 2, [&] {
+    writer.Interpret("MATCH ()-[r:R {id: 11}]->() SET r.w = -1");  // ahead of the cursor, to the front
+    writer.Interpret("MATCH ()-[r:R {id: 1}]->() SET r.w = 500");  // behind the cursor, to the back
+    writer.Interpret("MATCH ()-[r:R {id: 5}]->() DELETE r");
+    writer.Interpret("MATCH (n:N {id: 6}) DETACH DELETE n");
+    writer.Interpret("MATCH ()-[r:R {id: 4}]->() SET r.w = 4");
+  });
+  EXPECT_EQ(seen, expected);
+
+  auto global = dba.Edges(view, probe.property(), range);
+  auto const seen_global = probe.Ids(global, std::numeric_limits<size_t>::max(), 3, [&] {
+    writer.Interpret("MATCH ()-[r:R {id: 8}]->() SET r.w = 800");
+  });
+  EXPECT_EQ(seen_global.size(), 12U);
+  EXPECT_EQ(std::set<int64_t>(seen_global.begin(), seen_global.end()).size(), 12U);
+
+  auto by_type = dba.Edges(view, probe.edge_type());
+  auto const seen_by_type = probe.Ids(
+      by_type, std::numeric_limits<size_t>::max(), 3, [&] { writer.Interpret("MATCH ()-[r:R {id: 9}]->() DELETE r"); });
+  EXPECT_EQ(seen_by_type.size(), 12U);
+  EXPECT_EQ(std::set<int64_t>(seen_by_type.begin(), seen_by_type.end()).size(), 12U);
+  faker.Interpret("ROLLBACK");
+}
+
+// Random writes on the branch, some rolled back, against edge indexes; after each, the index scans must equal the same
+// questions asked of a full scan.
+TEST_F(VersioningIndexTest, StreamedEdgeScansEqualFullScansAfterRandomWrites) {
+  faker.Interpret("CREATE EDGE INDEX ON :R(w)");
+  faker.Interpret("CREATE EDGE INDEX ON :R");
+  faker.Interpret("CREATE GLOBAL EDGE INDEX ON :(w)");
+  faker.Interpret("UNWIND range(0, 15) AS i CREATE (:N {id: i})-[:R {id: i, w: i % 6}]->(:M {id: i})");
+  faker.Interpret("UNWIND range(16, 21) AS i CREATE (:N {id: i})-[:Q {id: i, w: i % 6}]->(:M {id: i})");
+  Fork();
+
+  struct Check {
+    std::string indexed;
+    std::string reference;
+    std::string_view op;
+  };
+
+  std::vector<Check> const checks{
+      {"MATCH ()-[r:R]->() WHERE r.w >= 2 AND r.w <= 4 RETURN r.w ORDER BY r.w",
+       "MATCH ()-[r]->() WHERE type(r) = 'R' AND r.w + 0 >= 2 AND r.w + 0 <= 4 RETURN r.w ORDER BY r.w",
+       "ScanAllByEdgeTypeProperty"},
+      {"MATCH ()-[r:R]->() WHERE r.w >= 0 RETURN r.w ORDER BY r.w",
+       "MATCH ()-[r]->() WHERE type(r) = 'R' AND r.w + 0 >= 0 RETURN r.w ORDER BY r.w",
+       "ScanAllByEdgeTypeProperty"},
+      {"MATCH ()-[r:R]->() WHERE r.w = 3 RETURN r.id ORDER BY r.id",
+       "MATCH ()-[r]->() WHERE type(r) = 'R' AND r.w + 0 = 3 RETURN r.id ORDER BY r.id",
+       "ScanAllByEdgeTypeProperty"},
+      {"MATCH ()-[r]->() WHERE r.w >= 1 RETURN r.w ORDER BY r.w",
+       "MATCH ()-[r]->() WHERE r.w + 0 >= 1 RETURN r.w ORDER BY r.w",
+       "ScanAllByEdgeProperty"},
+      {"MATCH ()-[r]->() WHERE r.w >= 0 RETURN r.id ORDER BY r.id",
+       "MATCH ()-[r]->() WHERE r.w + 0 >= 0 RETURN r.id ORDER BY r.id",
+       "ScanAllByEdgeProperty"},
+      {"MATCH ()-[r:R]->() RETURN r.id ORDER BY r.id",
+       "MATCH ()-[r]->() WHERE type(r) = 'R' RETURN r.id ORDER BY r.id",
+       "ScanAllByEdgeType"},
+  };
+  for (auto const &check : checks) ExpectPlanUses(faker, check.indexed, check.op);
+
+  auto const expect_equal = [&](std::string const &where) {
+    for (auto const &check : checks) {
+      EXPECT_EQ(IntRows(faker, check.indexed), IntRows(faker, check.reference)) << where << ": " << check.indexed;
+    }
+  };
+
+  expect_equal("at the fork");
+  for (uint32_t seed = 1; seed <= 24; ++seed) {
+    std::mt19937 rng(seed);
+    for (int step = 0; step < 14; ++step) {
+      auto const pick = [&](int bound) { return static_cast<int>(rng() % static_cast<uint32_t>(bound)); };
+      auto const id = std::to_string(pick(22));
+      auto const match = "MATCH ()-[r {id: " + id + "}]->() ";
+      std::string statement;
+      switch (pick(8)) {
+        case 0:
+          statement = match + "SET r.w = " + std::to_string(pick(7));
+          break;
+        case 1:
+          statement = match + "REMOVE r.w";
+          break;
+        case 2:
+          statement = match + "DELETE r";
+          break;
+        case 3:
+          statement = "MATCH (n:N {id: " + id + "}) DETACH DELETE n";
+          break;
+        case 4:
+          statement = "MATCH (m:M {id: " + id + "}) DETACH DELETE m";
+          break;
+        case 5:
+          statement = "MATCH (a:N {id: " + id + "}), (b:M {id: " + std::to_string(pick(22)) +
+                      "}) CREATE (a)-[:R {id: " + std::to_string(100 + seed * 20 + step) +
+                      ", w: " + std::to_string(pick(7)) + "}]->(b)";
+          break;
+        case 6:
+          statement = match + "SET r += {w: " + std::to_string(pick(7)) + "}";
+          break;
+        default:
+          statement = match + "SET r.w = r.w";
           break;
       }
       if (pick(5) == 0) {

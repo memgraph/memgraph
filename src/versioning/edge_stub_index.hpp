@@ -16,10 +16,12 @@
 #include <cstddef>
 #include <cstdint>
 #include <mutex>
+#include <optional>
 #include <shared_mutex>
 
 #include "absl/container/flat_hash_map.h"
 #include "storage/v2/edge.hpp"
+#include "storage/v2/edge_ref.hpp"
 #include "utils/atomic_memory_block.hpp"
 #include "utils/db_aware_allocator.hpp"
 
@@ -42,14 +44,26 @@ class EdgeStubIndex {
     const Shard &shard = ShardFor(gid);
     std::shared_lock guard{shard.mutex};
     const auto it = shard.map.find(gid);
-    return it == shard.map.end() ? nullptr : it->second.get();
+    return it == shard.map.end() ? nullptr : it->second.stub.get();
+  }
+
+  // The fork edge `gid`'s stub was created for, as main holds it (a pointer with properties_on_edges, else the gid), so
+  // a stub hit of a scan reaches its fork edge without a walk of the fork vertex's adjacency. Empty for a stub created
+  // without one.
+  std::optional<storage::EdgeRef> FindFork(uint64_t gid) const {
+    const Shard &shard = ShardFor(gid);
+    std::shared_lock guard{shard.mutex};
+    const auto it = shard.map.find(gid);
+    if (it == shard.map.end() || !it->second.has_fork) return std::nullopt;
+    return it->second.fork;
   }
 
   // Returns the stub for `gid`, creating a delta-less one if none exists. Concurrent callers for one gid get the same
   // object. The insert runs OOM-blocked (absl maps are not exception-safe), so a refused growth is only reported
-  // after the entry is fully published; a later call then finds it.
+  // after the entry is fully published; a later call then finds it. `fork` is recorded by the call that creates the
+  // stub.
   // @throw utils::OutOfMemoryException
-  storage::Edge *GetOrCreate(uint64_t gid) {
+  storage::Edge *GetOrCreate(uint64_t gid, std::optional<storage::EdgeRef> fork = std::nullopt) {
     if (auto *found = Find(gid); found != nullptr) return found;
     Shard &shard = ShardFor(gid);
     return utils::AtomicMemoryBlock([&] {
@@ -57,13 +71,17 @@ class EdgeStubIndex {
       auto [it, inserted] = shard.map.try_emplace(gid);
       if (inserted) {
         try {
-          it->second = memory::MakeDbAwareUnique<storage::Edge>(storage::Gid::FromUint(gid), nullptr);
+          it->second.stub = memory::MakeDbAwareUnique<storage::Edge>(storage::Gid::FromUint(gid), nullptr);
+          if (fork) {
+            it->second.fork = *fork;
+            it->second.has_fork = true;
+          }
         } catch (...) {
           shard.map.erase(it);
           throw;
         }
       }
-      return it->second.get();
+      return it->second.stub.get();
     });
   }
 
@@ -74,8 +92,8 @@ class EdgeStubIndex {
   bool ForEach(Fn &&fn) const {
     for (const Shard &shard : shards_) {
       std::shared_lock guard{shard.mutex};
-      for (const auto &[gid, edge] : shard.map) {
-        if (!fn(gid, edge.get())) return false;
+      for (const auto &[gid, entry] : shard.map) {
+        if (!fn(gid, entry.stub.get())) return false;
       }
     }
     return true;
@@ -84,9 +102,15 @@ class EdgeStubIndex {
  private:
   static constexpr size_t kShards = 64;
 
+  struct Entry {
+    memory::ArenaAwareUniquePtr<storage::Edge> stub;
+    storage::EdgeRef fork{static_cast<storage::Edge *>(nullptr)};
+    bool has_fork{false};
+  };
+
   struct alignas(64) Shard {
     mutable std::shared_mutex mutex;
-    absl::flat_hash_map<uint64_t, memory::ArenaAwareUniquePtr<storage::Edge>> map;
+    absl::flat_hash_map<uint64_t, Entry> map;
   };
 
   Shard &ShardFor(uint64_t gid) noexcept { return shards_[gid % kShards]; }

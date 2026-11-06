@@ -111,6 +111,15 @@ void MirrorMainIndexDefinitionsIntoDiffEngine(storage::InMemoryStorage &diff_eng
   for (const auto &property : main_indices.vertex_property) {
     mirror([&](storage::Storage::Accessor &acc) { return acc.CreateGlobalVertexIndex(property); });
   }
+  for (const auto &edge_type : main_indices.edge_type) {
+    mirror([&](storage::Storage::Accessor &acc) { return acc.CreateIndex(edge_type); });
+  }
+  for (const auto &[edge_type, property] : main_indices.edge_type_property) {
+    mirror([&](storage::Storage::Accessor &acc) { return acc.CreateIndex(edge_type, property); });
+  }
+  for (const auto &property : main_indices.edge_property) {
+    mirror([&](storage::Storage::Accessor &acc) { return acc.CreateGlobalEdgeIndex(property); });
+  }
 }
 
 }  // namespace
@@ -464,6 +473,13 @@ std::optional<storage::EdgeAccessor> BranchContext::FindForkEdge(storage::Gid ed
   auto const found = std::ranges::find_if(out->edges, [&](const auto &edge) { return edge.Gid() == edge_gid; });
   if (found == out->edges.end()) return std::nullopt;
   return *found;
+}
+
+std::optional<storage::EdgeAccessor> BranchContext::FindForkEdgeOfStub(const storage::EdgeAccessor &stub) {
+  auto const fork = edge_stubs().FindFork(stub.Gid().AsUint());
+  if (!fork) return FindForkEdge(stub.Gid(), stub.from_vertex_->gid);
+  return storage::EdgeAccessor{
+      *fork, stub.EdgeType(), stub.from_vertex_, stub.to_vertex_, &main(), historical().GetTransaction()};
 }
 
 std::optional<storage::VertexAccessor> BranchContext::FindStub(storage::Gid gid, storage::View view) {
@@ -974,7 +990,7 @@ storage::EdgeAccessor BranchContext::MaterializeEdgeStub(const storage::EdgeAcce
   // Before the stub exists, and so before any write of it (reads gate on this bit). With properties_on_edges off on
   // main the fork edge is a bare gid, there is no Edge to mark, and reads fall back to the filters.
   if (main().config_.salient.items.properties_on_edges) MarkBranched(fork_edge.edge_.ptr);
-  auto *stub = edge_stubs().GetOrCreate(fork_edge.Gid().AsUint());
+  auto *stub = edge_stubs().GetOrCreate(fork_edge.Gid().AsUint(), fork_edge.edge_);
   return storage::EdgeAccessor{storage::EdgeRef{stub},
                                fork_edge.EdgeType(),
                                fork_edge.from_vertex_,
