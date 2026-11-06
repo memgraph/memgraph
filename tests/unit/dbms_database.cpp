@@ -341,6 +341,9 @@ concept UnqualifiedRawNewReachable = requires(T &handler, std::string_view name,
   handler.New(std::piecewise_construct, name, config);
 };
 
+template <typename T>
+concept RawEmplaceColdShellReachable = requires(T &handler, std::string_view name) { handler.EmplaceColdShell(name); };
+
 }  // namespace
 
 TEST_F(DBMS_Database, AdmissionEntriesStrictVsAdopt) {
@@ -360,6 +363,11 @@ TEST_F(DBMS_Database, AdmissionEntriesStrictVsAdopt) {
                 "DatabaseHandler must shadow Handler::New with the strict entry; a raw insert is not an admission "
                 "path and must not be reachable without passing a named strict/adopt entry");
 
+  static_assert(!RawEmplaceColdShellReachable<DH>,
+                "the unchecked Handler::EmplaceColdShell must not be callable on a DatabaseHandler from outside");
+  static_assert(!std::is_convertible_v<DH *, DH::HandlerT *>,
+                "the base must stay private so the unchecked Handler::Rename is unreachable from outside");
+
   DH db_handler;
 
   auto rejected_new = db_handler.New(default_conf("a\nb"));
@@ -375,8 +383,7 @@ TEST_F(DBMS_Database, AdmissionEntriesStrictVsAdopt) {
   const std::string cold_name = "cold sh ";
   const std::string renamed_name = "repl\name";
   const std::string rollback_name(64, 'r');
-  const std::string raw_name = "raw\x01sh";
-  for (const auto *invalid : {&legacy_name, &cold_name, &renamed_name, &rollback_name, &raw_name}) {
+  for (const auto *invalid : {&legacy_name, &cold_name, &renamed_name, &rollback_name}) {
     ASSERT_FALSE(memgraph::dbms::DatabaseNameIsWellFormed(*invalid))
         << "precondition: adopt entries must be shown to admit a name the strict rule rejects";
   }
@@ -391,8 +398,6 @@ TEST_F(DBMS_Database, AdmissionEntriesStrictVsAdopt) {
   ASSERT_TRUE(db_handler.New(default_conf("roll_src")).has_value());
   ASSERT_TRUE(db_handler.AdoptRenameRollback("roll_src", rollback_name).has_value());
   EXPECT_TRUE(db_handler.Has(rollback_name));
-  ASSERT_NE(db_handler.EmplaceColdShell(raw_name), nullptr);
-  EXPECT_TRUE(db_handler.Has(raw_name));
 }
 
 #endif

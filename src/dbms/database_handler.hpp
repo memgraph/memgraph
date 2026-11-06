@@ -39,9 +39,27 @@ namespace memgraph::dbms {
  * @brief Multi-database storage handler
  *
  */
-class DatabaseHandler : public Handler<Database> {
+class DatabaseHandler : private Handler<Database> {
  public:
   using HandlerT = Handler<Database>;
+
+  // The base is private so its unchecked EmplaceColdShell/Rename stay unreachable from outside; re-export
+  // exactly what callers outside the class use.
+  using HandlerT::begin;
+  using HandlerT::cbegin;
+  using HandlerT::cend;
+  using HandlerT::ClearDrainHook;
+  using HandlerT::DeferDelete;
+  using HandlerT::end;
+  using HandlerT::EraseColdShell;
+  using HandlerT::Get;
+  using HandlerT::GetGatekeeper;
+  using HandlerT::Has;
+  using HandlerT::IsPending;
+  using HandlerT::PendingItems;
+  using HandlerT::SetDrainHook;
+  using HandlerT::size;
+  using HandlerT::TryDelete;
 
   DatabaseHandler() = default;
 
