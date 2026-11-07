@@ -20,6 +20,10 @@
 #include <mutex>
 #include <optional>
 #include <ranges>
+#ifdef MG_ENTERPRISE
+#include <limits>
+#include <set>
+#endif
 #include <string_view>
 #include <utility>
 #include "memory/db_arena_fwd.hpp"
@@ -848,6 +852,19 @@ class InMemoryStorage final : public Storage {
 
   void FreeMemory(utils::ResourceLockGuard main_guard, bool periodic) override;
 
+#ifdef MG_ENTERPRISE
+  // Pins GC at the fork point (what a BEGIN now would see: commits below it) and returns it.
+  // Takes engine_lock_ (then version_fork_pin_lock_): never call with engine_lock_ held.
+  uint64_t RegisterForkPin();
+
+  // Call exactly once per RegisterForkPin; an unregistered fork_ts MG_ASSERTs.
+  // Removes one instance of the multiset key, not all equal ones.
+  void ReleaseForkPin(uint64_t fork_ts);
+
+  // Oldest live fork pin, or nullopt if none; mirrors the GC horizon clamp in CollectGarbage.
+  std::optional<uint64_t> OldestForkPin() const;
+#endif
+
   utils::FileRetainer::FileLockerAccessor::ret_type IsPathLocked();
   utils::FileRetainer::FileLockerAccessor::ret_type LockPath();
   utils::FileRetainer::FileLockerAccessor::ret_type UnlockPath();
@@ -1234,6 +1251,16 @@ class InMemoryStorage final : public Storage {
   uint64_t last_processed_commit_ts_{0};
 
   void ProcessPendingSchemaUpdates(uint64_t up_to_commit_ts);
+
+#ifdef MG_ENTERPRISE
+  // Live branch fork points; GC's horizon is clamped to the oldest. A multiset: several pins may share a fork_ts.
+  // Lock order: engine_lock_ then version_fork_pin_lock_ (see RegisterForkPin).
+  utils::SpinLock version_fork_pin_lock_;
+  std::multiset<uint64_t> version_fork_pins_;
+  // Min of version_fork_pins_ (kNoForkPin when empty), stored under version_fork_pin_lock_ so readers skip the lock.
+  static constexpr uint64_t kNoForkPin = std::numeric_limits<uint64_t>::max();
+  std::atomic<uint64_t> oldest_fork_pin_{kNoForkPin};
+#endif
 };
 
 class ReplicationAccessor final : public InMemoryStorage::InMemoryAccessor {
