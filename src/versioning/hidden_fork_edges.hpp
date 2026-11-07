@@ -27,6 +27,9 @@ class HiddenForkEdges {
 
   size_t size() const noexcept { return refs_.size(); }
 
+  // Call before the Adds; `count` is an upper bound on how many follow.
+  void Reserve(size_t count) { refs_.reserve(count); }
+
   void Add(storage::EdgeRef ref) { refs_.push_back(ref); }
 
   // After the last Add.

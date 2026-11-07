@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -12,9 +12,17 @@
 #include "query/edge_accessor.hpp"
 
 #include "query/vertex_accessor.hpp"
+#ifdef MG_ENTERPRISE
+#include <map>
+#include <optional>
+#include <utility>
+
+#include "versioning/branch_engine.hpp"
+#endif
 
 namespace memgraph::query {
 
+#ifndef MG_ENTERPRISE
 VertexAccessor EdgeAccessor::To() const { return VertexAccessor(impl_.ToVertex()); }
 
 VertexAccessor EdgeAccessor::From() const { return VertexAccessor(impl_.FromVertex()); }
@@ -26,7 +34,54 @@ VertexAccessor EdgeAccessor::DeletedEdgeToVertex() const { return VertexAccessor
 /// When edge is deleted and you are accessing From vertex
 /// for_deleted_ flag will in this case be updated properly
 VertexAccessor EdgeAccessor::DeletedEdgeFromVertex() const { return VertexAccessor(impl_.DeletedEdgeFromVertex()); }
+#endif
 
 bool EdgeAccessor::IsCycle() const { return To() == From(); }
 
+#ifdef MG_ENTERPRISE
+VertexAccessor EdgeAccessor::BranchEndpoint(Endpoint endpoint) const {
+  auto const raw = [&] {
+    switch (endpoint) {
+      case Endpoint::kTo:
+        return impl_.ToVertex();
+      case Endpoint::kFrom:
+        return impl_.FromVertex();
+      case Endpoint::kDeletedTo:
+        return impl_.DeletedEdgeToVertex();
+      case Endpoint::kDeletedFrom:
+        return impl_.DeletedEdgeFromVertex();
+    }
+    std::unreachable();
+  }();
+  return VertexAccessor(branch_ctx()->ForkIdentity(raw));
+}
+
+storage::Result<std::map<storage::PropertyId, storage::PropertyValue>> EdgeAccessor::BranchProperties(
+    storage::View view) const {
+  return branch_ctx()->Properties(impl_, view);
+}
+
+storage::Result<storage::PropertyValue> EdgeAccessor::BranchGetProperty(storage::View view,
+                                                                        storage::PropertyId key) const {
+  return branch_ctx()->GetProperty(impl_, key, view);
+}
+
+storage::Result<uint64_t> EdgeAccessor::BranchGetPropertySize(storage::PropertyId key, storage::View view) const {
+  return branch_ctx()->GetPropertySize(impl_, key, view);
+}
+
+storage::Result<void> EdgeAccessor::BranchReadPropertyValues(storage::OrderedPropertyPaths const &ordered_properties,
+                                                             std::span<storage::PropertyValue> out,
+                                                             storage::View view) const {
+  return branch_ctx()->ReadPropertyValues(impl_, ordered_properties, out, view);
+}
+
+bool EdgeAccessor::BranchIsDeleted() const {
+  // Main's IsDeleted is false for every edge when it keeps no edge properties.
+  if (branch_ctx()->PropertyWritesDisabled(impl_)) return false;
+  if (impl_.storage_ == &branch_ctx()->diff_engine()) return impl_.IsDeleted();
+  return branch_ctx()->IsForkEdgeHidden(impl_, storage::View::NEW);
+}
+
+#endif
 }  // namespace memgraph::query
