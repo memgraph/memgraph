@@ -474,3 +474,59 @@ TEST(EdgeIndexArming, AnalyticalWritesArmTheSweep) {
   EXPECT_EQ(EntriesLeftAfterRepeatedWrites(StorageMode::IN_MEMORY_ANALYTICAL, kWrites), 1U)
       << "superseded entries survived: the sweep was never armed";
 }
+
+#ifdef MG_ENTERPRISE
+///// RESERVED IDS
+
+// The arming keeps its ids in dense bitmaps, so a reserved id (a stub marker of a branch diff engine) would grow one by
+// hundreds of MiB. No index can cover such an id, so it is not noted at all: the bitmaps stay empty, which is also
+// proof that nothing was allocated for it.
+namespace {
+
+constexpr uint32_t kReservedIds[] = {
+    memgraph::storage::kReservedIdBit, memgraph::storage::kReservedIdBit | 1U, 0xFFFFFFFEU, 0xFFFFFFFFU};
+
+}  // namespace
+
+TEST(IndexArming, AReservedLabelOrPropertyIsNeverNoted) {
+  for (auto const id : kReservedIds) {
+    SCOPED_TRACE(id);
+    auto arming = IndexArming{};
+    arming.note_label(Label(id));
+    arming.note_vertex_property(Property(id));
+    arming.note_edge_property(Property(id));
+
+    EXPECT_FALSE(arming.arms_anything());
+    EXPECT_FALSE(arming.arms_vertex_index_on(Label(id)));
+    EXPECT_FALSE(arming.arms_vertex_property_index_on(Property(id)));
+    EXPECT_FALSE(arming.arms_edge_index_on(Property(id)));
+  }
+}
+
+TEST(IndexArming, AReservedIdDoesNotDisturbTheRealOnesNotedWithIt) {
+  auto arming = IndexArming{};
+  arming.note_label(Label(memgraph::storage::kReservedIdBit | 3U));
+  arming.note_label(Label(3));
+  arming.note_vertex_property(Property(memgraph::storage::kReservedIdBit | 4U));
+  arming.note_vertex_property(Property(4));
+
+  EXPECT_TRUE(arming.arms_vertex_index_on(Label(3)));
+  EXPECT_TRUE(arming.arms_vertex_property_index_on(Property(4)));
+  EXPECT_FALSE(arming.arms_vertex_index_on(Label(2)));
+  EXPECT_FALSE(arming.arms_vertex_index_on(Label(memgraph::storage::kReservedIdBit | 3U)));
+}
+
+TEST(IndexArming, TheDeltasOfAStubMarkerArmNothing) {
+  auto deltas = delta_container{};
+  auto const &label_delta =
+      deltas.emplace(Delta::RemoveLabelTag{}, Label(memgraph::storage::kReservedIdBit | 2U), nullptr, 0);
+  auto const &property_delta = deltas.emplace(
+      Delta::SetPropertyTag{}, Property(memgraph::storage::kReservedIdBit | 2U), PropertyValue{}, nullptr, 0);
+
+  auto vertices = IndexArming{};
+  auto scope = vertices.for_deltas_of(PropertyWriteTargets{.vertices = true, .edges = true});
+  scope.note(label_delta);
+  scope.note(property_delta);
+  EXPECT_FALSE(vertices.arms_anything());
+}
+#endif
