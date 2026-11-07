@@ -288,7 +288,10 @@ uint64_t InMemoryLabelIndex::RemoveObsoleteEntries(Storage *storage, uint64_t ol
             continue;
           }
 
-          if ((next_it != vertices_acc.end() && it->vertex == next_it->vertex) ||
+          // The older of two entries for a vertex is redundant only once the newer one is visible to
+          // every reader; before that a reader older than the newer entry sees neither.
+          if ((next_it != vertices_acc.end() && it->vertex == next_it->vertex &&
+               (!preserve_recent_entries || next_it->timestamp < oldest_active_start_timestamp)) ||
               !AnyVersionHasLabel(*it->vertex, label, oldest_active_start_timestamp)) {
             vertices_acc.remove(*it);
           }

@@ -20,6 +20,7 @@
 #include <gtest/gtest.h>
 
 #include <array>
+#include <optional>
 #include <string_view>
 #include <vector>
 
@@ -27,6 +28,7 @@
 #include "storage/v2/inmemory/unique_constraints.hpp"
 #include "storage_v2_gc_metrics_fixture.hpp"
 #include "tests/test_commit_args_helper.hpp"
+#include "utils/bound.hpp"
 
 #define ASSERT_NO_ERROR(result) ASSERT_TRUE((result).has_value())
 
@@ -892,6 +894,160 @@ TEST_F(StorageV2GcIndexSweepCountTest, AnAbortLeavesNoEntryInAnyEdgeIndexForAnEd
   EXPECT_EQ(acc->ApproximateEdgeCount(acc->NameToEdgeType("E")), 0)
       << "edge-type index kept an entry for an edge that never existed";
   acc->Abort();
+}
+
+///// AN OLDER DUPLICATE A READER STILL NEEDS
+
+// Writing a key a vertex or edge already has leaves two entries for it, the old one and a new one
+// stamped with the writer's start. The old one is redundant only once the new one is visible to
+// every reader. A reader that started before the writer sees only the old entry, so collecting it
+// while that reader is open leaves the reader with no entry for an object it can see.
+class StorageV2GcIndexSweepReaderTest : public StorageV2GcIndexSweepCountTest {
+ protected:
+  // The accessor the reader opens holds the main lock shared, so the pass cannot be handed a
+  // unique hold the way SweptByOnePass does.
+  void CollectWhileReaderIsOpen() { static_cast<ms::InMemoryStorage *>(storage.get())->FreeMemory({}, false); }
+
+  ms::Gid CreateLabelledVertex(std::optional<int64_t> property = std::nullopt) {
+    auto acc = storage->Access(ms::WRITE);
+    auto vertex = acc->CreateVertex();
+    auto const gid = vertex.Gid();
+    EXPECT_TRUE(vertex.AddLabel(storage->NameToLabel("L")).has_value());
+    if (property) {
+      EXPECT_TRUE(vertex.SetProperty(storage->NameToProperty("p"), ms::PropertyValue{*property}).has_value());
+    }
+    EXPECT_TRUE(TryCommit(acc));
+    return gid;
+  }
+
+  ms::Gid CreateEdgeWithProperty(int64_t value) {
+    auto acc = storage->Access(ms::WRITE);
+    auto from = acc->CreateVertex();
+    auto to = acc->CreateVertex();
+    auto edge = acc->CreateEdge(&from, &to, storage->NameToEdgeType("E"));
+    EXPECT_TRUE(edge.has_value());
+    EXPECT_TRUE(edge->SetProperty(storage->NameToProperty("p"), ms::PropertyValue{value}).has_value());
+    auto const gid = edge->Gid();
+    EXPECT_TRUE(TryCommit(acc));
+    return gid;
+  }
+
+  void SetVertexProperty(ms::Gid gid, int64_t value) {
+    auto acc = storage->Access(ms::WRITE);
+    auto vertex = acc->FindVertex(gid, ms::View::OLD);
+    ASSERT_TRUE(vertex.has_value());
+    ASSERT_NO_ERROR(vertex->SetProperty(storage->NameToProperty("p"), ms::PropertyValue{value}));
+    ASSERT_NO_FATAL_FAILURE(Commit(acc));
+  }
+
+  void SetEdgeProperty(ms::Gid gid, int64_t value) {
+    auto acc = storage->Access(ms::WRITE);
+    auto edge = acc->FindEdge(gid, ms::View::OLD);
+    ASSERT_TRUE(edge.has_value());
+    ASSERT_NO_ERROR(edge->SetProperty(storage->NameToProperty("p"), ms::PropertyValue{value}));
+    ASSERT_NO_FATAL_FAILURE(Commit(acc));
+  }
+
+  static size_t Count(auto &&iterable) {
+    size_t n = 0;
+    for ([[maybe_unused]] auto &&item : iterable) ++n;
+    return n;
+  }
+};
+
+TEST_F(StorageV2GcIndexSweepReaderTest, LabelIndexKeepsTheEntryAReaderOlderThanAReAddSees) {
+  auto const gid = CreateLabelledVertex();
+  ASSERT_NO_FATAL_FAILURE(CreateLabelIndex("L"));
+
+  auto reader = storage->Access(ms::READ);
+  for (bool add : {false, true}) {
+    auto acc = storage->Access(ms::WRITE);
+    auto vertex = acc->FindVertex(gid, ms::View::OLD);
+    ASSERT_TRUE(vertex.has_value());
+    ASSERT_NO_ERROR(add ? vertex->AddLabel(storage->NameToLabel("L")) : vertex->RemoveLabel(storage->NameToLabel("L")));
+    ASSERT_NO_FATAL_FAILURE(Commit(acc));
+  }
+  CollectWhileReaderIsOpen();
+
+  EXPECT_EQ(Count(reader->Vertices(storage->NameToLabel("L"), ms::View::OLD)), 1);
+  reader->Abort();
+}
+
+TEST_F(StorageV2GcIndexSweepReaderTest, LabelPropertyIndexKeepsTheEntryAReaderOlderThanARestoredValueSees) {
+  auto const gid = CreateLabelledVertex(1);
+  ASSERT_NO_FATAL_FAILURE(CreateLabelPropertyIndex("L", "p"));
+
+  auto reader = storage->Access(ms::READ);
+  ASSERT_NO_FATAL_FAILURE(SetVertexProperty(gid, 2));
+  ASSERT_NO_FATAL_FAILURE(SetVertexProperty(gid, 1));
+  CollectWhileReaderIsOpen();
+
+  EXPECT_EQ(Count(reader->Vertices(
+                storage->NameToLabel("L"),
+                std::array{ms::PropertyPath{storage->NameToProperty("p")}},
+                std::array{ms::PropertyValueRange::Bounded(memgraph::utils::MakeBoundInclusive(ms::PropertyValue{1}),
+                                                           memgraph::utils::MakeBoundInclusive(ms::PropertyValue{1}))},
+                ms::View::OLD)),
+            1);
+  reader->Abort();
+}
+
+TEST_F(StorageV2GcIndexSweepReaderTest, LabelPropertyIndexKeepsTheEntryAReaderOlderThanASameValueWriteSees) {
+  auto const gid = CreateLabelledVertex(1);
+  ASSERT_NO_FATAL_FAILURE(CreateLabelPropertyIndex("L", "p"));
+
+  auto reader = storage->Access(ms::READ);
+  ASSERT_NO_FATAL_FAILURE(SetVertexProperty(gid, 1));
+  CollectWhileReaderIsOpen();
+
+  EXPECT_EQ(Count(reader->Vertices(
+                storage->NameToLabel("L"),
+                std::array{ms::PropertyPath{storage->NameToProperty("p")}},
+                std::array{ms::PropertyValueRange::Bounded(memgraph::utils::MakeBoundInclusive(ms::PropertyValue{1}),
+                                                           memgraph::utils::MakeBoundInclusive(ms::PropertyValue{1}))},
+                ms::View::OLD)),
+            1);
+  reader->Abort();
+}
+
+TEST_F(StorageV2GcIndexSweepReaderTest, GlobalVertexIndexKeepsTheEntryAReaderOlderThanASameValueWriteSees) {
+  auto const gid = CreateLabelledVertex(1);
+  ASSERT_NO_FATAL_FAILURE(CreateGlobalVertexIndex("p"));
+
+  auto reader = storage->Access(ms::READ);
+  ASSERT_NO_FATAL_FAILURE(SetVertexProperty(gid, 1));
+  CollectWhileReaderIsOpen();
+
+  EXPECT_EQ(Count(reader->Vertices(storage->NameToProperty("p"), ms::View::OLD)), 1);
+  reader->Abort();
+}
+
+TEST_F(StorageV2GcIndexSweepReaderTest, EdgeTypePropertyIndexKeepsTheEntryAReaderOlderThanASameValueWriteSees) {
+  auto const gid = CreateEdgeWithProperty(1);
+  ASSERT_NO_FATAL_FAILURE(CreateEdgeTypePropertyIndex("E", "p"));
+
+  auto reader = storage->Access(ms::READ);
+  ASSERT_NO_FATAL_FAILURE(SetEdgeProperty(gid, 1));
+  CollectWhileReaderIsOpen();
+
+  EXPECT_EQ(Count(reader->Edges(storage->NameToEdgeType("E"), storage->NameToProperty("p"), ms::View::OLD)), 1);
+  reader->Abort();
+}
+
+TEST_F(StorageV2GcIndexSweepReaderTest, EdgePropertyIndexKeepsTheEntryAReaderOlderThanASameValueWriteSees) {
+  auto const gid = CreateEdgeWithProperty(1);
+  {
+    auto acc = storage->ReadOnlyAccess();
+    ASSERT_NO_ERROR(acc->CreateGlobalEdgeIndex(storage->NameToProperty("p")));
+    ASSERT_TRUE(TryCommit(acc));
+  }
+
+  auto reader = storage->Access(ms::READ);
+  ASSERT_NO_FATAL_FAILURE(SetEdgeProperty(gid, 1));
+  CollectWhileReaderIsOpen();
+
+  EXPECT_EQ(Count(reader->Edges(storage->NameToProperty("p"), ms::View::OLD)), 1);
+  reader->Abort();
 }
 
 ///// ONE RULE, TWO ROUTES TO IT
