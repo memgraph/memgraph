@@ -51,6 +51,7 @@ class BenchmarkContext:
         customer_workloads: str = None,
         vendor_args: dict = {},
         use_parallel_execution: bool = False,
+        branch_reads: bool = False,
     ) -> None:
         self.benchmark_target_workload = benchmark_target_workload
         self.databases = databases
@@ -98,6 +99,7 @@ class BenchmarkContext:
         self.customer_workloads = customer_workloads
         self.vendor_args = vendor_args
         self.use_parallel_execution = use_parallel_execution
+        self.branch_reads = branch_reads
         self.active_workload = None
         self.active_variant = None
 
