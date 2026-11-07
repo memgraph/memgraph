@@ -1054,15 +1054,23 @@ bool TypedValue::ContainsDeleted() const {
     case Type::Map:
       return std::ranges::any_of(map_v, [](const auto &item) { return item.second.ContainsDeleted(); });
     case Type::Vertex:
+#ifdef MG_ENTERPRISE
+      return held_inline_.vertex_v.IsDeleted();
+#else
       return held_inline_.vertex_v.impl_.vertex_->deleted();
+#endif
     case Type::Edge:
       return held_inline_.edge_v.IsDeleted();
     case Type::VirtualEdge:
     case Type::VirtualNode:
       return false;
     case Type::Path:
+#ifdef MG_ENTERPRISE
+      return std::ranges::any_of(path_v->vertices(), [](auto &vertex_acc) { return vertex_acc.IsDeleted(); }) ||
+#else
       return std::ranges::any_of(path_v->vertices(),
                                  [](auto &vertex_acc) { return vertex_acc.impl_.vertex_->deleted(); }) ||
+#endif
              std::ranges::any_of(path_v->edges(), [](auto &edge_acc) { return edge_acc.IsDeleted(); });
     case Type::Graph:
     case Type::VirtualGraph:
