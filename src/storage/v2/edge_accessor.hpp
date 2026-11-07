@@ -58,6 +58,7 @@ class EdgeAccessor final {
   /// @return true if the object is visible from the current transaction
   bool IsVisible(View view) const;
 
+  // Defined inline at the end of storage/v2/vertex_accessor.hpp under MG_ENTERPRISE, else in edge_accessor.cpp.
   VertexAccessor FromVertex() const;
 
   VertexAccessor ToVertex() const;
@@ -167,3 +168,7 @@ struct hash<memgraph::storage::EdgeAccessor> {
   size_t operator()(const memgraph::storage::EdgeAccessor &e) const { return e.Gid().AsUint(); }
 };
 }  // namespace std
+
+#ifdef MG_ENTERPRISE
+#include "storage/v2/vertex_accessor.hpp"  // IWYU pragma: keep
+#endif

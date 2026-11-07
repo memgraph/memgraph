@@ -56,6 +56,12 @@ namespace rocksdb {
 class Transaction;
 }  // namespace rocksdb
 
+#ifdef MG_ENTERPRISE
+namespace memgraph::versioning {
+class BranchContext;
+}  // namespace memgraph::versioning
+#endif
+
 namespace memgraph::storage {
 
 struct CommitCallbacks {
@@ -311,6 +317,12 @@ struct Transaction {
   // Set at construction; never reassigned. Stable across PeriodicCommit.
   uint64_t original_start_timestamp{};
 #ifdef MG_ENTERPRISE
+  // Non-owning; set only on a branch session's fork-reader and diff-engine transactions, so query accessors find the
+  // branch through the transaction instead of carrying state.
+  versioning::BranchContext *branch_ctx{nullptr};
+  // Same context, only on the diff engine's transaction: only its edges can have a diff-engine overlay endpoint, so
+  // To()/From() on any other branch edge skip translation.
+  versioning::BranchContext *branch_diff_ctx{nullptr};
   // Read-only accessor at a pinned past fork_ts. fork_ts is not this transaction's own commit-log id (it may be
   // another transaction's start tick under narrowing, and is already finished otherwise), so finalization releases
   // the fork pin instead of MarkFinished(start_timestamp). MVCC writes throw in
