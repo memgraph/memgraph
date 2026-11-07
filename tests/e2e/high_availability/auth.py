@@ -2025,5 +2025,59 @@ def test_internal_system_user_hash_file_must_load(tmp_path, contents):
         assert contents.splitlines()[0] not in result.stdout + result.stderr
 
 
+def test_profile_mixed_case_survives_failover(test_name):
+    """A profile assigned with a mixed-case spelling survives the promotion of the replica: the replica and the
+    promoted main resolve the membership through both spellings."""
+    instances_description = get_instances_description_no_setup(test_name=test_name)
+    interactive_mg_runner.start_all(instances_description, keep_directories=False)
+
+    # The first user created on the main becomes the administrator.
+    bootstrap_cursor = connect(host="localhost", port=7687).cursor()
+    execute_and_fetch_all(bootstrap_cursor, "CREATE USER admin IDENTIFIED BY 'admin123'")
+    execute_and_fetch_all(bootstrap_cursor, "GRANT ALL PRIVILEGES TO USER admin")
+    bootstrap_cursor.close()
+
+    admin_cursor = connect(host="localhost", port=7687, username="admin", password="admin123").cursor()
+    execute_and_fetch_all(admin_cursor, "CREATE PROFILE mixed_one LIMIT sessions 1")
+    execute_and_fetch_all(admin_cursor, "CREATE USER TestUser IDENTIFIED BY 'pw'")
+    execute_and_fetch_all(admin_cursor, "GRANT ALL PRIVILEGES TO USER TestUser")
+    execute_and_fetch_all(admin_cursor, "SET PROFILE FOR TestUser TO mixed_one")
+    assert execute_and_fetch_all(admin_cursor, "SHOW PROFILE FOR TestUser") == [("mixed_one",)]
+
+    # Returns a zero-arg callable, as mg_sleep_and_assert expects.
+    def profile_at(port, spelling):
+        def query():
+            try:
+                cursor = connect(host="localhost", port=port, username="admin", password="admin123").cursor()
+                return execute_and_fetch_all(cursor, f"SHOW PROFILE FOR {spelling}")
+            except Exception:
+                return None
+
+        return query
+
+    # The membership is stored folded; lookups fold the spelling, so both resolve once the replica applied it.
+    mg_sleep_and_assert([("mixed_one",)], profile_at(7688, "TestUser"))
+    assert profile_at(7688, "testuser")() == [("mixed_one",)], "the replica does not resolve the folded spelling"
+
+    # Kill the main; the surviving replica is promoted.
+    interactive_mg_runner.kill(instances_description, "instance_1")
+
+    def promoted_instance_role():
+        try:
+            rows = show_instances(connect(host="localhost", port=7692).cursor())
+        except Exception:
+            return None
+        for row in rows:
+            if row[0] == "instance_2":
+                return row[-1]
+        return None
+
+    mg_sleep_and_assert("main", promoted_instance_role)
+
+    # Both spellings still resolve on the promoted main.
+    mg_sleep_and_assert([("mixed_one",)], profile_at(7688, "TestUser"))
+    assert profile_at(7688, "testuser")() == [("mixed_one",)], "the promoted main does not resolve the folded spelling"
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))

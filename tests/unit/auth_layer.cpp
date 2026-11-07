@@ -11,14 +11,26 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <filesystem>
+#include <functional>
 #include <optional>
+#include <set>
+#include <sstream>
 #include <string>
+#include <unordered_set>
+#include <utility>
+#include <vector>
+
+#include <spdlog/sinks/ostream_sink.h>
+#include <spdlog/spdlog.h>
+#include <nlohmann/json.hpp>
 
 #include "auth/auth.hpp"
 #include "auth/auth_layer.hpp"
 #include "auth/rpc.hpp"
 #include "auth_test_utils.hpp"
+#include "kvstore/kvstore.hpp"
 #include "license/license.hpp"
 #include "system/system.hpp"
 #include "system/transaction.hpp"
@@ -521,3 +533,275 @@ TEST_F(AuthLayerTest, ARepeatedListingDoesNotAdoptAConcurrentCreate) {
   EXPECT_FALSE(layer_->Commit(tx, nullptr)) << "committed on a user list that changed under it";
   EXPECT_FALSE(layer_->Lock()->HasUser("carol"));
 }
+
+TEST_F(AuthLayerTest, SetProfileInstallsLimitsOnTheCanonicalEntry) {
+  {
+    ASSERT_TRUE(AddUser(*layer_->Lock(), "mixed").has_value());
+  }
+  ASSERT_TRUE(layer_->Lock()->CreateProfile(
+      "limited", {{memgraph::auth::UserProfiles::Limits::kSessions, memgraph::auth::UserProfiles::limit_t{1UL}}}));
+
+  {
+    auto locked = layer_->Lock();
+    ASSERT_TRUE(locked->SetProfile("limited", "MiXeD").has_value());
+  }
+
+  auto const canonical = resources_.GetUser("mixed");
+  auto const raw_spelling = resources_.GetUser("MiXeD");
+  EXPECT_EQ(canonical->GetSessions().second, 1U) << "limit not installed on the canonical registry entry";
+  EXPECT_EQ(raw_spelling.get(), canonical.get()) << "a raw spelling resolved to a different registry entry";
+
+  layer_->Lock()->RevokeProfile("MIXED");
+  EXPECT_EQ(canonical->GetSessions().second, memgraph::utils::SessionsResource::kUnlimited)
+      << "revoking through another spelling did not reset the canonical entry";
+}
+
+class LegacyRawProfileAuthLayerTest : public ::testing::Test {
+ protected:
+  void SetUp() override {
+    memgraph::utils::EnsureDir(test_folder_);
+    memgraph::license::global_license_checker.EnableTesting();
+    {
+      memgraph::kvstore::KVStore store{auth_folder_};
+      ASSERT_TRUE(store.Put("user_profile:limited", R"({"limits":{"sessions":1},"usernames":["TestUser"]})"));
+    }
+    auth_.emplace(auth_folder_, Auth::Config{}, &resources_);
+    layer_.emplace(*auth_);
+  }
+
+  void TearDown() override {
+    layer_.reset();
+    auth_.reset();
+    fs::remove_all(test_folder_);
+  }
+
+  fs::path test_folder_{fs::temp_directory_path() / "MG_tests_unit_auth_layer_legacy"};
+  fs::path auth_folder_{test_folder_ / "auth"};
+  memgraph::utils::ResourceMonitoring resources_;
+  std::optional<SynchedAuth> auth_;
+  std::optional<AuthLayer> layer_;
+};
+
+TEST_F(LegacyRawProfileAuthLayerTest, LegacyRawProfileJsonFoldsOnLoadAndRestoresLimits) {
+  EXPECT_EQ(layer_->Lock()->GetProfileForUsername("testuser"), "limited");
+  EXPECT_EQ(layer_->Lock()->GetProfileForUsername("TestUser"), "limited");
+
+  auto const canonical = resources_.GetUser("testuser");
+  EXPECT_EQ(canonical->GetSessions().second, 1U) << "startup fan-out did not install the limit on the canonical entry";
+
+  ASSERT_TRUE(layer_->Lock()->SetProfile("limited", "TESTUSER").has_value());
+  {
+    const auto members = layer_->Lock()->GetUsernamesForProfile("limited");
+    EXPECT_EQ(members.size(), 1U);
+    EXPECT_TRUE(members.contains("testuser"));
+  }
+
+  layer_.reset();
+  auth_.reset();
+  memgraph::kvstore::KVStore store{auth_folder_};
+  const auto value = store.Get("user_profile:limited");
+  ASSERT_TRUE(value.has_value());
+  const auto json = nlohmann::json::parse(*value);
+  EXPECT_EQ(json.at("usernames").size(), 1U);
+  EXPECT_EQ(json.at("usernames"), nlohmann::json::array({"testuser"}));
+  EXPECT_EQ(json.at("limits").at("sessions"), 1);
+}
+
+using Users = std::set<std::string>;
+
+class LegacyDuplicateMembershipBase : public ::testing::Test {
+ protected:
+  using Limits = memgraph::auth::UserProfiles::Limits;
+  using limits_t = memgraph::auth::UserProfiles::limits_t;
+  using limit_t = memgraph::auth::UserProfiles::limit_t;
+
+  static uint64_t Sessions(std::string_view profile) {
+    return profile == "p1" ? 1U : profile == "p2" ? 3U : profile == "pa" ? 5U : 7U;
+  }
+
+  static limits_t Lim(uint64_t sessions) { return {{Limits::kSessions, limit_t{sessions}}}; }
+
+  void SetUp() override {
+    const auto *info = ::testing::UnitTest::GetInstance()->current_test_info();
+    auto name = std::string{"MG_tests_unit_auth_layer_dup_"} + info->test_suite_name() + "_" + info->name();
+    std::ranges::replace(name, '/', '_');
+    folder_ = fs::temp_directory_path() / name;
+    fs::remove_all(folder_);
+    memgraph::utils::EnsureDir(folder_);
+    memgraph::license::global_license_checker.EnableTesting();
+  }
+
+  void TearDown() override {
+    Stop();
+    fs::remove_all(folder_);
+  }
+
+  void Seed(const std::vector<std::pair<std::string, std::string>> &members) {
+    memgraph::kvstore::KVStore store{folder_ / "auth"};
+    for (const auto &[profile, spelling] : members) {
+      const nlohmann::json json{{"limits", {{"sessions", Sessions(profile)}}},
+                                {"usernames", nlohmann::json::array({spelling})}};
+      ASSERT_TRUE(store.Put("user_profile:" + profile, json.dump()));
+    }
+  }
+
+  void SeedAmbiguous() { Seed({{"p1", "Alice"}, {"p2", "alice"}}); }
+
+  void Load() {
+    Stop();
+    captured_.str("");
+    auto sink = std::make_shared<spdlog::sinks::ostream_sink_mt>(captured_);
+    sink->set_level(spdlog::level::err);
+    auto &sinks = spdlog::default_logger()->sinks();
+    sinks.push_back(sink);
+    resources_.emplace();
+    auth_.emplace(folder_ / "auth", Auth::Config{}, &*resources_);
+    std::erase(sinks, sink);
+    layer_.emplace(*auth_);
+  }
+
+  void Stop() {
+    layer_.reset();
+    auth_.reset();
+    resources_.reset();
+  }
+
+  void Reload() {
+    Stop();
+    Load();
+  }
+
+  // Stops the auth instance so the store can be opened.
+  std::optional<Users> Stored(const std::string &profile) {
+    Stop();
+    memgraph::kvstore::KVStore store{folder_ / "auth"};
+    const auto value = store.Get("user_profile:" + profile);
+    if (!value) return std::nullopt;
+    return nlohmann::json::parse(*value).at("usernames").get<Users>();
+  }
+
+  auto Locked() { return layer_->Lock(); }
+
+  uint64_t SessionsLimit(const std::string &user) { return resources_->GetUser(user)->GetSessions().second; }
+
+  bool Logged(std::string_view text) const { return captured_.str().find(text) != std::string::npos; }
+
+  fs::path folder_;
+  std::ostringstream captured_;
+  std::optional<memgraph::utils::ResourceMonitoring> resources_;
+  std::optional<SynchedAuth> auth_;
+  std::optional<AuthLayer> layer_;
+};
+
+using LegacyDuplicateMembershipTest = LegacyDuplicateMembershipBase;
+
+struct PickCase {
+  std::string name;
+  std::vector<std::pair<std::string, std::string>> members;
+  std::string winner;
+};
+
+class LegacyDuplicatePickTest : public LegacyDuplicateMembershipBase, public ::testing::WithParamInterface<PickCase> {};
+
+TEST_P(LegacyDuplicatePickTest, AppliesTheLargestSpellingAndLeavesDurableDataUntouched) {
+  const auto &[name, members, winner] = GetParam();
+  Seed(members);
+  Load();
+
+  EXPECT_EQ(Locked()->GetProfileForUsername("alice"), winner);
+  EXPECT_EQ(SessionsLimit("alice"), Sessions(winner));
+  EXPECT_TRUE(Logged("applying profile '" + winner + "'")) << captured_.str();
+  EXPECT_TRUE(Logged("SET PROFILE FOR alice TO")) << captured_.str();
+  for (const auto &[profile, spelling] : members) {
+    EXPECT_EQ(Stored(profile), Users{spelling});
+  }
+}
+
+INSTANTIATE_TEST_SUITE_P(Spellings, LegacyDuplicatePickTest,
+                         ::testing::Values(PickCase{"LowerBeatsCapital", {{"p1", "Alice"}, {"p2", "alice"}}, "p2"},
+                                           PickCase{"CapitalBeatsUpper", {{"p1", "ALICE"}, {"p2", "Alice"}}, "p2"},
+                                           PickCase{"TieTakesSmallestName", {{"pa", "Alice"}, {"pb", "Alice"}}, "pa"}),
+                         [](const auto &info) { return info.param.name; });
+
+TEST_F(LegacyDuplicateMembershipTest, UnrelatedWritesKeepTheStaleSpellingStored) {
+  SeedAmbiguous();
+  Load();
+
+  ASSERT_TRUE(Locked()->UpdateProfile("p1", Lim(9)).has_value());
+  EXPECT_EQ(Stored("p1"), Users{"Alice"});
+
+  Load();
+  ASSERT_TRUE(Locked()->SetProfile("p1", "bob").has_value());
+  EXPECT_EQ(Stored("p1"), (Users{"Alice", "bob"}));
+
+  Load();
+  EXPECT_TRUE(Logged("applying profile")) << captured_.str();
+}
+
+struct ResolveCase {
+  std::string name;
+  std::function<void(Auth &)> action;
+  std::optional<Users> p1;
+  std::optional<Users> p2;
+  std::optional<std::string> profile;
+};
+
+class LegacyDuplicateResolveTest : public LegacyDuplicateMembershipBase,
+                                   public ::testing::WithParamInterface<ResolveCase> {};
+
+TEST_P(LegacyDuplicateResolveTest, AdminActionSettlesTheUserDurably) {
+  const auto &[name, action, p1, p2, profile] = GetParam();
+  SeedAmbiguous();
+  Load();
+  action(*Locked());
+
+  EXPECT_EQ(Stored("p1"), p1);
+  EXPECT_EQ(Stored("p2"), p2);
+
+  Load();
+  EXPECT_FALSE(Logged("applying profile")) << captured_.str();
+  EXPECT_EQ(Locked()->GetProfileForUsername("alice"), profile);
+  EXPECT_EQ(SessionsLimit("alice"), profile ? Sessions(*profile) : memgraph::utils::SessionsResource::kUnlimited);
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    Actions, LegacyDuplicateResolveTest,
+    ::testing::Values(
+        ResolveCase{"SetToApplied", [](Auth &a) { a.SetProfile("p2", "alice"); }, Users{}, Users{"alice"}, "p2"},
+        ResolveCase{"SetToOther", [](Auth &a) { a.SetProfile("p1", "alice"); }, Users{"alice"}, Users{}, "p1"},
+        ResolveCase{"Clear", [](Auth &a) { a.RevokeProfile("alice"); }, Users{}, Users{}, std::nullopt},
+        ResolveCase{"DropApplied", [](Auth &a) { a.DropProfile("p2"); }, Users{}, std::nullopt, std::nullopt},
+        ResolveCase{"DropOther", [](Auth &a) { a.DropProfile("p1"); }, std::nullopt, Users{"alice"}, "p2"}),
+    [](const auto &info) { return info.param.name; });
+
+struct ReplicaCase {
+  std::string name;
+  std::vector<std::pair<std::string, std::unordered_set<std::string>>> applied;
+  std::optional<std::string> profile;
+};
+
+class LegacyDuplicateReplicaTest : public LegacyDuplicateMembershipBase,
+                                   public ::testing::WithParamInterface<ReplicaCase> {};
+
+TEST_P(LegacyDuplicateReplicaTest, ReplicaConvergesToMainsState) {
+  const auto &[name, applied, profile] = GetParam();
+  SeedAmbiguous();
+  Load();
+  for (const auto &[profile_name, users] : applied) {
+    ASSERT_TRUE(Locked()->CreateOrUpdateProfile(profile_name, Lim(Sessions(profile_name)), users));
+  }
+
+  EXPECT_EQ(Stored("p1"), Users{});
+  EXPECT_EQ(Stored("p2"), profile ? Users{"alice"} : Users{});
+
+  Load();
+  EXPECT_FALSE(Logged("applying profile")) << captured_.str();
+  EXPECT_EQ(Locked()->GetProfileForUsername("alice"), profile);
+}
+
+INSTANTIATE_TEST_SUITE_P(Applies, LegacyDuplicateReplicaTest,
+                         ::testing::Values(ReplicaCase{"AppliedProfileFirst", {{"p2", {"alice"}}}, "p2"},
+                                           ReplicaCase{
+                                               "EmptiedOtherProfileFirst", {{"p1", {}}, {"p2", {"alice"}}}, "p2"},
+                                           ReplicaCase{"MainCleared", {{"p2", {}}}, std::nullopt}),
+                         [](const auto &info) { return info.param.name; });
