@@ -47,6 +47,21 @@ FILE = "bolt_exception_handling"
 MAIN_PORT = 7687
 REPLICA_PORT = 7688
 
+# Unparseable temporal inputs; date/localtime/localdatetime throw temporal::InvalidArgumentException, duration a bare utils::BasicException.
+_INVALID_TEMPORAL = [
+    ("RETURN duration('PXYZ')", "Invalid duration string", "duration"),
+    ("RETURN date('not-a-date')", "Invalid year in the string", "date"),
+    ("RETURN localtime('99:99')", "invalid hour parameter", "localtime"),
+    ("RETURN localdatetime('bogus')", "Invalid LocalDateTime format", "localdatetime"),
+]
+
+# Enterprise-gated paths: impersonation (RuntimeConfig::Configure is compiled only under MG_ENTERPRISE) and
+# SHOW METRICS INFO (license-gated in src/query/interpreter.cpp). A community run must skip rather than fail.
+requires_enterprise = pytest.mark.skipif(
+    not (os.environ.get("MEMGRAPH_ENTERPRISE_LICENSE") and os.environ.get("MEMGRAPH_ORGANIZATION_NAME")),
+    reason="enterprise-gated feature (MEMGRAPH_ENTERPRISE_LICENSE + MEMGRAPH_ORGANIZATION_NAME)",
+)
+
 
 @pytest.fixture(autouse=True)
 def cleanup_after_test():
@@ -193,6 +208,207 @@ def test_write_on_replica_is_client_error(connection, test_name):
             assert "Write queries are forbidden on the replica instance" in str(exc_info.value)
     except TransientError:
         pytest.fail("QueryException on a replica must be reported as ClientError, not TransientError")
+    finally:
+        driver.close()
+
+
+def _start_main(test_name):
+    """Start a single main instance (no replicas): the Bolt classification tests need only one node."""
+    instances = {
+        "main": {
+            "args": ["--bolt-port", "7687", "--log-level=TRACE"],
+            "log_file": f"{get_logs_path(FILE, test_name)}/main.log",
+            "data_directory": f"{get_data_path(FILE, test_name)}/main",
+            "setup_queries": [],
+        }
+    }
+    interactive_mg_runner.start_all(instances, keep_directories=False)
+    return instances
+
+
+def _driver(**kwargs):
+    return GraphDatabase.driver(f"bolt://localhost:{MAIN_PORT}", auth=None, encrypted=False, **kwargs)
+
+
+def _transient_errors(session):
+    """Value of the global TransientErrors counter (SHOW METRICS INFO)."""
+    for record in session.run("SHOW METRICS INFO"):
+        if record["name"] == "TransientErrors":
+            return record["value"]
+    raise AssertionError("TransientErrors metric not found in SHOW METRICS INFO")
+
+
+@pytest.mark.parametrize(
+    "query, message",
+    [(q, m) for q, m, _ in _INVALID_TEMPORAL],
+    ids=[i for _, _, i in _INVALID_TEMPORAL],
+)
+def test_invalid_temporal_input_is_client_error(query, message, test_name):
+    """A permanently-invalid temporal string is a non-retryable ClientError, never a TransientError."""
+    _start_main(test_name)
+    driver = _driver()
+    try:
+        with driver.session() as session:
+            with pytest.raises(ClientError) as exc_info:
+                session.run(query).consume()
+            assert exc_info.value.code.startswith("Memgraph.ClientError")
+            assert message in str(exc_info.value)
+    except TransientError as e:
+        pytest.fail(f"{query} must be a ClientError, got TransientError: {e}")
+    finally:
+        driver.close()
+
+
+@requires_enterprise
+def test_invalid_temporal_input_does_not_increment_transient_errors(test_name):
+    """A permanently-invalid temporal parse is never counted as a transient error (skipped on a community build: SHOW METRICS INFO is enterprise-gated)."""
+    _start_main(test_name)
+    driver = _driver()
+    try:
+        with driver.session() as session:
+            before = _transient_errors(session)
+            for query, _ in [(q, m) for q, m, _ in _INVALID_TEMPORAL]:
+                try:
+                    session.run(query).consume()
+                except (ClientError, TransientError):
+                    pass
+            after = _transient_errors(session)
+            assert after == before, f"TransientErrors grew by {after - before} on permanently-invalid input"
+    finally:
+        driver.close()
+
+
+def test_project_distinct_graph_is_client_error(test_name):
+    """An unwrapped TypedValueException (graph hashing) is a ClientError, not retryable."""
+    _start_main(test_name)
+    driver = _driver()
+    try:
+        with driver.session() as session:
+            session.run("CREATE (a:A)-[:R]->(b:B)").consume()
+            with pytest.raises(ClientError) as exc_info:
+                session.run("MATCH p=(a)-->(b) WITH DISTINCT project(p) AS g RETURN g").consume()
+            assert "Unsupported hash function for Graph" in str(exc_info.value)
+    except TransientError as e:
+        pytest.fail(f"Graph hashing failure must be a ClientError, got TransientError: {e}")
+    finally:
+        driver.close()
+
+
+def test_managed_tx_invalid_temporal_fails_first_attempt(test_name):
+    """The driver must not retry an invalid temporal query inside a managed transaction."""
+    _start_main(test_name)
+    driver = _driver(
+        max_transaction_retry_time=5.0,
+        initial_retry_delay=1.0,
+        retry_delay_multiplier=2.0,
+        retry_delay_jitter_factor=0.1,
+    )
+    attempts = {"n": 0}
+
+    def work(tx):
+        attempts["n"] += 1
+        # An unambiguously invalid literal: `P1M` is valid ISO-8601 (one month) and only rejected because
+        # months are currently unsupported, so it could become parseable; `PXYZ` never can.
+        return list(tx.run("RETURN duration('PXYZ')"))
+
+    try:
+        with pytest.raises(ClientError) as exc_info:
+            with driver.session() as session:
+                session.execute_read(work)
+        assert exc_info.value.code.startswith("Memgraph.ClientError")
+    except TransientError as e:
+        pytest.fail(f"Invalid temporal query must fail with ClientError on the first attempt, got TransientError: {e}")
+    finally:
+        driver.close()
+    assert attempts["n"] == 1, f"driver retried the query {attempts['n'] - 1} time(s); a ClientError must not be retried"
+
+
+def test_retryable_trigger_failure_stays_transient_error(test_name):
+    """
+    A before-commit trigger that fails with a declared-retryable exception (HintedAbortError, OOM, a serialization
+    conflict) must stay TransientError after Interpreter::Commit re-wraps the trigger's BasicException. A lowered
+    query timeout makes a deliberately long-running trigger body abort with a retryable HintedAbortError(TIMEOUT);
+    the client must see TransientError carrying the trigger-rewrap message.
+    """
+    _start_main(test_name)
+    driver = _driver()
+    try:
+        with driver.session() as session:
+            # Seed enough nodes that a cartesian trigger body cannot finish before the (lowered) deadline.
+            session.run("UNWIND range(1, 20000) AS x CREATE (:Seed)").consume()
+            session.run("SET DATABASE SETTING 'query.timeout' TO '1'").consume()
+            session.run(
+                "CREATE TRIGGER slow_before_commit ON CREATE BEFORE COMMIT EXECUTE "
+                "MATCH (a:Seed), (b:Seed), (c:Seed) WITH count(*) AS cnt CREATE (:SlowTriggerResult {cnt: cnt})"
+            ).consume()
+            with pytest.raises(TransientError) as exc_info:
+                session.run("CREATE (:TriggerSource)").consume()
+            assert "slow_before_commit" in str(exc_info.value)
+            assert "caused the transaction to fail" in str(exc_info.value)
+    finally:
+        driver.close()
+
+
+@requires_enterprise
+def test_impersonation_failure_is_client_error(test_name):
+    """A permanently-invalid impersonation request is a ClientError, never a TransientError."""
+    _start_main(test_name)
+    driver = _driver()
+    try:
+        with pytest.raises(ClientError) as exc_info:
+            with driver.session(impersonated_user="ghost") as session:
+                session.run("RETURN 1").consume()
+        assert "Trying to impersonate" in str(exc_info.value)
+    except TransientError as e:
+        pytest.fail(f"Impersonating a nonexistent user must be a ClientError, got TransientError: {e}")
+    finally:
+        driver.close()
+
+
+def test_storage_access_timeout_remains_transient_error(test_name):
+    """The storage access-timeout family stays TransientError."""
+    _start_main(test_name)
+    driver = _driver()
+    holder = None
+    try:
+        holder = driver.session()
+        tx = holder.begin_transaction()
+        # Hold shared (write) storage access in an open explicit transaction...
+        tx.run("CREATE (n:HoldLock)").consume()
+        # ...so a unique-access operation on another session times out (default 1s).
+        with driver.session() as other:
+            with pytest.raises(TransientError) as exc_info:
+                other.run("DROP GRAPH").consume()
+            assert "Cannot get unique access to the storage" in str(exc_info.value)
+        tx.rollback()
+    finally:
+        driver.close()
+
+
+def test_serialization_conflict_remains_transient_error(test_name):
+    """A write-write serialization conflict stays TransientError."""
+    _start_main(test_name)
+    driver = _driver()
+    try:
+        with driver.session() as session:
+            session.run("CREATE (n:Conflict {p: 0})").consume()
+        first = driver.session()
+        second = driver.session()
+        tx1 = first.begin_transaction()
+        try:
+            tx1.run("MATCH (n:Conflict) SET n.p = 1").consume()
+            with pytest.raises(TransientError) as exc_info:
+                tx2 = second.begin_transaction()
+                tx2.run("MATCH (n:Conflict) SET n.p = 2").consume()
+                tx2.commit()
+            assert "conflicting transactions" in str(exc_info.value)
+        finally:
+            try:
+                tx1.rollback()
+            except Exception:
+                pass
+            first.close()
+            second.close()
     finally:
         driver.close()
 

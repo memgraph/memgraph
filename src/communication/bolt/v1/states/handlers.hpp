@@ -57,12 +57,9 @@ inline std::pair<std::string, std::string> ExceptionToErrorMessage(const std::ex
     // semantics of that error.
     return {"Memgraph.ClientError.MemgraphError.MemgraphError", e.what()};
   }
-  if (dynamic_cast<const utils::BasicException *>(&e)) {
-    // Exception not derived from QueryException was thrown which means that
-    // database probably aborted transaction because of some timeout,
-    // deadlock, serialization error or something similar. We return
-    // TransientError since retry of same transaction could succeed.
-
+  if (dynamic_cast<const utils::RetryableException *>(&e)) {
+    // Only RetryableException-derived types (serialization conflicts, storage access timeouts,
+    // RPC failures, OOM) are transient; every other BasicException is a permanent ClientError below.
     // If this is in the context of a database (i.e., we have database
     // `metric_handles`), then log count failure in the db metrics;
     // otherwise, count in the global metrics.
@@ -71,6 +68,9 @@ inline std::pair<std::string, std::string> ExceptionToErrorMessage(const std::ex
     else
       metrics::Metrics().global.transient_errors->Increment();
     return {"Memgraph.TransientError.MemgraphError.MemgraphError", e.what()};
+  }
+  if (dynamic_cast<const utils::BasicException *>(&e)) {
+    return {"Memgraph.ClientError.MemgraphError.MemgraphError", e.what()};
   }
   if (dynamic_cast<const std::bad_alloc *>(&e)) {
     {

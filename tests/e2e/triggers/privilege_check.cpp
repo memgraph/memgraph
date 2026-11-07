@@ -254,7 +254,7 @@ TEST_P(PrivilegeCheckTest, ExplicitInvoker) {
   if (!is_after) {
     // BEFORE COMMIT: transaction should fail
     EXPECT_THROW(
-        { CreateVertex(*invoker_without_set_client, kVertexId); }, mg::TransientException)
+        { CreateVertex(*invoker_without_set_client, kVertexId); }, mg::ClientException)
         << "BEFORE COMMIT trigger should fail transaction when invoker lacks SET privilege";
     CheckNumberOfAllVertices(*invoker_without_set_client, 0);
   } else {
@@ -313,7 +313,7 @@ TEST_P(PrivilegeCheckTest, DefinerCreationFails) {
 
   // definer without SET cannot create trigger with DEFINER mode
   EXPECT_THROW(
-      { CreateTrigger(*definer_without_set_client, "DefinerFail", phase, "DEFINER"); }, mg::TransientException)
+      { CreateTrigger(*definer_without_set_client, "DefinerFail", phase, "DEFINER"); }, mg::ClientException)
       << "Creating DEFINER trigger without SET privilege should fail";
 }
 
@@ -354,7 +354,7 @@ TEST_P(PrivilegeCheckTest, InvokerFineGrainedNoSet) {
   if (!is_after) {
     // BEFORE COMMIT: transaction should fail
     EXPECT_THROW(
-        { CreateVertex(*invoker_fg_no_set_client, kVertexId); }, mg::TransientException)
+        { CreateVertex(*invoker_fg_no_set_client, kVertexId); }, mg::ClientException)
         << "BEFORE COMMIT trigger should fail transaction when invoker lacks SET privilege";
     CheckNumberOfAllVertices(*invoker_fg_no_set_client, 0);
   } else {
@@ -409,7 +409,7 @@ TEST_P(PrivilegeCheckTest, DefinerFineGrainedNoSet) {
   if (!is_after) {
     // BEFORE COMMIT: transaction should fail
     EXPECT_THROW(
-        { CreateVertex(*invoker_client, kVertexId); }, mg::TransientException)
+        { CreateVertex(*invoker_client, kVertexId); }, mg::ClientException)
         << "BEFORE COMMIT trigger should fail transaction when definer lacks SET privilege";
     CheckNumberOfAllVertices(*invoker_client, 0);
   } else {

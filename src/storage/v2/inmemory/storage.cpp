@@ -3080,7 +3080,7 @@ void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode) {
       }
       // Anything enqueued in the gap between drain and UNIQUE can't be drained here without deadlock.
       if (!async_indexer_.IsIdle()) {
-        throw utils::BasicException(
+        throw utils::RetryableException(
             "Cannot switch to IN_MEMORY_ANALYTICAL: an async index creation task (from CREATE INDEX "
             "or ENABLE TTL) was enqueued concurrently with the storage mode change. Wait for pending "
             "index creation to finish and retry.");
@@ -3147,9 +3147,14 @@ void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode) {
         // from durability, and the next recovery would silently drop it. Stay analytical instead: the
         // mode, the cached ldt and every durability file are still untouched at this point, so the user
         // can fix the cause and retry. CreateSnapshot has already removed whatever partial file it wrote.
-        throw utils::BasicException(
+        constexpr std::string_view kMsg =
             "Failed to create the snapshot required to leave IN_MEMORY_ANALYTICAL. The database is still in "
-            "analytical mode and its data is unchanged; check the logs for the cause and retry.");
+            "analytical mode and its data is unchanged; check the logs for the cause and retry.";
+        // A full disk persists until space is freed, so only the abort/IO case is retryable.
+        if (snapshot_path.error() == durability::SnapshotCreationError::kNoSpaceLeft) {
+          throw utils::BasicException(kMsg);
+        }
+        throw utils::RetryableException(kMsg);
       }
 
       // Publish the snapshot's timestamp as the cached ldt. Analytical writes never reach
