@@ -978,6 +978,13 @@ add_unit_test(storage_v2_index_arming
     LINK_TARGETS mg::storage
 )
 
+if (MG_ENTERPRISE)
+add_unit_test(versioning_historical_access
+    SOURCES versioning_historical_access.cpp
+    LINK_TARGETS mg::storage storage_test_utils
+)
+endif ()
+
 add_unit_test(storage_v2_non_sequential_isolation
     SOURCES storage_v2_non_sequential_isolation.cpp
     LINK_TARGETS mg::storage

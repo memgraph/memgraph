@@ -1150,6 +1150,36 @@ TEST_F(LockFreeReadSnapshotRecovery, ForkPinInsideCommitWindow_ExcludesTheInFlig
   EXPECT_EQ(store->VertexStoreSize(), 0U);
 }
 
+// A historical reader keeps commit_lock_narrowing off: its fork point already excludes the in-flight commit, so the
+// read stays the same when that commit publishes, and a fresh reader at the same pin agrees.
+TEST_F(LockFreeReadSnapshotRecovery, HistoricalReadAtForkStableWhenInFlightCommitPublishes_ON) {
+  auto store = MakeWalStorageManualGc(storage_directory);
+  const auto gid = CreateVertexWithProp(*store, 1);
+
+  PreparedCommit commit;
+  PrepareWithoutPublish(*store, gid, 2, commit);
+  const auto fork_ts = store->RegisterForkPin();
+  auto historical = store->HistoricalAccess(fork_ts);
+  ASSERT_TRUE(historical.has_value());
+  EXPECT_FALSE((*historical)->GetTransaction()->commit_lock_narrowing);
+  EXPECT_EQ(ReadProp(**historical, gid), 1);
+
+  PublishAndEnd(*store, commit);
+  EXPECT_EQ(ReadProp(**historical, gid), 1) << "the in-flight commit turned visible at the fork once published";
+  {
+    auto fresh = store->HistoricalAccess(fork_ts);
+    ASSERT_TRUE(fresh.has_value());
+    EXPECT_EQ(ReadProp(**fresh, gid), 1);
+  }
+  {
+    auto reader = store->Access(memgraph::storage::READ);
+    EXPECT_EQ(ReadProp(*reader, gid), 2);
+  }
+
+  historical->reset();
+  store->ReleaseForkPin(fork_ts);
+}
+
 // A commit that mints and then aborts never publishes, so it must not move the fork point.
 TEST(LockFreeReadSnapshot, ForkPinAcrossAbortedMint_Unchanged_ON) {
   auto store = MakeStorageManualGc(/*flag_on=*/true);
