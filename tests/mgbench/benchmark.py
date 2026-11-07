@@ -12,6 +12,7 @@
 # licenses/APL.txt.
 
 import argparse
+import copy
 import hashlib
 import json
 import multiprocessing
@@ -31,7 +32,8 @@ import setup
 from benchmark_context import BenchmarkContext
 from benchmark_results import BenchmarkResults
 from constants import *
-from workload_mode import BENCHMARK_MODE_MIXED, BENCHMARK_MODE_REALISTIC
+from stall_watchdog import stall_watchdog
+from workload_mode import BENCHMARK_MODE_ISOLATED, BENCHMARK_MODE_MIXED, BENCHMARK_MODE_REALISTIC
 from workloads.base import Workload
 
 SETUP_AUTH_QUERIES = [
@@ -294,6 +296,15 @@ def parse_args():
         help="Number of database worker threads (bolt_num_workers for Memgraph). "
         "If not specified, uses --num-workers-for-benchmark value. "
         "Useful when --use-parallel-execution is enabled to separate database workers from client workers.",
+    )
+
+    benchmark_parser.add_argument(
+        "--branch-reads",
+        action="store_true",
+        default=False,
+        help="After the in-memory transactional run of each workload, also measure its isolated read queries on "
+        "Graph Versioning branches with 10%% and 90%% of the dataset changed. The results are reported as extra "
+        "workloads named <workload>@b10 and <workload>@b90. Needs a native Memgraph binary and an enterprise license.",
     )
 
     benchmark_parser.add_argument(
@@ -767,9 +778,9 @@ def save_import_results(workload, results, import_results, rss_usage, snapshot_s
         results.set_value(*import_key, value={CLIENT: CUSTOM_LOAD, DATABASE: CUSTOM_LOAD})
 
 
-def save_to_results(results, ret, workload, group, query, authorization_mode):
+def save_to_results(results, ret, workload, group, query, authorization_mode, workload_name=None):
     results_key = [
-        workload.NAME,
+        workload_name or workload.NAME,
         workload.get_variant(),
         group,
         query,
@@ -830,7 +841,15 @@ def run_isolated_workload_with_authorization(
 
 
 def run_isolated_workload_without_authorization(
-    vendor_runner, client, queries, group, workload, results, memory_usage_with_imported_data, benchmark_context
+    vendor_runner,
+    client,
+    queries,
+    group,
+    workload,
+    results,
+    memory_usage_with_imported_data,
+    benchmark_context,
+    results_name=None,
 ):
     log.init("Running isolated workload without authorization")
     for query, funcname in queries[group]:
@@ -881,7 +900,7 @@ def run_isolated_workload_without_authorization(
         ret[DATABASE] = usage
         log_output_summary(benchmark_context, ret, usage, funcname, sample_query)
 
-        save_to_results(results, ret, workload, group, query, WITHOUT_FINE_GRAINED_AUTHORIZATION)
+        save_to_results(results, ret, workload, group, query, WITHOUT_FINE_GRAINED_AUTHORIZATION, results_name)
 
 
 def import_dataset_from_snapshot(vendor_runner, workload):
@@ -1042,6 +1061,120 @@ def run_target_workload(benchmark_context, workload, bench_queries, vendor_runne
             )
 
 
+# Graph Versioning needs the experimental flag, and its branches only survive a restart through the WAL.
+BRANCH_VENDOR_ARGS = {"experimental-enabled": "versioning", "storage-wal-enabled": True}
+BRANCH_FRACTIONS = {"b10": "id(n) % 10 = 0", "b90": "id(n) % 10 <> 0"}
+BRANCH_SETUP = "branch_setup"
+WRITING_QUERY_MARKERS = ("write", "update", "create")
+
+# Run on main before the fork, so the branches have something to remove.
+BRANCH_MAIN_TAG_QUERIES = [("MATCH (n) SET n:BenchOld, n.bench_old = 1;", {})]
+
+
+def branch_change_queries(selected: str) -> list:
+    """
+    The change mix applied to the vertices matching `selected`, a predicate over `n`. Everything is a
+    pure function of the vertex and edge ids, so every run of the same dataset changes the same elements:
+    properties set and labels added on all of them, labels and properties removed from a third, a seventh of
+    their out-edges deleted and a branch-native edge created from a seventh. The moduli are coprime with
+    the 10 behind the selection, so the sub-selections do not collapse to all or none of it.
+    """
+    return [
+        (f"MATCH (n) WHERE {selected} SET n.bench_new = id(n), n:BenchNew;", {}),
+        (f"MATCH (n) WHERE ({selected}) AND id(n) % 3 = 0 REMOVE n.bench_old, n:BenchOld;", {}),
+        (f"MATCH (n)-[r]->() WHERE ({selected}) AND id(r) % 7 = 0 DELETE r;", {}),
+        (
+            f"MATCH (n) WHERE ({selected}) AND id(n) % 7 = 0 "
+            "MATCH (m) WHERE id(m) = id(n) + 1 CREATE (n)-[:BenchEdge]->(m);",
+            {},
+        ),
+    ]
+
+
+def is_read_query(group: str, query: str) -> bool:
+    return not any(marker in f"{group}/{query}" for marker in WRITING_QUERY_MARKERS)
+
+
+class WatchedBoltClient(runners.BoltClient):
+    """A client whose every call is bounded: a stall dumps the server and client stacks, then fails the run."""
+
+    def __init__(self, server_pid, **kwargs):
+        super().__init__(**kwargs)
+        self._server_pid = server_pid
+
+    def execute(self, *args, **kwargs):
+        with stall_watchdog(f"client call on {self._databases}", self._server_pid):
+            return super().execute(*args, **kwargs)
+
+
+def run_branch_benchmark(benchmark_context, workload, bench_queries, results):
+    """
+    Measures the read queries of a workload on branches with 10% and 90% of the dataset changed, next to
+    the numbers measured on main. Runs on a database of its own, imported again with the versioning flags,
+    so nothing here touches the main run. The branches are built before any timing starts. Results land
+    under <workload>@b10 and <workload>@b90, with the query counts calibrated on main reused.
+    """
+    if benchmark_context.mode != BENCHMARK_MODE_ISOLATED:
+        log.warning("Branch reads are measured only in isolated workload mode, skipping.")
+        return
+    if benchmark_context.client_language != BenchmarkClientLanguage.CPP or (
+        benchmark_context.installation_type != BenchmarkInstallationType.NATIVE
+    ):
+        log.warning("Branch reads need the native installation and the C++ client, skipping.")
+        return
+    read_queries = {
+        group: [(query, funcname) for query, funcname in queries if is_read_query(group, query)]
+        for group, queries in bench_queries.items()
+    }
+    read_queries = {group: queries for group, queries in read_queries.items() if queries}
+    if not read_queries:
+        return
+
+    log.info(f"Running branch read benchmarks for {workload.NAME}/{workload.get_variant()}.")
+    branch_context = copy.copy(benchmark_context)
+    branch_context.vendor_args = {**benchmark_context.vendor_args, **BRANCH_VENDOR_ARGS}
+    vendor_runner = client_runner_factory(branch_context)
+    main_client = get_runner_client(vendor_runner, branch_context)
+
+    generated_queries = workload.dataset_generator()
+    import_results, rss_usage, snapshot_seconds = setup_indices_and_import_dataset(
+        main_client, vendor_runner, generated_queries, workload, IN_MEMORY_TRANSACTIONAL
+    )
+
+    def server_pid():
+        proc = getattr(vendor_runner, "_proc_mg", None)
+        return proc.pid if proc is not None else None
+
+    branch_clients = {
+        name: WatchedBoltClient(server_pid, benchmark_context=branch_context, databases=f"memgraph@{name}")
+        for name in BRANCH_FRACTIONS
+    }
+    vendor_runner.start_db(BRANCH_SETUP)
+    main_client.execute(queries=BRANCH_MAIN_TAG_QUERIES, num_workers=1)
+    for name, selected in BRANCH_FRACTIONS.items():
+        main_client.execute(queries=[(f"CREATE BRANCH {name};", {})], num_workers=1)
+        started_at = time.time()
+        branch_clients[name].execute(queries=branch_change_queries(selected), num_workers=1)
+        log.info(f"Built branch {name} in {time.time() - started_at}s.")
+    vendor_runner.stop_db(BRANCH_SETUP)
+
+    memory_usage_with_imported_data = rss_usage[MEMORY] if rss_usage is not None else 0
+    for group in sorted(read_queries):
+        for name in BRANCH_FRACTIONS:
+            log.init(f"\nRunning branch {name} benchmark for {group} group")
+            run_isolated_workload_without_authorization(
+                vendor_runner,
+                branch_clients[name],
+                read_queries,
+                group,
+                workload,
+                results,
+                memory_usage_with_imported_data,
+                benchmark_context,
+                results_name=f"{workload.NAME}@{name}",
+            )
+
+
 def run_target_workloads(benchmark_context, target_workloads, bench_results):
     for workload, bench_queries in target_workloads:
         log.info(f"Started running {str(workload.NAME)} workload")
@@ -1055,6 +1188,9 @@ def run_target_workloads(benchmark_context, target_workloads, bench_results):
             run_in_memory_transactional_benchmark(
                 benchmark_context, workload, bench_queries, bench_results.in_memory_txn_results
             )
+
+            if benchmark_context.branch_reads:
+                run_branch_benchmark(benchmark_context, workload, bench_queries, bench_results.in_memory_txn_results)
 
             if benchmark_context.export_results_in_memory_analytical:
                 run_in_memory_analytical_benchmark(
@@ -1321,6 +1457,7 @@ if __name__ == "__main__":
         vendor_args=vendor_specific_args,
         use_parallel_execution=args.use_parallel_execution,
         database_workers=args.database_workers,
+        branch_reads=args.branch_reads,
     )
 
     log_benchmark_arguments(benchmark_context)

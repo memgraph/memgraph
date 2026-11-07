@@ -178,7 +178,7 @@ class BaseClient(ABC):
 
 
 class BoltClient(BaseClient):
-    def __init__(self, benchmark_context: BenchmarkContext, runner=None):
+    def __init__(self, benchmark_context: BenchmarkContext, runner=None, databases: str | None = None):
         super().__init__(benchmark_context=benchmark_context)
         self._client_binary = benchmark_context.client_binary
         self._directory = tempfile.TemporaryDirectory(dir=benchmark_context.temporary_directory)
@@ -189,7 +189,8 @@ class BoltClient(BaseClient):
         )
         self._runner = runner
         self._bolt_address = benchmark_context.client_bolt_address
-        self._databases = benchmark_context.databases
+        # An explicit value pins this client to those Bolt databases, e.g. "memgraph@b10" for a branch.
+        self._databases = databases if databases is not None else benchmark_context.databases
 
     @property
     def _bolt_port(self):
