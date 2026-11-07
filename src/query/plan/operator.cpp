@@ -5529,9 +5529,9 @@ bool CacheProperties::CachePropertiesCursor::Pull(Frame &frame, ExecutionContext
 
     // NEW so that the row sees writes made earlier in this same transaction, as a
     // property lookup evaluated at this point would.
-    auto const read =
-        reads_a_vertex ? input_value.ValueVertex().impl_.ReadPropertyValues(group.ordered(), slots, storage::View::NEW)
-                       : input_value.ValueEdge().impl_.ReadPropertyValues(group.ordered(), slots, storage::View::NEW);
+    auto const read = reads_a_vertex
+                          ? input_value.ValueVertex().ReadPropertyValues(group.ordered(), slots, storage::View::NEW)
+                          : input_value.ValueEdge().ReadPropertyValues(group.ordered(), slots, storage::View::NEW);
     if (!read) ThrowPropertyReadError(read.error());
 
     for (std::size_t slot = 0; slot != slots.size(); ++slot) {

@@ -27,6 +27,9 @@ class HiddenForkEdges {
 
   size_t size() const noexcept { return refs_.size(); }
 
+  // Before the Adds, when at most `count` will follow: one allocation beyond the inline room instead of a doubling.
+  void Reserve(size_t count) { refs_.reserve(count); }
+
   void Add(storage::EdgeRef ref) { refs_.push_back(ref); }
 
   // After the last Add.

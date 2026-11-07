@@ -191,6 +191,10 @@ struct EdgesVertexAccessorResult {
   int64_t expanded_count;
 };
 
+inline VertexAccessor EdgeAccessor::FromVertex() const { return VertexAccessor{from_vertex_, storage_, transaction_}; }
+
+inline VertexAccessor EdgeAccessor::ToVertex() const { return VertexAccessor{to_vertex_, storage_, transaction_}; }
+
 }  // namespace memgraph::storage
 
 namespace std {

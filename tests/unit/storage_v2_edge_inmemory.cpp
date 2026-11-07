@@ -5718,3 +5718,52 @@ TEST_P(StorageEdgeTest, EdgeReadsASetOfPropertiesInOnePass) {
   }
   EXPECT_TRUE(values[2].IsNull());
 }
+
+// An expansion's stored triples can be read, and thinned in place, without building an accessor for each edge.
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TEST_P(StorageEdgeTest, ExpandedEdgesTriplesAreReadAndRetainedInPlace) {
+  namespace ms = memgraph::storage;
+  std::unique_ptr<ms::Storage> store(
+      new ms::InMemoryStorage({.salient = {.items = {.properties_on_edges = GetParam().properties_on_edges,
+                                                     .storage_light_edge = GetParam().light_edge}}}));
+  auto acc = store->Access(ms::WRITE);
+  auto from = acc->CreateVertex();
+  auto to = acc->CreateVertex();
+  auto const kept_type = acc->NameToEdgeType("kept");
+  auto const dropped_type = acc->NameToEdgeType("dropped");
+  ASSERT_TRUE(acc->CreateEdge(&from, &to, kept_type).has_value());
+  ASSERT_TRUE(acc->CreateEdge(&from, &to, dropped_type).has_value());
+  ASSERT_TRUE(acc->CreateEdge(&from, &to, kept_type).has_value());
+
+  auto expanded = from.OutEdges(ms::View::NEW);
+  ASSERT_TRUE(expanded.has_value());
+  auto &edges = expanded->edges;
+  auto const before = Materialise(edges);
+  ASSERT_EQ(before.size(), 3U);
+  ASSERT_EQ(edges.Triples().size(), 3U);
+  for (std::size_t i = 0; i != before.size(); ++i) {
+    auto const &[type, other, edge] = edges.Triples()[i];
+    EXPECT_EQ(type, before[i].EdgeType());
+    EXPECT_EQ(other->gid, to.Gid());
+    EXPECT_EQ(edge, before[i].edge_);
+  }
+
+  std::vector<ms::EdgeTypeId> asked;
+  edges.Retain([&](ms::EdgeTriple const &triple) {
+    asked.push_back(std::get<0>(triple));
+    return std::get<0>(triple) == kept_type;
+  });
+  std::vector<ms::EdgeTypeId> expected_asked;
+  for (auto const &edge : before) expected_asked.push_back(edge.EdgeType());
+  EXPECT_EQ(asked, expected_asked) << "each edge is asked once, in adjacency order";
+
+  auto const after = Materialise(edges);
+  ASSERT_EQ(after.size(), 2U);
+  EXPECT_EQ(edges.Triples().size(), 2U);
+  for (auto const &edge : after) {
+    EXPECT_EQ(edge.EdgeType(), kept_type);
+    EXPECT_EQ(edge.FromVertex(), from);
+    EXPECT_EQ(edge.ToVertex(), to);
+  }
+  ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+}

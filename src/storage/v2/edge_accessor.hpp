@@ -58,9 +58,10 @@ class EdgeAccessor final {
   /// @return true if the object is visible from the current transaction
   bool IsVisible(View view) const;
 
-  VertexAccessor FromVertex() const;
+  /// Defined inline at the end of storage/v2/vertex_accessor.hpp, which this header includes last.
+  inline VertexAccessor FromVertex() const;
 
-  VertexAccessor ToVertex() const;
+  inline VertexAccessor ToVertex() const;
 
   /// When edge is deleted and you are accessing To vertex
   /// for_deleted_ flag will in this case be updated properly
@@ -167,3 +168,5 @@ struct hash<memgraph::storage::EdgeAccessor> {
   size_t operator()(const memgraph::storage::EdgeAccessor &e) const { return e.Gid().AsUint(); }
 };
 }  // namespace std
+
+#include "storage/v2/vertex_accessor.hpp"  // IWYU pragma: keep

@@ -12,12 +12,23 @@
 #pragma once
 
 #include <cstdint>
+#include <span>
 #include <type_traits>
 #include <vector>
 
 #include "query/expanded_edges.hpp"
 #include "storage/v2/vertex_accessor.hpp"
+#ifdef MG_ENTERPRISE
+#include "storage/v2/transaction.hpp"
+#include "utils/logging.hpp"
+#endif
 
+#ifdef MG_ENTERPRISE
+namespace memgraph::versioning {
+class BranchContext;
+}  // namespace memgraph::versioning
+
+#endif
 namespace memgraph::query {
 
 class EdgeAccessor;
@@ -28,14 +39,89 @@ class VertexAccessor final {
 
   explicit VertexAccessor(storage::VertexAccessor impl) : impl_(impl) {}
 
+#ifdef MG_ENTERPRISE
+  // For a call site that holds the context: `branch_ctx` is the one `impl`'s transaction belongs to.
+  VertexAccessor(storage::VertexAccessor impl, [[maybe_unused]] versioning::BranchContext *branch_ctx) : impl_(impl) {
+    DMG_ASSERT(impl.transaction_->branch_ctx == branch_ctx, "The accessor's transaction is not the branch's.");
+  }
+
+  // Non-null iff the accessor belongs to a branch's transaction (storage::Transaction::branch_ctx). A fork vertex keeps
+  // its main@fork_ts accessor in impl_ and its branch changes are read by gid. Every read checks this once and leaves
+  // the branch work out of line.
+  versioning::BranchContext *branch_ctx() const { return impl_.transaction_->branch_ctx; }
+
+#endif
   bool IsVisible(storage::View view) const { return impl_.IsVisible(view); }
 
+  // The deleted flag of the underlying object; on a branch, whether the branch deleted the vertex.
+  bool IsDeleted() const;
+
+#ifdef MG_ENTERPRISE
+  auto Labels(storage::View view) const {
+    if (branch_ctx() != nullptr) [[unlikely]]
+      return BranchLabels(view);
+    return impl_.Labels(view);
+  }
+#else
   auto Labels(storage::View view) const { return impl_.Labels(view); }
+#endif
 
   storage::Result<bool> AddLabel(storage::LabelId label) { return impl_.AddLabel(label); }
 
   storage::Result<bool> RemoveLabel(storage::LabelId label) { return impl_.RemoveLabel(label); }
 
+#ifdef MG_ENTERPRISE
+  storage::Result<bool> HasLabel(storage::View view, storage::LabelId label) const {
+    if (branch_ctx() != nullptr) [[unlikely]]
+      return BranchHasLabel(view, label);
+    return impl_.HasLabel(label, view);
+  }
+
+  storage::Result<bool> HasAnyLabel(storage::View view) const {
+    if (branch_ctx() != nullptr) [[unlikely]]
+      return BranchHasAnyLabel(view);
+    return impl_.HasAnyLabel(view);
+  }
+
+  auto Properties(storage::View view) const {
+    if (branch_ctx() != nullptr) [[unlikely]]
+      return BranchProperties(view);
+    return impl_.Properties(view);
+  }
+
+  // A branch read decodes every value, so there is no compact form to keep.
+  auto PropertiesCompact(storage::View view) const {
+    if (branch_ctx() != nullptr) [[unlikely]]
+      return BranchProperties(view);
+    return impl_.PropertiesCompact(view);
+  }
+
+  storage::Result<storage::PropertyValue> GetProperty(storage::View view, storage::PropertyId key) const {
+    if (branch_ctx() != nullptr) [[unlikely]]
+      return BranchGetProperty(view, key);
+    return impl_.GetProperty(key, view);
+  }
+
+  storage::Result<storage::PropertyValue> GetPropertyCompact(storage::View view, storage::PropertyId key) const {
+    if (branch_ctx() != nullptr) [[unlikely]]
+      return BranchGetProperty(view, key);
+    return impl_.GetPropertyCompact(key, view);
+  }
+
+  storage::Result<uint64_t> GetPropertySize(storage::PropertyId key, storage::View view) const {
+    if (branch_ctx() != nullptr) [[unlikely]]
+      return BranchGetPropertySize(key, view);
+    return impl_.GetPropertySize(key, view);
+  }
+
+  // One slot per ordered path; on a branch each key is read as the branch sees it, not as main at the fork holds it.
+  storage::Result<void> ReadPropertyValues(storage::OrderedPropertyPaths const &ordered_properties,
+                                           std::span<storage::PropertyValue> out, storage::View view) const {
+    if (branch_ctx() != nullptr) [[unlikely]]
+      return BranchReadPropertyValues(ordered_properties, out, view);
+    return impl_.ReadPropertyValues(ordered_properties, out, view);
+  }
+#else
   storage::Result<bool> HasLabel(storage::View view, storage::LabelId label) const {
     return impl_.HasLabel(label, view);
   }
@@ -57,6 +143,12 @@ class VertexAccessor final {
   storage::Result<uint64_t> GetPropertySize(storage::PropertyId key, storage::View view) const {
     return impl_.GetPropertySize(key, view);
   }
+
+  storage::Result<void> ReadPropertyValues(storage::OrderedPropertyPaths const &ordered_properties,
+                                           std::span<storage::PropertyValue> out, storage::View view) const {
+    return impl_.ReadPropertyValues(ordered_properties, out, view);
+  }
+#endif
 
   storage::Result<storage::PropertyValue> SetProperty(storage::PropertyId key, const storage::PropertyValue &value) {
     return impl_.SetProperty(key, value);
@@ -103,9 +195,23 @@ class VertexAccessor final {
 
   storage::Result<ExpandedEdgesResult> OutEdges(storage::View view) const;
 
+#ifdef MG_ENTERPRISE
+  storage::Result<size_t> InDegree(storage::View view) const {
+    if (branch_ctx() != nullptr) [[unlikely]]
+      return BranchDegree(storage::EdgeDirection::IN, view);
+    return impl_.InDegree(view);
+  }
+
+  storage::Result<size_t> OutDegree(storage::View view) const {
+    if (branch_ctx() != nullptr) [[unlikely]]
+      return BranchDegree(storage::EdgeDirection::OUT, view);
+    return impl_.OutDegree(view);
+  }
+#else
   storage::Result<size_t> InDegree(storage::View view) const { return impl_.InDegree(view); }
 
   storage::Result<size_t> OutDegree(storage::View view) const { return impl_.OutDegree(view); }
+#endif
 
   int64_t CypherId() const { return impl_.Gid().AsInt(); }
 
@@ -117,10 +223,83 @@ class VertexAccessor final {
   }
 
   bool operator!=(const VertexAccessor &v) const noexcept { return !(*this == v); }
+#ifdef MG_ENTERPRISE
+
+ private:
+  // Branch reads (vertex_accessor.cpp); reached only when branch_ctx() != nullptr. Each forwards to the BranchContext
+  // read it is named after, which merges the branch's changes over the fork vertex.
+  storage::Result<storage::VertexKey> BranchLabels(storage::View view) const;
+  storage::Result<bool> BranchHasLabel(storage::View view, storage::LabelId label) const;
+  storage::Result<bool> BranchHasAnyLabel(storage::View view) const;
+  storage::Result<std::map<storage::PropertyId, storage::PropertyValue>> BranchProperties(storage::View view) const;
+  storage::Result<storage::PropertyValue> BranchGetProperty(storage::View view, storage::PropertyId key) const;
+  storage::Result<uint64_t> BranchGetPropertySize(storage::PropertyId key, storage::View view) const;
+  storage::Result<void> BranchReadPropertyValues(storage::OrderedPropertyPaths const &ordered_properties,
+                                                 std::span<storage::PropertyValue> out, storage::View view) const;
+  storage::Result<size_t> BranchDegree(storage::EdgeDirection direction, storage::View view) const;
+
+  bool BranchIsDeleted() const;
+
+  // `dest` null means no destination filter.
+  storage::Result<ExpandedEdgesResult> BranchEdges(storage::EdgeDirection direction, storage::View view,
+                                                   const std::vector<storage::EdgeTypeId> &edge_types,
+                                                   const VertexAccessor *dest, storage::HopsLimit *hops_limit) const;
+#endif
 };
 
 static_assert(std::is_trivially_copyable<VertexAccessor>::value,
               "VertexAccessor must be trivially copyable to be used in hash tables");
+// The branch context is reached through the transaction, so the accessors stay the storage accessors' size.
+static_assert(sizeof(VertexAccessor) == sizeof(storage::VertexAccessor));
+static_assert(sizeof(EdgeAccessor) == sizeof(storage::EdgeAccessor));
+static_assert(sizeof(ExpandedEdges) == sizeof(storage::ExpandedEdges));
+
+#ifdef MG_ENTERPRISE
+// On main each is the storage call behind one predictable test, with the branch work in a single out-of-line call that
+// leaves the result in the caller's slot. The test is on the diff engine's transaction alone: a fork edge's endpoints
+// are fork vertices, so reading them stays as cheap on a branch as on main.
+inline VertexAccessor EdgeAccessor::To() const {
+  if (impl_.transaction_->branch_diff_ctx != nullptr) [[unlikely]]
+    return BranchEndpoint(Endpoint::kTo);
+  return VertexAccessor(impl_.ToVertex());
+}
+
+inline VertexAccessor EdgeAccessor::From() const {
+  if (impl_.transaction_->branch_diff_ctx != nullptr) [[unlikely]]
+    return BranchEndpoint(Endpoint::kFrom);
+  return VertexAccessor(impl_.FromVertex());
+}
+
+/// When edge is deleted and you are accessing To vertex
+/// for_deleted_ flag will in this case be updated properly
+inline VertexAccessor EdgeAccessor::DeletedEdgeToVertex() const {
+  if (impl_.transaction_->branch_diff_ctx != nullptr) [[unlikely]]
+    return BranchEndpoint(Endpoint::kDeletedTo);
+  return VertexAccessor(impl_.DeletedEdgeToVertex());
+}
+
+/// When edge is deleted and you are accessing From vertex
+/// for_deleted_ flag will in this case be updated properly
+inline VertexAccessor EdgeAccessor::DeletedEdgeFromVertex() const {
+  if (impl_.transaction_->branch_diff_ctx != nullptr) [[unlikely]]
+    return BranchEndpoint(Endpoint::kDeletedFrom);
+  return VertexAccessor(impl_.DeletedEdgeFromVertex());
+}
+#else
+inline VertexAccessor EdgeAccessor::To() const { return VertexAccessor(impl_.ToVertex()); }
+
+inline VertexAccessor EdgeAccessor::From() const { return VertexAccessor(impl_.FromVertex()); }
+
+/// When edge is deleted and you are accessing To vertex
+/// for_deleted_ flag will in this case be updated properly
+inline VertexAccessor EdgeAccessor::DeletedEdgeToVertex() const { return VertexAccessor(impl_.DeletedEdgeToVertex()); }
+
+/// When edge is deleted and you are accessing From vertex
+/// for_deleted_ flag will in this case be updated properly
+inline VertexAccessor EdgeAccessor::DeletedEdgeFromVertex() const {
+  return VertexAccessor(impl_.DeletedEdgeFromVertex());
+}
+#endif
 
 }  // namespace memgraph::query
 
