@@ -27,6 +27,7 @@
 #include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/property_value.hpp"
 #include "tests/test_commit_args_helper.hpp"
+#include "versioning/stub_merge.hpp"
 #include "versioning/stub_state.hpp"
 
 namespace ms = memgraph::storage;
