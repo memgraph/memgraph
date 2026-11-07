@@ -993,12 +993,17 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeEx(VertexAcces
   }
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
 
+#ifdef MG_ENTERPRISE
+  // The counter bump is an atomic fetch_max, so concurrent callers with distinct gids are safe: the replication
+  // delta applier (single-threaded on a replica) and branch-native creates (gid allocated from main's counter).
+#else
   // NOTE: When we update the next `edge_id_` here we perform a RMW
   // (read-modify-write) operation that ISN'T atomic! But, that isn't an issue
   // because this function is only called from the replication delta applier
   // that runs single-threadedly and while this instance is set-up to apply
   // threads (it is the replica), it is guaranteed that no other writes are
   // possible.
+#endif
   atomic_fetch_max_explicit(&mem_storage->edge_id_, gid.AsUint() + 1, std::memory_order_acq_rel);
 
   auto result = CreateEdgeInternal(from_vertex, to_vertex, edge_type, from_state, to_state, gid, schema_acc, edge_acc);
