@@ -32,6 +32,7 @@ enum class NewError : uint8_t {
   EXISTS,
   DEFUNCT,
   GENERIC,
+  INVALID_NAME,  // name violates DatabaseNameIsWellFormed; nothing was minted
 };
 
 enum class RenameError : uint8_t {
@@ -42,6 +43,7 @@ enum class RenameError : uint8_t {
   FAIL,
   SAME_NAME,
   SUSPENDED,
+  INVALID_NAME,  // target name violates DatabaseNameIsWellFormed; source is untouched
 };
 #endif
 

@@ -32,6 +32,11 @@ def error(context):
     handle_error(context)
 
 
+@then('no error should be raised')
+def no_error(context):
+    assert context.exception is None, f"unexpected error: {context.exception!r}"
+
+
 @then('a SyntaxError should be raised at compile time: NestedAggregation')
 def syntax_error(context):
     handle_error(context)

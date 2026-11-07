@@ -137,5 +137,50 @@ def test_drop_broken_database(test_name):
     interactive_mg_runner.stop_all()
 
 
+def test_create_database_rejects_unwritable_names(test_name):
+    """CREATE DATABASE must reject names containing control bytes (a newline and a 0x01 byte) and
+    SHOW DATABASES must not list them afterwards."""
+    data_directory = get_data_path("create_db_invalid_name", test_name)
+    full_data_directory = os.path.join(interactive_mg_runner.BUILD_DIR, "e2e", "data", data_directory)
+    shutil.rmtree(full_data_directory, ignore_errors=True)
+
+    instances = {
+        "default": {
+            "args": ["--log-level=TRACE"],
+            "log_file": "create_db_invalid_name.log",
+            "data_directory": data_directory,
+        }
+    }
+
+    interactive_mg_runner.start(instances, "default")
+    cursor = connect(host="localhost", port=7687).cursor()
+
+    # Multitenancy (CREATE DATABASE) is Enterprise-only; a valid control name tells
+    # "no license" apart from "the name was rejected".
+    try:
+        execute_and_fetch_all(cursor, "CREATE DATABASE invalid_name_control")
+        execute_and_fetch_all(cursor, "DROP DATABASE invalid_name_control")
+    except mgclient.DatabaseError as e:
+        msg = str(e).lower()
+        if "enterprise" in msg or "not supported" in msg:
+            pytest.skip("CREATE DATABASE requires an Enterprise license")
+        raise
+
+    invalid_names = ("a\nb", "a\x01b")
+    for name in invalid_names:
+        accepted = True
+        try:
+            execute_and_fetch_all(cursor, f"CREATE DATABASE `{name}`")
+        except mgclient.DatabaseError:
+            accepted = False
+        assert not accepted, f"CREATE DATABASE accepted unwritable name {name!r}"
+
+    names = databases(cursor)
+    for name in invalid_names:
+        assert name not in names, f"invalid database name {name!r} is listed by SHOW DATABASES"
+
+    interactive_mg_runner.stop_all()
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))

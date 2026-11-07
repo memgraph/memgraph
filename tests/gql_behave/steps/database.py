@@ -13,6 +13,8 @@
 
 import re
 
+from behave import then
+
 
 def query(q, context, params={}):
     """
@@ -76,3 +78,15 @@ def query(q, context, params={}):
         session.close()
 
     return results_list
+
+
+@then("the database list should not contain {name}")
+def database_list_should_not_contain(context, name):
+    names = [row[0] for row in context.results]
+    assert name not in names, f"unexpected database {name!r} in {names!r}"
+
+
+@then("the database list should contain {name}")
+def database_list_should_contain(context, name):
+    names = [row[0] for row in context.results]
+    assert name in names, f"missing database {name!r} in {names!r}"

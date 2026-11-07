@@ -194,7 +194,7 @@ void RenameDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system
   try {
     // NOTE: Single communication channel can exist at a time, no other database can be renamed/created/deleted at the
     // moment.
-    auto rename_result = dbms_handler.Rename(req.old_name, req.new_name);
+    auto rename_result = dbms_handler.AdoptReplicatedRename(req.old_name, req.new_name);
     if (!rename_result) {
       if (rename_result.error() == RenameError::NON_EXISTENT) {
         // Nothing to rename

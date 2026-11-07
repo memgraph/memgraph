@@ -189,7 +189,7 @@ class DbmsHandler {
   NewResultT Update(const storage::SalientConfig &config) {
     auto wr = std::lock_guard{lock_};
     const auto name_view = config.name.str_view();
-    auto new_db = New_(*name_view, config.uuid);
+    auto new_db = NewAdopted_(*name_view, config.uuid);
     if (new_db || new_db.error() != NewError::EXISTS) {
       // NOTE: If db already exists we retry below
       return new_db;
@@ -250,7 +250,7 @@ class DbmsHandler {
     // Defer drop
     (void)Delete_(db->name());
     // Second attempt
-    return New_(*name_view, config.uuid);
+    return NewAdopted_(*name_view, config.uuid);
   }
 
   void UpdateDurability(const storage::Config &config, std::optional<std::filesystem::path> rel_dir = {});
@@ -336,6 +336,9 @@ class DbmsHandler {
    * @return RenameResult error on failure
    */
   RenameResult Rename(std::string_view old_name, std::string_view new_name, system::Transaction *txn = nullptr);
+
+  // Apply a replica rename whose target came from MAIN: adopt a legacy-invalid target (warn, proceed).
+  RenameResult AdoptReplicatedRename(std::string_view old_name, std::string_view new_name);
 
   /**
    * @brief Suspend (move HOT -> COLD) the named tenant, tearing down its in-memory storage.
@@ -956,6 +959,12 @@ class DbmsHandler {
    */
   NewResultT New_(std::string_view name, utils::UUID uuid, system::Transaction *txn = nullptr,
                   std::optional<std::filesystem::path> rel_dir = {}) {
+    return New_(MakeConfig_(name, uuid, rel_dir), txn);
+  }
+
+  // Build the instance-default config for a tenant named `name`.
+  storage::Config MakeConfig_(std::string_view name, utils::UUID uuid,
+                              std::optional<std::filesystem::path> rel_dir = {}) {
     auto config_copy = default_config_;
     config_copy.salient.name = name;
     config_copy.salient.uuid = uuid;
@@ -966,8 +975,21 @@ class DbmsHandler {
       storage::UpdatePaths(config_copy,
                            default_config_.durability.storage_directory / kMultiTenantDir / std::string{uuid});
     }
-    return New_(std::move(config_copy), txn);
+    return config_copy;
   }
+
+  // Adopt entry for a name from durable state or the wire (boot HOT restore, replication Update).
+  NewResultT NewAdopted_(std::string_view name, utils::UUID uuid, std::optional<std::filesystem::path> rel_dir = {}) {
+    auto config_copy = MakeConfig_(name, uuid, rel_dir);
+    auto new_db = db_handler_.AdoptLegacy(config_copy);
+    if (new_db) UpdateDurability(config_copy);
+    return new_db;
+  }
+
+  using DbRenameFn = std::expected<void, RenameError> (DatabaseHandler::*)(std::string_view, std::string_view);
+  // Shared body of Rename/AdoptReplicatedRename; `rename_db` selects the strict or the adopt entry.
+  RenameResult RenameImpl_(std::string_view old_name, std::string_view new_name, system::Transaction *txn,
+                           DbRenameFn rename_db);
 
   /**
    * @brief Create a new Database associated with the "name" database
