@@ -13,7 +13,9 @@
 // not link mg-query). The diff engine shares main's mapper, so one label/property id is valid on both sides.
 
 #include <algorithm>
+#include <array>
 #include <atomic>
+#include <barrier>
 #include <chrono>
 #include <cstdint>
 #include <expected>
@@ -21,6 +23,7 @@
 #include <fstream>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <random>
 #include <set>
@@ -31,6 +34,9 @@
 
 #include <gtest/gtest.h>
 #include <prometheus/gauge.h>
+#if USE_JEMALLOC
+#include <jemalloc/jemalloc.h>
+#endif
 
 #include "memory/db_arena.hpp"
 #include "metrics/metric_handles.hpp"
@@ -85,11 +91,22 @@ class VersioningBranchCoreTest : public testing::Test {
       ASSERT_TRUE(unique->CreateEnum("Size", sizes).has_value());
       ASSERT_TRUE(unique->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
+    label_ = storage_->NameToLabel("L");
+    prop_x_ = storage_->NameToProperty("x");
     {
       auto acc = storage_->Access(ms::WRITE);
       auto v = acc->CreateVertex();
+      v_gid_ = v.Gid();
+      ASSERT_TRUE(v.AddLabel(label_).has_value());
+      ASSERT_TRUE(v.SetProperty(prop_x_, ms::PropertyValue(0)).has_value());
       auto a = acc->CreateVertex();
-      ASSERT_TRUE(acc->CreateEdge(&v, &a, storage_->NameToEdgeType("E")).has_value());
+      a_gid_ = a.Gid();
+      auto edge = acc->CreateEdge(&v, &a, storage_->NameToEdgeType("E"));
+      ASSERT_TRUE(edge.has_value());
+      edge_gid_ = edge->Gid();
+      if (storage_->config_.salient.items.properties_on_edges) {
+        ASSERT_TRUE(edge->SetProperty(prop_x_, ms::PropertyValue(1)).has_value());
+      }
       ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
     BeforeFork();
@@ -117,6 +134,10 @@ class VersioningBranchCoreTest : public testing::Test {
   std::unique_ptr<ms::InMemoryStorage> storage_;
   std::shared_ptr<mv::BranchCore> core_;
   uint64_t fork_ts_{};
+  // Main's data at the fork: v (label L, x=0) -E{x=1}-> a.
+  ms::LabelId label_;
+  ms::PropertyId prop_x_;
+  ms::Gid v_gid_, a_gid_, edge_gid_;
 };
 
 class VersioningBranchCorePeriodicGcTest : public VersioningBranchCoreTest {
@@ -2982,5 +3003,1816 @@ TEST_F(VersioningBranchWriteTest, AReadOfAPropertyFlippedByDirectWritesNeverShow
   for (auto &t : readers) t.join();
   EXPECT_EQ(wrong.load(), 0);
 }
+
+///// BRANCH EDGE WRITES: THE EDGE STUBS, THE DELETE MARKER AND THE COMMIT'S COUNTS
+
+// A fork edge the branch changes gets a stub: an Edge in the EdgeStubIndex built on main's own endpoint vertices and
+// never linked into an adjacency list. The shared bodies run on both heavy and light edges.
+class VersioningBranchEdgeWriteTest : public VersioningBranchWriteTest {
+ protected:
+  struct Graph {
+    ms::Gid a, b, c;
+    MainEdge e1, e2, loop;
+  };
+
+  // On main: a -e1{x=1,y=2}-> b, a -e2{x=5}-> b and c -loop{x=7}-> c.
+  Graph MakeGraph() {
+    auto const x = Prop("x"), y = Prop("y");
+    Graph g{};
+    g.a = CreateMainVertex({}, {});
+    g.b = CreateMainVertex({}, {});
+    g.c = CreateMainVertex({}, {});
+    g.e1 = CreateMainEdge(g.a, g.b, "E", {{x, Int(1)}, {y, Int(2)}});
+    g.e2 = CreateMainEdge(g.a, g.b, "E", {{x, Int(5)}});
+    g.loop = CreateMainEdge(g.c, g.c, "E", {{x, Int(7)}});
+    return g;
+  }
+
+  // The fork edge, in the open branch transaction.
+  ms::EdgeAccessor ForkEdge(const MainEdge &edge) {
+    auto found = Ctx().FindForkEdge(edge.gid, edge.from);
+    EXPECT_TRUE(found.has_value());
+    return *found;
+  }
+
+  // Runs `body` in a branch write transaction committed through BranchContext::CommitTransaction.
+  template <typename Body>
+  void WriteCounted(Body &&body) {
+    auto acc = Diff().Access(ms::WRITE);
+    Begin(acc.get());
+    body();
+    ASSERT_TRUE(Ctx().CommitTransaction(memgraph::tests::MakeMainCommitArgs()).has_value());
+    Ctx().EndTransaction();
+  }
+
+  // Runs `body` in a branch write transaction that is then aborted.
+  template <typename Body>
+  void WriteAborted(Body &&body) {
+    auto acc = Diff().Access(ms::WRITE);
+    Begin(acc.get());
+    body();
+    Ctx().EndTransaction();
+    acc->Abort();
+  }
+
+  // What the branch stored for fork edge `edge`, as `acc`'s transaction sees it.
+  StubState EdgeStubOf(ms::Storage::Accessor &acc, const MainEdge &edge, ms::View view = ms::View::NEW) {
+    auto *stub = Core().edge_stub_index().Find(edge.gid.AsUint());
+    EXPECT_NE(stub, nullptr);
+    if (stub == nullptr) return {};
+    ms::EdgeAccessor accessor{
+        ms::EdgeRef{stub}, edge.type, MainVertex(edge.from), MainVertex(edge.to), &Diff(), acc.GetTransaction()};
+    auto decoded = stub::DecodeEdge(accessor, view);
+    EXPECT_TRUE(decoded.has_value());
+    return decoded ? std::move(*decoded) : StubState{};
+  }
+
+  StubState CommittedEdgeStubOf(const MainEdge &edge) {
+    auto acc = Diff().Access(ms::READ);
+    return EdgeStubOf(*acc, edge);
+  }
+
+  size_t EdgeStubCount() {
+    size_t count = 0;
+    Core().edge_stub_index().ForEach([&](uint64_t, ms::Edge *) {
+      ++count;
+      return true;
+    });
+    return count;
+  }
+
+  static bool IsEmpty(const StubState &state) {
+    return !state.deleted && state.properties.Properties().empty() && state.removed_pids.empty();
+  }
+
+  static Props PropsOf(std::initializer_list<std::pair<const ms::PropertyId, ms::PropertyValue>> list) {
+    return Props{list};
+  }
+
+  void PropertyWritesMergeOverTheForkEdge() {
+    auto const x = Prop("x"), y = Prop("y"), z = Prop("z");
+    auto const g = MakeGraph();
+    Fork();
+    auto acc = Diff().Access(ms::WRITE);
+    Begin(acc.get());
+    auto e1 = ForkEdge(g.e1);
+    EXPECT_FALSE(e1.MaybeBranchedHint());
+    EXPECT_EQ(*Ctx().SetProperty(e1, x, Int(10)), Int(1));
+    EXPECT_TRUE(e1.MaybeBranchedHint()) << "main's own Edge is marked before the stub is written";
+    EXPECT_EQ(*Ctx().SetProperty(e1, y, ms::PropertyValue{}), Int(2)) << "removing returns the fork's value";
+    EXPECT_TRUE(Ctx().SetProperty(e1, z, Int(3))->IsNull());
+    EXPECT_EQ(*Ctx().SetProperty(e1, x, Int(11)), Int(10)) << "the old value is the branch's own";
+    EXPECT_EQ(*Ctx().Properties(e1, ms::View::NEW), PropsOf({{x, Int(11)}, {z, Int(3)}}));
+    EXPECT_EQ(*Ctx().GetProperty(e1, y, ms::View::NEW), ms::PropertyValue{});
+    EXPECT_EQ(*Ctx().Properties(e1, ms::View::OLD), PropsOf({{x, Int(1)}, {y, Int(2)}}))
+        << "the command's own writes are invisible at OLD";
+    acc->AdvanceCommand();
+    EXPECT_EQ(*Ctx().Properties(e1, ms::View::OLD), PropsOf({{x, Int(11)}, {z, Int(3)}}));
+
+    auto const stub = EdgeStubOf(*acc, g.e1);
+    EXPECT_EQ(stub.properties.GetProperty(x), Int(11));
+    EXPECT_EQ(stub.properties.GetProperty(z), Int(3));
+    EXPECT_EQ(stub.removed_pids, std::vector<ms::PropertyId>{y});
+    EXPECT_EQ(*e1.GetProperty(x, ms::View::OLD), Int(1)) << "main's fork edge is untouched";
+    // A removed property can come back; the marker goes with it.
+    EXPECT_TRUE(Ctx().SetProperty(e1, y, Int(4))->IsNull());
+    EXPECT_TRUE(EdgeStubOf(*acc, g.e1).removed_pids.empty());
+    EXPECT_EQ(*Ctx().GetProperty(e1, y, ms::View::NEW), Int(4));
+    Ctx().EndTransaction();
+    acc->Abort();
+  }
+
+  void WholeSetWritesDecomposeIntoPerKeyWrites() {
+    auto const x = Prop("x"), y = Prop("y"), w = Prop("w"), k = Prop("k");
+    auto const g = MakeGraph();
+    auto const bare = CreateMainEdge(g.a, g.c, "E");
+    Fork();
+    auto acc = Diff().Access(ms::WRITE);
+    Begin(acc.get());
+    auto bare_edge = ForkEdge(bare);
+    Props init{{k, Int(1)}};
+    EXPECT_TRUE(*Ctx().InitProperties(bare_edge, init));
+    Props again{{w, Int(2)}};
+    EXPECT_FALSE(*Ctx().InitProperties(bare_edge, again)) << "Init only fills an empty property set";
+    EXPECT_EQ(*Ctx().Properties(bare_edge, ms::View::NEW), PropsOf({{k, Int(1)}}));
+
+    auto e1 = ForkEdge(g.e1);
+    Props update{{x, Int(20)}, {w, Int(4)}};
+    auto changes = Ctx().UpdateProperties(e1, update);
+    ASSERT_TRUE(changes.has_value());
+    EXPECT_EQ(changes->size(), 2u);
+    for (auto const &[key, old_value, new_value] : *changes) {
+      EXPECT_EQ(old_value, key == x ? Int(1) : ms::PropertyValue{});
+      EXPECT_EQ(new_value, key == x ? Int(20) : Int(4));
+    }
+    EXPECT_EQ(update, PropsOf({{x, Int(20)}, {y, Int(2)}, {w, Int(4)}})) << "the untouched old property comes back";
+    EXPECT_EQ(*Ctx().Properties(e1, ms::View::NEW), PropsOf({{x, Int(20)}, {y, Int(2)}, {w, Int(4)}}));
+
+    auto cleared = Ctx().ClearProperties(e1);
+    ASSERT_TRUE(cleared.has_value());
+    EXPECT_EQ(*cleared, PropsOf({{x, Int(20)}, {y, Int(2)}, {w, Int(4)}}));
+    EXPECT_TRUE(Ctx().Properties(e1, ms::View::NEW)->empty());
+    auto const stub = EdgeStubOf(*acc, g.e1);
+    EXPECT_TRUE(stub.properties.Properties().empty()) << "clearing leaves markers, not values";
+    EXPECT_EQ(stub.removed_pids, (std::vector<ms::PropertyId>{x, y}));
+    EXPECT_TRUE(Ctx().ClearProperties(e1)->empty()) << "a second clear finds nothing";
+    Ctx().EndTransaction();
+    acc->Abort();
+  }
+
+  // An edge stub is no vertex and no edge of the branch: its marker entries sit in the stubs of the endpoints of a
+  // deleted edge only, and the reads come out in fork identity.
+  void AnEdgeStubCreatesNothingElseAndIsNeverAnEdgeOfTheBranch() {
+    auto const x = Prop("x");
+    auto const g = MakeGraph();
+    Fork();
+    Write([&] {
+      auto e1 = ForkEdge(g.e1);
+      ASSERT_TRUE(Ctx().SetProperty(e1, x, Int(9)).has_value());
+      ASSERT_TRUE(*Ctx().DeleteForkEdge(ForkEdge(g.e2)));
+    });
+    EXPECT_EQ(EdgeStubCount(), 2u);
+    EXPECT_EQ(StubCount(), 2u)
+        << "the endpoints of the deleted e2 hold its marker entries; the property write needs none";
+    EXPECT_EQ(Core().stub_index().FindStub(g.c.AsUint()), nullptr);
+    Read([&] {
+      EXPECT_FALSE(Ctx().FindDiffEdge(g.e1.gid, ms::View::NEW).has_value());
+      EXPECT_FALSE(Ctx().FindDiffEdge(g.e2.gid, g.a, ms::View::NEW).has_value());
+      auto out = Ctx().ResolveEdges(g.a, ms::EdgeDirection::OUT, ms::View::NEW);
+      ASSERT_EQ(out.size(), 1u) << "e2 is hidden, e1 stays";
+      EXPECT_EQ(out[0].storage_, storage_.get()) << "a fork edge is main's, never its stub";
+      EXPECT_EQ(out[0].Gid(), g.e1.gid);
+      EXPECT_EQ(*Ctx().GetProperty(out[0], x, ms::View::NEW), Int(9));
+      auto diff_acc = Diff().Access(ms::READ);
+      size_t native = 0;
+      for ([[maybe_unused]] auto v : diff_acc->Vertices(ms::View::NEW)) ++native;
+      EXPECT_EQ(native, 0u);
+    });
+  }
+
+  void DeletingAForkEdgeWritesOnlyItsMarkersAndHidesItPerViewThenCommitted() {
+    auto const x = Prop("x");
+    auto const g = MakeGraph();
+    Fork();
+    // The stub already holds properties and removal markers: the delete must not read or rewrite them, and writes only
+    // its own markers.
+    Write([&] {
+      auto e1 = ForkEdge(g.e1);
+      ASSERT_TRUE(Ctx().SetProperty(e1, x, Int(2)).has_value());
+      ASSERT_TRUE(Ctx().SetProperty(e1, Prop("y"), ms::PropertyValue{}).has_value());
+      ASSERT_TRUE(Ctx().SetProperty(e1, Prop("z"), Int(3)).has_value());
+    });
+    {
+      auto acc = Diff().Access(ms::WRITE);
+      Begin(acc.get());
+      auto e1 = ForkEdge(g.e1);
+      auto const deltas_before = acc->GetTransaction()->deltas.size();
+      ASSERT_EQ(deltas_before, 0u);
+      auto deleted = Ctx().DeleteForkEdge(e1);
+      ASSERT_TRUE(deleted.has_value());
+      EXPECT_TRUE(*deleted);
+      EXPECT_EQ(acc->GetTransaction()->deltas.size(), 3u) << "the edge stub's marker and one marker entry per endpoint";
+      EXPECT_TRUE(Ctx().IsForkEdgeHidden(e1, ms::View::NEW));
+      EXPECT_FALSE(Ctx().IsForkEdgeHidden(e1, ms::View::OLD))
+          << "the deleting command's own delete is invisible at OLD";
+      EXPECT_TRUE(Core().MayHaveForkEdgeDeleted(g.e1.gid));
+      EXPECT_TRUE(Core().MayHaveEdgeChange(g.a) && Core().MayHaveEdgeChange(g.b));
+      EXPECT_EQ(Ctx().Properties(e1, ms::View::NEW).error(), ms::Error::DELETED_OBJECT);
+      EXPECT_EQ(Ctx().SetProperty(e1, x, Int(5)).error(), ms::Error::DELETED_OBJECT);
+      EXPECT_FALSE(*Ctx().DeleteForkEdge(e1)) << "a repeated delete is a no-op";
+      EXPECT_FALSE(Ctx().ResolveEdge(g.e1.gid, g.a, ms::View::NEW).has_value());
+      EXPECT_TRUE(CommittedEdgeStubOf(g.e1).properties.GetProperty(x) == Int(2)) << "committed state, not the delete";
+      ASSERT_TRUE(Ctx().CommitTransaction(memgraph::tests::MakeMainCommitArgs()).has_value());
+      Ctx().EndTransaction();
+    }
+    EXPECT_TRUE(CommittedEdgeStubOf(g.e1).deleted);
+    EXPECT_EQ(Core().ForkDeletes(), (mv::ObjectCounts{0, 1}));
+    Read([&] {
+      for (auto const view : {ms::View::NEW, ms::View::OLD}) {
+        EXPECT_TRUE(Ctx().IsForkEdgeHidden(ForkEdge(g.e1), view));
+        EXPECT_EQ(Ctx().ResolveEdges(g.a, ms::EdgeDirection::OUT, view).size(), 1u) << "e2 stays";
+        EXPECT_EQ(Ctx().ResolveEdges(g.b, ms::EdgeDirection::IN, view).size(), 1u);
+        EXPECT_FALSE(Ctx().IsForkEdgeHidden(ForkEdge(g.e2), view));
+      }
+    });
+  }
+
+  void AnAbortedEdgeWriteLeavesTheForkEdgeReadableAndAnEmptyStub() {
+    auto const x = Prop("x"), y = Prop("y");
+    auto const g = MakeGraph();
+    Fork();
+    for (int round = 0; round < 50; ++round) {
+      WriteAborted([&] {
+        auto e1 = ForkEdge(g.e1);
+        ASSERT_TRUE(Ctx().SetProperty(e1, x, Int(100 + round)).has_value());
+        ASSERT_TRUE(Ctx().SetProperty(e1, y, ms::PropertyValue{}).has_value());
+        ASSERT_TRUE(*Ctx().DeleteForkEdge(ForkEdge(g.e2)));
+        ASSERT_TRUE(*Ctx().DeleteForkEdge(ForkEdge(g.e1)));
+      });
+    }
+    EXPECT_EQ(EdgeStubCount(), 2u) << "one stub per touched edge however often the writes abort";
+    EXPECT_TRUE(IsEmpty(CommittedEdgeStubOf(g.e1)));
+    EXPECT_TRUE(IsEmpty(CommittedEdgeStubOf(g.e2)));
+    EXPECT_EQ(Core().ForkDeletes(), (mv::ObjectCounts{0, 0}));
+    Read([&] {
+      for (auto const &edge : {g.e1, g.e2}) {
+        EXPECT_FALSE(Ctx().IsForkEdgeHidden(ForkEdge(edge), ms::View::NEW));
+      }
+      EXPECT_EQ(*Ctx().Properties(ForkEdge(g.e1), ms::View::NEW), PropsOf({{x, Int(1)}, {y, Int(2)}}));
+      EXPECT_EQ(Ctx().ResolveEdges(g.a, ms::EdgeDirection::OUT, ms::View::NEW).size(), 2u);
+    });
+    Write([&] {
+      auto e1 = ForkEdge(g.e1);
+      ASSERT_TRUE(Ctx().SetProperty(e1, x, Int(3)).has_value());
+    });
+  }
+};
+
+class VersioningBranchEdgeWriteLightEdgeTest : public VersioningBranchEdgeWriteTest {
+ protected:
+  bool LightEdge() const override { return true; }
+};
+
+class VersioningBranchEdgeWriteNoEdgePropertiesTest : public VersioningBranchEdgeWriteTest {
+ protected:
+  bool PropertiesOnEdges() const override { return false; }
+};
+
+#define EDGE_WRITE_TEST(Name)                             \
+  TEST_F(VersioningBranchEdgeWriteTest, Name) { Name(); } \
+  TEST_F(VersioningBranchEdgeWriteLightEdgeTest, Name) { Name(); }
+
+EDGE_WRITE_TEST(PropertyWritesMergeOverTheForkEdge)
+EDGE_WRITE_TEST(WholeSetWritesDecomposeIntoPerKeyWrites)
+EDGE_WRITE_TEST(AnEdgeStubCreatesNothingElseAndIsNeverAnEdgeOfTheBranch)
+EDGE_WRITE_TEST(DeletingAForkEdgeWritesOnlyItsMarkersAndHidesItPerViewThenCommitted)
+EDGE_WRITE_TEST(AnAbortedEdgeWriteLeavesTheForkEdgeReadableAndAnEmptyStub)
+
+// A native edge is the diff engine's own object: the resolver hands it to the stock mutators and creates no stub.
+TEST_F(VersioningBranchEdgeWriteTest, ANativeEdgeTakesTheStockMutators) {
+  auto const x = Prop("x");
+  auto const g = MakeGraph();
+  Fork();
+  Write([&] {
+    auto from = Ctx().CreateNativeVertex();
+    auto to = Ctx().CreateNativeVertex();
+    auto edge = Ctx().CreateNativeEdge(from, to, storage_->NameToEdgeType("N"));
+    ASSERT_TRUE(edge.has_value());
+    EXPECT_EQ(edge->storage_, &Diff());
+    EXPECT_TRUE(Ctx().SetProperty(*edge, x, Int(1))->IsNull());
+    Props init{{Prop("y"), Int(2)}};
+    EXPECT_FALSE(*Ctx().InitProperties(*edge, init)) << "the stock Init: the edge already has x";
+    Props update{{x, Int(3)}};
+    EXPECT_TRUE(Ctx().UpdateProperties(*edge, update).has_value());
+    EXPECT_EQ(*Ctx().GetProperty(*edge, x, ms::View::NEW), Int(3));
+    EXPECT_EQ(Ctx().ClearProperties(*edge)->size(), 1u);
+    EXPECT_TRUE(Ctx().Properties(*edge, ms::View::NEW)->empty());
+  });
+  EXPECT_EQ(EdgeStubCount(), 0u);
+  EXPECT_EQ(StubCount(), 0u);
+  (void)g;
+}
+
+// With main's edge properties off, the branch's fork edges still delete (a marker is a property of the diff engine's
+// own Edge), but their properties cannot be written, as on main.
+TEST_F(VersioningBranchEdgeWriteNoEdgePropertiesTest, ADeleteWorksAndAPropertyWriteIsRefused) {
+  auto const x = Prop("x");
+  auto const g = MakeGraph();
+  Fork();
+  EXPECT_FALSE(storage_->config_.salient.items.properties_on_edges);
+  EXPECT_TRUE(Diff().config_.salient.items.properties_on_edges);
+  Write([&] {
+    auto e1 = ForkEdge(g.e1);
+    EXPECT_EQ(Ctx().SetProperty(e1, x, Int(1)).error(), ms::Error::PROPERTIES_DISABLED);
+    Props props{{x, Int(1)}};
+    EXPECT_EQ(Ctx().InitProperties(e1, props).error(), ms::Error::PROPERTIES_DISABLED);
+    EXPECT_EQ(Ctx().UpdateProperties(e1, props).error(), ms::Error::PROPERTIES_DISABLED);
+    EXPECT_EQ(Ctx().ClearProperties(e1).error(), ms::Error::PROPERTIES_DISABLED);
+    EXPECT_EQ(EdgeStubCount(), 0u) << "a refused write creates no stub";
+    EXPECT_FALSE(e1.MaybeBranchedHint());
+    ASSERT_TRUE(*Ctx().DeleteForkEdge(e1));
+    EXPECT_TRUE(Ctx().IsForkEdgeHidden(e1, ms::View::NEW));
+    EXPECT_FALSE(*Ctx().DeleteForkEdge(e1));
+  });
+  EXPECT_TRUE(CommittedEdgeStubOf(g.e1).deleted);
+  Read([&] {
+    EXPECT_TRUE(Ctx().IsForkEdgeHidden(ForkEdge(g.e1), ms::View::NEW));
+    EXPECT_FALSE(Ctx().ResolveEdge(g.e1.gid, g.a, ms::View::NEW).has_value());
+    auto out = Ctx().ResolveEdges(g.a, ms::EdgeDirection::OUT, ms::View::NEW);
+    ASSERT_EQ(out.size(), 1u);
+    EXPECT_EQ(out[0].Gid(), g.e2.gid);
+    EXPECT_FALSE(Ctx().IsForkEdgeHidden(ForkEdge(g.e2), ms::View::NEW));
+  });
+}
+
+// A branch-native edge is the diff engine's own object, which always has properties: it must refuse them exactly when
+// main would.
+TEST_F(VersioningBranchEdgeWriteNoEdgePropertiesTest, ANativeEdgeRefusesPropertyWritesToo) {
+  auto const x = Prop("x");
+  MakeGraph();
+  Fork();
+  Write([&] {
+    auto from = Ctx().CreateNativeVertex();
+    auto to = Ctx().CreateNativeVertex();
+    auto edge = Ctx().CreateNativeEdge(from, to, storage_->NameToEdgeType("N"));
+    ASSERT_TRUE(edge.has_value());
+    EXPECT_EQ(edge->storage_, &Diff());
+    EXPECT_EQ(Ctx().SetProperty(*edge, x, Int(1)).error(), ms::Error::PROPERTIES_DISABLED);
+    Props props{{x, Int(1)}};
+    EXPECT_EQ(Ctx().InitProperties(*edge, props).error(), ms::Error::PROPERTIES_DISABLED);
+    EXPECT_EQ(Ctx().UpdateProperties(*edge, props).error(), ms::Error::PROPERTIES_DISABLED);
+    EXPECT_EQ(Ctx().ClearProperties(*edge).error(), ms::Error::PROPERTIES_DISABLED);
+    EXPECT_TRUE(Ctx().Properties(*edge, ms::View::NEW)->empty());
+  });
+}
+
+// Two transactions writing one fork edge conflict however different their keys, a transaction that started before a
+// commit conflicts with it, one that starts after does not: the stub's MVCC is the edge's.
+TEST_F(VersioningBranchEdgeWriteTest, EdgeStubWritersFollowFirstWriterWins) {
+  auto const x = Prop("x"), y = Prop("y");
+  auto const g = MakeGraph();
+  Fork();
+  mv::BranchContext s2{Ctx().core()};
+  auto t1 = Diff().Access(ms::WRITE);
+  auto t2 = Diff().Access(ms::WRITE);
+  Begin(t1.get());
+  ASSERT_TRUE(s2.BeginTransaction(t2.get()).has_value());
+  auto e1_t1 = ForkEdge(g.e1);
+  auto e1_t2 = *s2.FindForkEdge(g.e1.gid, g.a);
+  auto e2_t2 = *s2.FindForkEdge(g.e2.gid, g.a);
+  ASSERT_TRUE(Ctx().SetProperty(e1_t1, x, Int(10)).has_value());
+  EXPECT_TRUE(s2.SetProperty(e2_t2, x, Int(6)).has_value()) << "another edge is another object";
+  EXPECT_EQ(s2.SetProperty(e1_t2, y, Int(1)).error(), ms::Error::SERIALIZATION_ERROR);
+  EXPECT_TRUE(t2->TransactionHasSerializationError());
+  EXPECT_EQ(s2.DeleteForkEdge(e1_t2).error(), ms::Error::SERIALIZATION_ERROR);
+  Props props{{y, Int(1)}};
+  EXPECT_EQ(s2.UpdateProperties(e1_t2, props).error(), ms::Error::SERIALIZATION_ERROR);
+  s2.EndTransaction();
+  t2->Abort();
+
+  // A transaction that began before the commit conflicts with it; the one that begins after does not.
+  mv::BranchContext s3{Ctx().core()};
+  auto t3 = Diff().Access(ms::WRITE);
+  ASSERT_TRUE(s3.BeginTransaction(t3.get()).has_value());
+  Commit(*t1);
+  Ctx().EndTransaction();
+  auto e1_t3 = *s3.FindForkEdge(g.e1.gid, g.a);
+  EXPECT_EQ(s3.SetProperty(e1_t3, y, Int(2)).error(), ms::Error::SERIALIZATION_ERROR);
+  s3.EndTransaction();
+  t3->Abort();
+  Write([&] {
+    auto later = ForkEdge(g.e1);
+    EXPECT_TRUE(Ctx().SetProperty(later, y, Int(3)).has_value());
+  });
+}
+
+// A write that changes nothing still conflicts, as the stock edge mutators do.
+TEST_F(VersioningBranchEdgeWriteTest, EdgeWritesThatChangeNothingStillConflictAsOnMain) {
+  auto const x = Prop("x");
+  auto const g = MakeGraph();
+  Fork();
+  mv::BranchContext s2{Ctx().core()};
+  auto t1 = Diff().Access(ms::WRITE);
+  auto t2 = Diff().Access(ms::WRITE);
+  Begin(t1.get());
+  ASSERT_TRUE(s2.BeginTransaction(t2.get()).has_value());
+  auto e1_t1 = ForkEdge(g.e1);
+  ASSERT_TRUE(Ctx().SetProperty(e1_t1, x, Int(10)).has_value());
+  auto e1_t2 = *s2.FindForkEdge(g.e1.gid, g.a);
+  Props nothing;
+  auto e2_t2 = *s2.FindForkEdge(g.e2.gid, g.a);
+  EXPECT_TRUE(s2.ClearProperties(e2_t2).has_value()) << "another edge: no conflict";
+  EXPECT_TRUE(s2.UpdateProperties(e1_t2, nothing).has_value()) << "an update of no key writes nothing";
+  Props init{{x, Int(1)}};
+  EXPECT_EQ(s2.InitProperties(e1_t2, init).error(), ms::Error::SERIALIZATION_ERROR)
+      << "Init of a non-empty edge finds nothing to do but conflicts first";
+  s2.EndTransaction();
+  t2->Abort();
+  Ctx().EndTransaction();
+  t1->Abort();
+}
+
+// Many threads touching one fork edge for the first time: the stub is created once, exactly one writer wins.
+TEST_F(VersioningBranchEdgeWriteTest, ConcurrentFirstTouchOfOneForkEdgeLetsExactlyOneWriterWin) {
+  constexpr int kThreads = 6;
+  constexpr int kRounds = 60;
+  auto const a = CreateMainVertex({}, {});
+  auto const b = CreateMainVertex({}, {});
+  std::vector<MainEdge> edges;
+  for (int i = 0; i < kRounds; ++i) edges.push_back(CreateMainEdge(a, b, "E"));
+  std::vector<ms::PropertyId> keys;
+  for (int t = 0; t < kThreads; ++t) keys.push_back(Prop(("k" + std::to_string(t)).c_str()));
+  Fork();
+  auto core = Ctx().core();
+  std::barrier sync(kThreads);
+  std::array<std::atomic<int>, kRounds> winners{};
+  std::vector<std::jthread> threads;
+  for (int t = 0; t < kThreads; ++t) {
+    threads.emplace_back([&, t] {
+      mv::BranchContext ctx{core};
+      for (int round = 0; round < kRounds; ++round) {
+        auto acc = Diff().Access(ms::WRITE, ms::IsolationLevel::SNAPSHOT_ISOLATION, std::nullopt);
+        ASSERT_TRUE(ctx.BeginTransaction(acc.get()).has_value());
+        sync.arrive_and_wait();
+        auto edge = *ctx.FindForkEdge(edges[round].gid, a);
+        auto const written = ctx.SetProperty(edge, keys[t], Int(t));
+        if (written) {
+          ++winners[round];
+        } else {
+          EXPECT_EQ(written.error(), ms::Error::SERIALIZATION_ERROR);
+        }
+        ctx.EndTransaction();
+        if (written) {
+          Commit(*acc);
+        } else {
+          acc->Abort();
+        }
+        sync.arrive_and_wait();
+      }
+    });
+  }
+  threads.clear();
+  for (int round = 0; round < kRounds; ++round) EXPECT_EQ(winners[round].load(), 1) << "round " << round;
+  EXPECT_EQ(EdgeStubCount(), static_cast<size_t>(kRounds)) << "one stub per edge";
+  Read([&] {
+    for (auto const &edge : edges) {
+      EXPECT_EQ(Ctx().Properties(ForkEdge(edge), ms::View::NEW)->size(), 1u) << "only the winner's key";
+    }
+  });
+}
+
+// One transaction sets a property of a fork edge and then deletes it: the delete wins and the edge counts once; the
+// other order refuses the write.
+TEST_F(VersioningBranchEdgeWriteTest, ASetThenADeleteOfOneEdgeInOneTransaction) {
+  auto const x = Prop("x");
+  auto const g = MakeGraph();
+  Fork();
+  WriteCounted([&] {
+    auto e1 = ForkEdge(g.e1);
+    ASSERT_TRUE(Ctx().SetProperty(e1, x, Int(8)).has_value());
+    ASSERT_TRUE(*Ctx().DeleteForkEdge(e1));
+    EXPECT_EQ(Ctx().SetProperty(e1, x, Int(9)).error(), ms::Error::DELETED_OBJECT);
+    Props props{{x, Int(9)}};
+    EXPECT_EQ(Ctx().UpdateProperties(e1, props).error(), ms::Error::DELETED_OBJECT);
+    EXPECT_EQ(Ctx().ClearProperties(e1).error(), ms::Error::DELETED_OBJECT);
+  });
+  EXPECT_EQ(Core().ForkDeletes(), (mv::ObjectCounts{0, 1}));
+  Read([&] {
+    auto e1 = ForkEdge(g.e1);
+    for (auto const view : {ms::View::NEW, ms::View::OLD}) EXPECT_TRUE(Ctx().IsForkEdgeHidden(e1, view));
+    EXPECT_EQ(Ctx().GetProperty(e1, x, ms::View::NEW).error(), ms::Error::DELETED_OBJECT);
+  });
+}
+
+///// The commit's counts
+
+// Counts reach the core when the transaction commits: an abort publishes nothing, and an edge hidden by its deleted
+// endpoint counts with the vertex, once however it was deleted.
+TEST_F(VersioningBranchEdgeWriteTest, ForkDeletesArePublishedByTheCommitAndCountEachHiddenEdgeOnce) {
+  auto const g = MakeGraph();
+  Fork();
+  WriteAborted([&] {
+    ASSERT_TRUE(*Ctx().DeleteForkVertex(g.a));
+    ASSERT_TRUE(*Ctx().DeleteForkEdge(ForkEdge(g.loop)));
+  });
+  EXPECT_EQ(Core().ForkDeletes(), (mv::ObjectCounts{0, 0}));
+
+  // The edge goes first, then its endpoint: e1 counts once, e2 with the vertex.
+  WriteCounted([&] {
+    ASSERT_TRUE(*Ctx().DeleteForkEdge(ForkEdge(g.e1)));
+    ASSERT_TRUE(*Ctx().DeleteForkVertex(g.a));
+  });
+  EXPECT_EQ(Core().ForkDeletes(), (mv::ObjectCounts{1, 2}));
+
+  // Both edges are already hidden by a, so b hides none; the self-loop is one edge.
+  WriteCounted([&] {
+    ASSERT_TRUE(*Ctx().DeleteForkVertex(g.b));
+    ASSERT_TRUE(*Ctx().DeleteForkVertex(g.c));
+  });
+  EXPECT_EQ(Core().ForkDeletes(), (mv::ObjectCounts{3, 3}));
+}
+
+TEST_F(VersioningBranchEdgeWriteTest, ADeletedEndpointThenItsEdgeCountsTheEdgeOnce) {
+  auto const g = MakeGraph();
+  Fork();
+  WriteCounted([&] {
+    ASSERT_TRUE(*Ctx().DeleteForkVertex(g.a));
+    EXPECT_FALSE(*Ctx().DeleteForkEdge(ForkEdge(g.e1))) << "hidden by its deleted endpoint";
+    EXPECT_FALSE(*Ctx().DeleteForkVertex(g.a));
+  });
+  EXPECT_EQ(Core().ForkDeletes(), (mv::ObjectCounts{1, 2}));
+}
+
+TEST_F(VersioningBranchEdgeWriteTest, AHubDeleteCountsEveryEdgeAndAPropertyWriteCountsNone) {
+  auto const x = Prop("x");
+  auto const hub = CreateMainVertex({}, {});
+  constexpr int kSpokes = 100;
+  std::vector<MainEdge> spokes;
+  for (int i = 0; i < kSpokes; ++i) {
+    auto const leaf = CreateMainVertex({}, {});
+    spokes.push_back(i % 2 == 0 ? CreateMainEdge(hub, leaf, "E", {{x, Int(i)}}) : CreateMainEdge(leaf, hub, "E"));
+  }
+  Fork();
+  WriteCounted([&] {
+    auto e = ForkEdge(spokes[0]);
+    ASSERT_TRUE(Ctx().SetProperty(e, x, Int(-1)).has_value());
+    ASSERT_TRUE(*Ctx().DeleteForkEdge(ForkEdge(spokes[2])));
+  });
+  EXPECT_EQ(Core().ForkDeletes(), (mv::ObjectCounts{0, 1}));
+  WriteCounted([&] { ASSERT_TRUE(*Ctx().DeleteForkVertex(hub)); });
+  EXPECT_EQ(Core().ForkDeletes(), (mv::ObjectCounts{1, 1 + kSpokes - 1}));
+}
+
+// Each periodic batch publishes only what it deleted, and a batch that never commits publishes nothing.
+TEST_F(VersioningBranchEdgeWriteTest, PeriodicCommitPublishesEachBatchsForkDeletesOnce) {
+  auto const g = MakeGraph();
+  Fork();
+  auto acc = Diff().Access(ms::WRITE);
+  Begin(acc.get());
+  ASSERT_TRUE(*Ctx().DeleteForkEdge(ForkEdge(g.e1)));
+  ASSERT_TRUE(Ctx().PeriodicCommitTransaction(memgraph::tests::MakeMainCommitArgs()).has_value());
+  EXPECT_EQ(Core().ForkDeletes(), (mv::ObjectCounts{0, 1}));
+  ASSERT_TRUE(Ctx().in_transaction());
+  ASSERT_TRUE(*Ctx().DeleteForkEdge(ForkEdge(g.e2)));
+  ASSERT_TRUE(Ctx().PeriodicCommitTransaction(memgraph::tests::MakeMainCommitArgs()).has_value());
+  EXPECT_EQ(Core().ForkDeletes(), (mv::ObjectCounts{0, 2})) << "the first batch is not published again";
+  ASSERT_TRUE(*Ctx().DeleteForkVertex(g.c));
+  ASSERT_TRUE(Ctx().CommitTransaction(memgraph::tests::MakeMainCommitArgs()).has_value());
+  EXPECT_EQ(Core().ForkDeletes(), (mv::ObjectCounts{1, 3}));
+  Ctx().EndTransaction();
+
+  auto aborted = Diff().Access(ms::WRITE);
+  Begin(aborted.get());
+  ASSERT_TRUE(*Ctx().DeleteForkVertex(g.b));
+  Ctx().EndTransaction();
+  aborted->Abort();
+  EXPECT_EQ(Core().ForkDeletes(), (mv::ObjectCounts{1, 3}));
+}
+
+///// A delete of a vertex against a delete of one of its edges (BL-0239)
+
+// Whichever delete is written second finds the other and fails, so the edge is hidden by exactly one committed delete.
+TEST_F(VersioningBranchEdgeWriteTest, ADeleteOfAVertexAndOfOneOfItsEdgesConflictInEitherOrder) {
+  auto const g = MakeGraph();
+  Fork();
+  for (bool edge_first : {true, false}) {
+    SCOPED_TRACE(edge_first);
+    mv::BranchContext s2{Ctx().core()};
+    auto t1 = Diff().Access(ms::WRITE);
+    auto t2 = Diff().Access(ms::WRITE);
+    Begin(t1.get());
+    ASSERT_TRUE(s2.BeginTransaction(t2.get()).has_value());
+    std::optional<ms::Error> edge_error, vertex_error;
+    auto const delete_edge = [&] {
+      auto const deleted = Ctx().DeleteForkEdge(ForkEdge(g.e1));
+      if (!deleted) edge_error = deleted.error();
+    };
+    auto const delete_vertex = [&] {
+      auto const deleted = s2.DeleteForkVertex(g.a);
+      if (!deleted) vertex_error = deleted.error();
+    };
+    if (edge_first) {
+      delete_edge();
+      delete_vertex();
+      EXPECT_FALSE(edge_error.has_value());
+      EXPECT_EQ(vertex_error, std::optional{ms::Error::SERIALIZATION_ERROR});
+      EXPECT_TRUE(t2->TransactionHasSerializationError());
+    } else {
+      delete_vertex();
+      delete_edge();
+      EXPECT_FALSE(vertex_error.has_value());
+      EXPECT_EQ(edge_error, std::optional{ms::Error::SERIALIZATION_ERROR});
+      EXPECT_TRUE(t1->TransactionHasSerializationError());
+    }
+    Ctx().EndTransaction();
+    s2.EndTransaction();
+    t1->Abort();
+    t2->Abort();
+  }
+  EXPECT_EQ(Core().ForkDeletes(), (mv::ObjectCounts{0, 0}));
+}
+
+// The race the two orders above cannot show: the delete of vertex a and the delete of its edge e run at once, many
+// times. At most one commits, and the edge is counted once per round.
+TEST_F(VersioningBranchEdgeWriteTest, ADeleteOfAVertexAndOfItsEdgeNeverBothCommit) {
+  constexpr int kRounds = 1500;
+  std::vector<MainEdge> edges;
+  for (int round = 0; round < kRounds; ++round) {
+    auto const from = CreateMainVertex({}, {});
+    auto const to = CreateMainVertex({}, {});
+    edges.push_back(CreateMainEdge(from, to, "E"));
+  }
+  Fork();
+  auto core = Ctx().core();
+  std::barrier sync(2);
+  std::vector<char> edge_committed(kRounds, 0), vertex_committed(kRounds, 0);
+  auto const run = [&](bool delete_edge) {
+    mv::BranchContext ctx{core};
+    for (int round = 0; round < kRounds; ++round) {
+      auto acc = Diff().Access(ms::WRITE, ms::IsolationLevel::SNAPSHOT_ISOLATION, std::nullopt);
+      ASSERT_TRUE(ctx.BeginTransaction(acc.get()).has_value());
+      auto const &edge = edges[round];
+      auto const fork_edge = delete_edge ? ctx.FindForkEdge(edge.gid, edge.from) : std::nullopt;
+      sync.arrive_and_wait();
+      bool const ok = delete_edge ? ctx.DeleteForkEdge(*fork_edge).value_or(false)
+                                  : ctx.DeleteForkVertex(edge.from).value_or(false);
+      bool const committed = ok && !acc->TransactionHasSerializationError() &&
+                             ctx.CommitTransaction(memgraph::tests::MakeMainCommitArgs()).has_value();
+      ctx.EndTransaction();
+      if (!committed) acc->Abort();
+      (delete_edge ? edge_committed : vertex_committed)[round] = committed ? 1 : 0;
+      sync.arrive_and_wait();
+    }
+  };
+  {
+    std::jthread vertex_deleter{[&] { run(false); }};
+    run(true);
+  }
+  uint64_t edge_rounds = 0, vertex_rounds = 0, rounds_with_a_commit = 0;
+  for (int round = 0; round < kRounds; ++round) {
+    EXPECT_FALSE(edge_committed[round] && vertex_committed[round]) << "both deletes of round " << round << " committed";
+    edge_rounds += edge_committed[round];
+    vertex_rounds += vertex_committed[round];
+    rounds_with_a_commit += edge_committed[round] || vertex_committed[round];
+  }
+  EXPECT_EQ(Core().ForkDeletes(), (mv::ObjectCounts{vertex_rounds, rounds_with_a_commit}))
+      << "each round hides its one edge once (edge deletes committed: " << edge_rounds << ")";
+}
+
+// A fork edge written by a transaction in flight blocks a DETACH DELETE of its endpoint, whatever the write was.
+TEST_F(VersioningBranchEdgeWriteTest, AnEdgeWriteInFlightBlocksTheDeleteOfItsEndpoint) {
+  auto const x = Prop("x");
+  auto const g = MakeGraph();
+  Fork();
+  mv::BranchContext s2{Ctx().core()};
+  auto t1 = Diff().Access(ms::WRITE);
+  auto t2 = Diff().Access(ms::WRITE);
+  Begin(t1.get());
+  ASSERT_TRUE(s2.BeginTransaction(t2.get()).has_value());
+  auto e1 = ForkEdge(g.e1);
+  ASSERT_TRUE(Ctx().SetProperty(e1, x, Int(2)).has_value());
+  EXPECT_FALSE(t1->TransactionHasSerializationError());
+  EXPECT_EQ(s2.DeleteForkVertex(g.a).error(), ms::Error::SERIALIZATION_ERROR);
+  EXPECT_TRUE(t2->TransactionHasSerializationError());
+  Ctx().EndTransaction();
+  s2.EndTransaction();
+  t1->Abort();
+  t2->Abort();
+}
+
+// The other order (BL-0249): an edge write after the delete of its endpoint, the delete in flight or committed after
+// this transaction started, conflicts too. Otherwise the branch WAL would hold [VertexDelete][EdgeSetProperty] and
+// not replay.
+TEST_F(VersioningBranchEdgeWriteTest, AnEdgeWriteAfterTheDeleteOfItsEndpointConflicts) {
+  auto const x = Prop("x");
+  enum class Write { kSet, kInit, kUpdate, kClear, kDelete };
+
+  struct Case {
+    Write write;
+    bool delete_from, committed;
+    Graph g;
+    MainEdge bare;
+  };
+
+  std::vector<Case> cases;
+  for (auto const write : {Write::kSet, Write::kInit, Write::kUpdate, Write::kClear, Write::kDelete}) {
+    for (bool delete_from : {true, false}) {
+      for (bool committed : {true, false}) {
+        auto const g = MakeGraph();
+        cases.push_back({write, delete_from, committed, g, CreateMainEdge(g.a, g.b, "E")});
+      }
+    }
+  }
+  Fork();
+  for (auto const &[write, delete_from, committed, g, bare] : cases) {
+    {
+      {
+        SCOPED_TRACE(testing::Message() << "write " << static_cast<int>(write) << " delete_from " << delete_from
+                                        << " committed " << committed);
+        mv::BranchContext s2{Ctx().core()};
+        auto t1 = Diff().Access(ms::WRITE);
+        auto t2 = Diff().Access(ms::WRITE);
+        Begin(t1.get());
+        ASSERT_TRUE(s2.BeginTransaction(t2.get()).has_value());
+        ASSERT_TRUE(*s2.DeleteForkVertex(delete_from ? g.a : g.b));
+        if (committed) Commit(*t2);
+        auto edge = ForkEdge(write == Write::kInit ? bare : g.e1);
+        Props map{{x, Int(9)}};
+        std::optional<ms::Error> error;
+        switch (write) {
+          case Write::kSet:
+            error = Ctx().SetProperty(edge, x, Int(2)).error_or(ms::Error::DELETED_OBJECT);
+            break;
+          case Write::kInit:
+            error = Ctx().InitProperties(edge, map).error_or(ms::Error::DELETED_OBJECT);
+            break;
+          case Write::kUpdate:
+            error = Ctx().UpdateProperties(edge, map).error_or(ms::Error::DELETED_OBJECT);
+            break;
+          case Write::kClear:
+            error = Ctx().ClearProperties(edge).error_or(ms::Error::DELETED_OBJECT);
+            break;
+          case Write::kDelete:
+            error = Ctx().DeleteForkEdge(edge).error_or(ms::Error::DELETED_OBJECT);
+            break;
+        }
+        EXPECT_EQ(error, std::optional{ms::Error::SERIALIZATION_ERROR});
+        EXPECT_TRUE(t1->TransactionHasSerializationError());
+        Ctx().EndTransaction();
+        s2.EndTransaction();
+        t1->Abort();
+        if (!committed) t2->Abort();
+      }
+    }
+  }
+}
+
+// Two DETACH DELETEs of the two endpoints of one edge (BL-0243): the edge is hidden by exactly one committed delete,
+// so one of the two fails whichever is written second.
+TEST_F(VersioningBranchEdgeWriteTest, TheDeletesOfBothEndpointsOfAnEdgeConflict) {
+  auto const g = MakeGraph();
+  Fork();
+  mv::BranchContext s2{Ctx().core()};
+  auto t1 = Diff().Access(ms::WRITE);
+  auto t2 = Diff().Access(ms::WRITE);
+  Begin(t1.get());
+  ASSERT_TRUE(s2.BeginTransaction(t2.get()).has_value());
+  EXPECT_TRUE(Ctx().DeleteForkVertex(g.a).has_value());
+  auto const second = s2.DeleteForkVertex(g.b);
+  EXPECT_EQ(second.error_or(ms::Error::DELETED_OBJECT), ms::Error::SERIALIZATION_ERROR);
+  EXPECT_TRUE(t2->TransactionHasSerializationError());
+  Ctx().EndTransaction();
+  s2.EndTransaction();
+  t1->Abort();
+  t2->Abort();
+}
+
+TEST_F(VersioningBranchEdgeWriteTest, TheDeletesOfBothEndpointsOfAnEdgeNeverBothCommit) {
+  constexpr int kRounds = 1500;
+  std::vector<MainEdge> edges;
+  for (int round = 0; round < kRounds; ++round) {
+    auto const from = CreateMainVertex({}, {});
+    auto const to = CreateMainVertex({}, {});
+    edges.push_back(CreateMainEdge(from, to, "E"));
+  }
+  Fork();
+  auto core = Ctx().core();
+  std::barrier sync(2);
+  std::vector<char> from_committed(kRounds, 0), to_committed(kRounds, 0);
+  auto const run = [&](bool delete_to) {
+    mv::BranchContext ctx{core};
+    for (int round = 0; round < kRounds; ++round) {
+      auto acc = Diff().Access(ms::WRITE, ms::IsolationLevel::SNAPSHOT_ISOLATION, std::nullopt);
+      ASSERT_TRUE(ctx.BeginTransaction(acc.get()).has_value());
+      auto const &edge = edges[round];
+      sync.arrive_and_wait();
+      bool const ok = ctx.DeleteForkVertex(delete_to ? edge.to : edge.from).value_or(false);
+      bool const committed = ok && !acc->TransactionHasSerializationError() &&
+                             ctx.CommitTransaction(memgraph::tests::MakeMainCommitArgs()).has_value();
+      ctx.EndTransaction();
+      if (!committed) acc->Abort();
+      (delete_to ? to_committed : from_committed)[round] = committed ? 1 : 0;
+      sync.arrive_and_wait();
+    }
+  };
+  {
+    std::jthread to_deleter{[&] { run(true); }};
+    run(false);
+  }
+  uint64_t rounds_with_a_commit = 0, vertices = 0;
+  for (int round = 0; round < kRounds; ++round) {
+    EXPECT_FALSE(from_committed[round] && to_committed[round]) << "both deletes of round " << round << " committed";
+    rounds_with_a_commit += from_committed[round] || to_committed[round];
+    vertices += from_committed[round] + to_committed[round];
+  }
+  EXPECT_EQ(Core().ForkDeletes(), (mv::ObjectCounts{vertices, rounds_with_a_commit}));
+}
+
+// A write of an endpoint's property is no delete of it: it does not conflict with a write of the edge's properties.
+TEST_F(VersioningBranchEdgeWriteTest, AnEdgeWriteDoesNotConflictWithAnEndpointPropertyWrite) {
+  auto const x = Prop("x");
+  auto const g = MakeGraph();
+  Fork();
+  mv::BranchContext s2{Ctx().core()};
+  auto t1 = Diff().Access(ms::WRITE);
+  auto t2 = Diff().Access(ms::WRITE);
+  Begin(t1.get());
+  ASSERT_TRUE(s2.BeginTransaction(t2.get()).has_value());
+  auto a = *s2.FindForkVertex(g.a);
+  ASSERT_TRUE(s2.SetProperty(a, x, Int(3)).has_value());
+  auto e1 = ForkEdge(g.e1);
+  EXPECT_TRUE(Ctx().SetProperty(e1, x, Int(2)).has_value());
+  EXPECT_FALSE(t1->TransactionHasSerializationError());
+  Commit(*t1);
+  Ctx().EndTransaction();
+  Commit(*t2);
+  s2.EndTransaction();
+}
+
+// A fork edge delete writes the stubs of both its endpoints, as main's delete writes both vertices: two deletes of
+// edges that share an endpoint conflict, whichever endpoint they share.
+TEST_F(VersioningBranchEdgeWriteTest, TwoDeletesOfForkEdgesSharingAnEndpointConflict) {
+  auto const g = MakeGraph();
+  auto const extra = CreateMainEdge(g.b, g.c, "E", {});
+  Fork();
+
+  struct Case {
+    const MainEdge &second;
+    const char *shared;
+  };
+
+  for (auto const &[second, shared] : {Case{g.e2, "both endpoints"}, Case{extra, "the head of the first"}}) {
+    SCOPED_TRACE(shared);
+    mv::BranchContext s2{Ctx().core()};
+    auto t1 = Diff().Access(ms::WRITE);
+    auto t2 = Diff().Access(ms::WRITE);
+    Begin(t1.get());
+    ASSERT_TRUE(s2.BeginTransaction(t2.get()).has_value());
+    ASSERT_TRUE(*Ctx().DeleteForkEdge(ForkEdge(g.e1)));
+    auto const fork_edge = s2.FindForkEdge(second.gid, second.from);
+    ASSERT_TRUE(fork_edge.has_value());
+    auto const deleted = s2.DeleteForkEdge(*fork_edge);
+    ASSERT_FALSE(deleted.has_value());
+    EXPECT_EQ(deleted.error(), ms::Error::SERIALIZATION_ERROR);
+    EXPECT_TRUE(t2->TransactionHasSerializationError());
+    Ctx().EndTransaction();
+    s2.EndTransaction();
+    t1->Abort();
+    t2->Abort();
+  }
+}
+
+// A fork edge delete conflicts with a write of either endpoint, in either order.
+TEST_F(VersioningBranchEdgeWriteTest, ADeleteOfAForkEdgeConflictsWithAWriteOfItsEndpointInEitherOrder) {
+  auto const x = Prop("x");
+  auto const g = MakeGraph();
+  Fork();
+  for (auto const endpoint : {g.a, g.b}) {
+    for (bool delete_first : {true, false}) {
+      SCOPED_TRACE(std::to_string(endpoint.AsUint()) + (delete_first ? " delete first" : " write first"));
+      mv::BranchContext s2{Ctx().core()};
+      auto t1 = Diff().Access(ms::WRITE);
+      auto t2 = Diff().Access(ms::WRITE);
+      Begin(t1.get());
+      ASSERT_TRUE(s2.BeginTransaction(t2.get()).has_value());
+      auto vertex = *s2.FindForkVertex(endpoint);
+      std::optional<ms::Error> error;
+      if (delete_first) {
+        ASSERT_TRUE(*Ctx().DeleteForkEdge(ForkEdge(g.e1)));
+        if (auto written = s2.SetProperty(vertex, x, Int(3)); !written) error = written.error();
+        EXPECT_TRUE(t2->TransactionHasSerializationError());
+      } else {
+        ASSERT_TRUE(s2.SetProperty(vertex, x, Int(3)).has_value());
+        auto deleted = Ctx().DeleteForkEdge(ForkEdge(g.e1));
+        if (!deleted) error = deleted.error();
+        EXPECT_TRUE(t1->TransactionHasSerializationError());
+      }
+      EXPECT_EQ(error, std::optional{ms::Error::SERIALIZATION_ERROR});
+      Ctx().EndTransaction();
+      s2.EndTransaction();
+      t1->Abort();
+      t2->Abort();
+    }
+  }
+}
+
+// A native edge created on an endpoint conflicts with a fork edge delete there, as main's create fails over an
+// in-flight delete, in either order.
+TEST_F(VersioningBranchEdgeWriteTest, ANativeEdgeOnAnEndpointAndAForkEdgeDeleteConflictInEitherOrder) {
+  auto const g = MakeGraph();
+  Fork();
+  auto const type = storage_->NameToEdgeType("N");
+  for (bool delete_first : {true, false}) {
+    SCOPED_TRACE(delete_first ? "delete first" : "create first");
+    mv::BranchContext s2{Ctx().core()};
+    auto t1 = Diff().Access(ms::WRITE);
+    auto t2 = Diff().Access(ms::WRITE);
+    Begin(t1.get());
+    ASSERT_TRUE(s2.BeginTransaction(t2.get()).has_value());
+    auto const create = [&](mv::BranchContext &ctx) -> std::optional<ms::Error> {
+      auto from = ctx.EnsureDiffVertex(g.a);
+      auto to = ctx.EnsureDiffVertex(g.c);
+      if (!from || !to) return ms::Error::SERIALIZATION_ERROR;
+      auto edge = ctx.CreateNativeEdge(*from, *to, type);
+      return edge ? std::nullopt : std::optional{edge.error()};
+    };
+    std::optional<ms::Error> error;
+    if (delete_first) {
+      ASSERT_TRUE(*Ctx().DeleteForkEdge(ForkEdge(g.e1)));
+      error = create(s2);
+    } else {
+      ASSERT_FALSE(create(s2).has_value());
+      auto deleted = Ctx().DeleteForkEdge(ForkEdge(g.e1));
+      if (!deleted) error = deleted.error();
+    }
+    EXPECT_EQ(error, std::optional{ms::Error::SERIALIZATION_ERROR});
+    Ctx().EndTransaction();
+    s2.EndTransaction();
+    t1->Abort();
+    t2->Abort();
+  }
+}
+
+// Random edge and vertex deletes, committed and rolled back: for every vertex and direction the adjacency drops
+// exactly the fork edges the point lookups hide, for a snapshot reader and a read-committed one.
+TEST_F(VersioningBranchEdgeWriteTest, TheAdjacencyHidesExactlyWhatThePointLookupsHideUnderRandomDeletesAndRollbacks) {
+  constexpr int kVertices = 7;
+  constexpr int kEdges = 22;
+  constexpr int kRounds = 60;
+  std::mt19937 rng{20261107};
+  std::vector<ms::Gid> vertices;
+  for (int i = 0; i < kVertices; ++i) vertices.push_back(CreateMainVertex({}, {}));
+  std::vector<MainEdge> edges;
+  for (int i = 0; i < kEdges; ++i) {
+    auto const from = vertices[rng() % kVertices];
+    auto const to = i % 5 == 0 ? from : vertices[rng() % kVertices];
+    edges.push_back(CreateMainEdge(from, to, i % 2 == 0 ? "E" : "F"));
+  }
+  Fork();
+
+  mv::BranchContext rc{Ctx().core()};
+  auto rc_acc = Diff().Access(ms::READ, ms::IsolationLevel::READ_COMMITTED, std::nullopt);
+  ASSERT_TRUE(rc.BeginTransaction(rc_acc.get()).has_value());
+
+  auto const check = [&](mv::BranchContext &ctx, ms::View view, int round) {
+    for (auto const vertex : vertices) {
+      for (auto const direction : {ms::EdgeDirection::OUT, ms::EdgeDirection::IN}) {
+        bool deleted = false;
+        std::set<uint64_t> expected, actual;
+        for (auto const &edge : edges) {
+          if ((direction == ms::EdgeDirection::OUT ? edge.from : edge.to) != vertex) continue;
+          auto const fork_edge = ctx.FindForkEdge(edge.gid, edge.from);
+          ASSERT_TRUE(fork_edge.has_value());
+          if (!ctx.IsForkEdgeHidden(*fork_edge, view)) expected.insert(edge.gid.AsUint());
+        }
+        for (auto const &edge : ctx.ResolveEdges(vertex, direction, view, &deleted)) actual.insert(edge.Gid().AsUint());
+        if (deleted) {
+          EXPECT_TRUE(actual.empty());
+          continue;
+        }
+        EXPECT_EQ(actual, expected) << "round " << round << ", vertex " << vertex.AsUint() << ", "
+                                    << (direction == ms::EdgeDirection::OUT ? "out" : "in");
+      }
+    }
+  };
+
+  for (int round = 0; round < kRounds; ++round) {
+    bool const commit = rng() % 3 != 0;
+    auto acc = Diff().Access(ms::WRITE);
+    Begin(acc.get());
+    for (int step = 0, steps = 1 + static_cast<int>(rng() % 3); step < steps; ++step) {
+      if (rng() % 3 == 0) {
+        auto const deleted = Ctx().DeleteForkVertex(vertices[rng() % kVertices]);
+        ASSERT_TRUE(deleted.has_value());
+      } else {
+        auto const &edge = edges[rng() % kEdges];
+        auto const deleted = Ctx().DeleteForkEdge(ForkEdge(edge));
+        ASSERT_TRUE(deleted.has_value());
+      }
+    }
+    if (commit) {
+      Commit(*acc);
+    }
+    Ctx().EndTransaction();
+    if (!commit) acc->Abort();
+
+    auto reader = Diff().Access(ms::READ);
+    Begin(reader.get());
+    check(Ctx(), ms::View::NEW, round);
+    check(Ctx(), ms::View::OLD, round);
+    Ctx().EndTransaction();
+    check(rc, ms::View::NEW, round);
+  }
+  rc.EndTransaction();
+}
+
+// The teardown frees the light edges a native edge hangs on a stub, and must leave alone the edge stubs the marker
+// entries of deleted fork edges hold: the stub index owns those.
+TEST_F(VersioningBranchEdgeWriteLightEdgeTest, TeardownLeavesTheEdgeStubsOfMarkerEntriesToTheStubIndex) {
+  auto const g = MakeGraph();
+  Fork();
+  auto const type = storage_->NameToEdgeType("N");
+  WriteCounted([&] {
+    ASSERT_TRUE(*Ctx().DeleteForkEdge(ForkEdge(g.e1)));
+    ASSERT_TRUE(*Ctx().DeleteForkEdge(ForkEdge(g.loop)));
+    auto from = Ctx().EnsureDiffVertex(g.a);
+    auto to = Ctx().EnsureDiffVertex(g.c);
+    ASSERT_TRUE(from.has_value() && to.has_value());
+    ASSERT_TRUE(Ctx().CreateNativeEdge(*from, *to, type).has_value());
+  });
+  EXPECT_EQ(EdgeStubCount(), 2U);
+}
+
+///// Native edges on fork endpoints
+
+// The stock CreateEdge refuses a deleted vertex by its deleted bit, which a stub does not carry: a fork vertex deleted
+// earlier in the transaction must be refused by the resolver.
+TEST_F(VersioningBranchEdgeWriteTest, ANativeEdgeCannotBeAttachedToAVertexDeletedInTheSameTransaction) {
+  auto const g = MakeGraph();
+  Fork();
+  auto const type = storage_->NameToEdgeType("N");
+  auto acc = Diff().Access(ms::WRITE);
+  Begin(acc.get());
+  auto stub_a = Ctx().EnsureDiffVertex(g.a);
+  auto stub_b = Ctx().EnsureDiffVertex(g.b);
+  ASSERT_TRUE(stub_a.has_value() && stub_b.has_value());
+  auto native = Ctx().CreateNativeVertex();
+  auto attached = Ctx().CreateNativeEdge(*stub_a, native, type);
+  ASSERT_TRUE(attached.has_value()) << "an endpoint that is not deleted takes the edge";
+  EXPECT_EQ(attached->storage_, &Diff());
+  EXPECT_TRUE(Core().MayHaveEdgeChange(g.a));
+  EXPECT_TRUE(Ctx().FindDiffEdge(attached->Gid(), g.a, ms::View::NEW).has_value());
+  ASSERT_TRUE(acc->DeleteEdge(&*attached).has_value());
+
+  ASSERT_TRUE(*Ctx().DeleteForkVertex(g.a));
+  EXPECT_EQ(Ctx().CreateNativeEdge(*stub_a, native, type).error(), ms::Error::DELETED_OBJECT);
+  EXPECT_EQ(Ctx().CreateNativeEdge(native, *stub_a, type).error(), ms::Error::DELETED_OBJECT);
+  EXPECT_FALSE(Ctx().EnsureDiffVertex(g.a).has_value());
+  EXPECT_FALSE(acc->TransactionHasSerializationError()) << "a refusal is not a conflict";
+  EXPECT_TRUE(Ctx().CreateNativeEdge(*stub_b, native, type).has_value()) << "another vertex is unaffected";
+  ASSERT_TRUE(Ctx().CommitTransaction(memgraph::tests::MakeMainCommitArgs()).has_value());
+  Ctx().EndTransaction();
+  Read([&] {
+    auto edges = Ctx().ResolveEdges(g.b, ms::EdgeDirection::OUT, ms::View::NEW);
+    ASSERT_EQ(edges.size(), 1u);
+    EXPECT_EQ(edges[0].storage_, &Diff()) << "b's one visible edge is the native one (e1, e2 end at b)";
+    EXPECT_TRUE(Ctx().ResolveEdges(g.a, ms::EdgeDirection::OUT, ms::View::NEW).empty());
+  });
+}
+
+// An edge between two fork vertices is native, hangs on their stubs and lives with the fork edges in one listing.
+TEST_F(VersioningBranchEdgeWriteTest, ANativeEdgeBetweenForkVerticesListsBesideTheForkEdges) {
+  auto const g = MakeGraph();
+  Fork();
+  auto const type = storage_->NameToEdgeType("N");
+  ms::Gid native_gid;
+  Write([&] {
+    auto stub_a = Ctx().EnsureDiffVertex(g.a);
+    auto stub_c = Ctx().EnsureDiffVertex(g.c);
+    ASSERT_TRUE(stub_a.has_value() && stub_c.has_value());
+    auto edge = Ctx().CreateNativeEdge(*stub_a, *stub_c, type);
+    ASSERT_TRUE(edge.has_value());
+    native_gid = edge->Gid();
+  });
+  EXPECT_FALSE(Ctx().IsForkCandidateEdge(native_gid));
+  Read([&] {
+    auto out = Ctx().ResolveEdges(g.a, ms::EdgeDirection::OUT, ms::View::NEW);
+    EXPECT_EQ(out.size(), 3u) << "e1, e2 and the native edge";
+    auto in = Ctx().ResolveEdges(g.c, ms::EdgeDirection::IN, ms::View::NEW);
+    ASSERT_EQ(in.size(), 2u) << "the self-loop and the native edge";
+    EXPECT_TRUE(Ctx().FindDiffEdge(native_gid, g.a, ms::View::NEW).has_value());
+    EXPECT_TRUE(Ctx().ResolveEdge(native_gid, g.a, ms::View::NEW).has_value());
+  });
+}
+
+// What the fork pin keeps alive: main's endpoint vertices of an edge stub, after main deleted them and collected.
+TEST_F(VersioningBranchEdgeWriteTest, AForkEdgeMainDeletedAfterTheForkStaysWritableThroughItsStub) {
+  auto const x = Prop("x");
+  auto const g = MakeGraph();
+  Fork();
+  Write([&] {
+    auto e1 = ForkEdge(g.e1);
+    ASSERT_TRUE(Ctx().SetProperty(e1, x, Int(2)).has_value());
+  });
+  {
+    auto acc = storage_->Access(ms::WRITE);
+    auto a = *acc->FindVertex(g.a, ms::View::NEW);
+    auto b = *acc->FindVertex(g.b, ms::View::NEW);
+    ASSERT_TRUE(acc->DetachDelete({&a, &b}, {}, true).has_value());
+    Commit(*acc);
+  }
+  storage_->FreeMemory({}, false);
+  storage_->FreeMemory({}, false);
+  WriteAborted([&] {
+    auto e1 = ForkEdge(g.e1);
+    EXPECT_EQ(*Ctx().GetProperty(e1, x, ms::View::NEW), Int(2));
+    ASSERT_TRUE(Ctx().SetProperty(e1, x, Int(3)).has_value());
+    ASSERT_TRUE(*Ctx().DeleteForkEdge(ForkEdge(g.e2)));
+  });
+  Diff().FreeMemory({}, false);
+  WriteCounted([&] {
+    auto e1 = ForkEdge(g.e1);
+    ASSERT_TRUE(Ctx().SetProperty(e1, x, Int(4)).has_value());
+    ASSERT_TRUE(*Ctx().DeleteForkEdge(ForkEdge(g.e2)));
+  });
+  Diff().FreeMemory({}, false);
+  Diff().FreeMemory({}, false);
+  Read([&] {
+    EXPECT_EQ(*Ctx().GetProperty(ForkEdge(g.e1), x, ms::View::NEW), Int(4));
+    EXPECT_TRUE(Ctx().IsForkEdgeHidden(ForkEdge(g.e2), ms::View::NEW));
+  });
+  EXPECT_EQ(Core().ForkDeletes(), (mv::ObjectCounts{0, 1}));
+}
+
+///// The hammer: hot fork edges under concurrent SET, REMOVE and DELETE
+
+TEST_F(VersioningBranchEdgeWriteTest, HotForkEdgesUnderConcurrentSetRemoveAndDeleteStayConsistent) {
+  constexpr int kEdges = 4;
+  constexpr int kThreads = 8;
+  constexpr int kOps = 300;
+  auto const x = Prop("x"), y = Prop("y");
+  auto const a = CreateMainVertex({}, {});
+  auto const b = CreateMainVertex({}, {});
+  std::vector<MainEdge> edges;
+  for (int i = 0; i < kEdges; ++i) edges.push_back(CreateMainEdge(a, b, "E", {{x, Int(-1)}, {y, Int(-2)}}));
+  Fork();
+  auto core = Ctx().core();
+  std::array<std::atomic<int>, kEdges> deleted{};
+  std::mutex mutex;
+  std::array<std::set<int64_t>, kEdges> committed_values;
+
+  std::vector<std::jthread> threads;
+  for (int t = 0; t < kThreads; ++t) {
+    threads.emplace_back([&, t] {
+      mv::BranchContext ctx{core};
+      std::mt19937 rng(static_cast<uint32_t>(t) + 17);
+      for (int op = 0; op < kOps; ++op) {
+        auto const which = static_cast<int>(rng() % kEdges);
+        auto const kind = rng() % 4;
+        auto acc = Diff().Access(ms::WRITE, ms::IsolationLevel::SNAPSHOT_ISOLATION, std::nullopt);
+        ASSERT_TRUE(ctx.BeginTransaction(acc.get()).has_value());
+        auto edge = *ctx.FindForkEdge(edges[which].gid, a);
+        int64_t const value = (static_cast<int64_t>(t + 1) << 32) | op;
+        bool ok = false, deleted_it = false;
+        if (kind == 0 || kind == 1) {
+          ok = ctx.SetProperty(edge, kind == 0 ? x : y, Int(value)).has_value();
+        } else if (kind == 2) {
+          ok = ctx.SetProperty(edge, x, ms::PropertyValue{}).has_value();
+        } else {
+          auto const result = ctx.DeleteForkEdge(edge);
+          ok = result.has_value();
+          deleted_it = ok && *result;
+        }
+        bool const committed = ok && !acc->TransactionHasSerializationError() &&
+                               ctx.CommitTransaction(memgraph::tests::MakeMainCommitArgs()).has_value();
+        ctx.EndTransaction();
+        if (!committed) {
+          acc->Abort();
+          continue;
+        }
+        if (deleted_it) ++deleted[which];
+        if (kind == 0 || kind == 1) {
+          std::lock_guard lock{mutex};
+          committed_values[which].insert(value);
+        }
+      }
+    });
+  }
+  threads.clear();
+
+  int total_deleted = 0;
+  for (int i = 0; i < kEdges; ++i) {
+    EXPECT_LE(deleted[i].load(), 1) << "an edge is deleted by one committed transaction";
+    total_deleted += deleted[i].load();
+  }
+  EXPECT_EQ(Core().ForkDeletes(), (mv::ObjectCounts{0, static_cast<uint64_t>(total_deleted)}));
+  EXPECT_LE(EdgeStubCount(), static_cast<size_t>(kEdges));
+  Read([&] {
+    for (int i = 0; i < kEdges; ++i) {
+      auto edge = ForkEdge(edges[i]);
+      EXPECT_EQ(Ctx().IsForkEdgeHidden(edge, ms::View::NEW), deleted[i].load() == 1);
+      if (deleted[i].load() == 1) continue;
+      auto const props = Ctx().Properties(edge, ms::View::NEW);
+      ASSERT_TRUE(props.has_value());
+      for (auto const &[key, value] : *props) {
+        EXPECT_FALSE(ms::IsReservedId(key)) << "a removal marker leaked into the branch's properties";
+        EXPECT_TRUE(value.IsInt());
+        EXPECT_TRUE(value.ValueInt() < 0 || committed_values[i].contains(value.ValueInt()))
+            << "a value no committed transaction wrote";
+      }
+      EXPECT_EQ(*Ctx().GetProperty(edge, x, ms::View::NEW), props->contains(x) ? props->at(x) : ms::PropertyValue{});
+    }
+  });
+}
+
+///// BRANCH COMMIT, ABORT AND GC: THE DIFF ENGINE'S OWN, OVER THE STUBS
+
+// Branch transactions over the core fixture's tenant wiring. Every write is a stub write committed by the diff engine,
+// so these check the stock commit and GC over stubs. Every test starts after a collect, with the unreleased-delta
+// gauge at `baseline_`.
+class VersioningBranchGcTest : public VersioningBranchCoreTest {
+ protected:
+  void SetUp() override {
+    VersioningBranchCoreTest::SetUp();
+    if (HasFatalFailure()) return;
+    ctx_ = std::make_unique<mv::BranchContext>(core_);
+    Collect();
+    baseline_ = Deltas();
+  }
+
+  void TearDown() override {
+    ctx_.reset();
+    VersioningBranchCoreTest::TearDown();
+  }
+
+  int64_t Deltas() const { return static_cast<int64_t>(delta_gauge_.Value()); }
+
+  // Unlinking and freeing can take separate passes.
+  void Collect() {
+    for (int i = 0; i < 3; ++i) Diff().FreeMemory({}, false);
+  }
+
+  static ms::EdgeAccessor ForkEdgeOf(mv::BranchContext &ctx, ms::Gid from_gid, ms::Gid edge_gid) {
+    return *ctx.FindForkEdge(edge_gid, from_gid);
+  }
+
+  ms::EdgeAccessor ForkEdge(mv::BranchContext &ctx) { return ForkEdgeOf(ctx, v_gid_, edge_gid_); }
+
+  // Sets x on the fork vertex and on the fork edge in `ctx`'s open transaction.
+  void WriteBoth(mv::BranchContext &ctx, int64_t value) {
+    auto v = *ctx.FindForkVertex(v_gid_);
+    ASSERT_TRUE(ctx.SetProperty(v, prop_x_, ms::PropertyValue(value)).has_value());
+    auto e = ForkEdge(ctx);
+    ASSERT_TRUE(ctx.SetProperty(e, prop_x_, ms::PropertyValue(value)).has_value());
+  }
+
+  // One committed transaction through BranchContext::CommitTransaction.
+  void CommitBoth(int64_t value) {
+    auto acc = Diff().Access(ms::WRITE);
+    ASSERT_TRUE(ctx_->BeginTransaction(acc.get()).has_value());
+    WriteBoth(*ctx_, value);
+    ASSERT_TRUE(ctx_->CommitTransaction(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ctx_->EndTransaction();
+  }
+
+  // x of the fork vertex and of the fork edge as `ctx`'s open transaction sees them at `view`.
+  std::pair<int64_t, int64_t> Values(mv::BranchContext &ctx, ms::View view) {
+    auto value = [&](const auto &object) {
+      auto read = ctx.GetProperty(object, prop_x_, view);
+      return !read.has_value() ? int64_t{-1} : read->IsNull() ? int64_t{0} : read->ValueInt();
+    };
+    return {value(*ctx.FindForkVertex(v_gid_)), value(ForkEdge(ctx))};
+  }
+
+  std::unique_ptr<mv::BranchContext> ctx_;
+  int64_t baseline_{};
+};
+
+class VersioningBranchPeriodicGcTest : public VersioningBranchGcTest {
+ protected:
+  ms::Config MainConfig() const override {
+    ms::Config config;
+    config.gc = {.type = ms::Config::Gc::Type::PERIODIC, .interval = std::chrono::milliseconds(20)};
+    return config;
+  }
+};
+
+// Another session's open transaction defeats fast-discard, so every committed branch update keeps its deltas until GC.
+TEST_F(VersioningBranchGcTest, DeltasRetainedBehindAnOpenTransactionAreFreedByGc) {
+  CommitBoth(1);
+  constexpr int64_t kCommits = 1000;
+  {
+    auto session_b = Diff().Access(ms::READ);
+    for (int64_t i = 2; i <= kCommits; ++i) CommitBoth(i);
+    Collect();
+    EXPECT_GE(Deltas() - baseline_, 2 * (kCommits - 1)) << "an older open transaction must pin the committed deltas";
+  }
+  Collect();
+  EXPECT_LE(Deltas() - baseline_, 8);
+
+  auto acc = Diff().Access(ms::READ);
+  ASSERT_TRUE(ctx_->BeginTransaction(acc.get()).has_value());
+  EXPECT_EQ(Values(*ctx_, ms::View::NEW), (std::pair<int64_t, int64_t>{kCommits, kCommits}));
+  ctx_->EndTransaction();
+}
+
+TEST_F(VersioningBranchGcTest, RolledBackBigTransactionLeavesNoDeltasAfterGc) {
+  constexpr int64_t kWrites = 1000;
+  {
+    auto acc = Diff().Access(ms::WRITE);
+    ASSERT_TRUE(ctx_->BeginTransaction(acc.get()).has_value());
+    for (int64_t i = 0; i < kWrites; ++i) {
+      acc->CreateVertex();
+      WriteBoth(*ctx_, i);
+    }
+    EXPECT_GE(Deltas() - baseline_, 3 * kWrites)
+        << "a native create and a write of the vertex stub and of the edge stub";
+    acc->Abort();
+    ctx_->EndTransaction();
+  }
+  Collect();
+  EXPECT_LE(Deltas() - baseline_, 8);
+
+  auto acc = Diff().Access(ms::READ);
+  size_t natives = 0;
+  for ([[maybe_unused]] auto v : acc->Vertices(ms::View::NEW)) ++natives;
+  EXPECT_EQ(natives, 0u);
+  ASSERT_TRUE(ctx_->BeginTransaction(acc.get()).has_value());
+  EXPECT_EQ(Values(*ctx_, ms::View::NEW), (std::pair<int64_t, int64_t>{0, 1}));
+  ctx_->EndTransaction();
+}
+
+// A stub outlives an aborted transaction and GC without being an entry of the diff engine: the abort undoes only its
+// deltas, GC never retires the stub, and the branch still finds it and reads the fork state through it.
+TEST_F(VersioningBranchGcTest, AbortedStubWritesThenGcKeepTheStubsOutsideTheDiffEngineAndTheForkReadable) {
+  {
+    auto acc = Diff().Access(ms::WRITE);
+    ASSERT_TRUE(ctx_->BeginTransaction(acc.get()).has_value());
+    WriteBoth(*ctx_, 7);
+    acc->Abort();
+    ctx_->EndTransaction();
+  }
+  Collect();
+  EXPECT_LE(Deltas() - baseline_, 8);
+
+  auto acc = Diff().Access(ms::READ);
+  ASSERT_TRUE(ctx_->BeginTransaction(acc.get()).has_value());
+  EXPECT_EQ(acc->ApproximateVertexCount(), 0U) << "the stubs are not diff-engine vertices";
+  EXPECT_EQ(acc->ApproximateEdgeCount(), 0U) << "nor diff-engine edges";
+  auto stub = ctx_->FindStub(v_gid_, ms::View::NEW);
+  ASSERT_TRUE(stub.has_value());
+  EXPECT_TRUE(stub->GetProperty(prop_x_, ms::View::NEW)->IsNull()) << "the aborted write must be undone on the stub";
+  EXPECT_NE(core_->edge_stub_index().Find(edge_gid_.AsUint()), nullptr);
+  EXPECT_EQ(Values(*ctx_, ms::View::NEW), (std::pair<int64_t, int64_t>{0, 1}));
+  EXPECT_TRUE(ctx_->HasLabel(*ctx_->FindForkVertex(v_gid_), label_, ms::View::NEW).value_or(false));
+  ctx_->EndTransaction();
+}
+
+// A deleted fork edge stays hidden once GC has freed the deltas that recorded the delete, and refuses further writes.
+TEST_F(VersioningBranchGcTest, ACollectedDeletedForkEdgeStaysHidden) {
+  CommitBoth(7);
+  CommitBoth(8);
+  {
+    auto acc = Diff().Access(ms::WRITE);
+    ASSERT_TRUE(ctx_->BeginTransaction(acc.get()).has_value());
+    auto deleted = ctx_->DeleteForkEdge(ForkEdge(*ctx_));
+    ASSERT_TRUE(deleted.has_value());
+    EXPECT_TRUE(*deleted);
+    ASSERT_TRUE(ctx_->CommitTransaction(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ctx_->EndTransaction();
+  }
+  Collect();
+  EXPECT_LE(Deltas() - baseline_, 8) << "the committed deltas are gone";
+
+  auto acc = Diff().Access(ms::WRITE);
+  ASSERT_TRUE(ctx_->BeginTransaction(acc.get()).has_value());
+  auto fork_edge = ForkEdge(*ctx_);
+  EXPECT_TRUE(ctx_->IsForkEdgeHidden(fork_edge, ms::View::NEW));
+  EXPECT_TRUE(ctx_->ResolveEdges(v_gid_, ms::EdgeDirection::OUT, ms::View::NEW).empty());
+  EXPECT_EQ(ctx_->SetProperty(fork_edge, prop_x_, ms::PropertyValue(1)).error(), ms::Error::DELETED_OBJECT);
+  EXPECT_EQ(core_->ForkDeletes(), (mv::ObjectCounts{0, 1}));
+  acc->Abort();
+  ctx_->EndTransaction();
+}
+
+// BL-0222: the GC horizon is one clock. A reader older than a write or a delete keeps reading its snapshot through the
+// stub while GC runs, before and after its branch transaction opens, and the delta is collected only once it is gone.
+TEST_F(VersioningBranchGcTest, GcKeepsWhatAnOlderSnapshotReadsThroughStubs) {
+  CommitBoth(1);
+  auto reader = Diff().Access(ms::READ);
+  CommitBoth(2);
+  {
+    auto acc = Diff().Access(ms::WRITE);
+    ASSERT_TRUE(ctx_->BeginTransaction(acc.get()).has_value());
+    ASSERT_TRUE(*ctx_->DeleteForkEdge(ForkEdge(*ctx_)));
+    ASSERT_TRUE(*ctx_->DeleteForkVertex(a_gid_));
+    ASSERT_TRUE(ctx_->CommitTransaction(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ctx_->EndTransaction();
+  }
+  Collect();
+  EXPECT_GT(Deltas() - baseline_, 0) << "the reader pins them";
+
+  mv::BranchContext reading{core_};
+  ASSERT_TRUE(reading.BeginTransaction(reader.get()).has_value());
+  EXPECT_EQ(Values(reading, ms::View::OLD), (std::pair<int64_t, int64_t>{1, 1}));
+  EXPECT_FALSE(reading.IsForkEdgeHidden(ForkEdge(reading), ms::View::NEW));
+  EXPECT_FALSE(reading.IsVertexDeleted(a_gid_, ms::View::NEW));
+  reading.EndTransaction();
+  reader.reset();
+  Collect();
+  EXPECT_LE(Deltas() - baseline_, 8);
+
+  auto acc = Diff().Access(ms::READ);
+  ASSERT_TRUE(ctx_->BeginTransaction(acc.get()).has_value());
+  EXPECT_TRUE(ctx_->IsForkEdgeHidden(ForkEdge(*ctx_), ms::View::NEW));
+  EXPECT_TRUE(ctx_->IsVertexDeleted(a_gid_, ms::View::NEW));
+  EXPECT_EQ(*ctx_->GetProperty(*ctx_->FindForkVertex(v_gid_), prop_x_, ms::View::NEW), ms::PropertyValue(2));
+  ctx_->EndTransaction();
+}
+
+// A mixed transaction (stub writes + native creates, vertex and edge) commits or aborts all of it together.
+TEST_F(VersioningBranchGcTest, AMixedTransactionCommitsAndAbortsStubsAndNativeObjectsTogether) {
+  auto const type = storage_->NameToEdgeType("N");
+  ms::Gid native, aborted_native;
+  {
+    auto acc = Diff().Access(ms::WRITE);
+    ASSERT_TRUE(ctx_->BeginTransaction(acc.get()).has_value());
+    WriteBoth(*ctx_, 5);
+    auto from = ctx_->CreateNativeVertex();
+    aborted_native = from.Gid();
+    auto stub = ctx_->EnsureDiffVertex(v_gid_);
+    ASSERT_TRUE(stub.has_value());
+    ASSERT_TRUE(ctx_->CreateNativeEdge(from, *stub, type).has_value());
+    acc->Abort();
+    ctx_->EndTransaction();
+  }
+  {
+    auto acc = Diff().Access(ms::READ);
+    ASSERT_TRUE(ctx_->BeginTransaction(acc.get()).has_value());
+    EXPECT_EQ(Values(*ctx_, ms::View::NEW), (std::pair<int64_t, int64_t>{0, 1})) << "an aborted stub write is gone";
+    EXPECT_FALSE(ctx_->ResolveVertex(aborted_native, ms::View::NEW).has_value()) << "so is an aborted native create";
+    EXPECT_EQ(ctx_->ResolveEdges(v_gid_, ms::EdgeDirection::IN, ms::View::NEW).size(), 0u);
+    ctx_->EndTransaction();
+  }
+  ms::Gid native_edge;
+  {
+    auto acc = Diff().Access(ms::WRITE);
+    ASSERT_TRUE(ctx_->BeginTransaction(acc.get()).has_value());
+    WriteBoth(*ctx_, 6);
+    auto from = ctx_->CreateNativeVertex();
+    native = from.Gid();
+    auto stub = ctx_->EnsureDiffVertex(v_gid_);
+    ASSERT_TRUE(stub.has_value());
+    auto edge = ctx_->CreateNativeEdge(from, *stub, type);
+    ASSERT_TRUE(edge.has_value());
+    native_edge = edge->Gid();
+    ASSERT_TRUE(ctx_->CommitTransaction(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ctx_->EndTransaction();
+  }
+  auto acc = Diff().Access(ms::READ);
+  ASSERT_TRUE(ctx_->BeginTransaction(acc.get()).has_value());
+  EXPECT_EQ(Values(*ctx_, ms::View::NEW), (std::pair<int64_t, int64_t>{6, 6}));
+  EXPECT_TRUE(ctx_->ResolveVertex(native, ms::View::NEW).has_value());
+  EXPECT_TRUE(ctx_->ResolveEdge(native_edge, native, ms::View::NEW).has_value());
+  EXPECT_EQ(ctx_->ResolveEdges(v_gid_, ms::EdgeDirection::IN, ms::View::NEW).size(), 1u);
+  ctx_->EndTransaction();
+}
+
+// Two branch transactions writing one fork vertex or fork edge conflict, the loser's diff transaction is poisoned like
+// a storage serialization error, and a snapshot reader older than the winner's commit is unaffected.
+TEST_F(VersioningBranchGcTest, ConcurrentStubWritersConflictAndReadersKeepTheirSnapshot) {
+  mv::BranchContext other{core_};
+  auto first = Diff().Access(ms::WRITE);
+  ASSERT_TRUE(ctx_->BeginTransaction(first.get()).has_value());
+  auto second = Diff().Access(ms::WRITE);
+  ASSERT_TRUE(other.BeginTransaction(second.get()).has_value());
+  auto reader = Diff().Access(ms::READ);
+  mv::BranchContext reading{core_};
+  ASSERT_TRUE(reading.BeginTransaction(reader.get()).has_value());
+
+  WriteBoth(*ctx_, 1);
+  auto other_vertex = *other.FindForkVertex(v_gid_);
+  auto const vertex_conflict = other.SetProperty(other_vertex, prop_x_, ms::PropertyValue(2));
+  ASSERT_FALSE(vertex_conflict.has_value());
+  EXPECT_EQ(vertex_conflict.error(), ms::Error::SERIALIZATION_ERROR);
+  EXPECT_TRUE(second->TransactionHasSerializationError());
+  auto other_edge = ForkEdge(other);
+  EXPECT_EQ(other.SetProperty(other_edge, prop_x_, ms::PropertyValue(2)).error(), ms::Error::SERIALIZATION_ERROR);
+
+  ASSERT_TRUE(ctx_->CommitTransaction(memgraph::tests::MakeMainCommitArgs()).has_value());
+  EXPECT_EQ(Values(reading, ms::View::NEW), (std::pair<int64_t, int64_t>{0, 1}))
+      << "a snapshot older than the commit must not see it";
+  other.EndTransaction();
+  reading.EndTransaction();
+  ctx_->EndTransaction();
+}
+
+// A fork edge deleted by a transaction in flight fails a DETACH DELETE of its endpoint, on the edge's stub.
+TEST_F(VersioningBranchGcTest, DeleteForkVertexConflictsWithAnInFlightEdgeDelete) {
+  mv::BranchContext other{core_};
+  auto first = Diff().Access(ms::WRITE);
+  ASSERT_TRUE(ctx_->BeginTransaction(first.get()).has_value());
+  auto second = Diff().Access(ms::WRITE);
+  ASSERT_TRUE(other.BeginTransaction(second.get()).has_value());
+
+  auto deleted = ctx_->DeleteForkEdge(ForkEdge(*ctx_));
+  ASSERT_TRUE(deleted.has_value() && *deleted);
+  EXPECT_FALSE(first->TransactionHasSerializationError());
+  EXPECT_EQ(other.DeleteForkVertex(v_gid_).error(), ms::Error::SERIALIZATION_ERROR);
+  EXPECT_TRUE(second->TransactionHasSerializationError());
+
+  ASSERT_TRUE(ctx_->CommitTransaction(memgraph::tests::MakeMainCommitArgs()).has_value());
+  other.EndTransaction();
+  ctx_->EndTransaction();
+}
+
+// A periodic commit commits each batch's stub and native writes and continues at a fresh snapshot; a reader older than
+// every batch sees none of them while GC runs.
+TEST_F(VersioningBranchGcTest, PeriodicCommitCommitsEachBatchAndGcKeepsPinnedSnapshots) {
+  auto reader = Diff().Access(ms::READ);
+  mv::BranchContext reading{core_};
+  ASSERT_TRUE(reading.BeginTransaction(reader.get()).has_value());
+
+  ms::Gid native;
+  {
+    auto acc = Diff().Access(ms::WRITE);
+    ASSERT_TRUE(ctx_->BeginTransaction(acc.get()).has_value());
+    for (int64_t batch = 1; batch <= 3; ++batch) {
+      WriteBoth(*ctx_, batch);
+      if (batch == 2) native = ctx_->CreateNativeVertex().Gid();
+      ASSERT_TRUE(ctx_->PeriodicCommitTransaction(memgraph::tests::MakeMainCommitArgs()).has_value());
+      EXPECT_EQ(Values(*ctx_, ms::View::NEW), (std::pair<int64_t, int64_t>{batch, batch}));
+    }
+    WriteBoth(*ctx_, 4);
+    acc->Abort();
+    ctx_->EndTransaction();
+  }
+  Collect();
+  EXPECT_GT(Deltas() - baseline_, 0) << "the reader's snapshot predates every batch";
+  EXPECT_EQ(Values(reading, ms::View::NEW), (std::pair<int64_t, int64_t>{0, 1}));
+  reading.EndTransaction();
+  reader.reset();
+
+  Collect();
+  EXPECT_LE(Deltas() - baseline_, 8);
+  auto acc = Diff().Access(ms::READ);
+  ASSERT_TRUE(ctx_->BeginTransaction(acc.get()).has_value());
+  EXPECT_EQ(Values(*ctx_, ms::View::NEW), (std::pair<int64_t, int64_t>{3, 3})) << "the aborted batch is gone";
+  EXPECT_TRUE(ctx_->ResolveVertex(native, ms::View::NEW).has_value()) << "the mixed batch's native create committed";
+  ctx_->EndTransaction();
+}
+
+// A write to an object another transaction committed after this one started conflicts, a write to another object does
+// not, and a transaction started after the commit writes freely; main gives the same outcomes.
+TEST_F(VersioningBranchGcTest, CommittedConcurrentWritesConflictAsOnMain) {
+  struct Outcome {
+    bool other_object_ok;
+    std::optional<ms::Error> same_vertex_error;
+    std::optional<ms::Error> same_edge_error;
+    bool later_txn_ok;
+    bool operator==(const Outcome &) const = default;
+  };
+
+  auto const value = ms::PropertyValue(7);
+  auto const error_of = [](auto &&result) {
+    return result ? std::optional<ms::Error>{} : std::optional<ms::Error>{result.error()};
+  };
+  auto const main_edge = [&](ms::Storage::Accessor &acc) {
+    return acc.FindVertex(v_gid_, ms::View::OLD)->OutEdges(ms::View::OLD)->edges[0];
+  };
+
+  Outcome on_main{};
+  {
+    auto t1 = storage_->Access(ms::WRITE);
+    auto t2 = storage_->Access(ms::WRITE);
+    auto edge1 = main_edge(*t1);
+    ASSERT_TRUE(t1->FindVertex(v_gid_, ms::View::OLD)->SetProperty(prop_x_, value).has_value());
+    ASSERT_TRUE(edge1.SetProperty(prop_x_, value).has_value());
+    ASSERT_TRUE(t1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    on_main.other_object_ok = t2->FindVertex(a_gid_, ms::View::OLD)->SetProperty(prop_x_, value).has_value();
+    on_main.same_vertex_error = error_of(t2->FindVertex(v_gid_, ms::View::OLD)->SetProperty(prop_x_, value));
+    auto edge2 = main_edge(*t2);
+    on_main.same_edge_error = error_of(edge2.SetProperty(prop_x_, value));
+    t2->Abort();
+    auto t3 = storage_->Access(ms::WRITE);
+    auto edge3 = main_edge(*t3);
+    on_main.later_txn_ok = t3->FindVertex(v_gid_, ms::View::OLD)->SetProperty(prop_x_, value).has_value() &&
+                           edge3.SetProperty(prop_x_, value).has_value();
+  }
+
+  Outcome on_branch{};
+  {
+    mv::BranchContext other{core_};
+    auto t1 = Diff().Access(ms::WRITE);
+    ASSERT_TRUE(ctx_->BeginTransaction(t1.get()).has_value());
+    auto t2 = Diff().Access(ms::WRITE);
+    ASSERT_TRUE(other.BeginTransaction(t2.get()).has_value());
+    WriteBoth(*ctx_, 7);
+    ASSERT_TRUE(ctx_->CommitTransaction(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ctx_->EndTransaction();
+    auto other_a = *other.FindForkVertex(a_gid_);
+    on_branch.other_object_ok = other.SetProperty(other_a, prop_x_, value).has_value();
+    auto other_v = *other.FindForkVertex(v_gid_);
+    on_branch.same_vertex_error = error_of(other.SetProperty(other_v, prop_x_, value));
+    auto other_e = ForkEdge(other);
+    on_branch.same_edge_error = error_of(other.SetProperty(other_e, prop_x_, value));
+    EXPECT_TRUE(t2->TransactionHasSerializationError());
+    other.EndTransaction();
+    t2->Abort();
+    auto t3 = Diff().Access(ms::WRITE);
+    ASSERT_TRUE(ctx_->BeginTransaction(t3.get()).has_value());
+    auto later_v = *ctx_->FindForkVertex(v_gid_);
+    auto later_e = ForkEdge(*ctx_);
+    on_branch.later_txn_ok = ctx_->SetProperty(later_v, prop_x_, value).has_value() &&
+                             ctx_->SetProperty(later_e, prop_x_, value).has_value();
+    ctx_->EndTransaction();
+  }
+
+  EXPECT_EQ(on_main, (Outcome{true, ms::Error::SERIALIZATION_ERROR, ms::Error::SERIALIZATION_ERROR, true}));
+  EXPECT_EQ(on_branch, on_main);
+}
+
+// Two sessions write the fork vertex and the fork vertex's neighbour in every transaction (same keys: they conflict and
+// retry), a third writes the fork edge only (never conflicts); readers hold snapshots across commits and GC. Every read
+// of a reader transaction returns the same values, and both vertices always carry one transaction's value.
+TEST_F(VersioningBranchGcTest, ConcurrentSessionsWriteAndReadersStayStableAcrossCommitsAndGc) {
+  constexpr int kCommitsPerWriter = 600;
+  std::atomic<int> writers_left{3};
+  std::atomic<int> same_key_conflicts{0};
+  std::atomic<int> snapshots{0};
+
+  // Runs one transaction on `ctx`: true if it committed, false on a serialization error (aborted).
+  auto run_txn = [&](mv::BranchContext &ctx, auto &&write) {
+    if (!ctx.OpenHistorical()) {
+      ADD_FAILURE() << "OpenHistorical failed";
+      return false;
+    }
+    auto acc = Diff().Access(ms::WRITE);
+    ctx.SetCurrentDiffTxn(acc.get());
+    bool const wrote = write(ctx);
+    bool const committed = wrote && ctx.CommitTransaction(memgraph::tests::MakeMainCommitArgs()).has_value();
+    ctx.EndTransaction();
+    if (!committed) acc->Abort();
+    return committed;
+  };
+  auto vertex_value = [&](mv::BranchContext &ctx, ms::Gid gid) {
+    auto value = ctx.GetProperty(*ctx.FindForkVertex(gid), prop_x_, ms::View::OLD);
+    return !value.has_value() ? -1 : value->IsNull() ? 0 : value->ValueInt();
+  };
+  auto edge_value = [&](mv::BranchContext &ctx) {
+    auto value = ctx.GetProperty(ForkEdge(ctx), prop_x_, ms::View::OLD);
+    return !value.has_value() ? -1 : value->IsNull() ? 0 : value->ValueInt();
+  };
+
+  std::vector<std::jthread> threads;
+  for (int writer = 1; writer <= 2; ++writer) {
+    threads.emplace_back([&, writer] {
+      const memgraph::memory::DbArenaScope scope{pool_.get()};
+      mv::BranchContext ctx{core_};
+      for (int round = 1; round <= kCommitsPerWriter;) {
+        auto const value = ms::PropertyValue((writer * 100000) + round);
+        bool const committed = run_txn(ctx, [&](mv::BranchContext &c) {
+          auto v = *c.FindForkVertex(v_gid_);
+          auto a = *c.FindForkVertex(a_gid_);
+          return c.SetProperty(v, prop_x_, value).has_value() && c.SetProperty(a, prop_x_, value).has_value();
+        });
+        if (committed) {
+          ++round;
+        } else {
+          ++same_key_conflicts;
+        }
+      }
+      --writers_left;
+    });
+  }
+  threads.emplace_back([&] {
+    const memgraph::memory::DbArenaScope scope{pool_.get()};
+    mv::BranchContext ctx{core_};
+    for (int round = 1; round <= kCommitsPerWriter; ++round) {
+      EXPECT_TRUE(run_txn(ctx, [&](mv::BranchContext &c) {
+        auto edge = ForkEdge(c);
+        return c.SetProperty(edge, prop_x_, ms::PropertyValue(round)).has_value();
+      })) << "a write to an object no one else writes never conflicts";
+    }
+    --writers_left;
+  });
+  threads.emplace_back([&] {
+    const memgraph::memory::DbArenaScope scope{pool_.get()};
+    while (writers_left.load() > 0) Diff().FreeMemory({}, false);
+  });
+  for (int reader = 0; reader < 2; ++reader) {
+    threads.emplace_back([&] {
+      const memgraph::memory::DbArenaScope scope{pool_.get()};
+      mv::BranchContext ctx{core_};
+      int64_t last_edge = 0;
+      do {
+        auto acc = Diff().Access(ms::READ);
+        ASSERT_TRUE(ctx.BeginTransaction(acc.get()).has_value());
+        auto const v = vertex_value(ctx, v_gid_);
+        auto const e = edge_value(ctx);
+        ASSERT_EQ(vertex_value(ctx, a_gid_), v) << "both vertices carry one transaction's value";
+        ASSERT_GE(e, last_edge);
+        last_edge = e;
+        for (int i = 0; i < 4; ++i) {
+          std::this_thread::yield();
+          ASSERT_EQ(vertex_value(ctx, v_gid_), v);
+          ASSERT_EQ(vertex_value(ctx, a_gid_), v);
+          ASSERT_EQ(edge_value(ctx), e);
+        }
+        ctx.EndTransaction();
+        ++snapshots;
+      } while (writers_left.load() > 0);
+    });
+  }
+  threads.clear();
+
+  EXPECT_GT(snapshots.load(), 2);
+  Collect();
+  EXPECT_LE(Deltas() - baseline_, 8);
+  auto acc = Diff().Access(ms::READ);
+  ASSERT_TRUE(ctx_->BeginTransaction(acc.get()).has_value());
+  EXPECT_EQ(vertex_value(*ctx_, v_gid_) % 100000, kCommitsPerWriter) << "the last committed writer finished its rounds";
+  EXPECT_EQ(vertex_value(*ctx_, a_gid_), vertex_value(*ctx_, v_gid_));
+  EXPECT_EQ(edge_value(*ctx_), kCommitsPerWriter);
+  ctx_->EndTransaction();
+}
+
+TEST_F(VersioningBranchGcTest, BranchWritesAreChargedToMainsMemoryTracker) {
+#if !USE_JEMALLOC
+  GTEST_SKIP() << "per-DB arena tracking needs jemalloc";
+#endif
+  Collect();
+  const auto before = db_tracker_.Amount();
+  // A fresh thread starts outside any arena scope; entering the diff engine's pool means a null or foreign pool in
+  // Build would leave main's tracker flat.
+  std::thread writer([&] {
+    const memgraph::memory::DbArenaScope scope{Diff().DbArenaPool()};
+    auto acc = Diff().Access(ms::WRITE);
+    for (int i = 0; i < 40000; ++i) {
+      auto v = acc->CreateVertex();
+      if (!v.SetProperty(prop_x_, ms::PropertyValue(std::string(64, 'a'))).has_value()) {
+        ADD_FAILURE() << "SetProperty failed";
+        break;
+      }
+    }
+    EXPECT_GT(db_tracker_.Amount() - before, 1024 * 1024);
+    acc->Abort();
+  });
+  writer.join();
+}
+
+TEST_F(VersioningBranchPeriodicGcTest, PeriodicGcThreadFreesDeltasWithoutExplicitCollect) {
+  CommitBoth(1);
+  {
+    auto session_b = Diff().Access(ms::READ);
+    for (int64_t i = 2; i <= 300; ++i) CommitBoth(i);
+    EXPECT_GE(Deltas() - baseline_, 300);
+  }
+  const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+  while (Deltas() - baseline_ > 8 && std::chrono::steady_clock::now() < deadline) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+  }
+  EXPECT_LE(Deltas() - baseline_, 8);
+}
+
+// A native edge hung on a stub is linked from the stub, which the diff engine does not own: with light edges that
+// edge is a pool object, and the core must free it at teardown. A second identical round must not grow the process's
+// allocations by what the first left behind.
+#if USE_JEMALLOC
+size_t AllocatedBytes() {
+  uint64_t epoch = 1;
+  size_t size = sizeof(epoch);
+  EXPECT_EQ(je_mallctl("epoch", &epoch, &size, &epoch, size), 0);
+  size_t allocated = 0;
+  size = sizeof(allocated);
+  EXPECT_EQ(je_mallctl("stats.allocated", &allocated, &size, nullptr, 0), 0);
+  return allocated;
+}
+
+TEST_F(VersioningBranchCoreLightEdgeTest, TeardownFreesLightEdgesLinkedFromStubs) {
+  core_.reset();
+  constexpr int kEdges = 60'000;
+  auto const round = [&] {
+    auto built = mv::BranchCore::Build(*storage_, fork_ts_);
+    ASSERT_TRUE(built.has_value());
+    auto core = std::move(*built);
+    auto &diff = core->diff_engine();
+    auto acc = diff.Access(ms::WRITE);
+    ms::VertexAccessor from{core->stub_index().GetOrCreateStub(v_gid_.AsUint(), nullptr), &diff, acc->GetTransaction()};
+    ms::VertexAccessor to{core->stub_index().GetOrCreateStub(a_gid_.AsUint(), nullptr), &diff, acc->GetTransaction()};
+    auto &replication = static_cast<ms::ReplicationAccessor &>(*acc);
+    auto const type = core->NameToEdgeType("N");
+    for (int i = 0; i < kEdges; ++i) {
+      ASSERT_TRUE(replication.CreateEdgeEx(&from, &to, type, ms::Gid::FromUint(1'000'000 + i)).has_value());
+    }
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  };
+  round();
+  auto const after_first = AllocatedBytes();
+  round();
+  EXPECT_LT(AllocatedBytes(), after_first + kEdges * sizeof(ms::Edge) / 2)
+      << "the light edges linked from the stubs leaked";
+}
+#endif
 
 }  // namespace
