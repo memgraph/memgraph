@@ -5925,3 +5925,212 @@ TEST(PrefixSuccessor, ComputesNoSuccessorOnEmptyString) {
   auto result = memgraph::storage::PrefixSuccessor("");
   EXPECT_FALSE(result.has_value());
 }
+
+// A write of the value an object already has, in a transaction still open, gives the object a
+// second entry under the same key, differing from the first only in its timestamp. Before this was
+// fixed, the sweep collected the older one as redundant; if the writer then rolled back, its abort
+// removed the newer one, and a live object was reachable through none of its indexes. A reader that
+// began before the rewrite lost it the same way, rollback or not.
+class IndexSweepReplacement : public testing::Test {
+ protected:
+  // Exact entry counts, stale and uncommitted entries included.
+  struct Entries {
+    uint64_t label;
+    uint64_t label_property;
+    uint64_t vertex_property;
+    uint64_t edge_type_property;
+    uint64_t edge_property;
+
+    friend bool operator==(Entries const &, Entries const &) = default;
+
+    friend void PrintTo(Entries const &entries, std::ostream *os) {
+      *os << "{label " << entries.label << ", label_property " << entries.label_property << ", vertex_property "
+          << entries.vertex_property << ", edge_type_property " << entries.edge_type_property << ", edge_property "
+          << entries.edge_property << "}";
+    }
+  };
+
+  void SetUp() override {
+    Config config{};
+    config.salient.items.properties_on_edges = true;
+    // An identical write must produce an entry for these tests to mean anything.
+    config.salient.items.delta_on_identical_property_update = true;
+    // GC is driven explicitly, so a pass is never in flight for reasons a test cannot see.
+    config.gc.type = Config::Gc::Type::NONE;
+    storage = std::make_unique<InMemoryStorage>(config);
+    label = storage->NameToLabel("L");
+    property = storage->NameToProperty("p");
+    edge_type = storage->NameToEdgeType("E");
+
+    // One accessor per index: an accessor is spent by the DDL it carries.
+    {
+      auto acc = storage->UniqueAccess();
+      ASSERT_NO_ERROR(acc->CreateIndex(label));
+      ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+    }
+    {
+      auto acc = storage->UniqueAccess();
+      ASSERT_NO_ERROR(acc->CreateIndex(label, {PropertyPath{property}}));
+      ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+    }
+    {
+      auto acc = storage->ReadOnlyAccess();
+      ASSERT_NO_ERROR(acc->CreateGlobalVertexIndex(property));
+      ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+    }
+    {
+      auto acc = storage->ReadOnlyAccess();
+      ASSERT_NO_ERROR(acc->CreateIndex(edge_type, property));
+      ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+    }
+    {
+      auto acc = storage->ReadOnlyAccess();
+      ASSERT_NO_ERROR(acc->CreateGlobalEdgeIndex(property));
+      ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+    }
+
+    auto acc = storage->Access(WRITE);
+    auto vertex = acc->CreateVertex();
+    auto other = acc->CreateVertex();
+    ASSERT_NO_ERROR(vertex.AddLabel(label));
+    ASSERT_NO_ERROR(vertex.SetProperty(property, PropertyValue{1}));
+    auto edge = acc->CreateEdge(&vertex, &other, edge_type);
+    ASSERT_TRUE(edge.has_value());
+    ASSERT_NO_ERROR(edge->SetProperty(property, PropertyValue{1}));
+    vertex_gid = vertex.Gid();
+    edge_gid = edge->Gid();
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  auto Count() -> Entries {
+    auto acc = storage->Access(READ);
+    auto const entries = Entries{
+        .label = acc->ApproximateVertexCount(label),
+        .label_property = acc->ApproximateVertexCount(label, std::array{PropertyPath{property}}),
+        .vertex_property = acc->ApproximateVertexCount(property),
+        .edge_type_property = acc->ApproximateEdgeCount(edge_type, property),
+        .edge_property = acc->ApproximateEdgeCount(property),
+    };
+    acc->Abort();
+    return entries;
+  }
+
+  // Writes every indexed value back unchanged, and removes and re-adds the label, which gives the
+  // label index the same pair of entries. The label-property entry the re-added label inserts has
+  // the key and timestamp the property write already gave the vertex, so it is the same entry.
+  void RewriteUnchanged(Storage::Accessor &acc) {
+    auto vertex = acc.FindVertex(vertex_gid, View::NEW);
+    ASSERT_TRUE(vertex.has_value());
+    ASSERT_NO_ERROR(vertex->SetProperty(property, PropertyValue{1}));
+    ASSERT_NO_ERROR(vertex->RemoveLabel(label));
+    ASSERT_NO_ERROR(vertex->AddLabel(label));
+    auto edge = acc.FindEdge(edge_gid, View::NEW);
+    ASSERT_TRUE(edge.has_value());
+    ASSERT_NO_ERROR(edge->SetProperty(property, PropertyValue{1}));
+  }
+
+  void SweepAt(uint64_t horizon) {
+    // Armed for everything: this asserts what a sweep leaves behind, not what it visits.
+    auto arming = IndexArming{};
+    arming.arm_all_vertex_indexes();
+    arming.arm_all_edge_indexes();
+    storage->indices_.RemoveObsoleteVertexEntries(storage.get(), horizon, std::stop_token{}, arming);
+    storage->indices_.RemoveObsoleteEdgeEntries(storage.get(), horizon, std::stop_token{}, arming);
+  }
+
+  void ExpectReachable() {
+    auto acc = storage->Access(READ);
+    ExpectReachable(*acc);
+    acc->Abort();
+  }
+
+  void ExpectReachable(Storage::Accessor &acc) {
+    auto const has_vertex = [&](auto &&vertices) {
+      for (auto vertex : vertices) {
+        if (vertex.Gid() == vertex_gid) return true;
+      }
+      return false;
+    };
+    auto const has_edge = [&](auto &&edges) {
+      for (auto edge : edges) {
+        if (edge.Gid() == edge_gid) return true;
+      }
+      return false;
+    };
+    EXPECT_TRUE(has_vertex(acc.Vertices(label, View::OLD))) << "not found through the label index";
+    EXPECT_TRUE(has_vertex(acc.Vertices(label, std::array{PropertyPath{property}}, View::OLD)))
+        << "not found through the label-property index";
+    EXPECT_TRUE(has_vertex(acc.Vertices(property, PropertyValue{1}, View::OLD)))
+        << "not found through the global vertex property index";
+    EXPECT_TRUE(has_edge(acc.Edges(edge_type, property, PropertyValue{1}, View::OLD)))
+        << "not found through the edge-type-property index";
+    EXPECT_TRUE(has_edge(acc.Edges(property, PropertyValue{1}, View::OLD)))
+        << "not found through the global edge property index";
+  }
+
+  std::unique_ptr<InMemoryStorage> storage;
+  LabelId label;
+  PropertyId property;
+  EdgeTypeId edge_type;
+  Gid vertex_gid;
+  Gid edge_gid;
+};
+
+// The writer is the oldest active transaction, so the horizon is its start timestamp: the entries
+// it wrote sit at the horizon and the ones they duplicate sit below it.
+TEST_F(IndexSweepReplacement, UncommittedReplacementSurvivesSweepAndAbort) {
+  ASSERT_EQ(Count(), (Entries{1, 1, 1, 1, 1}));
+  auto writer = storage->Access(memgraph::storage::WRITE);
+  RewriteUnchanged(*writer);
+  ASSERT_EQ(Count(), (Entries{2, 2, 2, 2, 2}));
+  SweepAt(writer->GetTransaction()->start_timestamp);
+  EXPECT_EQ(Count(), (Entries{2, 2, 2, 2, 2})) << "a sweep took an entry of a running transaction as a replacement";
+  writer->Abort();
+  EXPECT_EQ(Count(), (Entries{1, 1, 1, 1, 1}));
+  ExpectReachable();
+}
+
+// A reader that began before the rewrite cannot see the newer entry, so it loses the object the
+// same way once the older one is swept, even though the rewrite commits.
+TEST_F(IndexSweepReplacement, OlderReaderKeepsReplacedEntries) {
+  auto reader = storage->Access(memgraph::storage::READ);
+  {
+    auto writer = storage->Access(memgraph::storage::WRITE);
+    RewriteUnchanged(*writer);
+    ASSERT_TRUE(writer->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+  SweepAt(reader->GetTransaction()->start_timestamp);
+  EXPECT_EQ(Count(), (Entries{2, 2, 2, 2, 2})) << "a sweep took an entry the reader cannot see as a replacement";
+  ExpectReachable(*reader);
+  reader->Abort();
+}
+
+// Control through the real collector: the same rewrite committed leaves a duplicate in every index,
+// and collection removes it. The setup's arming is drained first, so the pass after the commit is
+// armed by the writer's own deltas alone.
+TEST_F(IndexSweepReplacement, CommittedReplacementIsCollectedByGc) {
+  storage->FreeMemory({}, false);
+  {
+    auto writer = storage->Access(memgraph::storage::WRITE);
+    RewriteUnchanged(*writer);
+    ASSERT_TRUE(writer->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+  ASSERT_EQ(Count(), (Entries{2, 2, 2, 2, 2}));
+  storage->FreeMemory({}, false);
+  EXPECT_EQ(Count(), (Entries{1, 1, 1, 1, 1}));
+  ExpectReachable();
+}
+
+// Analytical mode has no rollback, so nothing is gained by waiting, in the label index as in the
+// property indexes. Its label index ignores the removal, so removing and re-adding the label leaves
+// a duplicate there; the label-property index erases the old key as it writes, which is why it
+// alone never shows the duplicate.
+TEST_F(IndexSweepReplacement, AnalyticalRewriteDoesNotWaitForTheHorizon) {
+  storage->SetStorageMode(StorageMode::IN_MEMORY_ANALYTICAL);
+  auto writer = storage->Access(memgraph::storage::WRITE);
+  RewriteUnchanged(*writer);
+  ASSERT_EQ(Count(), (Entries{2, 1, 2, 2, 2}));
+  SweepAt(writer->GetTransaction()->start_timestamp);
+  EXPECT_EQ(Count(), (Entries{1, 1, 1, 1, 1}));
+  ExpectReachable();
+}

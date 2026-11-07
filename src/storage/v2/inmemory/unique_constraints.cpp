@@ -757,7 +757,10 @@ uint64_t InMemoryUniqueConstraints::RemoveObsoleteEntries(Storage *storage,
             continue;
           }
 
-          if ((next_it != acc.end() && it->vertex == next_it->vertex && it->values == next_it->values) ||
+          // When recent entries are preserved, the replacement must be below the horizon too: until
+          // then an abort may remove it, or an older reader may be unable to see it.
+          if ((next_it != acc.end() && it->vertex == next_it->vertex && it->values == next_it->values &&
+               (!preserve_recent_entries || next_it->timestamp < oldest_active_start_timestamp)) ||
               !AnyVersionHasLabelProperty(*it->vertex, label, *properties, it->values, oldest_active_start_timestamp)) {
             acc.remove(*it);
           }
