@@ -20,6 +20,12 @@
 #include "storage/v2/edge_direction.hpp"
 #include "storage/v2/vertex.hpp"
 
+#ifdef MG_ENTERPRISE
+#include <span>
+
+#include "utils/logging.hpp"
+#endif
+
 namespace memgraph::storage {
 
 class Storage;
@@ -95,15 +101,25 @@ class ExpandedEdges {
   auto size() const -> std::size_t {
     if (from_triples_) [[likely]]
       return triples_.size();
+#ifdef MG_ENTERPRISE
+    return materialised_.size() + triples_.size();
+#else
     return materialised_.size();
+#endif
   }
 
   auto empty() const -> bool { return size() == 0; }
 
   /// The edge at `index`, built now. Public so a layer above can wrap without materialising.
   auto At(std::size_t index) const -> EdgeAccessor {
-    if (!from_triples_) [[unlikely]]
+    if (!from_triples_) [[unlikely]] {
+#ifdef MG_ENTERPRISE
+      if (index < materialised_.size()) return materialised_[index];
+      index -= materialised_.size();
+#else
       return materialised_[index];
+#endif
+    }
     auto const &[edge_type, other, edge] = triples_[index];
     // The triple names the far end of the edge; which end that is, is what the direction says.
     return direction_ == EdgeDirection::OUT ? EdgeAccessor{edge, edge_type, from_, other, storage_, transaction_}
@@ -114,14 +130,43 @@ class ExpandedEdges {
   /// `auto &edge = edges[0]` has nothing to bind to and must be `auto`.
   auto operator[](std::size_t index) const -> EdgeAccessor { return At(index); }
 
+#ifdef MG_ENTERPRISE
+  /// The stored triples themselves, for a reader that needs no accessor per edge. The in-memory form only.
+  auto Triples() const -> std::span<EdgeTriple const> {
+    DMG_ASSERT(from_triples_, "only the in-memory form holds triples.");
+    return {triples_.data(), triples_.size()};
+  }
+
+  /// This expansion's edges behind `prefix`, the rest still built when looked at. The in-memory form only.
+  auto WithPrefix(std::vector<EdgeAccessor> prefix) && -> ExpandedEdges {
+    DMG_ASSERT(from_triples_, "only the in-memory form holds triples.");
+    materialised_ = std::move(prefix);
+    from_triples_ = false;
+    return std::move(*this);
+  }
+
+  /// Drops, in place, the edges `keep` rejects. `keep` sees each stored triple once, in order. The in-memory form only.
+  template <typename Predicate>
+  void Retain(Predicate keep) {
+    DMG_ASSERT(from_triples_, "only the in-memory form holds triples.");
+    std::size_t kept = 0;
+    for (std::size_t index = 0; index != triples_.size(); ++index) {
+      if (!keep(std::as_const(triples_[index]))) continue;
+      if (kept != index) triples_[kept] = triples_[index];
+      ++kept;
+    }
+    triples_.erase(triples_.begin() + kept, triples_.end());
+  }
+#endif
+
   /// The edges `keep` accepts, held the same way: deciding means looking at every edge, but what
   /// comes back still builds its accessors when they are looked at.
   template <typename Predicate>
   auto Filtered(Predicate keep) const -> ExpandedEdges {
     if (!from_triples_) [[unlikely]] {
       auto kept = std::vector<EdgeAccessor>{};
-      for (auto const &edge : materialised_) {
-        if (keep(edge)) kept.push_back(edge);
+      for (std::size_t index = 0; index != size(); ++index) {
+        if (auto edge = At(index); keep(edge)) kept.push_back(std::move(edge));
       }
       return ExpandedEdges{std::move(kept)};
     }
@@ -139,9 +184,9 @@ class ExpandedEdges {
   Storage *storage_{nullptr};
   Transaction *transaction_{nullptr};
   EdgeDirection direction_{EdgeDirection::OUT};
-  /// Which of the two above holds the edges. Defaulting to the triples puts an expansion that
-  /// found nothing on the same arm as one that found something; holding nothing, it never reaches
-  /// the context the triples would need.
+  /// Which of the two above holds the edges (both, in the enterprise build, after WithPrefix: the vector first).
+  /// Defaulting to the triples puts an expansion that found nothing on the same arm as one that found something;
+  /// holding nothing, it never reaches the context the triples would need.
   bool from_triples_{true};
 };
 

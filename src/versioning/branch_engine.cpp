@@ -18,6 +18,7 @@
 #include <map>
 #include <mutex>
 #include <shared_mutex>
+#include <span>
 #include <string_view>
 #include <tuple>
 #include <utility>
@@ -212,6 +213,9 @@ void BranchContext::BeginTransaction(HistoricalAccessor historical, storage::Sto
   MG_ASSERT(historical != nullptr, "BranchContext::BeginTransaction: the historical accessor is null.");
   MG_ASSERT(!txn_, "BranchContext::BeginTransaction: a branch transaction is already open.");
   txn_.emplace(std::move(historical), diff_txn);
+  txn_->historical->GetTransaction()->branch_ctx = this;
+  diff_txn.GetTransaction()->branch_ctx = this;
+  diff_txn.GetTransaction()->branch_diff_ctx = this;
 }
 
 std::expected<void, BranchContext::BuildError> BranchContext::BeginTransaction(storage::Storage::Accessor *diff_txn) {
@@ -316,6 +320,16 @@ storage::Vertex *BranchContext::FindBaseVertexPtr(storage::Gid gid) {
 storage::VertexAccessor BranchContext::BaseVertexAccessor(storage::Vertex *base_vertex) {
   DMG_ASSERT(base_vertex != nullptr, "a base vertex pointer comes from FindBaseVertexPtr.");
   return storage::VertexAccessor{base_vertex, &main(), historical().GetTransaction()};
+}
+
+storage::VertexAccessor BranchContext::BaseIdentity(const storage::VertexAccessor &vertex) {
+  if (!IsOverlay(vertex)) return vertex;
+  // Every diff-engine vertex below the gid floor is one of the overlay index's, which names its base vertex: pinned for
+  // the branch's life and visible at the fork, so there is no lookup and no visibility read.
+  auto *const base_vertex = static_cast<OverlayIndex::BaseVertexOverlay const *>(vertex.vertex_)->base_vertex;
+  DMG_ASSERT(base_vertex == overlays().Find(vertex.Gid()).base_vertex,
+             "an overlay's base vertex is pinned for the branch's life.");
+  return BaseVertexAccessor(base_vertex);
 }
 
 std::optional<storage::EdgeAccessor> BranchContext::FindBaseEdge(storage::Gid edge_gid, storage::Gid from_gid) {
@@ -465,6 +479,31 @@ storage::Result<uint64_t> BranchContext::GetPropertySize(const storage::VertexAc
       overlay::ReadProperty(overlay->transaction_, *overlay->vertex_, key, view), vertex, key);
 }
 
+namespace {
+
+template <typename Record>
+storage::Result<void> ReadEachProperty(BranchContext &ctx, const Record &record,
+                                       const storage::OrderedPropertyPaths &ordered_properties,
+                                       std::span<storage::PropertyValue> out, storage::View view) {
+  MG_ASSERT(out.size() == ordered_properties.size(), "One value slot per property is required");
+  auto const paths = ordered_properties.paths();
+  for (std::size_t slot = 0; slot != paths.size(); ++slot) {
+    MG_ASSERT(paths[slot].size() == 1, "A branch reads a set of paths only for single-property paths");
+    auto value = ctx.GetProperty(record, paths[slot][0], view);
+    if (!value) return std::unexpected(value.error());
+    out[slot] = std::move(*value);
+  }
+  return {};
+}
+
+}  // namespace
+
+storage::Result<void> BranchContext::ReadPropertyValues(const storage::VertexAccessor &vertex,
+                                                        const storage::OrderedPropertyPaths &ordered_properties,
+                                                        std::span<storage::PropertyValue> out, storage::View view) {
+  return ReadEachProperty(*this, vertex, ordered_properties, out, view);
+}
+
 // ---- Edge reads
 
 // A clear branched bit proves the branch wrote nothing to the base edge, but a deleted endpoint hides it regardless.
@@ -488,6 +527,8 @@ BranchContext::EdgeRead BranchContext::ResolveEdgeRead(const storage::EdgeAccess
 
 storage::Result<std::map<storage::PropertyId, storage::PropertyValue>> BranchContext::Properties(
     const storage::EdgeAccessor &edge, storage::View view) {
+  // Ahead of the hidden check: main answers so for a deleted edge too.
+  if (PropertyWritesDisabled(edge)) return std::map<storage::PropertyId, storage::PropertyValue>{};
   auto const read = ResolveEdgeRead(edge, std::nullopt, view);
   if (read.kind == EdgeRead::Kind::kHidden) return std::unexpected(storage::Error::DELETED_OBJECT);
   if (read.kind == EdgeRead::Kind::kDirect) return edge.Properties(view);
@@ -497,6 +538,7 @@ storage::Result<std::map<storage::PropertyId, storage::PropertyValue>> BranchCon
 
 storage::Result<storage::PropertyValue> BranchContext::GetProperty(const storage::EdgeAccessor &edge,
                                                                    storage::PropertyId key, storage::View view) {
+  if (PropertyWritesDisabled(edge)) return storage::PropertyValue{};
   auto const read = ResolveEdgeRead(edge, key, view);
   if (read.kind == EdgeRead::Kind::kHidden) return std::unexpected(storage::Error::DELETED_OBJECT);
   if (read.kind == EdgeRead::Kind::kDirect) return edge.GetProperty(key, view);
@@ -506,11 +548,18 @@ storage::Result<storage::PropertyValue> BranchContext::GetProperty(const storage
 
 storage::Result<uint64_t> BranchContext::GetPropertySize(const storage::EdgeAccessor &edge, storage::PropertyId key,
                                                          storage::View view) {
+  if (PropertyWritesDisabled(edge)) return uint64_t{0};
   auto const read = ResolveEdgeRead(edge, key, view);
   if (read.kind == EdgeRead::Kind::kHidden) return std::unexpected(storage::Error::DELETED_OBJECT);
   if (read.kind == EdgeRead::Kind::kDirect) return edge.GetPropertySize(key, view);
   return overlay::MergeGetPropertySize(
       overlay::ReadProperty(read.overlay->transaction_, *read.overlay->edge_.ptr, key, view), edge, key);
+}
+
+storage::Result<void> BranchContext::ReadPropertyValues(const storage::EdgeAccessor &edge,
+                                                        const storage::OrderedPropertyPaths &ordered_properties,
+                                                        std::span<storage::PropertyValue> out, storage::View view) {
+  return ReadEachProperty(*this, edge, ordered_properties, out, view);
 }
 
 // ---- Vertex writes
@@ -993,15 +1042,17 @@ storage::Result<std::vector<storage::EdgeAccessor>> BranchContext::Edges(const s
                                                                          storage::EdgeDirection direction,
                                                                          storage::View view) {
   DMG_ASSERT(!IsOverlay(vertex), "an overlay reached a branch read");
-  bool const out = direction == storage::EdgeDirection::OUT;
-  if (vertex.storage_ == &diff_engine()) {
-    auto native = out ? vertex.OutEdges(view) : vertex.InEdges(view);
-    if (!native) return std::unexpected(native.error());
-    return std::vector<storage::EdgeAccessor>(native->edges.begin(), native->edges.end());
-  }
-  bool deleted = false;
-  auto edges = ResolveEdges(vertex.Gid(), direction, view, &deleted, &vertex);
-  if (deleted) return std::unexpected(storage::Error::DELETED_OBJECT);
+  std::vector<storage::EdgeAccessor> edges;
+  auto visited = VisitEdges(
+      vertex,
+      direction,
+      view,
+      [&](size_t count) { edges.reserve(edges.size() + count); },
+      [&](const storage::EdgeAccessor &edge) {
+        edges.push_back(edge);
+        return true;
+      });
+  if (!visited) return std::unexpected(visited.error());
   return edges;
 }
 
@@ -1037,59 +1088,142 @@ HiddenBaseEdges BranchContext::ReadHiddenBaseEdges(std::span<storage::Edge *cons
   return hidden;
 }
 
+// Exact because a native edge is appended to the overlay's in/out edges under the overlay's lock before its transaction
+// commits, so every edge this reader may see is in the overlay's adjacency at `view`. The filters only gate the read: a
+// clear bit means no native edge, no deleted base edge and no delete of this vertex.
+std::optional<BranchContext::DirectExpansionPlan> BranchContext::DirectExpansion(const storage::VertexAccessor &vertex,
+                                                                                 storage::EdgeDirection direction,
+                                                                                 storage::View view) {
+  if (vertex.storage_ == &diff_engine()) return DirectExpansionPlan{.view = view, .hidden = {}, .natives = {}};
+  auto const gid = vertex.Gid();
+  if (!IsBaseCandidateVertex(gid)) return std::nullopt;
+  // A clear bit proves no overlay, no deletes entry and no delete: one load instead of two filter probes.
+  if (!vertex.vertex_->branched()) return DirectExpansionPlan{.view = storage::View::OLD, .hidden = {}, .natives = {}};
+  bool const may_delete = core_->MayHaveVertexDeleted(gid);
+  bool const may_have_edges = core_->MayHaveEdgeChange(gid, direction);
+  if (!may_delete && !may_have_edges)
+    return DirectExpansionPlan{.view = storage::View::OLD, .hidden = {}, .natives = {}};
+  auto const found = overlays().FindForExpansion(gid, direction, /*with_deletes=*/may_have_edges);
+  if (found.overlay != nullptr && Deleted(found.overlay, view)) return std::nullopt;
+  if (!may_have_edges) return DirectExpansionPlan{.view = storage::View::OLD, .hidden = {}, .natives = {}};
+  DirectExpansionPlan plan{
+      .view = storage::View::OLD, .hidden = ReadHiddenBaseEdges(found.candidates, view), .natives = {}};
+  if (found.overlay != nullptr) plan.natives = ReadOverlayNatives(found.overlay, direction, view);
+  return plan;
+}
+
+storage::Result<void> BranchContext::VisitEdges(const storage::VertexAccessor &vertex, storage::EdgeDirection direction,
+                                                storage::View view, absl::FunctionRef<void(size_t)> reserve,
+                                                absl::FunctionRef<bool(const storage::EdgeAccessor &)> emit) {
+  if (vertex.storage_ == &diff_engine()) {
+    // A native vertex's edges are all native, and it reports its own deletion.
+    auto native = direction == storage::EdgeDirection::OUT ? vertex.OutEdges(view) : vertex.InEdges(view);
+    if (!native) return std::unexpected(native.error());
+    reserve(native->edges.size());
+    for (auto const &edge : native->edges) {
+      if (!emit(edge)) break;
+    }
+    return {};
+  }
+  bool deleted = false;
+  ResolveEdgesInto(vertex.Gid(), &vertex, direction, view, &deleted, reserve, emit);
+  if (deleted) return std::unexpected(storage::Error::DELETED_OBJECT);
+  return {};
+}
+
 std::vector<storage::EdgeAccessor> BranchContext::ResolveEdges(storage::Gid vertex_gid,
                                                                storage::EdgeDirection direction, storage::View view,
-                                                               bool *vertex_deleted,
-                                                               const storage::VertexAccessor *base_hint) {
+                                                               bool *vertex_deleted) {
+  std::vector<storage::EdgeAccessor> result;
+  ResolveEdgesInto(
+      vertex_gid,
+      nullptr,
+      direction,
+      view,
+      vertex_deleted,
+      [&](size_t count) { result.reserve(count); },
+      [&](const storage::EdgeAccessor &edge) {
+        result.push_back(edge);
+        return true;
+      });
+  return result;
+}
+
+// historical() is a frozen snapshot, so it is read with View::OLD throughout. `emit` order: the overlay's native edges,
+// then the base's, less those the branch deleted.
+void BranchContext::ResolveEdgesInto(storage::Gid vertex_gid, const storage::VertexAccessor *base_hint,
+                                     storage::EdgeDirection direction, storage::View view, bool *vertex_deleted,
+                                     absl::FunctionRef<void(size_t)> reserve,
+                                     absl::FunctionRef<bool(const storage::EdgeAccessor &)> emit) {
   auto &t = txn();
   if (vertex_deleted != nullptr) *vertex_deleted = false;
   bool const out = direction == storage::EdgeDirection::OUT;
-  std::vector<storage::EdgeAccessor> result;
-  auto const expand = [&](const storage::VertexAccessor &vertex, storage::View expand_view) {
+  auto const expand = [&](const storage::VertexAccessor &vertex,
+                          storage::View expand_view) -> std::optional<storage::EdgesVertexAccessorResult> {
     auto expanded = out ? vertex.OutEdges(expand_view) : vertex.InEdges(expand_view);
     DMG_ASSERT(expanded.has_value(), "expanding a resolved vertex failed.");
-    return expanded;
+    if (!expanded) return std::nullopt;
+    return std::move(*expanded);
   };
-
-  if (!IsBaseCandidateVertex(vertex_gid)) {
-    if (auto native = t.diff->FindVertex(vertex_gid, view)) {
-      if (auto expanded = expand(*native, view)) result.assign(expanded->edges.begin(), expanded->edges.end());
-    }
-    return result;
-  }
 
   // An overlay or deletes entry can only exist after its vertex's branched bit is set.
   if (base_hint != nullptr && base_hint->storage_ != &diff_engine() && !base_hint->vertex_->branched()) {
     DMG_ASSERT(!overlays().HasEntry(vertex_gid),
                "an overlay or deletes entry exists for a vertex with a clear branched bit");
     DMG_ASSERT(base_hint->transaction_ == t.historical->GetTransaction(), "the base hint is not of the historical txn");
-    if (auto expanded = expand(*base_hint, storage::View::OLD))
-      result.assign(expanded->edges.begin(), expanded->edges.end());
-    return result;
+    if (auto expanded = expand(*base_hint, storage::View::OLD)) {
+      reserve(expanded->edges.size());
+      for (auto const &edge : expanded->edges) {
+        if (!emit(edge)) return;
+      }
+    }
+    return;
+  }
+
+  if (!IsBaseCandidateVertex(vertex_gid)) {
+    if (auto native = t.diff->FindVertex(vertex_gid, view)) {
+      if (auto expanded = expand(*native, view)) {
+        reserve(expanded->edges.size());
+        for (auto const &edge : expanded->edges) {
+          if (!emit(edge)) return;
+        }
+      }
+    }
+    return;
   }
 
   // No native edge hangs on a branch-deleted base vertex: its creation conflicts with the delete on the overlay.
-  auto const found = overlays().FindForExpansion(vertex_gid, direction, true);
+  auto const found =
+      overlays().FindForExpansion(vertex_gid, direction, core_->MayHaveEdgeChange(vertex_gid, direction));
+  std::vector<storage::EdgeAccessor> natives;
   if (found.overlay != nullptr) {
     if (Deleted(found.overlay, view)) {
       if (vertex_deleted != nullptr) *vertex_deleted = true;
-      return result;
+      return;
     }
-    result = ReadOverlayNatives(found.overlay, direction, view);
+    natives = ReadOverlayNatives(found.overlay, direction, view);
   }
   auto const hidden = ReadHiddenBaseEdges(found.candidates, view);
 
-  auto const hist_vertex =
-      found.base_vertex != nullptr ? BaseAccessorByPtr(found.base_vertex) : BaseAccessorByGid(vertex_gid);
-  if (hist_vertex) {
-    if (auto expanded = expand(*hist_vertex, storage::View::OLD)) {
-      result.reserve(result.size() + expanded->edges.size());
-      for (auto const &edge : expanded->edges) {
-        if (hidden.empty() || !hidden.Contains(edge.edge_)) result.push_back(edge);
-      }
-    }
+  std::optional<storage::VertexAccessor> looked_up;
+  if (base_hint == nullptr) {
+    looked_up = found.base_vertex != nullptr ? BaseAccessorByPtr(found.base_vertex) : BaseAccessorByGid(vertex_gid);
+    if (looked_up) base_hint = &*looked_up;
   }
-  return result;
+  std::optional<storage::EdgesVertexAccessorResult> base_edges;
+  if (base_hint != nullptr) base_edges = expand(*base_hint, storage::View::OLD);
+
+  size_t const base_count = base_edges ? base_edges->edges.size() : 0;
+  reserve(natives.size() + base_count);
+
+  for (auto const &edge : natives) {
+    if (!emit(edge)) return;
+  }
+  if (base_count == 0) return;
+  for (auto const &edge : base_edges->edges) {
+    if (!hidden.empty() && hidden.Contains(edge.edge_)) continue;
+    if (!emit(edge)) return;
+  }
 }
 
 BranchContext::UnionVerticesIterable BranchContext::Vertices(storage::View view) {
