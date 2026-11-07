@@ -299,6 +299,30 @@ class Storage {
 
   void SetBroken(bool value) noexcept { broken_.store(value, std::memory_order_release); }
 
+#ifdef MG_ENTERPRISE
+  // The durable timestamp that must stay recoverable: snapshot/WAL retention keeps the newest snapshot at or below it
+  // and the WAL files that replay from there.
+  // The retention pass holds `retention_floor_mutex_` while it reads the floor and deletes files, so a floor that is
+  // lowered under the same mutex cannot lose its base to a pass that read the old value.
+  [[nodiscard]] std::optional<uint64_t> RetentionFloor() const {
+    auto const guard = std::lock_guard{retention_floor_mutex_};
+    return retention_floor_;
+  }
+
+  void SetRetentionFloor(std::optional<uint64_t> floor) {
+    auto const guard = std::lock_guard{retention_floor_mutex_};
+    retention_floor_ = floor;
+  }
+
+  /// Lowers the floor to `floor` if it is not lower already. Caller must hold `retention_floor_mutex_`.
+  void LowerRetentionFloorLocked(uint64_t floor) {
+    if (!retention_floor_ || floor < *retention_floor_) retention_floor_ = floor;
+  }
+
+  mutable std::mutex retention_floor_mutex_;
+  std::optional<uint64_t> retention_floor_;  // guarded by retention_floor_mutex_
+#endif
+
   memory::ArenaPool *DbArenaPool() const noexcept { return db_arena_pool_; }
 
   using Accessor = memgraph::storage::Accessor;

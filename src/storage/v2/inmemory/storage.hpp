@@ -907,6 +907,10 @@ class InMemoryStorage final : public Storage {
   // Takes engine_lock_ (then version_fork_pin_lock_): never call with engine_lock_ held.
   uint64_t RegisterForkPin();
 
+  // RegisterForkPin that also lowers the retention floor to `fork_ts - 1` atomically with a snapshot's retention
+  // pass, so the files that rebuild the fork base survive. Lock order: retention_floor_mutex_, then engine_lock_.
+  uint64_t RegisterBranchForkPin();
+
   // Call exactly once per pin (RegisterForkPin or a HistoricalAccess self-pin); an unregistered fork_ts MG_ASSERTs.
   // Removes one instance of the multiset key, not all equal ones.
   void ReleaseForkPin(uint64_t fork_ts);
@@ -1010,6 +1014,12 @@ class InMemoryStorage final : public Storage {
   [[nodiscard]] uint64_t EdgeStoreSize() const { return edges_.size(); }
 
   [[nodiscard]] uint64_t VertexStoreSize() const { return vertices_.size(); }
+
+#ifdef MG_ENTERPRISE
+  /// Files left out of the recovered state by `config.durability.recovery_history_bound`. Moves them out: the second
+  /// call, and any call without a bound, returns nullopt.
+  [[nodiscard]] std::optional<durability::RecoveryTail> TakeRecoveryTail() { return std::exchange(recovery_tail_, {}); }
+#endif
 
   // The highest fully-published commit timestamp; under the experiment this is what a snapshot
   // isolation reader freezes as its own boundary at BEGIN.
@@ -1176,6 +1186,10 @@ class InMemoryStorage final : public Storage {
 
   memory::ArenaAwareUniquePtr<durability::WalFile> wal_file_;
   uint64_t wal_unsynced_transactions_{0};
+
+#ifdef MG_ENTERPRISE
+  std::optional<durability::RecoveryTail> recovery_tail_;
+#endif
 
   utils::FileRetainer file_retainer_;
 

@@ -1203,4 +1203,40 @@ TEST(LockFreeReadSnapshot, ForkPinAcrossAbortedMint_Unchanged_ON) {
   store->ReleaseForkPin(fork_before);
   EXPECT_FALSE(store->OldestForkPin().has_value());
 }
+
+// A branch fork inside a commit window floors retention at the watermark: the files kept rebuild the state at the
+// fork, without the in-flight commit.
+TEST_F(LockFreeReadSnapshotRecovery, BranchForkPinInsideCommitWindow_FloorIsTheWatermark_ON) {
+  Config config{};
+  config.durability.storage_directory = storage_directory;
+  config.durability.snapshot_wal_mode = Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL;
+  config.durability.snapshot_retention_count = 1;
+  config.gc.type = Config::Gc::Type::NONE;
+  config.experimental_commit_lock_narrowing = true;
+  Gid gid;
+  std::optional<uint64_t> floor;
+  {
+    auto store = std::make_unique<InMemoryStorage>(config);
+    gid = CreateVertexWithProp(*store, 1);
+    const auto watermark = store->LastCommittedMvccTimestamp();
+    PreparedCommit commit;
+    PrepareWithoutPublish(*store, gid, 2, commit);
+    const auto fork_ts = store->RegisterBranchForkPin();
+    EXPECT_EQ(fork_ts, watermark + 1);
+    floor = store->RetentionFloor();
+    EXPECT_EQ(floor, watermark);
+    PublishAndEnd(*store, commit);
+    for (int value : {3, 4}) {
+      CommitProp(*store, gid, value);
+      ASSERT_TRUE(store->CreateSnapshot(/*force=*/true).has_value());
+    }
+    store->ReleaseForkPin(fork_ts);
+  }
+
+  config.durability.recover_on_startup = true;
+  config.durability.recovery_history_bound = floor;
+  auto store = std::make_unique<InMemoryStorage>(config);
+  auto acc = store->Access(memgraph::storage::READ);
+  EXPECT_EQ(ReadProp(*acc, gid), 1);
+}
 #endif  // MG_ENTERPRISE
