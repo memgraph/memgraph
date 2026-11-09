@@ -394,8 +394,8 @@ TEST(RpcVersioning, RequestTwoVersionsSingleVersionResponse_ThrowsWhenSendingV1)
 }
 
 namespace memgraph::replication {
-// Old-version typed RPCs so the test can send a genuine V1/V2 SystemRecoveryReq on the wire (the
-// SystemRecoveryRpc alias always serializes at the latest version, V3). Same pattern as
+// Old-version typed RPCs so the test can send a genuine V1/V2/V3 SystemRecoveryReq on the wire (the
+// SystemRecoveryRpc alias always serializes at the latest version, V4). Same pattern as
 // GetDatabaseHistoriesRpcV1 above.
 using SystemRecoveryRpcV1 = rpc::RequestResponse<SystemRecoveryReqV1, SystemRecoveryResV1>;
 using SystemRecoveryRpcV2 = rpc::RequestResponse<SystemRecoveryReqV2, SystemRecoveryResV2>;
@@ -403,10 +403,10 @@ using SystemRecoveryRpcV3 = rpc::RequestResponse<SystemRecoveryReqV3, SystemReco
 }  // namespace memgraph::replication
 
 // SystemRecoveryRpc backward-compat: a pre-V3 MAIN (no hot/cold) sends a V1 or V2 SystemRecoveryReq. A
-// V3 replica must accept it through the server-side LoadWithUpgrade chain (V1->V2->V3 / V2->V3),
+// V4 replica must accept it through the server-side LoadWithUpgrade chain (V1->V2->V3->V4 / V2->V3->V4),
 // defaulting the fields the old wire lacks (parameters for V1; cold_databases for both), and reply with
-// a response the old client can read via the Res Downgrade chain (V3->V2->V1). This exercises the actual
-// upgrade/downgrade path end to end — the companion V3 test only covers the same-version round-trip.
+// a response the old client can read via the Res Downgrade chain (V4->V3->V2->V1). This exercises the actual
+// upgrade/downgrade path end to end.
 TEST(RpcVersioning, SystemRecoveryRpc_V1AndV2Request_UpgradeOnServer) {
   Endpoint const endpoint{"localhost", port};
 
@@ -442,7 +442,7 @@ TEST(RpcVersioning, SystemRecoveryRpc_V1AndV2Request_UpgradeOnServer) {
   ClientContext client_context;
   Client client{endpoint, &client_context};
   {
-    // V1 request (pre-parameters, pre-hot/cold): 7-arg ctor -> wire version 1 -> upgraded V1->V2->V3.
+    // V1 request (pre-parameters, pre-hot/cold): 7-arg ctor -> wire version 1 -> upgraded V1->V2->V3->V4.
     auto stream =
         client.Stream<memgraph::replication::SystemRecoveryRpcV1>(memgraph::utils::UUID{},
                                                                   0,
@@ -458,7 +458,7 @@ TEST(RpcVersioning, SystemRecoveryRpc_V1AndV2Request_UpgradeOnServer) {
     EXPECT_TRUE(params_defaulted_empty) << "V2 parameters must default empty when upgrading a V1 request";
   }
   {
-    // V2 request (has parameters, pre-hot/cold): 8-arg ctor -> wire version 2 -> upgraded V2->V3.
+    // V2 request (has parameters, pre-hot/cold): 8-arg ctor -> wire version 2 -> upgraded V2->V3->V4.
     auto stream =
         client.Stream<memgraph::replication::SystemRecoveryRpcV2>(memgraph::utils::UUID{},
                                                                   0,

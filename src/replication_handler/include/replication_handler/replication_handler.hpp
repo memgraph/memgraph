@@ -66,8 +66,9 @@ void SystemRestore(ReplicationClient &client, system::System &system, dbms::Dbms
   // We still need to system replicate.
   // NB: DbInfo is a local, in-process aggregate only — NOT a wire type, so it needs no versioning of
   // its own. Its fields are passed individually to Stream<SystemRecoveryRpc> below; the serialized
-  // request is the versioned SystemRecoveryReq (V1 -> V2 adds parameters -> V3 adds cold_databases,
-  // with server-side upgrade of an older peer's request). A future layout change bumps that RPC version.
+  // request is the versioned SystemRecoveryReq (V1 -> V2 adds parameters -> V3 adds cold_databases
+  // -> V4 adds includes_auth_and_databases, with server-side upgrade of an older peer's request). A future layout
+  // change bumps that RPC version.
   struct DbInfo {
     std::vector<storage::SalientConfig> configs;
     uint64_t last_committed_timestamp;
