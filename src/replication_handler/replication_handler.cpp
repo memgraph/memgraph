@@ -185,6 +185,15 @@ void StartReplicaClient(replication::ReplicationClient &client, system::System &
         // Check if any database has been left behind
         // A replica that acknowledged commits reports the initial timestamp again only if its copy was emptied. A
         // reply built just before a database's first commit can report it once, so act on a second report in a row.
+        auto const replica_reports_empty = [&response](utils::UUID const &uuid) {
+          auto const &timestamps = response.database_commit_timestamps;
+#ifdef MG_ENTERPRISE
+          return std::ranges::contains(timestamps, std::pair{uuid, storage::kTimestampInitialId});
+#else
+          // Each community process gives its only database a random uuid, so the replica's entry can't match by it
+          return timestamps.size() == 1 && timestamps.front().second == storage::kTimestampInitialId;
+#endif
+        };
         std::vector<utils::UUID> still_empty;
         dbms_handler.ForEach([&](dbms::DatabaseAccess db_acc) {
           auto const uuid = db_acc->storage()->uuid();
@@ -194,8 +203,7 @@ void StartReplicaClient(replication::ReplicationClient &client, system::System &
                 if (client.State() == storage::replication::ReplicaState::READY &&
                     client.GetTimestampInfo(db_acc->storage()).current_timestamp_of_replica !=
                         storage::kTimestampInitialId &&
-                    std::ranges::contains(response.database_commit_timestamps,
-                                          std::pair{uuid, storage::kTimestampInitialId})) {
+                    replica_reports_empty(uuid)) {
                   if (std::ranges::contains(reported_empty, uuid)) {
                     client.MarkForRecovery();
                   } else {
