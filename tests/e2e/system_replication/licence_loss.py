@@ -209,6 +209,11 @@ def test_user_profile_not_enforced_without_licence(test_name):
         "SET PROFILE FOR limited TO single_session;",
     ]:
         execute_and_fetch_all(main_cursor, query)
+    first = connect(host="localhost", port=BOLT_PORTS["main"], username="limited", password="limited")
+    with pytest.raises(mgclient.Error, match="limit of"):
+        connect(host="localhost", port=BOLT_PORTS["main"], username="limited", password="limited")
+    first.close()
+
     break_licence(main_cursor)
 
     first = connect(host="localhost", port=BOLT_PORTS["main"], username="limited", password="limited")
@@ -223,12 +228,18 @@ def test_password_not_masked_in_log_without_licence(test_name):
     setup_licensed_cluster(description)
     main_cursor = cursor("main")
     execute_and_fetch_all(main_cursor, "SET DATABASE SETTING 'log.level' TO 'DEBUG';")
+    log_dir = Path(interactive_mg_runner.BUILD_DIR, "e2e", "logs", get_logs_path(file, test_name))
+
+    def logged(text):
+        return any(text in log.read_text() for log in log_dir.glob("main*.log"))
+
+    execute_and_fetch_all(main_cursor, "CREATE USER masked IDENTIFIED BY 'masked_while_licensed';")
+    assert not logged("masked_while_licensed")
+
     break_licence(main_cursor)
 
     execute_and_fetch_all(main_cursor, "CREATE USER secretive IDENTIFIED BY 'do_not_log_this';")
-
-    log_dir = Path(interactive_mg_runner.BUILD_DIR, "e2e", "logs", get_logs_path(file, test_name))
-    assert any("do_not_log_this" in log.read_text() for log in log_dir.glob("main*.log"))
+    assert logged("do_not_log_this")
 
 
 def test_audit_log_stops_without_licence(test_name):
