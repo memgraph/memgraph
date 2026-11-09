@@ -54,7 +54,7 @@ struct FrequentHeartbeatResV1 {
   FrequentHeartbeatResV1() = default;
 };
 
-/// (database uuid, last durable commit timestamp) for each database the replica holds.
+/// (database uuid, last durable commit timestamp) for each hot database the replica holds.
 using DatabaseCommitTimestamps = std::vector<std::pair<utils::UUID, uint64_t>>;
 
 struct FrequentHeartbeatRes {
@@ -75,7 +75,6 @@ struct FrequentHeartbeatRes {
 };
 
 using FrequentHeartbeatRpc = rpc::RequestResponse<FrequentHeartbeatReq, FrequentHeartbeatRes>;
-using FrequentHeartbeatRpcV1 = rpc::RequestResponse<FrequentHeartbeatReqV1, FrequentHeartbeatResV1>;
 
 struct SwapMainUUIDReq {
   static constexpr utils::TypeInfo kType{.id = utils::TypeId::COORD_SWAP_UUID_REQ, .name = "SwapMainUUIDReq"};
