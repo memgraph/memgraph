@@ -849,6 +849,10 @@ TEST(RpcVersioning, UpdateAuthDataRpc_UnknownDropTypeIsRefused) {
 
 #endif  // MG_ENTERPRISE
 
+namespace memgraph::replication_coordination_glue {
+using FrequentHeartbeatRpcV1 = rpc::RequestResponse<FrequentHeartbeatReqV1, FrequentHeartbeatResV1>;
+}  // namespace memgraph::replication_coordination_glue
+
 // A replica reports each database's commit timestamp in the frequent heartbeat. An older MAIN sends a V1 request and
 // must still get a V1 response; a V2 request gets the timestamps.
 TEST(RpcVersioning, FrequentHeartbeatRpc_V1RequestGetsV1Response_V2RequestGetsTimestamps) {
