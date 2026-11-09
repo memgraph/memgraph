@@ -26,13 +26,14 @@ auto symbol_make_traits<Symbol>::make(storage_type &s, int32_t pos, std::string_
 }
 
 auto symbol_make_traits<Literal>::make(storage_type &s, storage::ExternalPropertyValue const &value) -> seeded_node {
-  auto [it, inserted] = s.store.try_emplace(value, s.info.size());
-  if (inserted) s.info.push_back(&it->first);
+  auto const id = s.values.intern(value, [](auto const &key) { return &key; });
 
-  return {.lowered = {.children = {}, .disambiguator = it->second},
+  return {.lowered = {.children = {}, .disambiguator = id},
           .seed = analysis{ExpressionAnalysis{
               .known_constant_value = value,
-              .known_list_length = value.IsAnyList() ? std::optional{value.ListSize()} : std::nullopt}}};
+              .known_length = value.IsAnyList()
+                                  ? std::optional{KnownLength{.of = LengthOf::List, .value = value.ListSize()}}
+                                  : std::nullopt}}};
 }
 
 auto symbol_make_traits<ParamLookup>::make(storage_type & /*s*/, int32_t pos) -> seeded_node {
@@ -59,24 +60,90 @@ auto symbol_make_traits<Output>::make(storage_type & /*s*/, utils::small_vector<
 
 auto symbol_make_traits<NamedOutput>::make(storage_type &s, std::string_view name, planner::core::EClassId sym,
                                            planner::core::EClassId expr) -> seeded_node {
-  auto [it, inserted] = s.store.try_emplace(std::string{name}, s.info.size());
-  if (inserted) s.info.emplace_back(it->first);
-  return {.lowered = {.children = utils::small_vector{sym, expr}, .disambiguator = it->second},
+  auto const id = s.names.intern(name, [](auto const &key) { return std::string_view{key}; });
+  return {.lowered = {.children = utils::small_vector{sym, expr}, .disambiguator = id},
           .seed = default_analysis_seed<NamedOutput>()};
 }
 
-auto symbol_make_traits<Function>::storage_type::intern(std::string_view name) -> uint64_t {
-  auto [it, inserted] = store.try_emplace(std::string{name}, info.size());
-  if (inserted) {
-    info.push_back(FunctionInfo{.name = it->first, .kind = BuiltinKindFor(name)});
-  }
-  return it->second;
+auto symbol_make_traits<Function>::make(storage_type &s, std::string_view name,
+                                        utils::small_vector<planner::core::EClassId> args, bool is_pure)
+    -> seeded_node {
+  auto const id = s.functions.intern(name, [is_pure](auto const &key) {
+    return FunctionInfo{.name = key, .kind = BuiltinKindFor(key), .is_pure = is_pure};
+  });
+  return {.lowered = {.children = std::move(args), .disambiguator = id}, .seed = default_analysis_seed<Function>()};
 }
 
-auto symbol_make_traits<Function>::make(storage_type &s, std::string_view name,
-                                        utils::small_vector<planner::core::EClassId> args) -> seeded_node {
-  return {.lowered = {.children = std::move(args), .disambiguator = s.intern(name)},
-          .seed = default_analysis_seed<Function>()};
+namespace {
+
+/// The provably-exact length of `range(start, end)` when both bounds are
+/// statically-known integers (`nullopt` otherwise). Cypher range is inclusive
+/// on both ends; reversed bounds give an empty list.
+///
+/// Integer bounds only, which `known_int` already enforces: `range()` rejects a
+/// non-integer bound at runtime, so claiming a length off an integral double
+/// (e.g. 5.0) would elide an evaluation that is supposed to throw.
+auto ProvableRangeLength(planner::core::EGraph<symbol, analysis> const &eg,
+                         std::span<planner::core::EClassId const> args) -> std::optional<std::size_t> {
+  if (args.size() != 2) return std::nullopt;
+  auto const a = eg.analysis_of(args[0]).known_int();
+  auto const b = eg.analysis_of(args[1]).known_int();
+  if (!a || !b) return std::nullopt;
+  if (*b < *a) return std::size_t{0};
+  // Difference in unsigned to avoid signed-overflow UB for extreme bounds; +1
+  // for the inclusive end. A full-int64-span range can't fit, so decline it.
+  auto const span = static_cast<std::uint64_t>(*b) - static_cast<std::uint64_t>(*a);
+  if (span == UINT64_MAX) return std::nullopt;
+  return static_cast<std::size_t>(span + 1);
+}
+
+}  // namespace
+
+auto symbol_make_traits<Function>::update(planner::core::EGraph<symbol, analysis> const &eg, storage_type const &s,
+                                          std::span<planner::core::EClassId const> args, std::uint64_t function_id,
+                                          analysis &out) -> bool {
+  auto *expr = out.expression_for_update();
+  if (expr == nullptr) return false;
+  auto const *entry = s.functions.find(function_id);
+  if (entry == nullptr) return false;
+  auto const &info = *entry;
+  // Only a pure function's output is a statically-known fact, so an impure call
+  // establishes nothing regardless of kind.
+  if (!info.is_pure) return false;
+
+  switch (info.kind) {
+    case BuiltinKind::Range: {
+      if (expr->known_length) return false;
+      auto const length = ProvableRangeLength(eg, args);
+      if (!length) return false;
+      expr->known_length = KnownLength{.of = LengthOf::List, .value = *length};
+      return true;
+    }
+    case BuiltinKind::Size: {
+      if (expr->known_constant_value || args.size() != 1) return false;
+      auto const length = eg.analysis_of(args[0]).known_list_length();
+      if (!length) return false;
+      expr->known_constant_value = storage::ExternalPropertyValue{static_cast<int64_t>(*length)};
+      return true;
+    }
+    case BuiltinKind::Unknown:
+      return false;
+  }
+  return false;
+}
+
+auto symbol_make_traits<Add>::update(planner::core::EGraph<symbol, analysis> const &eg, storage_type const & /*s*/,
+                                     std::span<planner::core::EClassId const> children, std::uint64_t /*disambiguator*/,
+                                     analysis &out) -> bool {
+  auto *expr = out.expression_for_update();
+  if (expr == nullptr || expr->known_length || children.size() != 2) return false;
+  // Both reads answer only for a list's length, so this sums two list lengths
+  // rather than inferring list-ness from the presence of a count.
+  auto const lhs = eg.analysis_of(children[0]).known_list_length();
+  auto const rhs = eg.analysis_of(children[1]).known_list_length();
+  if (!lhs || !rhs) return false;
+  expr->known_length = KnownLength{.of = LengthOf::List, .value = *lhs + *rhs};
+  return true;
 }
 
 auto symbol_make_traits<Unwind>::make(storage_type & /*s*/, planner::core::EClassId input, planner::core::EClassId sym,

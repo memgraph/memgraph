@@ -14,10 +14,9 @@
 #include <span>
 
 #include "planner/extract/extract.hpp"
-#include "query/plan_v2/cost/cardinality_estimator.hpp"
+#include "query/plan_v2/cost/extraction_env.hpp"
 #include "query/plan_v2/egraph/alternative.hpp"
-#include "query/plan_v2/resolve/extraction_env.hpp"
-#include "query/plan_v2/resolve/variable_set.hpp"
+#include "query/plan_v2/scope/variable_set.hpp"
 
 namespace memgraph::query::plan::v2 {
 
@@ -28,12 +27,17 @@ struct CostFrontier
   using CostResultBase::CostResultBase;
 };
 
+/// Row count assumed for a list whose size is not statically known. Small on
+/// purpose: an unknown list is assumed short so it does not dominate the row
+/// cardinality an Unwind derives from it. The figure is not empirically tuned -
+/// any small constant serves until estimates are backed by stored statistics.
+inline constexpr double kDefaultListSize = 12.0;
+
 /// Read-only state the cost model reads while scoring an e-node.
 struct CostCtx {
   using CostResult = CostFrontier;
 
   // NOLINTBEGIN(cppcoreguidelines-avoid-const-or-ref-data-members)
-  CardinalityEstimator const &estimator;
   SymbolContext const &syms;
   // NOLINTEND(cppcoreguidelines-avoid-const-or-ref-data-members)
 

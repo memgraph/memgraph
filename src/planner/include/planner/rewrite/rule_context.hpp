@@ -29,14 +29,18 @@ namespace memgraph::planner::core::rewrite {
 /// does not, so new nodes are always minted through the typed `Make<S>`, which
 /// seeds analysis. The engine derives `Symbol`/`Analysis` from the graph and
 /// never names the domain's symbols.
+/// `refresh_analysis` is in the contract, so the saturation loop calls it
+/// unconditionally; a graph whose symbols recompute nothing answers zero.
 template <typename G>
-concept RewritableGraph = ENodeSymbol<typename G::symbol_type> && requires(G &g, G const &cg) {
-  typename G::symbol_type;
-  typename G::analysis_type;
-  typename G::egraph_type;
-  { g.core() } -> std::same_as<typename G::egraph_type &>;
-  { cg.core() } -> std::same_as<typename G::egraph_type const &>;
-};
+concept RewritableGraph =
+    ENodeSymbol<typename G::symbol_type> && requires(G &g, G const &cg, BaseProcessingContext &pc) {
+      typename G::symbol_type;
+      typename G::analysis_type;
+      typename G::egraph_type;
+      { g.core() } -> std::same_as<typename G::egraph_type &>;
+      { cg.core() } -> std::same_as<typename G::egraph_type const &>;
+      { g.refresh_analysis(pc) } -> std::same_as<std::size_t>;
+    };
 
 /// Safe context for rule apply functions. Auto-tracks new e-classes and counts rewrites.
 template <RewritableGraph Graph>

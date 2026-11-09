@@ -9,13 +9,13 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "query/plan_v2/resolve/analysis.hpp"
+#include "query/plan_v2/egraph/analysis.hpp"
 
 #include <functional>
 #include <optional>
 
 #include "query/exceptions.hpp"
-#include "query/plan_v2/resolve/constant_identity.hpp"
+#include "query/plan_v2/egraph/constant_identity.hpp"
 
 namespace memgraph::query::plan::v2 {
 
@@ -40,7 +40,7 @@ void MergeField(std::optional<T> &lhs, std::optional<T> const &rhs, Eq eq) {
 
 void ExpressionAnalysis::merge(ExpressionAnalysis const &other) {
   MergeField(known_constant_value, other.known_constant_value, ConstantIdentityEq{});
-  MergeField(known_list_length, other.known_list_length, std::equal_to<>{});
+  MergeField(known_length, other.known_length, std::equal_to<>{});
 }
 
 void analysis::merge(analysis const &other) {

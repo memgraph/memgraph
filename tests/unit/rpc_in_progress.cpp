@@ -11,6 +11,7 @@
 
 #include <storage/v2/replication/replication_client.hpp>
 
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
@@ -73,7 +74,7 @@ TEST(RpcInProgress, SingleProgress) {
 
   ASSERT_TRUE(rpc_server.Start());
 
-  auto const rpc_timeouts = std::unordered_map{std::make_pair("SumReq"sv, kGenerousTimeoutMs)};
+  auto const rpc_timeouts = std::array{std::pair{"SumReq"sv, kGenerousTimeoutMs}};
   ClientContext client_context;
   Client client{rpc_server.endpoint(), &client_context, rpc_timeouts};
 
@@ -116,7 +117,7 @@ TEST(RpcInProgress, MultipleProgresses) {
 
   ASSERT_TRUE(rpc_server.Start());
 
-  auto const rpc_timeouts = std::unordered_map{std::make_pair("SumReq"sv, kTimeoutMs)};
+  auto const rpc_timeouts = std::array{std::pair{"SumReq"sv, kTimeoutMs}};
   ClientContext client_context;
   Client client{rpc_server.endpoint(), &client_context, rpc_timeouts};
 
@@ -163,7 +164,7 @@ TEST(RpcInProgress, Timeout) {
 
   ASSERT_TRUE(rpc_server.Start());
 
-  auto const rpc_timeouts = std::unordered_map{std::make_pair("SumReq"sv, 100)};
+  auto const rpc_timeouts = std::array{std::pair{"SumReq"sv, 100}};
   ClientContext client_context;
   Client client{rpc_server.endpoint(), &client_context, rpc_timeouts};
 
@@ -201,7 +202,7 @@ TEST(RpcInProgress, NoTimeout) {
 
   ASSERT_TRUE(rpc_server.Start());
 
-  auto const rpc_timeouts = std::unordered_map{std::make_pair("SumReq"sv, kGenerousTimeoutMs)};
+  auto const rpc_timeouts = std::array{std::pair{"SumReq"sv, kGenerousTimeoutMs}};
   ClientContext client_context;
   Client client{rpc_server.endpoint(), &client_context, rpc_timeouts};
 
@@ -256,7 +257,7 @@ TEST(RpcInProgress, AbortInterruptsInProgressWait) {
   ASSERT_TRUE(rpc_server.Start());
 
   // Generous per-message timeout: only Abort() can end the wait within the test window, not the timeout.
-  auto const rpc_timeouts = std::unordered_map{std::make_pair("SumReq"sv, 60'000)};
+  auto const rpc_timeouts = std::array{std::pair{"SumReq"sv, 60'000}};
   ClientContext client_context;
   Client client{rpc_server.endpoint(), &client_context, rpc_timeouts};
 

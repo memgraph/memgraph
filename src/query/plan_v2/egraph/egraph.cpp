@@ -11,11 +11,17 @@
 
 #include "query/plan_v2/egraph/egraph.hpp"
 
+#include <cstdint>
+#include <optional>
+#include <span>
+
+#include "query/plan_v2/egraph/builtin_functions.hpp"
 #include "query/plan_v2/egraph/egraph_internal.hpp"
 
 namespace memgraph::query::plan::v2 {
 
 using enum symbol;
+using EGraph = planner::core::EGraph<symbol, analysis>;
 
 egraph::egraph() : pimpl_(std::make_unique<impl>()) {}
 
@@ -67,8 +73,8 @@ auto egraph::MakeNamedOutput(std::string_view name, eclass sym, eclass expr) -> 
   return from_core(pimpl_->graph.Make<NamedOutput>(name, to_core(sym), to_core(expr)).eclass_id);
 }
 
-auto egraph::MakeFunction(std::string_view name, std::span<eclass const> args) -> eclass {
-  return from_core(pimpl_->graph.Make<Function>(name, to_core(args)).eclass_id);
+auto egraph::MakeFunction(std::string_view name, std::span<eclass const> args, bool is_pure) -> eclass {
+  return from_core(pimpl_->graph.Make<Function>(name, to_core(args), is_pure).eclass_id);
 }
 
 auto egraph::MakeUnwind(eclass input, eclass sym, eclass list_expr) -> eclass {
@@ -84,10 +90,9 @@ auto egraph::MakeSubquery(eclass outer_input, eclass inner_root, std::span<eclas
   return from_core(pimpl_->graph.Make<Subquery>(std::move(children)).eclass_id);
 }
 
-auto egraph::FunctionInfoById(std::uint64_t id) const -> FunctionInfo const * {
-  auto const &info = pimpl_->graph.storage<Function>().info;
-  if (id >= info.size()) return nullptr;
-  return &info[id];
+auto egraph::RefreshAnalysis() -> std::size_t {
+  auto ctx = planner::core::BaseProcessingContext{};
+  return pimpl_->graph.refresh_analysis(ctx);
 }
 
 // Binary / unary public-API definitions - generated from EGRAPH_*_OPS.

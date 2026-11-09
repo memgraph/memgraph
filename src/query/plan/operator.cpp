@@ -5406,6 +5406,158 @@ void Produce::ProduceCursor::Shutdown() { input_cursor_->Shutdown(); }
 
 void Produce::ProduceCursor::Reset() { input_cursor_->Reset(); }
 
+CacheProperties::CacheProperties(const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol,
+                                 std::vector<CachedProperty> cached_properties)
+    : CacheProperties(input, std::vector<CachedPropertyGroup>{
+                                 CachedPropertyGroup{std::move(input_symbol), std::move(cached_properties)}}) {}
+
+CacheProperties::CacheProperties(const std::shared_ptr<LogicalOperator> &input, std::vector<CachedPropertyGroup> groups)
+    : input_(input ? input : std::make_shared<Once>()), groups_(std::move(groups)) {}
+
+ACCEPT_WITH_INPUT(CacheProperties)
+
+UniqueCursorPtr CacheProperties::MakeCursor(utils::MemoryResource *mem,
+                                            metrics::DatabaseMetricHandles &metric_handles) const {
+  return MakeUniqueCursorPtr<CachePropertiesCursor>(mem, *this, mem, metric_handles);
+}
+
+std::vector<Symbol> CacheProperties::OutputSymbols(const SymbolTable &symbol_table) const {
+  return input_->OutputSymbols(symbol_table);
+}
+
+std::vector<Symbol> CacheProperties::ModifiedSymbols(const SymbolTable &table) const {
+  auto symbols = input_->ModifiedSymbols(table);
+  for (const auto &group : groups_) {
+    symbols.reserve(symbols.size() + group.properties().size());
+    for (const auto &cached : group.properties()) {
+      symbols.emplace_back(cached.output_symbol);
+    }
+  }
+  return symbols;
+}
+
+std::unique_ptr<LogicalOperator> CacheProperties::Clone(AstStorage *storage) const {
+  auto object = std::make_unique<CacheProperties>();
+  object->input_ = input_ ? input_->Clone(storage) : nullptr;
+  object->groups_ = groups_;
+  return object;
+}
+
+std::string CacheProperties::ToString(const DbAccessor *dba) const {
+  return fmt::format("CacheProperties {{{}}}", utils::IterableToString(groups_, ", ", [&](const auto &group) {
+                       return utils::IterableToString(group.properties(), ", ", [&](const auto &cached) {
+                         return fmt::format("{}.{} -> {}",
+                                            group.input_symbol().name(),
+                                            dba->PropertyToName(cached.property_id),
+                                            cached.output_symbol.name());
+                       });
+                     }));
+}
+
+CacheProperties::CachePropertiesCursor::CachePropertiesCursor(const CacheProperties &self, utils::MemoryResource *mem,
+                                                              metrics::DatabaseMetricHandles &metric_handles)
+    : self_(self), input_cursor_(self_.input_->MakeCursor(mem, metric_handles)) {
+  auto total = std::size_t{0};
+  for (auto const &group : self_.groups_) total += group.properties().size();
+  values_.resize(total);
+}
+
+bool CacheProperties::CachePropertiesCursor::Pull(Frame &frame, ExecutionContext &context) {
+  OOMExceptionEnabler const oom_exception;
+  SCOPED_PROFILE_OP_BY_REF(self_);
+
+  AbortCheck(context);
+
+  if (!input_cursor_->Pull(frame, context)) return false;
+
+  auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+
+  auto *name_id_mapper = context.db_accessor->GetStorageAccessor()->GetNameIdMapper();
+
+  // Every property of a group answers Null together, whether because the symbol holds no record
+  // or because the caller may read none of them.
+  auto answer_with_null = [&](CachedPropertyGroup const &group) {
+    for (auto const &cached : group.properties()) {
+      frame_writer.Write(cached.output_symbol, TypedValue(context.evaluation_context.memory));
+    }
+  };
+
+  auto values_begin = std::size_t{0};
+  for (auto const &group : self_.groups_) {
+    auto const slots = std::span{values_}.subspan(values_begin, group.properties().size());
+    values_begin += group.properties().size();
+
+    auto const &input_value = frame[group.input_symbol()];
+    auto const reads_a_vertex = input_value.type() == TypedValue::Type::Vertex;
+    auto const reads_a_record = reads_a_vertex || input_value.type() == TypedValue::Type::Edge;
+
+    if (!reads_a_record && !input_value.IsNull()) {
+      // Only a symbol typed as a node or a relationship is read here, so holding neither means the
+      // type and the value disagree. A lookup refuses such a value rather than answering, so reading
+      // a set of them refuses too, in the same words: whether the set is read in one pass must not
+      // decide whether the query is valid.
+      throw QueryRuntimeException(
+          "Only nodes, edges, maps, temporal types and graphs have properties to be looked up.");
+    }
+
+    if (!reads_a_record) {
+      // Null, from an OPTIONAL MATCH that found nothing. Only this group: a row where one symbol
+      // is Null says nothing about the others.
+      answer_with_null(group);
+      continue;
+    }
+
+#ifdef MG_ENTERPRISE
+    // A lookup answers Null for a property the caller may not read without ever reaching the record,
+    // so a group of nothing but denied properties must not read one either: doing so would report a
+    // deleted or missing record for a read the query was never allowed to make.
+    allowed_.assign(group.properties().size(), true);
+    auto any_allowed = false;
+    for (std::size_t slot = 0; slot != group.properties().size(); ++slot) {
+      auto const &cached = group.properties()[group.ordered().position_lookup()[slot]];
+      allowed_[slot] =
+          reads_a_vertex ? PropertyReadAllowed(
+                               context.auth_checker, input_value.ValueVertex(), storage::View::NEW, cached.property_id)
+                         : PropertyReadAllowed(context.auth_checker, input_value.ValueEdge(), cached.property_id);
+      any_allowed = any_allowed || allowed_[slot];
+    }
+    if (!any_allowed) {
+      answer_with_null(group);
+      continue;
+    }
+#endif
+
+    // NEW so that the row sees writes made earlier in this same transaction, as a
+    // property lookup evaluated at this point would.
+    auto const read =
+        reads_a_vertex ? input_value.ValueVertex().impl_.ReadPropertyValues(group.ordered(), slots, storage::View::NEW)
+                       : input_value.ValueEdge().impl_.ReadPropertyValues(group.ordered(), slots, storage::View::NEW);
+    if (!read) ThrowPropertyReadError(read.error());
+
+    for (std::size_t slot = 0; slot != slots.size(); ++slot) {
+      const auto &cached = group.properties()[group.ordered().position_lookup()[slot]];
+      auto &value = slots[slot];
+#ifdef MG_ENTERPRISE
+      // Decided above, before the record was read.
+      if (!value.IsNull() && !allowed_[slot]) {
+        value = storage::PropertyValue{};
+      }
+#endif
+      if (value.IsNull()) {
+        frame_writer.Write(cached.output_symbol, TypedValue(context.evaluation_context.memory));
+      } else {
+        frame_writer.Write(cached.output_symbol,
+                           TypedValue(std::move(value), name_id_mapper, context.evaluation_context.memory));
+      }
+    }
+  }
+  return true;
+}
+
+void CacheProperties::CachePropertiesCursor::Shutdown() { input_cursor_->Shutdown(); }
+
+void CacheProperties::CachePropertiesCursor::Reset() { input_cursor_->Reset(); }
+
 Delete::Delete(const std::shared_ptr<LogicalOperator> &input, const std::vector<Expression *> &expressions, bool detach)
     : input_(input ? input : std::make_shared<Once>()), expressions_(expressions), detach_(detach) {}
 
@@ -8145,7 +8297,7 @@ class UnwindCursor : public Cursor {
         ExpressionEvaluator evaluator = ExpressionEvaluator{&frame, context, storage::View::OLD};
 
         TypedValue input_value = self_.input_expression_->Accept(evaluator);
-        if (input_value.type() != TypedValue::Type::List)
+        if (!input_value.IsList())
           throw QueryRuntimeException("Argument of UNWIND must be a list, but '{}' was provided.", input_value.type());
         // Move the evaluted input_value_list to our vector.
         input_value_ = std::move(input_value.ValueList());
@@ -8188,6 +8340,82 @@ std::unique_ptr<LogicalOperator> Unwind::Clone(AstStorage *storage) const {
   object->input_ = input_ ? input_->Clone(storage) : nullptr;
   object->input_expression_ = input_expression_ ? input_expression_->Clone(storage) : nullptr;
   object->output_symbol_ = output_symbol_;
+  return object;
+}
+
+CardinalityScale::CardinalityScale(const std::shared_ptr<LogicalOperator> &input, size_t scale_factor)
+    : input_(input ? input : std::make_shared<Once>()), scale_factor_(scale_factor) {
+  // The planner elides the degenerate factors in the builder (0 -> EmptyResult,
+  // 1 -> identity), so a constructed CardinalityScale always scales by >= 2.
+  DMG_ASSERT(scale_factor >= 2, "CardinalityScale scale factor must be >= 2 (0 and 1 are elided at build time)");
+}
+
+ACCEPT_WITH_INPUT(CardinalityScale)
+
+std::vector<Symbol> CardinalityScale::ModifiedSymbols(const SymbolTable &table) const {
+  return input_->ModifiedSymbols(table);
+}
+
+std::string CardinalityScale::ToString(const DbAccessor * /*dba*/) const {
+  return fmt::format("CardinalityScale {{n={}}}", scale_factor_);
+}
+
+namespace {
+
+class CardinalityScaleCursor : public Cursor {
+ public:
+  CardinalityScaleCursor(const CardinalityScale &self, utils::MemoryResource *mem,
+                         metrics::DatabaseMetricHandles &metric_handles)
+      : self_(self), input_cursor_(self.input_->MakeCursor(mem, metric_handles)) {}
+
+  bool Pull(Frame &frame, ExecutionContext &context) override {
+    const OOMExceptionEnabler oom_exception;
+    SCOPED_PROFILE_OP("CardinalityScale");
+
+    while (true) {
+      AbortCheck(context);
+      // The count is known at plan time, so each input row owes a fixed number
+      // of rows; the list is never evaluated. (Sound because the planner only
+      // selects this when the list is a pure, known-length expression.)
+      if (remaining_ == 0) {
+        if (!input_cursor_->Pull(frame, context)) return false;
+        remaining_ = self_.scale_factor_;
+      }
+
+      if (remaining_ == 0) continue;
+
+      --remaining_;
+      return true;
+    }
+  }
+
+  void Shutdown() override { input_cursor_->Shutdown(); }
+
+  void Reset() override {
+    input_cursor_->Reset();
+    remaining_ = 0;
+  }
+
+ private:
+  const CardinalityScale &self_;
+  const UniqueCursorPtr input_cursor_;
+  // rows still owed for the current input row; 0 means "pull the next input row"
+  size_t remaining_ = 0;
+};
+
+}  // namespace
+
+UniqueCursorPtr CardinalityScale::MakeCursor(utils::MemoryResource *mem,
+                                             metrics::DatabaseMetricHandles &metric_handles) const {
+  metric_handles.cardinality_scale_operator.Increment();
+
+  return MakeUniqueCursorPtr<CardinalityScaleCursor>(mem, *this, mem, metric_handles);
+}
+
+std::unique_ptr<LogicalOperator> CardinalityScale::Clone(AstStorage *storage) const {
+  auto object = std::make_unique<CardinalityScale>();
+  object->input_ = input_ ? input_->Clone(storage) : nullptr;
+  object->scale_factor_ = scale_factor_;
   return object;
 }
 

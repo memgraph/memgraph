@@ -330,7 +330,7 @@ class Storage {
     return EdgeTypeId::FromUint(name_id_mapper_->NameToId(name));
   }
 
-  StorageMode GetStorageMode() const noexcept;
+  StorageMode GetStorageMode() const noexcept { return storage_mode_; }
 
   // True iff this storage's durability mode keeps BOTH periodic snapshots AND a WAL
   // chain — the precondition for hot/cold suspend (suspend tears down RAM and relies
@@ -839,6 +839,10 @@ class Accessor {
   /// The storage mode this accessor's hold pins, in force for the life of that hold. Prefer it over
   /// Storage::GetStorageMode(), which holds nothing and is stale on return.
   StorageMode GetPinnedStorageMode() const noexcept;
+
+  /// True when a vertex or edge vector index exists. The index set only changes under UNIQUE access, so the
+  /// answer is fixed for the transaction's life unless this accessor is itself the UNIQUE holder.
+  bool HasVectorIndices() const;
 
   std::string id() const { return storage_->name(); }
 

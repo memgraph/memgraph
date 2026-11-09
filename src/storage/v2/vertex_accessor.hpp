@@ -27,6 +27,7 @@
 namespace memgraph::storage {
 
 class EdgeAccessor;
+class OrderedPropertyPaths;
 class Storage;
 struct Constraints;
 struct Indices;
@@ -96,15 +97,37 @@ class VertexAccessor final {
   /// @throw std::bad_alloc
   Result<PropertyValue> GetProperty(PropertyId property, View view) const;
 
+  /// Like GetProperty, but an embedding stays its compact VectorIndexId reference instead of being reconstructed.
+  /// @throw std::bad_alloc
+  Result<PropertyValue> GetPropertyCompact(PropertyId property, View view) const;
+
+  /// Fill `out` with the numeric list visible at `view` (index-backed or plain); false if it is not a numeric list.
+  bool GetVectorInto(PropertyId property, View view, std::vector<float> &out) const;
+
+ private:
+  /// For kCompact, a non-null `on_locked(const PropertyValue &)` sees the raw value under the vertex lock.
+  template <bool kCompact, typename OnLocked>
+  Result<PropertyValue> GetPropertyImpl(PropertyId property, View view, OnLocked &&on_locked) const;
+
+  template <bool kCompact>
+  Result<std::map<PropertyId, PropertyValue>> PropertiesImpl(View view) const;
+
+ public:
   /// Returns the size of the encoded vertex property in bytes.
   Result<uint64_t> GetPropertySize(PropertyId property, View view) const;
 
   /// @throw std::bad_alloc
   Result<std::map<PropertyId, PropertyValue>> Properties(View view) const;
 
+  /// Like Properties, but embeddings stay compact VectorIndexId references.
   /// @throw std::bad_alloc
-  Result<std::map<PropertyId, PropertyValue>> PropertiesByPropertyIds(std::span<PropertyId const> properties,
-                                                                      View view) const;
+  Result<std::map<PropertyId, PropertyValue>> PropertiesCompact(View view) const;
+
+  /// Reads `ordered_properties` into `out`, one slot each, in one pass over the record. A property
+  /// the vertex does not carry reads as Null, so the slots line up whatever it holds, and a buffer
+  /// kept between rows reads a row without allocating.
+  Result<void> ReadPropertyValues(OrderedPropertyPaths const &ordered_properties, std::span<PropertyValue> out,
+                                  View view) const;
 
   /// Properties of this vertex that are backed by a vector index, given its (view-consistent) labels.
   std::vector<PropertyId> VectorIndexedProperties(std::span<LabelId const> labels) const;

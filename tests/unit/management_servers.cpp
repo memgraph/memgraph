@@ -206,7 +206,7 @@ TYPED_TEST(ManagementServerTest, TlsClientToNoTlsServer) {
 
   auto const client_tls = MakeTlsConfig("instance1");
   ClientContext client_context(client_tls.key_file, client_tls.cert_file, client_tls.ca_file);
-  auto const rpc_timeouts = std::unordered_map{std::make_pair("SwapMainUUIDReq"sv, 500)};
+  auto const rpc_timeouts = std::array{std::pair{"SwapMainUUIDReq"sv, 500}};
   Client client(Endpoint("0.0.0.0", this->port), &client_context, rpc_timeouts, std::chrono::milliseconds{500});
   EXPECT_THROW(client.template Stream<SwapMainUUIDRpc>(UUID{}), RpcFailedToConnectException);
 }
@@ -222,7 +222,7 @@ TYPED_TEST(ManagementServerTest, TlsClientTlsServer) {
 
   auto const client_tls = MakeTlsConfig("instance1");
   ClientContext client_context(client_tls.key_file, client_tls.cert_file, client_tls.ca_file);
-  auto const rpc_timeouts = std::unordered_map{std::make_pair("SwapMainUUIDReq"sv, 500)};
+  auto const rpc_timeouts = std::array{std::pair{"SwapMainUUIDReq"sv, 500}};
   Client client(Endpoint("0.0.0.0", this->port), &client_context, rpc_timeouts);
   auto stream = client.template Stream<SwapMainUUIDRpc>(UUID{});
   EXPECT_NO_THROW(stream.SendAndWait());
@@ -294,7 +294,7 @@ TYPED_TEST(ManagementServerTest, TlsReload) {
 
   // Sanity: a real RPC round-trip also works.
   ClientContext client_context(client_tls.key_file, client_tls.cert_file, client_tls.ca_file);
-  auto const rpc_timeouts = std::unordered_map{std::make_pair("SwapMainUUIDReq"sv, 500)};
+  auto const rpc_timeouts = std::array{std::pair{"SwapMainUUIDReq"sv, 500}};
   {
     Client client(Endpoint("0.0.0.0", this->port), &client_context, rpc_timeouts);
     EXPECT_NO_THROW(client.template Stream<SwapMainUUIDRpc>(UUID{}).SendAndWait());

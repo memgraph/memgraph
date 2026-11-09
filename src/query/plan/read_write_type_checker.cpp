@@ -64,6 +64,7 @@ bool ReadWriteTypeChecker::PreVisit(Cartesian &op) {
 
 PRE_VISIT(EmptyResult, RWType::NONE, true)
 PRE_VISIT(Produce, RWType::NONE, true)
+PRE_VISIT(CacheProperties, RWType::NONE, true)
 PRE_VISIT(Accumulate, RWType::NONE, true)
 PRE_VISIT(Aggregate, RWType::NONE, true)
 PRE_VISIT(Skip, RWType::NONE, true)
@@ -79,6 +80,7 @@ bool ReadWriteTypeChecker::PreVisit(Union &op) {
 }
 
 PRE_VISIT(Unwind, RWType::NONE, true)
+PRE_VISIT(CardinalityScale, RWType::NONE, true)
 
 bool ReadWriteTypeChecker::PreVisit(CallProcedure &op) {
   if (op.graph_access_ == GraphAccess::Write) {

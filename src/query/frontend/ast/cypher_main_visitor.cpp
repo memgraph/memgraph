@@ -2863,6 +2863,12 @@ antlrcpp::Any CypherMainVisitor::visitPrivilege(MemgraphCypher::PrivilegeContext
   if (ctx->RELOAD_TLS()) return AuthQuery::Privilege::RELOAD_TLS;
   if (ctx->COORDINATOR_READ()) return AuthQuery::Privilege::COORDINATOR_READ;
   if (ctx->COORDINATOR_WRITE()) return AuthQuery::Privilege::COORDINATOR_WRITE;
+  if (ctx->COORDINATOR()) {
+    throw SemanticException(
+        "The COORDINATOR privilege was removed in Memgraph 3.13 and never gated any operation. Remove this statement. "
+        "To control access to high availability coordinators, grant COORDINATOR_READ or COORDINATOR_WRITE on a "
+        "coordinator.");
+  }
   LOG_FATAL("Should not get here - unknown privilege!");
 }
 

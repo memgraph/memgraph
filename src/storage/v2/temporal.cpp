@@ -18,13 +18,6 @@
 #include "utils/temporal.hpp"
 
 namespace memgraph::storage {
-TemporalData::TemporalData(TemporalType type, int64_t microseconds) : type{type}, microseconds{microseconds} {}
-
-ZonedTemporalData::ZonedTemporalData(ZonedTemporalType type,
-                                     std::chrono::sys_time<std::chrono::microseconds> microseconds,
-                                     utils::Timezone timezone)
-    : type{type}, microseconds{microseconds}, timezone{timezone} {}
-
 std::strong_ordering ZonedTemporalData::operator<=>(const ZonedTemporalData &other) const {
   if (auto const kind = type <=> other.type; kind != std::strong_ordering::equal) return kind;
   return utils::ZonedDateTime(microseconds, timezone) <=> utils::ZonedDateTime(other.microseconds, other.timezone);

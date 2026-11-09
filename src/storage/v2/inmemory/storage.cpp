@@ -4528,7 +4528,7 @@ auto InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
   }
 
   // Every fused task borrows this frame (commands, streams), so if anything below throws before
-  // ShipDeltas collected them, collect them here; on the normal path this is a no-op. Declared before
+  // CollectShipResults collected them, collect them here; on the normal path this is a no-op. Declared before
   // wal_promise on purpose: during unwind the promise must be destroyed first, so tasks blocked on
   // the gate observe the broken promise and finish before this guard joins them.
   auto const collect_workers = utils::OnScopeExit{[&]() noexcept { replicating_txn.DrainShipFutures(); }};
@@ -4607,7 +4607,7 @@ auto InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
   // state, which other transactions may overwrite in place the moment this transaction becomes
   // visible. A replica-side failure is contained inside its task (the replica drops to recovery):
   // main and the healthy replicas still commit, consistent with the WAL.
-  bool const replicas_ok = replicating_txn.ShipDeltas(durability_commit_timestamp, commit_args);
+  bool const replicas_ok = replicating_txn.CollectShipResults(commit_args);
 
   // Returns only the status of SYNC and STRICT_SYNC replicas.
   return replicas_ok;

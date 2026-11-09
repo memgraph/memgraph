@@ -17,9 +17,11 @@
 
 #include "flags/general.hpp"
 #include "storage/v2/delta.hpp"
+#include "storage/v2/delta_action_methods.hpp"
 #include "storage/v2/edge_info_helpers.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indexed_property_decoder.hpp"
+#include "storage/v2/indices/ordered_property_paths.hpp"
 #include "storage/v2/indices/vector_index_utils.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/property_store.hpp"
@@ -408,21 +410,29 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::ClearProperties() {
   return std::move(properties).value_or(ReturnType{});
 }
 
-Result<PropertyValue> EdgeAccessor::GetProperty(PropertyId property, View view) const {
+template <bool kCompact, typename OnResolved>
+Result<PropertyValue> EdgeAccessor::GetPropertyImpl(PropertyId property, View view, OnResolved &&on_resolved) const {
+  constexpr bool kHoldLock = !std::is_null_pointer_v<std::remove_cvref_t<OnResolved>>;
+  static_assert(kCompact || !kHoldLock);
   if (!storage_->config_.salient.items.properties_on_edges) return PropertyValue();
   bool exists = true;
   bool deleted = false;
   std::optional<PropertyValue> value;
   Delta *delta = nullptr;
+  auto guard = std::shared_lock{edge_.ptr->lock};
   {
-    auto guard = std::shared_lock{edge_.ptr->lock};
     deleted = edge_.ptr->deleted();
-    value.emplace(edge_.ptr->properties.GetProperty(
-        property,
-        IndexedPropertyDecoder<Edge>{
-            .indices = &storage_->indices_, .name_id_mapper = storage_->name_id_mapper_.get(), .entity = edge_.ptr}));
+    if constexpr (kCompact) {
+      value.emplace(edge_.ptr->properties.GetProperty(property));
+    } else {
+      value.emplace(edge_.ptr->properties.GetProperty(
+          property,
+          IndexedPropertyDecoder<Edge>{
+              .indices = &storage_->indices_, .name_id_mapper = storage_->name_id_mapper_.get(), .entity = edge_.ptr}));
+    }
     delta = edge_.ptr->delta();
   }
+  if constexpr (!kHoldLock) guard.unlock();
   ApplyDeltasForRead(transaction_, delta, view, [&exists, &deleted, &value, property](const Delta &delta) {
     switch (delta.action) {
       case Delta::Action::SET_PROPERTY: {
@@ -451,7 +461,16 @@ Result<PropertyValue> EdgeAccessor::GetProperty(PropertyId property, View view) 
   });
   if (!exists) return std::unexpected{Error::NONEXISTENT_OBJECT};
   if (!for_deleted_ && deleted) return std::unexpected{Error::DELETED_OBJECT};
+  if constexpr (kHoldLock) on_resolved(*value);
   return *std::move(value);
+}
+
+Result<PropertyValue> EdgeAccessor::GetProperty(PropertyId property, View view) const {
+  return GetPropertyImpl<false>(property, view, nullptr);
+}
+
+Result<PropertyValue> EdgeAccessor::GetPropertyCompact(PropertyId property, View view) const {
+  return GetPropertyImpl<true>(property, view, nullptr);
 }
 
 Result<uint64_t> EdgeAccessor::GetPropertySize(PropertyId property, View view) const {
@@ -475,7 +494,8 @@ Result<uint64_t> EdgeAccessor::GetPropertySize(PropertyId property, View view) c
   return property_store.PropertySize(property);
 };
 
-Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::Properties(View view) const {
+template <bool kCompact>
+Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::PropertiesImpl(View view) const {
   if (!storage_->config_.salient.items.properties_on_edges) return std::map<PropertyId, PropertyValue>{};
   bool exists = true;
   bool deleted = false;
@@ -484,8 +504,12 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::Properties(View view) 
   {
     auto guard = std::shared_lock{edge_.ptr->lock};
     deleted = edge_.ptr->deleted();
-    properties = edge_.ptr->properties.Properties(IndexedPropertyDecoder<Edge>{
-        .indices = &storage_->indices_, .name_id_mapper = storage_->name_id_mapper_.get(), .entity = edge_.ptr});
+    if constexpr (kCompact) {
+      properties = edge_.ptr->properties.Properties();
+    } else {
+      properties = edge_.ptr->properties.Properties(IndexedPropertyDecoder<Edge>{
+          .indices = &storage_->indices_, .name_id_mapper = storage_->name_id_mapper_.get(), .entity = edge_.ptr});
+    }
     delta = edge_.ptr->delta();
   }
   ApplyDeltasForRead(transaction_, delta, view, [&exists, &deleted, &properties](const Delta &delta) {
@@ -528,68 +552,86 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::Properties(View view) 
   return std::move(properties);
 }
 
-std::vector<PropertyId> EdgeAccessor::VectorIndexedProperties() const {
-  return transaction_->active_indices_->vector_edge_->IndexedProperties(edge_type_);
+Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::Properties(View view) const {
+  return PropertiesImpl<false>(view);
 }
 
-Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::PropertiesByPropertyIds(
-    std::span<PropertyId const> properties, View view) const {
+Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::PropertiesCompact(View view) const {
+  return PropertiesImpl<true>(view);
+}
+
+bool EdgeAccessor::GetVectorInto(PropertyId property, View view, std::vector<float> &out) const {
+  // A delta-carried ref holds its own floats for `view`; only the live ref (empty list) may read the usearch
+  // index, which is written at SetProperty time. That read runs under the edge lock (SetProperty holds it).
+  bool found = false;
+  const auto maybe_value = GetPropertyImpl<true>(property, view, [&](const PropertyValue &value) {
+    if (!value.IsVectorIndexId()) return;
+    if (!value.ValueVectorIndexList().empty()) return;
+    const auto &ids = value.ValueVectorIndexIds();
+    if (ids.empty()) return;
+    found = storage_->indices_.vector_edge_index_.GetVectorInto(edge_.ptr, ids[0], out);
+  });
+  if (!maybe_value) return false;
+  if (maybe_value->IsVectorIndexId()) {
+    if (const auto &floats = maybe_value->ValueVectorIndexList(); !floats.empty()) {
+      out.assign(floats.begin(), floats.end());
+      return true;
+    }
+    return found;
+  }
+  // Left the index (e.g. index drop) and was rewritten to a plain numeric list.
+  if (!maybe_value->IsAnyList()) return false;
+  const auto floats = TryListToVector(*maybe_value);
+  if (!floats) return false;
+  out.assign(floats->begin(), floats->end());
+  return true;
+}
+
+Result<void> EdgeAccessor::ReadPropertyValues(OrderedPropertyPaths const &ordered_properties,
+                                              std::span<PropertyValue> out, View view) const {
+  MG_ASSERT(out.size() == ordered_properties.size(), "One value slot per property is required");
+  MG_ASSERT(std::ranges::all_of(ordered_properties.paths(), [](PropertyPath const &path) { return path.size() == 1; }),
+            "Replaying a property delta over a set of paths handles only single-property paths");
+  auto const paths = ordered_properties.paths();
+  // Asking for one property at a time answers Null here rather than refusing, so asking for a set
+  // of them answers the same. A caller cannot tell the two apart, which is what lets a read move
+  // from one to the other.
+  if (!storage_->config_.salient.items.properties_on_edges) {
+    std::ranges::fill(out, PropertyValue{});
+    return {};
+  }
+
   bool exists = true;
   bool deleted = false;
-  std::vector<PropertyValue> property_values;
-  property_values.reserve(properties.size());
   Delta *delta = nullptr;
   {
     auto guard = std::shared_lock{edge_.ptr->lock};
     deleted = edge_.ptr->deleted();
-    auto property_paths = properties |
-                          rv::transform([](PropertyId property) { return storage::PropertyPath{property}; }) |
-                          r::to<std::vector<storage::PropertyPath>>();
-    property_values = edge_.ptr->properties.ExtractPropertyValuesMissingAsNull(property_paths);
+    edge_.ptr->properties.ExtractPropertyValuesMissingAsNull(ordered_properties, out);
+    // Reading one property at a time decodes, so reading a set of them has to as well.
+    auto const decoder = IndexedPropertyDecoder<Edge>{
+        .indices = &storage_->indices_, .name_id_mapper = storage_->name_id_mapper_.get(), .entity = edge_.ptr};
+    for (auto &value : out) decoder.DecodeProperty(value);
     delta = edge_.ptr->delta();
   }
-  auto properties_map =
-      rv::zip(properties, property_values) | rv::transform([](const auto &property_id_value_pair) {
-        return std::make_pair(std::get<0>(property_id_value_pair), std::get<1>(property_id_value_pair));
-      }) |
-      r::to<std::map<PropertyId, PropertyValue>>();
 
-  ApplyDeltasForRead(transaction_, delta, view, [&exists, &deleted, &properties_map](const Delta &delta) {
-    switch (delta.action) {
-      case Delta::Action::SET_PROPERTY: {
-        auto it = properties_map.find(delta.property.key);
-        if (it != properties_map.end()) {
-          if (delta.property.value->IsNull()) {
-            properties_map.erase(it);
-          } else {
-            it->second = *delta.property.value;
-          }
-        } else if (!delta.property.value->IsNull()) {
-          properties_map.emplace(delta.property.key, *delta.property.value);
-        }
-        break;
-      }
-      case Delta::Action::DELETE_DESERIALIZED_OBJECT:
-      case Delta::Action::DELETE_OBJECT: {
-        exists = false;
-        break;
-      }
-      case Delta::Action::RECREATE_OBJECT: {
-        deleted = false;
-        break;
-      }
-      case Delta::Action::ADD_LABEL:
-      case Delta::Action::REMOVE_LABEL:
-      case Delta::Action::ADD_IN_EDGE:
-      case Delta::Action::ADD_OUT_EDGE:
-      case Delta::Action::REMOVE_IN_EDGE:
-      case Delta::Action::REMOVE_OUT_EDGE:
-        break;
-    }
+  ApplyDeltasForRead(transaction_, delta, view, [&exists, &deleted, paths, out](const Delta &delta) {
+    // clang-format off
+    DeltaDispatch(delta, utils::ChainedOverloaded{
+      Deleted_ActionMethod(deleted),
+      Exists_ActionMethod(exists),
+      PropertyValues_ActionMethod(paths, out)
+    });
+    // clang-format on
   });
+
   if (!exists) return std::unexpected{Error::NONEXISTENT_OBJECT};
   if (!for_deleted_ && deleted) return std::unexpected{Error::DELETED_OBJECT};
-  return properties_map;
+  return {};
+}
+
+std::vector<PropertyId> EdgeAccessor::VectorIndexedProperties() const {
+  return transaction_->active_indices_->vector_edge_->IndexedProperties(edge_type_);
 }
 
 Gid EdgeAccessor::Gid() const noexcept {

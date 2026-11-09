@@ -320,10 +320,6 @@ Permissions Permissions::Deserialize(const nlohmann::json &data) {
   return Permissions{data[kGrants], data[kDenies]};
 }
 
-uint64_t Permissions::grants() const { return grants_; }
-
-uint64_t Permissions::denies() const { return denies_; }
-
 bool operator==(const Permissions &first, const Permissions &second) {
   return first.grants() == second.grants() && first.denies() == second.denies();
 }
@@ -604,12 +600,6 @@ FineGrainedAccessPermissions FineGrainedAccessPermissions::Deserialize(const nlo
   return FineGrainedAccessPermissions(global_grants, global_denies, std::move(rules));
 }
 
-std::optional<uint64_t> const &FineGrainedAccessPermissions::GetGlobalGrants() const { return global_grants_; }
-
-std::optional<uint64_t> const &FineGrainedAccessPermissions::GetGlobalDenies() const { return global_denies_; }
-
-std::vector<FineGrainedAccessRule> const &FineGrainedAccessPermissions::GetRules() const { return rules_; }
-
 bool operator==(const FineGrainedAccessPermissions &first, const FineGrainedAccessPermissions &second) {
   return first.GetGlobalGrants() == second.GetGlobalGrants() && first.GetGlobalDenies() == second.GetGlobalDenies() &&
          first.GetRules() == second.GetRules();
@@ -622,16 +612,6 @@ bool operator!=(const FineGrainedAccessPermissions &first, const FineGrainedAcce
 FineGrainedAccessHandler::FineGrainedAccessHandler(FineGrainedAccessPermissions labelPermissions,
                                                    FineGrainedAccessPermissions edgeTypePermissions)
     : label_permissions_(std::move(labelPermissions)), edge_type_permissions_(std::move(edgeTypePermissions)) {}
-
-const FineGrainedAccessPermissions &FineGrainedAccessHandler::label_permissions() const { return label_permissions_; }
-
-FineGrainedAccessPermissions &FineGrainedAccessHandler::label_permissions() { return label_permissions_; }
-
-const FineGrainedAccessPermissions &FineGrainedAccessHandler::edge_type_permissions() const {
-  return edge_type_permissions_;
-}
-
-FineGrainedAccessPermissions &FineGrainedAccessHandler::edge_type_permissions() { return edge_type_permissions_; }
 
 nlohmann::json FineGrainedAccessHandler::Serialize() const {
   nlohmann::json data = nlohmann::json::object();
@@ -949,20 +929,7 @@ Role::Role(const std::string &rolename, const Permissions &permissions,
       user_impersonation_{std::move(usr_imp)} {}
 #endif
 
-const std::string &Role::rolename() const { return rolename_; }
-
-const Permissions &Role::permissions() const { return permissions_; }
-
-Permissions &Role::permissions() { return permissions_; }
 #ifdef MG_ENTERPRISE
-const FineGrainedAccessHandler &Role::fine_grained_access_handler() const { return fine_grained_access_handler_; }
-
-FineGrainedAccessHandler &Role::fine_grained_access_handler() { return fine_grained_access_handler_; }
-
-PropertyAccessHandler const &Role::property_access_handler() const { return property_access_handler_; }
-
-PropertyAccessHandler &Role::property_access_handler() { return property_access_handler_; }
-
 const FineGrainedAccessPermissions &Role::GetFineGrainedAccessLabelPermissions(
     std::optional<std::string_view> db_name) const {
   if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
@@ -1445,19 +1412,7 @@ PropertyAccessPermissions User::GetPropertyEdgeTypePermissions(std::optional<std
 }
 #endif
 
-const std::string &User::username() const { return username_; }
-
-const Permissions &User::permissions() const { return permissions_; }
-
-Permissions &User::permissions() { return permissions_; }
 #ifdef MG_ENTERPRISE
-const FineGrainedAccessHandler &User::fine_grained_access_handler() const { return fine_grained_access_handler_; }
-
-FineGrainedAccessHandler &User::fine_grained_access_handler() { return fine_grained_access_handler_; }
-
-PropertyAccessHandler const &User::property_access_handler() const { return property_access_handler_; }
-
-PropertyAccessHandler &User::property_access_handler() { return property_access_handler_; }
 #endif
 
 nlohmann::json User::Serialize() const {

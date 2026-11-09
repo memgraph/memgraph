@@ -22,11 +22,22 @@ namespace memgraph::query::plan::v2::child {
 
 namespace bind {
 inline constexpr std::size_t input = 0, sym = 1, expr = 2;
-}
+inline constexpr std::size_t arity = 3;
+}  // namespace bind
 
 namespace unwind {
 inline constexpr std::size_t input = 0, sym = 1, list = 2;
-}
+inline constexpr std::size_t arity = 3;
+}  // namespace unwind
+
+// Dead Unwind elides the sym binding but still evaluates the list (for its
+// length), so its resolved children are the densely-packed [input, list] -
+// distinct from the alive [input, sym, list] above. `arity` is the resolved
+// child count, which is how a build body tells the two shapes apart.
+namespace unwind_dead {
+inline constexpr std::size_t input = 0, list = 1;
+inline constexpr std::size_t arity = 2;
+}  // namespace unwind_dead
 
 namespace identifier {
 inline constexpr std::size_t sym = 0;

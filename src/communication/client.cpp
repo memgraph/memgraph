@@ -282,14 +282,6 @@ auto Client::Read(size_t len, bool exactly_len, const std::optional<int> timeout
   return {};
 }
 
-uint8_t *Client::GetData() { return buffer_.read_end()->data(); }
-
-size_t Client::GetDataSize() const { return buffer_.read_end()->size(); }
-
-void Client::ShiftData(size_t len) { buffer_.read_end()->Shift(len); }
-
-void Client::ClearData() { buffer_.read_end()->Clear(); }
-
 auto Client::Write(const uint8_t *data, size_t len, bool have_more, const std::optional<int> timeout_ms)
     -> std::expected<void, io::network::ClientCommunicationError> {
   if (ssl_) {
@@ -355,8 +347,6 @@ auto Client::Write(std::string_view str, bool have_more, const std::optional<int
     -> std::expected<void, io::network::ClientCommunicationError> {
   return Write(reinterpret_cast<const uint8_t *>(str.data()), str.size(), have_more, timeout_ms);
 }
-
-const io::network::Endpoint &Client::endpoint() const { return socket_.endpoint(); }
 
 void Client::ReleaseSslObjects() {
   // If we are using SSL we need to free the allocated objects. Here we only

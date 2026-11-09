@@ -20,6 +20,7 @@ namespace memgraph::storage {
 
 struct Vertex;
 class VertexAccessor;
+class OrderedPropertyPaths;
 struct Indices;
 struct Constraints;
 class Storage;
@@ -28,6 +29,14 @@ struct Transaction;
 class EdgeAccessor final {
  private:
   friend class Storage;
+
+  /// GetProperty's body. A non-null `on_resolved(const PropertyValue &)` runs with the MVCC-resolved value
+  /// while the edge's shared lock is still held; with nullptr the lock is released before delta resolution.
+  template <bool kCompact, typename OnResolved>
+  Result<PropertyValue> GetPropertyImpl(PropertyId property, View view, OnResolved &&on_resolved) const;
+
+  template <bool kCompact>
+  Result<std::map<PropertyId, PropertyValue>> PropertiesImpl(View view) const;
 
  public:
   EdgeAccessor(EdgeRef edge, EdgeTypeId edge_type, Vertex *from_vertex, Vertex *to_vertex, Storage *storage,
@@ -82,24 +91,42 @@ class EdgeAccessor final {
   /// @throw std::bad_alloc
   Result<PropertyValue> GetProperty(PropertyId property, View view) const;
 
+  /// Like GetProperty, but an embedding stays its compact VectorIndexId reference instead of being reconstructed.
+  /// @throw std::bad_alloc
+  Result<PropertyValue> GetPropertyCompact(PropertyId property, View view) const;
+
   /// Returns the size of the encoded edge property in bytes.
   Result<uint64_t> GetPropertySize(PropertyId property, View view) const;
 
   /// @throw std::bad_alloc
   Result<std::map<PropertyId, PropertyValue>> Properties(View view) const;
 
+  /// Like Properties, but embeddings stay compact VectorIndexId references.
   /// @throw std::bad_alloc
-  Result<std::map<PropertyId, PropertyValue>> PropertiesByPropertyIds(std::span<PropertyId const> properties,
-                                                                      View view) const;
+  Result<std::map<PropertyId, PropertyValue>> PropertiesCompact(View view) const;
+
+  /// Reads `ordered_properties` into `out`, one slot each, in one pass over the record. A property
+  /// the edge does not carry reads as Null, so the slots line up whatever it holds, and a buffer
+  /// kept between rows reads a row without allocating.
+  ///
+  /// Configured without properties on edges, every slot reads Null, as asking one at a time does.
+  Result<void> ReadPropertyValues(OrderedPropertyPaths const &ordered_properties, std::span<PropertyValue> out,
+                                  View view) const;
 
   /// Properties of this edge that are backed by a vector index.
   std::vector<PropertyId> VectorIndexedProperties() const;
+
+  /// Materialize into `out` the numeric-list value the MVCC read at `view` yields (index-backed or plain);
+  /// false if that value is not a numeric list.
+  bool GetVectorInto(PropertyId property, View view, std::vector<float> &out) const;
 
   auto GidPropertiesOnEdges() const -> Gid { return edge_.ptr->gid; }
 
   auto GidNoPropertiesOnEdges() const -> Gid { return edge_.gid; }
 
-  Gid Gid() const noexcept;
+  /// Reads the storage config, so it cannot be defined here, but an edge's Gid
+  /// does not change once the edge exists.
+  [[gnu::pure]] Gid Gid() const noexcept;
 
   bool IsCycle() const { return from_vertex_ == to_vertex_; }
 

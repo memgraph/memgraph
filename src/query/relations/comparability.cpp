@@ -12,6 +12,9 @@
 #include "query/relations/comparability.hpp"
 
 #include <algorithm>
+#include <span>
+
+#include "utils/logging.hpp"
 
 namespace memgraph::query::relations::comparability {
 
@@ -30,6 +33,45 @@ std::optional<std::partial_ordering> CompareOfLists(TypedValue::TVector const &a
     if (std::is_neq(*element)) return element;
   }
   return a.size() <=> b.size();
+}
+
+namespace {
+
+// CompareOfLists over the embedding's floats and a plain list, without building the list of doubles.
+std::optional<std::partial_ordering> CompareOfFloatsAndList(std::span<const float> floats,
+                                                            TypedValue::TVector const &list, bool floats_first) {
+  auto const shared = std::min(floats.size(), list.size());
+  for (auto at = std::size_t{0}; at != shared; ++at) {
+    TypedValue const as_double{static_cast<double>(floats[at])};
+    auto const element = floats_first ? Compare(as_double, list[at]) : Compare(list[at], as_double);
+    if (!element || *element == std::partial_ordering::unordered) return std::nullopt;
+    if (std::is_neq(*element)) return element;
+  }
+  return floats_first ? floats.size() <=> list.size() : list.size() <=> floats.size();
+}
+
+}  // namespace
+
+std::optional<std::partial_ordering> CompareWithVectorRef(const TypedValue &a, const TypedValue &b) {
+  DMG_ASSERT(a.IsVectorRef() || b.IsVectorRef(), "CompareWithVectorRef takes at least one embedding");
+  if (a.IsVectorRef() && b.IsVectorRef()) {
+    auto const floats_a = a.ReadVectorRef();
+    auto const floats_b = b.ReadVectorRef();
+    auto const shared = std::min(floats_a.size(), floats_b.size());
+    for (auto at = std::size_t{0}; at != shared; ++at) {
+      auto const element = floats_a[at] <=> floats_b[at];
+      if (element == std::partial_ordering::unordered) return std::nullopt;
+      if (std::is_neq(element)) return element;
+    }
+    return floats_a.size() <=> floats_b.size();
+  }
+
+  auto const a_is_embedding = a.IsVectorRef();
+  auto const &embedding = a_is_embedding ? a : b;
+  auto const &other = a_is_embedding ? b : a;
+  // A VectorRef never nests, so a plain list is the only other value an embedding orders against.
+  if (!other.IsPlainList()) return std::nullopt;
+  return CompareOfFloatsAndList(embedding.ReadVectorRef(), other.UnsafeValueList(), a_is_embedding);
 }
 
 }  // namespace memgraph::query::relations::comparability

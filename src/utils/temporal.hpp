@@ -77,7 +77,8 @@ struct LocalTime;
 struct LocalDateTime;
 
 struct Duration {
-  explicit Duration(int64_t microseconds);
+  explicit constexpr Duration(int64_t microseconds) : microseconds{microseconds} {}
+
   explicit Duration(const DurationParameters &parameters);
 
   auto operator<=>(const Duration &) const = default;
@@ -510,9 +511,13 @@ struct ZonedDateTimeParameters {
 
 ZonedDateTimeParameters ParseZonedDateTimeParameters(std::string_view string);
 
-std::chrono::sys_time<std::chrono::microseconds> AsSysTime(int64_t microseconds);
+constexpr std::chrono::sys_time<std::chrono::microseconds> AsSysTime(int64_t microseconds) {
+  return std::chrono::sys_time<std::chrono::microseconds>{std::chrono::microseconds(microseconds)};
+}
 
-std::chrono::local_time<std::chrono::microseconds> AsLocalTime(int64_t microseconds);
+constexpr std::chrono::local_time<std::chrono::microseconds> AsLocalTime(int64_t microseconds) {
+  return std::chrono::local_time<std::chrono::microseconds>{std::chrono::microseconds(microseconds)};
+}
 
 struct ZonedDateTime {
  private:
@@ -544,8 +549,16 @@ struct ZonedDateTime {
 
   std::chrono::sys_time<std::chrono::microseconds> SysTimeSinceEpoch() const;
   std::chrono::microseconds SysMicrosecondsSinceEpoch() const;
-  std::chrono::seconds SysSecondsSinceEpoch() const;
-  std::chrono::nanoseconds SysSubSecondsAsNanoseconds() const;
+
+  std::chrono::seconds SysSecondsSinceEpoch() const {
+    return std::chrono::duration_cast<std::chrono::seconds>(zoned_time.get_sys_time().time_since_epoch());
+  }
+
+  std::chrono::nanoseconds SysSubSecondsAsNanoseconds() const {
+    const auto time_since_epoch = zoned_time.get_sys_time().time_since_epoch();
+    const auto full_seconds = std::chrono::duration_cast<std::chrono::seconds>(time_since_epoch);
+    return std::chrono::duration_cast<std::chrono::nanoseconds>(time_since_epoch - full_seconds);
+  }
 
   std::string ToString() const;
 

@@ -115,6 +115,11 @@ add_unit_test(interpreter
     TEST_PROPERTIES COST 150
 )
 
+add_unit_test(ai_license_embedding_memory
+    SOURCES ai_license_embedding_memory.cpp
+    LINK_TARGETS mg-communication mg-query mg-glue mg-dbms
+)
+
 add_unit_test(query_plan_pruning_bfs
     SOURCES query_plan_pruning_bfs.cpp
     LINK_TARGETS mg-query
@@ -230,6 +235,16 @@ add_unit_test(query_plan_v2_algebra
 # ============================================================================
 add_unit_test(query_plan_v2_converter
     SOURCES query_plan_v2_converter.cpp
+    LINK_TARGETS mg-query mg-planner mg::query::plan_v2::test_support
+)
+
+add_unit_test(query_plan_v2_demand
+    SOURCES query_plan_v2_demand.cpp
+    LINK_TARGETS mg-query mg-planner mg::query::plan_v2::test_support
+)
+
+add_unit_test(query_plan_v2_resolve
+    SOURCES query_plan_v2_resolve.cpp
     LINK_TARGETS mg-query mg-planner mg::query::plan_v2::test_support
 )
 
@@ -507,6 +522,11 @@ add_unit_test(socket
 # Test mg-utils
 add_unit_test(utils_algorithm
     SOURCES utils_algorithm.cpp
+    LINK_TARGETS mg-utils
+)
+
+add_unit_test(utils_constexpr_bitset
+    SOURCES utils_constexpr_bitset.cpp
     LINK_TARGETS mg-utils
 )
 

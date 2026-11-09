@@ -104,11 +104,14 @@ class Scheduler {
 
   using time_point = std::chrono::system_clock::time_point;
 
-  std::optional<time_point> NextExecution() {
+  // Tests choose the instant, since the clock cannot be moved to a timezone shift.
+  std::optional<time_point> NextExecution(time_point now) {
     if (is_paused_) return {};
-    const auto next = find_next_.WithLock([](auto &f) { return f(std::chrono::system_clock::now(), false); });
+    const auto next = find_next_.WithLock([now](auto &f) { return f(now, false); });
     return next != time_point::max() ? std::make_optional(next) : std::nullopt;
   }
+
+  std::optional<time_point> NextExecution() { return NextExecution(std::chrono::system_clock::now()); }
 
   ~Scheduler() { Stop(); }
 

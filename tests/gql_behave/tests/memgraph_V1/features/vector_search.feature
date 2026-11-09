@@ -1049,3 +1049,84 @@ Feature: Vector search related features
             | 'label+property_vector'     | ':Person'         | 'embedding' | 0     |
             | 'label+property_vector'     | ':Person&Star'    | 'embedding' | 0     |
             | 'label+property_vector'     | ':Person\|Movie'  | 'embedding' | 0     |
+
+    Scenario: Indexing into a vector-index property returns its elements
+        Given an empty graph
+        And with new vector index test_index on :L1(prop1) with dimension 2 and capacity 10
+        And having executed
+            """
+            CREATE (:L1 {prop1: [1.0, 2.0]});
+            """
+        When executing query:
+            """
+            MATCH (n) RETURN n.prop1[0] AS first, n.prop1[1] AS second;
+            """
+        Then the result should be:
+            | first | second |
+            | 1.0   | 2.0    |
+        When executing query:
+            """
+            MATCH (n) RETURN n["prop1"] AS p, n["prop1"][0] AS first;
+            """
+        Then the result should be:
+            | p          | first |
+            | [1.0, 2.0] | 1.0   |
+        When executing query:
+            """
+            MATCH (n) RETURN size(n.prop1) AS s, 2.0 IN n.prop1 AS has_two;
+            """
+        Then the result should be:
+            | s | has_two |
+            | 2 | true    |
+
+    Scenario: UNWIND and list functions over a vector-index property
+        Given an empty graph
+        And with new vector index test_index on :L1(prop1) with dimension 2 and capacity 10
+        And having executed
+            """
+            CREATE (:L1 {prop1: [1.0, 2.0]});
+            """
+        When executing query:
+            """
+            MATCH (n) UNWIND n.prop1 AS e RETURN e ORDER BY e;
+            """
+        Then the result should be, in order:
+            | e   |
+            | 1.0 |
+            | 2.0 |
+        When executing query:
+            """
+            MATCH (n) RETURN head(n.prop1) AS h, last(n.prop1) AS l, n.prop1[0..1] AS sliced;
+            """
+        Then the result should be:
+            | h   | l   | sliced |
+            | 1.0 | 2.0 | [1.0]  |
+        When executing query:
+            """
+            MATCH (n) RETURN reduce(s = 0.0, x IN n.prop1 | s + x) AS total;
+            """
+        Then the result should be:
+            | total |
+            | 3.0   |
+
+    Scenario: A map projected before a write keeps the vector-index value it read
+        Given an empty graph
+        And with new vector index test_index on :L1(prop1) with dimension 2 and capacity 10
+        And having executed
+            """
+            CREATE (:L1 {id: 1, prop1: [1.0, 2.0]});
+            """
+        When executing query:
+            """
+            MATCH (n:L1) WITH n, n{.*} AS m SET n.prop1 = [5.0, 6.0] RETURN m.prop1 AS before, n.prop1 AS after;
+            """
+        Then the result should be:
+            | before     | after      |
+            | [1.0, 2.0] | [5.0, 6.0] |
+        When executing query:
+            """
+            MATCH (n:L1) WITH collect(n{.*}) AS ms MATCH (k:L1) SET k.prop1 = [7.0, 8.0] RETURN ms[0].prop1 AS before;
+            """
+        Then the result should be:
+            | before     |
+            | [5.0, 6.0] |

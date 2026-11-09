@@ -13,6 +13,7 @@ module;
 
 #include <algorithm>
 #include <cassert>
+#include <concepts>
 #include <span>
 #include <type_traits>
 #include <utility>
@@ -85,9 +86,8 @@ struct EClass : private detail::EClassBase {
   EClass(ENodeId initial_enode_id, Analysis analysis)
       : EClassBase(initial_enode_id), analysis_data(std::move(analysis)) {}
 
-  /// The e-class's analysis facts. Set once at construction (the make half) and
-  /// thereafter only by merge; there is deliberately no mutable accessor, so
-  /// the variant arm cannot be changed out from under the merge soundness guard.
+  /// The e-class's analysis facts. Every writer only ever adds a fact, so a
+  /// reader never sees one it was told about withdrawn.
   [[nodiscard]] auto analysis() const -> Analysis const & { return analysis_data; }
 
   using EClassBase::add_parent;
@@ -110,6 +110,19 @@ struct EClass : private detail::EClassBase {
   }
 
  private:
+  /// Mutable access for the analysis refresh, which widens the facts in place
+  /// rather than diffing against a copy: an analysis holding a string, list or
+  /// map would allocate on every such copy.
+  ///
+  /// The caller owes what merge otherwise guarantees - a fact may be added,
+  /// never retracted, since retracting one unsays something a rewrite has
+  /// already been allowed to rely on. Granted rather than published, because
+  /// anyone holding a mutable graph reaches every e-class through it.
+  auto analysis_for_refresh() -> Analysis & { return analysis_data; }
+
+  template <typename S, typename A>
+  friend struct EGraph;
+
   Analysis analysis_data;
 };
 

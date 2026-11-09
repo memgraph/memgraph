@@ -87,6 +87,7 @@ EXPECTED_JSON_METRICS = {
         "MergeOperator",
         "OptionalOperator",
         "UnwindOperator",
+        "CardinalityScaleOperator",
         "DistinctOperator",
         "UnionOperator",
         "CartesianOperator",

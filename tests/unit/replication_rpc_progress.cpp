@@ -143,7 +143,7 @@ TEST_F(ReplicationRpcProgressTest, PrepareCommitNoTimeout) {
   ASSERT_TRUE(rpc_server.Start());
   std::this_thread::sleep_for(100ms);
 
-  auto const rpc_timeouts = std::unordered_map{std::make_pair("PrepareCommitReq"sv, kLongerThanAnyDelay)};
+  auto const rpc_timeouts = std::array{std::pair{"PrepareCommitReq"sv, kLongerThanAnyDelay}};
   ClientContext client_context;
   Client client{endpoint, &client_context, rpc_timeouts};
 
@@ -189,7 +189,7 @@ TEST_F(ReplicationRpcProgressTest, PrepareCommitTimeout) {
   ASSERT_TRUE(rpc_server.Start());
   std::this_thread::sleep_for(100ms);
 
-  auto const rpc_timeouts = std::unordered_map{std::make_pair("PrepareCommitReq"sv, 100)};
+  auto const rpc_timeouts = std::array{std::pair{"PrepareCommitReq"sv, 100}};
   ClientContext client_context;
   Client client{endpoint, &client_context, rpc_timeouts};
 
@@ -238,7 +238,7 @@ TEST_F(ReplicationRpcProgressTest, PrepareCommitProgressTimeout) {
   ASSERT_TRUE(rpc_server.Start());
   std::this_thread::sleep_for(100ms);
 
-  auto const rpc_timeouts = std::unordered_map{std::make_pair("PrepareCommitReq"sv, 150)};
+  auto const rpc_timeouts = std::array{std::pair{"PrepareCommitReq"sv, 150}};
   ClientContext client_context;
   Client client{endpoint, &client_context, rpc_timeouts};
 
@@ -279,7 +279,7 @@ TEST_F(ReplicationRpcProgressTest, CurrentWalNoTimeout) {
   ASSERT_TRUE(rpc_server.Start());
   std::this_thread::sleep_for(100ms);
 
-  auto const rpc_timeouts = std::unordered_map{std::make_pair("CurrentWalReq"sv, kLongerThanAnyDelay)};
+  auto const rpc_timeouts = std::array{std::pair{"CurrentWalReq"sv, kLongerThanAnyDelay}};
   ClientContext client_context;
   Client client{endpoint, &client_context, rpc_timeouts};
 
@@ -320,7 +320,7 @@ TEST_F(ReplicationRpcProgressTest, CurrentWalProgressTimeout) {
   ASSERT_TRUE(rpc_server.Start());
   std::this_thread::sleep_for(100ms);
 
-  auto const rpc_timeouts = std::unordered_map{std::make_pair("CurrentWalReq"sv, 150)};
+  auto const rpc_timeouts = std::array{std::pair{"CurrentWalReq"sv, 150}};
   ClientContext client_context;
   Client client{endpoint, &client_context, rpc_timeouts};
 
@@ -354,7 +354,7 @@ TEST_F(ReplicationRpcProgressTest, WalFilesNoTimeout) {
   ASSERT_TRUE(rpc_server.Start());
   std::this_thread::sleep_for(100ms);
 
-  auto const rpc_timeouts = std::unordered_map{std::make_pair("WalFilesReq"sv, kLongerThanAnyDelay)};
+  auto const rpc_timeouts = std::array{std::pair{"WalFilesReq"sv, kLongerThanAnyDelay}};
   ClientContext client_context;
   Client client{endpoint, &client_context, rpc_timeouts};
 
@@ -394,7 +394,7 @@ TEST_F(ReplicationRpcProgressTest, WalFilesProgressTimeout) {
   ASSERT_TRUE(rpc_server.Start());
   std::this_thread::sleep_for(100ms);
 
-  auto const rpc_timeouts = std::unordered_map{std::make_pair("WalFilesReq"sv, 150)};
+  auto const rpc_timeouts = std::array{std::pair{"WalFilesReq"sv, 150}};
   ClientContext client_context;
   Client client{endpoint, &client_context, rpc_timeouts};
 
@@ -444,7 +444,7 @@ TEST_F(ReplicationRpcProgressTest, TimeoutAppliesOnlyToTheRequestTypeItIsSetFor)
   ASSERT_TRUE(rpc_server.Start());
   std::this_thread::sleep_for(100ms);
 
-  auto const rpc_timeouts = std::unordered_map{std::make_pair("CurrentWalReq"sv, 100)};
+  auto const rpc_timeouts = std::array{std::pair{"CurrentWalReq"sv, 100}};
   ClientContext client_context;
   Client client{endpoint, &client_context, rpc_timeouts};
 
