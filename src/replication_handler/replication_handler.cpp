@@ -27,6 +27,7 @@
 
 #include <algorithm>
 #include <utility>
+#include <vector>
 
 namespace memgraph::replication {
 
@@ -160,7 +161,10 @@ void StartReplicaClient(replication::ReplicationClient &client, system::System &
   auto const &endpoint = client.rpc_client_.Endpoint();
   spdlog::info("Replication client started at: {}", endpoint.SocketAddress());  // non-resolved IP
   client.StartFrequentCheck(
-      [&, license = license::global_license_checker.IsEnterpriseValidFast(), main_uuid](
+      [&,
+       license = license::global_license_checker.IsEnterpriseValidFast(),
+       main_uuid,
+       reported_empty = std::vector<utils::UUID>{}](
           ReplicationClient &local_client,
           replication_coordination_glue::FrequentHeartbeatRes const &response) mutable {
         // Working connection
@@ -179,23 +183,32 @@ void StartReplicaClient(replication::ReplicationClient &client, system::System &
         SystemRestore<true>(local_client, system, dbms_handler, main_uuid, parameters);
 #endif
         // Check if any database has been left behind
-        dbms_handler.ForEach([&name = local_client.name_, &response](dbms::DatabaseAccess db_acc) {
+        // A replica that acknowledged commits reports the initial timestamp again only if its copy was emptied. A
+        // reply built just before a database's first commit can report it once, so act on a second report in a row.
+        std::vector<utils::UUID> still_empty;
+        dbms_handler.ForEach([&](dbms::DatabaseAccess db_acc) {
+          auto const uuid = db_acc->storage()->uuid();
           // Specific database <-> replica client
-          db_acc->storage()->repl_storage_state_.WithClient(name, [&](storage::ReplicationStorageClient &client) {
-            // A replica that acknowledged commits reports the initial timestamp again only if its copy was emptied
-            if (client.State() == storage::replication::ReplicaState::READY &&
-                client.GetTimestampInfo(db_acc->storage()).current_timestamp_of_replica !=
-                    storage::kTimestampInitialId &&
-                std::ranges::contains(response.database_commit_timestamps,
-                                      std::pair{db_acc->storage()->uuid(), storage::kTimestampInitialId})) {
-              client.SetMaybeBehind();
-            }
-            if (client.State() == storage::replication::ReplicaState::MAYBE_BEHIND) {
-              // Database <-> replica might be behind, check and recover
-              client.TryCheckReplicaStateAsync(db_acc->storage(), dbms::DatabaseProtector{db_acc});
-            }
-          });
+          db_acc->storage()->repl_storage_state_.WithClient(
+              local_client.name_, [&](storage::ReplicationStorageClient &client) {
+                if (client.State() == storage::replication::ReplicaState::READY &&
+                    client.GetTimestampInfo(db_acc->storage()).current_timestamp_of_replica !=
+                        storage::kTimestampInitialId &&
+                    std::ranges::contains(response.database_commit_timestamps,
+                                          std::pair{uuid, storage::kTimestampInitialId})) {
+                  if (std::ranges::contains(reported_empty, uuid)) {
+                    client.MarkForRecovery();
+                  } else {
+                    still_empty.push_back(uuid);
+                  }
+                }
+                if (client.State() == storage::replication::ReplicaState::MAYBE_BEHIND) {
+                  // Database <-> replica might be behind, check and recover
+                  client.TryCheckReplicaStateAsync(db_acc->storage(), dbms::DatabaseProtector{db_acc});
+                }
+              });
         });
+        reported_empty = std::move(still_empty);
       },
       [&](ReplicationClient &local_client) {
         // Connection lost, instance could be behind
