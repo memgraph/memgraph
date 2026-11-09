@@ -13,7 +13,6 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/view.hpp"
-#include "utils/atomic_memory_block.hpp"
 #include "utils/flag_validation.hpp"
 #include "utils/small_vector.hpp"
 
@@ -54,8 +53,7 @@ template <typename Value, typename Func, typename... Keys>
 void Store(Value &&value, VertexInfoCache &caches, Func &&getCache, View view, Keys &&...keys) {
   auto &cache = (view == View::OLD) ? getCache(caches.old_) : getCache(caches.new_);
   using key_type = typename std::remove_cvref_t<decltype(cache)>::key_type;
-  // AtomicMemoryBlock tracks the allocations but does not refuse them.
-  utils::AtomicMemoryBlock([&] { cache.emplace(key_type{std::forward<Keys>(keys)...}, std::forward<Value>(value)); });
+  cache.emplace(key_type{std::forward<Keys>(keys)...}, std::forward<Value>(value));
 }
 
 VertexInfoCache::VertexInfoCache(VertexInfoCache &&) noexcept = default;

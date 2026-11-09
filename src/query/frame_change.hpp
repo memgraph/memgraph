@@ -18,7 +18,6 @@
 #include "query/frontend/ast/query/named_expression.hpp"
 #include "query/relations/equality.hpp"
 #include "query/typed_value.hpp"
-#include "utils/atomic_memory_block.hpp"
 #include "utils/memory.hpp"
 #include "utils/pmr/unordered_map.hpp"
 #include "utils/pmr/vector.hpp"
@@ -105,13 +104,10 @@ struct CachedSet {
       return false;
     }
     const auto &list = maybe_list.ValueList();
-    // Allocations here are tracked but not refused; limits apply once the block ends.
-    utils::AtomicMemoryBlock([&] {
-      cache_.reserve(list.size());
-      for (const auto &element : list) {
-        Insert(element);
-      }
-    });
+    cache_.reserve(list.size());
+    for (const auto &element : list) {
+      Insert(element);
+    }
     return true;
   }
 
