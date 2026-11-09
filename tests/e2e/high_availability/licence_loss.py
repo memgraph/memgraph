@@ -14,7 +14,7 @@
 
 import os
 import sys
-import time
+from pathlib import Path
 from unittest.mock import patch
 
 import interactive_mg_runner
@@ -81,6 +81,11 @@ def cursor(port, authenticated=True):
     return connect(host="localhost", port=port, username=credentials[0], password=credentials[1]).cursor()
 
 
+def recoveries(test_name, instance):
+    log_dir = Path(interactive_mg_runner.BUILD_DIR, "e2e", "logs", get_logs_path(file, test_name))
+    return sum(log.read_text().count("SystemRecoveryHandler: SUCCESS") for log in log_dir.glob(f"{instance}*.log"))
+
+
 def node_count(port):
     def func():
         db_cursor = cursor(port)
@@ -137,10 +142,11 @@ def test_failover_to_unlicensed_replica_keeps_other_instances_state(test_name):
     instance_2 = cursor(7688)
     execute_and_fetch_all(instance_2, f"SET DATABASE SETTING 'organization.name' TO '{ORGANIZATION_NAME}-invalid';")
     assert not dict(execute_and_fetch_all(instance_2, "SHOW LICENSE INFO;"))["is_valid"]
+    recoveries_before = {name: recoveries(test_name, name) for name in ("instance_1", "instance_3")}
     execute_and_fetch_all(coordinator, "DEMOTE INSTANCE instance_1;")
     execute_and_fetch_all(coordinator, "SET INSTANCE instance_2 TO MAIN;")
-
-    time.sleep(5)
+    for name, before in recoveries_before.items():
+        mg_sleep_and_assert(True, lambda: recoveries(test_name, name) > before)
 
     for port in (7687, 7689):
         assert [row[0] for row in execute_and_fetch_all(cursor(port), "SHOW USERS;")] == [USER]
