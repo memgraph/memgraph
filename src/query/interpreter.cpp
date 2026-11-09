@@ -3474,8 +3474,9 @@ Callback HandleSettingQuery(SettingQuery *setting_query, const Parameters &param
 #ifdef MG_ENTERPRISE
 namespace {
 // Whether a tenant without a valid license accepts a query that the planner does not type as a read or a write: one
-// that leaves the tenant's data alone, reads it, or copies it out.
-bool ReadsOnlyOnUnlicensedTenant(Query *query) {
+// that leaves the tenant's data alone, reads it, or copies it out. The planner types any Cypher plan that touches the
+// graph as a read or a write, so a Cypher or PROFILE query typed neither touches no data.
+bool AllowedOnUnlicensedTenant(Query *query) {
   if (!query->Traits().operates_on_graph_data) return true;
   if (auto const *trigger_query = utils::Downcast<TriggerQuery>(query)) {
     return trigger_query->action_ == TriggerQuery::Action::SHOW_TRIGGERS;
@@ -3486,7 +3487,8 @@ bool ReadsOnlyOnUnlicensedTenant(Query *query) {
   if (auto const *description_query = utils::Downcast<DescriptionQuery>(query)) {
     return description_query->action_ == DescriptionQuery::Action::SHOW_ALL;
   }
-  return utils::Downcast<ExplainQuery>(query) || utils::Downcast<DatabaseInfoQuery>(query) ||
+  return utils::Downcast<CypherQuery>(query) || utils::Downcast<ProfileQuery>(query) ||
+         utils::Downcast<ExplainQuery>(query) || utils::Downcast<DatabaseInfoQuery>(query) ||
          utils::Downcast<ShowEnumsQuery>(query) || utils::Downcast<ShowSnapshotsQuery>(query) ||
          utils::Downcast<ShowNextSnapshotQuery>(query) || utils::Downcast<IsolationLevelQuery>(query) ||
          utils::Downcast<CreateSnapshotQuery>(query);
@@ -10976,7 +10978,7 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
       cached_fga_->Reset();
     }
     // Decided before the query moves into its Prepare function.
-    bool const reads_only_on_unlicensed_tenant = ReadsOnlyOnUnlicensedTenant(parsed_query.query);
+    bool const allowed_on_unlicensed_tenant = AllowedOnUnlicensedTenant(parsed_query.query);
 #endif
 
     if (utils::Downcast<CypherQuery>(parsed_query.query)) {
@@ -11313,8 +11315,8 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
 #ifdef MG_ENTERPRISE
     if (current_db_.db_acc_ && !license::global_license_checker.IsEnterpriseValidFast()) {
       auto const &db_name = current_db_.db_acc_->get()->name();
-      bool const reads_only = rw_type == RWType::R || (rw_type == RWType::NONE && reads_only_on_unlicensed_tenant);
-      if (db_name != dbms::kDefaultDB && !reads_only) {
+      bool const allowed = rw_type == RWType::R || (rw_type == RWType::NONE && allowed_on_unlicensed_tenant);
+      if (db_name != dbms::kDefaultDB && !allowed) {
         query_execution = nullptr;
         throw WriteQueryOnUnlicensedTenantException(db_name);
       }

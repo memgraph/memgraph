@@ -87,11 +87,12 @@ def test_tenant_read_only_without_licence(request):
         "CREATE CONSTRAINT ON (n:Label) ASSERT n.prop IS UNIQUE;",
         "STORAGE MODE IN_MEMORY_ANALYTICAL;",
         "DROP GRAPH;",
+        "CREATE TRIGGER trigger ON () CREATE AFTER COMMIT EXECUTE RETURN 1;",
     ]:
         with pytest.raises(mgclient.DatabaseError, match="read-only without a valid license"):
             execute(cursor, write)
-    execute(cursor, "SHOW TRIGGERS;")
-    execute(cursor, "SHOW STREAMS;")
+    for read in ["SHOW TRIGGERS;", "SHOW STREAMS;", "RETURN 1;", "PROFILE RETURN 1;", "CREATE SNAPSHOT;"]:
+        execute(cursor, read)
     with GraphDatabase.driver("bolt://localhost:7687", auth=("", "")) as driver:
         with driver.session(database="tenant") as session:
             assert session.run("MATCH (n) RETURN count(n) AS count;").single()["count"] == 10
