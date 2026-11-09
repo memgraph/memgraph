@@ -93,6 +93,11 @@ def set_organization_name(main_cursor, organization_name):
     execute_and_fetch_all(main_cursor, f"SET DATABASE SETTING 'organization.name' TO '{organization_name}';")
 
 
+def break_licence(main_cursor):
+    set_organization_name(main_cursor, f"{ORGANIZATION_NAME}-invalid")
+    assert not dict(execute_and_fetch_all(main_cursor, "SHOW LICENSE INFO;"))["is_valid"]
+
+
 def node_count(db_cursor, db_name):
     def func():
         execute_and_fetch_all(db_cursor, f"USE DATABASE {db_name};")
@@ -140,7 +145,7 @@ def test_replica_connecting_to_unlicensed_main_keeps_state(test_name):
     setup_licensed_cluster(description)
 
     interactive_mg_runner.stop(description, "replica_1")
-    set_organization_name(cursor("main"), ORGANIZATION_NAME.swapcase())
+    break_licence(cursor("main"))
     interactive_mg_runner.start(description, "replica_1")
     time.sleep(5)
 
@@ -151,7 +156,7 @@ def test_replica_requires_credentials_after_main_loses_licence(test_name):
     description = instances(test_name)
     setup_licensed_cluster(description)
 
-    set_organization_name(cursor("main"), ORGANIZATION_NAME.swapcase())
+    break_licence(cursor("main"))
     time.sleep(5)
 
     with pytest.raises(mgclient.Error, match="Authentication failure"):
@@ -162,7 +167,7 @@ def test_relicensed_main_replica_in_step_without_write(test_name):
     description = instances(test_name)
     setup_licensed_cluster(description)
 
-    set_organization_name(cursor("main"), ORGANIZATION_NAME.swapcase())
+    break_licence(cursor("main"))
     time.sleep(5)
     set_organization_name(cursor("main"), ORGANIZATION_NAME)
     time.sleep(5)
@@ -189,7 +194,7 @@ def test_fine_grained_rules_not_enforced_without_licence(test_name):
 
     assert visible_to_restricted() == 0
 
-    set_organization_name(main_cursor, ORGANIZATION_NAME.swapcase())
+    break_licence(main_cursor)
 
     assert visible_to_restricted() == 3
 
@@ -204,7 +209,7 @@ def test_user_profile_not_enforced_without_licence(test_name):
         "SET PROFILE FOR limited TO single_session;",
     ]:
         execute_and_fetch_all(main_cursor, query)
-    set_organization_name(main_cursor, ORGANIZATION_NAME.swapcase())
+    break_licence(main_cursor)
 
     first = connect(host="localhost", port=BOLT_PORTS["main"], username="limited", password="limited")
     second = connect(host="localhost", port=BOLT_PORTS["main"], username="limited", password="limited")
@@ -218,7 +223,7 @@ def test_password_not_masked_in_log_without_licence(test_name):
     setup_licensed_cluster(description)
     main_cursor = cursor("main")
     execute_and_fetch_all(main_cursor, "SET DATABASE SETTING 'log.level' TO 'DEBUG';")
-    set_organization_name(main_cursor, ORGANIZATION_NAME.swapcase())
+    break_licence(main_cursor)
 
     execute_and_fetch_all(main_cursor, "CREATE USER secretive IDENTIFIED BY 'do_not_log_this';")
 
@@ -238,7 +243,7 @@ def test_audit_log_stops_without_licence(test_name):
     execute_and_fetch_all(main_cursor, "RETURN 'audited_licensed';")
     mg_sleep_and_assert(True, audited("audited_licensed"))
 
-    set_organization_name(main_cursor, ORGANIZATION_NAME.swapcase())
+    break_licence(main_cursor)
     execute_and_fetch_all(main_cursor, "RETURN 'not_audited_unlicensed';")
     set_organization_name(main_cursor, ORGANIZATION_NAME)
     execute_and_fetch_all(main_cursor, "RETURN 'audited_relicensed';")
