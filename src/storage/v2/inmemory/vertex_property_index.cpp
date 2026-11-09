@@ -323,7 +323,11 @@ uint64_t InMemoryVertexPropertyIndex::RemoveObsoleteEntries(Storage *storage, ui
 
           bool const has_next = next_it != acc.end();
 
-          bool const redundant_duplicate = has_next && it->value == next_it->value && it->vertex == next_it->vertex;
+          // When recent entries are preserved, the replacement must be below the horizon too: until
+          // then an abort may remove it, or an older reader may be unable to see it.
+          bool const redundant_duplicate =
+              has_next && it->value == next_it->value && it->vertex == next_it->vertex &&
+              (!preserve_recent_entries || next_it->timestamp < oldest_active_start_timestamp);
           if (redundant_duplicate ||
               !AnyVersionHasProperty(*it->vertex, property_id, it->value, oldest_active_start_timestamp)) {
             acc.remove(*it);
