@@ -205,6 +205,9 @@ void StartReplicaClient(replication::ReplicationClient &client, system::System &
                         storage::kTimestampInitialId &&
                     replica_reports_empty(uuid)) {
                   if (std::ranges::contains(reported_empty, uuid)) {
+                    spdlog::warn("Replica {} reported database {} as empty, so it is being recovered.",
+                                 local_client.name_,
+                                 db_acc->name());
                     client.MarkForRecovery();
                   } else {
                     still_empty.push_back(uuid);
