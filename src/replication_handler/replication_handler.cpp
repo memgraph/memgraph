@@ -190,7 +190,7 @@ void StartReplicaClient(replication::ReplicationClient &client, system::System &
 #ifdef MG_ENTERPRISE
           return std::ranges::contains(timestamps, std::pair{uuid, storage::kTimestampInitialId});
 #else
-          // Each community process gives its only database a random uuid, so the replica's entry can't match by it
+          // The replica's only database has MAIN's uuid only after its first snapshot, so match the single entry
           return timestamps.size() == 1 && timestamps.front().second == storage::kTimestampInitialId;
 #endif
         };
