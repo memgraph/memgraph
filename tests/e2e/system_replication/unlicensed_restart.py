@@ -56,7 +56,6 @@ def instances(test_name):
         "main": {
             "args": [
                 "--bolt-port=7687",
-                "--log-level=TRACE",
                 "--data-recovery-on-startup",
                 "--replication-restore-state-on-startup",
             ],
