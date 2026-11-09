@@ -15,7 +15,6 @@
 
 import os
 import sys
-import time
 from pathlib import Path
 from unittest.mock import patch
 
@@ -98,6 +97,15 @@ def break_licence(main_cursor):
     assert not dict(execute_and_fetch_all(main_cursor, "SHOW LICENSE INFO;"))["is_valid"]
 
 
+def recoveries(test_name):
+    log_dir = Path(interactive_mg_runner.BUILD_DIR, "e2e", "logs", get_logs_path(file, test_name))
+    return sum(log.read_text().count("SystemRecoveryHandler: SUCCESS") for log in log_dir.glob("replica1*.log"))
+
+
+def wait_for_recovery(test_name, before):
+    mg_sleep_and_assert(True, lambda: recoveries(test_name) > before)
+
+
 def node_count(db_cursor, db_name):
     def func():
         execute_and_fetch_all(db_cursor, f"USE DATABASE {db_name};")
@@ -144,10 +152,11 @@ def test_replica_connecting_to_unlicensed_main_keeps_state(test_name):
     description = instances(test_name)
     setup_licensed_cluster(description)
 
+    before = recoveries(test_name)
     interactive_mg_runner.stop(description, "replica_1")
     break_licence(cursor("main"))
     interactive_mg_runner.start(description, "replica_1")
-    time.sleep(5)
+    wait_for_recovery(test_name, before)
 
     assert_replica_keeps_state()
 
@@ -156,8 +165,9 @@ def test_replica_requires_credentials_after_main_loses_licence(test_name):
     description = instances(test_name)
     setup_licensed_cluster(description)
 
+    before = recoveries(test_name)
     break_licence(cursor("main"))
-    time.sleep(5)
+    wait_for_recovery(test_name, before)
 
     with pytest.raises(mgclient.Error, match="Authentication failure"):
         cursor("replica_1", authenticated=False)
@@ -167,10 +177,12 @@ def test_relicensed_main_replica_in_step_without_write(test_name):
     description = instances(test_name)
     setup_licensed_cluster(description)
 
+    before = recoveries(test_name)
     break_licence(cursor("main"))
-    time.sleep(5)
+    wait_for_recovery(test_name, before)
+    before = recoveries(test_name)
     set_organization_name(cursor("main"), ORGANIZATION_NAME)
-    time.sleep(5)
+    wait_for_recovery(test_name, before)
 
     assert_replica_keeps_state()
 
