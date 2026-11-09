@@ -1024,6 +1024,9 @@ def test_multitenancy_replication_restart_replica_lost_database_directory(connec
 
     # 0/
     MEMGRAPH_INSTANCES_DESCRIPTION_WITH_RECOVERY = get_instances_with_recovery(test_name)
+    # Checking every 3 s, MAIN treats a replica as lost only after about 6 s down, so the quick restart below is
+    # caught by the replica reporting the emptied database, not by MAIN's reconnect.
+    MEMGRAPH_INSTANCES_DESCRIPTION_WITH_RECOVERY["main"]["args"].append("--replication-replica-check-frequency-sec=3")
 
     interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION_WITH_RECOVERY, keep_directories=False)
     setup_replication(connection)
@@ -1055,7 +1058,7 @@ def test_multitenancy_replication_restart_replica_lost_database_directory(connec
 
     # 3/
     cursor_replica = connection(BOLT_PORTS[replica_name], "replica").cursor()
-    mg_sleep_and_assert(7, get_number_of_nodes_func(cursor_replica, "A"))
+    mg_sleep_and_assert(7, get_number_of_nodes_func(cursor_replica, "A"), max_duration=30)
     mg_sleep_and_assert(3, get_number_of_edges_func(cursor_replica, "A"))
     mg_sleep_and_assert(2, get_number_of_nodes_func(cursor_replica, "B"))
 
