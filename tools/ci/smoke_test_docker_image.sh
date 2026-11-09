@@ -7,6 +7,9 @@
 # (for example, a Dockerfile with `CMD [""]` that passes an empty argument
 # to the memgraph entrypoint).
 #
+# Telemetry is disabled through MEMGRAPH_CONFIG (a mounted flag file) rather
+# than a command-line flag, so the image's CMD is still exercised as-is.
+#
 # Usage: smoke_test_docker_image.sh <image_tag> [max_ready_attempts]
 #   e.g. smoke_test_docker_image.sh memgraph/memgraph-mage:1.30.0
 
@@ -28,14 +31,21 @@ if [[ ! -f "$WAIT_SCRIPT" ]]; then
 fi
 
 CONTAINER_NAME="memgraph-bolt-smoke-$$"
+TELEMETRY_OFF_CONF="$(mktemp)"
+echo "--telemetry-enabled=false" > "$TELEMETRY_OFF_CONF"
+chmod 644 "$TELEMETRY_OFF_CONF"
 
 cleanup() {
   docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
+  rm -f "$TELEMETRY_OFF_CONF"
 }
 trap cleanup EXIT INT TERM
 
 echo "Starting container $CONTAINER_NAME from $IMAGE (no arguments), allowing up to ${MAX_READY_ATTEMPTS} attempts ~1s apart for Bolt..."
-docker run -d --name "$CONTAINER_NAME" "$IMAGE" >/dev/null
+docker run -d --name "$CONTAINER_NAME" \
+  -v "$TELEMETRY_OFF_CONF:/etc/memgraph/telemetry-off.conf:ro" \
+  -e MEMGRAPH_CONFIG=/etc/memgraph/telemetry-off.conf \
+  "$IMAGE" >/dev/null
 
 # Give the entrypoint a moment to fail fast (e.g. bad args) before we exec.
 sleep 1
