@@ -564,6 +564,7 @@ TEST(RpcVersioning, SystemRecoveryRpc_V4Request_CarriesAuthAndDatabasesLeftOut) 
   }};
 
   bool seen_includes_auth_and_databases = true;
+  std::vector<memgraph::storage::ColdTenantRecovery> seen_cold;
   rpc_server.Register<memgraph::replication::SystemRecoveryRpc>(
       [&](std::optional<memgraph::rpc::FileReplicationHandler> const & /*file_replication_handler*/,
           uint64_t const request_version,
@@ -572,6 +573,7 @@ TEST(RpcVersioning, SystemRecoveryRpc_V4Request_CarriesAuthAndDatabasesLeftOut) 
         memgraph::replication::SystemRecoveryReq req;
         memgraph::rpc::LoadWithUpgrade(req, request_version, req_reader);
         seen_includes_auth_and_databases = req.includes_auth_and_databases;
+        seen_cold = req.cold_databases;
         memgraph::replication::SystemRecoveryRes const res(memgraph::replication::SystemRecoveryRes::Result::SUCCESS);
         memgraph::rpc::SendFinalResponse(res, request_version, res_builder);
       });
@@ -581,6 +583,9 @@ TEST(RpcVersioning, SystemRecoveryRpc_V4Request_CarriesAuthAndDatabasesLeftOut) 
 
   ClientContext client_context;
   Client client{endpoint, &client_context};
+  memgraph::storage::ColdTenantRecovery cold;
+  cold.salient.name = "cold_tenant";
+  cold.stats.vertex_count = 123;
   auto stream =
       client.Stream<memgraph::replication::SystemRecoveryRpc>(memgraph::utils::UUID{},
                                                               0,
@@ -590,10 +595,13 @@ TEST(RpcVersioning, SystemRecoveryRpc_V4Request_CarriesAuthAndDatabasesLeftOut) 
                                                               std::vector<memgraph::auth::Role>{},
                                                               std::vector<memgraph::auth::UserProfiles::Profile>{},
                                                               std::vector<memgraph::parameters::ParameterInfo>{},
-                                                              std::vector<memgraph::storage::ColdTenantRecovery>{},
+                                                              std::vector{cold},
                                                               /*includes_auth_and_databases=*/false);
   EXPECT_EQ(stream.SendAndWait().result, memgraph::replication::SystemRecoveryRes::Result::SUCCESS);
   EXPECT_FALSE(seen_includes_auth_and_databases);
+  ASSERT_EQ(seen_cold.size(), 1U);
+  EXPECT_EQ(*seen_cold[0].salient.name.str_view(), "cold_tenant");
+  EXPECT_EQ(seen_cold[0].stats.vertex_count, 123U);
 }
 
 #ifdef MG_ENTERPRISE
