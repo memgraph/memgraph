@@ -185,7 +185,7 @@ void StartReplicaClient(replication::ReplicationClient &client, system::System &
         // Check if any database has been left behind
         // A replica that acknowledged commits reports the initial timestamp again only if its copy was emptied. A
         // reply built just before a database's first commit can report it once, so act on a second report in a row.
-        auto const replica_reports_empty = [&response](utils::UUID const &uuid) {
+        auto const replica_reports_empty = [&response]([[maybe_unused]] utils::UUID const &uuid) {
           auto const &timestamps = response.database_commit_timestamps;
 #ifdef MG_ENTERPRISE
           return std::ranges::contains(timestamps, std::pair{uuid, storage::kTimestampInitialId});
