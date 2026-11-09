@@ -17,6 +17,7 @@ import os
 import sys
 from pathlib import Path
 from unittest.mock import patch
+from uuid import uuid4
 
 import interactive_mg_runner
 import mgclient
@@ -245,13 +246,14 @@ def test_password_not_masked_in_log_without_licence(test_name):
     def logged(text):
         return any(text in log.read_text() for log in log_dir.glob("main*.log"))
 
-    execute_and_fetch_all(main_cursor, "CREATE USER masked IDENTIFIED BY 'masked_while_licensed';")
-    assert not logged("masked_while_licensed")
+    masked, unmasked = uuid4().hex, uuid4().hex
+    execute_and_fetch_all(main_cursor, f"CREATE USER masked IDENTIFIED BY '{masked}';")
+    assert not logged(masked)
 
     break_licence(main_cursor)
 
-    execute_and_fetch_all(main_cursor, "CREATE USER secretive IDENTIFIED BY 'do_not_log_this';")
-    assert logged("do_not_log_this")
+    execute_and_fetch_all(main_cursor, f"CREATE USER unmasked IDENTIFIED BY '{unmasked}';")
+    assert logged(unmasked)
 
 
 def test_audit_log_stops_without_licence(test_name):
