@@ -219,7 +219,7 @@ def _wait_until_ttl_deleting(database, total, timeout=15.0):
 
 
 def test_disable_ttl_midrun_returns():
-    """DISABLE TTL during a multi-batch run must answer and stop TTL."""
+    """DISABLE TTL during a multi-batch run must answer and stop TTL (S3, R1, A8)."""
     database = "ttl_disable_midrun"
     _load_and_enable(database)
 
@@ -241,7 +241,7 @@ def test_disable_ttl_midrun_returns():
 
 
 def test_storage_mode_refusal_restores_ttl():
-    """A refused switch must keep TTL running; a successful switch must leave TTL off."""
+    """A refused switch must keep TTL running; a successful switch must leave TTL off (A4, R1)."""
     refused = "ttl_refusal_restore"
     _create_database(refused)
     connection = _connect()
@@ -297,7 +297,7 @@ def test_storage_mode_refusal_restores_ttl():
 
 
 def test_storage_mode_midrun_and_sessions():
-    """STORAGE MODE and fresh sessions must answer during a multi-batch TTL run."""
+    """STORAGE MODE and fresh sessions must answer during a multi-batch TTL run (S1, S2, R1, R2)."""
     database = "ttl_storage_mode_midrun"
     _load_and_enable(database)
 

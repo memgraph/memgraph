@@ -147,7 +147,7 @@ std::string TtlInfo::StringifyStartTime(std::chrono::system_clock::time_point st
 
 void TTL::SetInterval(std::optional<std::chrono::microseconds> period,
                       std::optional<std::chrono::system_clock::time_point> start_time) {
-  std::lock_guard lock{lifecycle_mutex_};
+  const std::scoped_lock lock{lifecycle_mutex_};
   SetInterval_(period, start_time);
 }
 
@@ -173,12 +173,12 @@ void TTL::SetInterval_(std::optional<std::chrono::microseconds> period,
 }
 
 void TTL::Configure(bool should_run_edge_ttl) {
-  std::lock_guard lock{lifecycle_mutex_};
+  const std::scoped_lock lock{lifecycle_mutex_};
   Configure_(should_run_edge_ttl);
 }
 
 void TTL::RestoreWorker(const WorkerState &state) {
-  std::lock_guard lock{lifecycle_mutex_};
+  const std::scoped_lock lock{lifecycle_mutex_};
   // Nothing was running, TTL was disabled meanwhile, or a new generation already started: leave it alone.
   if (!state.running || !state.enabled || !enabled_ || ttl_.IsRunning()) return;
   stop_requested_.store(false, std::memory_order_relaxed);
@@ -189,7 +189,7 @@ void TTL::RestoreWorker(const WorkerState &state) {
 }
 
 TTL::WorkerState TTL::SuspendWorker() {
-  std::lock_guard lock{lifecycle_mutex_};
+  const std::scoped_lock lock{lifecycle_mutex_};
   WorkerState state{.enabled = enabled_, .running = ttl_.IsRunning(), .paused = ttl_.IsPaused(), .info = info_};
   stop_requested_.store(true, std::memory_order_relaxed);
   ttl_.Stop();
