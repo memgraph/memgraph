@@ -55,7 +55,9 @@ def instances(test_name: str):
     description = {}
     for i in (1, 2, 3):
         description[f"instance_{i}"] = {
-            "args": [f"--bolt-port={7686 + i}", "--log-level=TRACE", f"--management-port={10010 + i}"],
+            # instance_2 receives the licence key by query, so it doesn't log queries
+            "args": [f"--bolt-port={7686 + i}", f"--management-port={10010 + i}"]
+            + ([] if i == 2 else ["--log-level=TRACE"]),
             "log_file": f"{get_logs_path(file, test_name)}/instance_{i}.log",
             "data_directory": f"{get_data_path(file, test_name)}/instance_{i}",
         }

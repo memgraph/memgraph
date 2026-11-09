@@ -67,7 +67,6 @@ def instances(test_name: str, main_args=()):
         "main": {
             "args": [
                 f"--bolt-port={BOLT_PORTS['main']}",
-                "--log-level=TRACE",
                 "--data-recovery-on-startup",
                 "--replication-restore-state-on-startup",
                 *main_args,
@@ -220,6 +219,7 @@ def test_password_not_masked_in_log_without_licence(test_name):
     description = instances(test_name)
     setup_licensed_cluster(description)
     main_cursor = cursor("main")
+    execute_and_fetch_all(main_cursor, "SET DATABASE SETTING 'log.level' TO 'DEBUG';")
     set_organization_name(main_cursor, ORGANIZATION_NAME.swapcase())
 
     execute_and_fetch_all(main_cursor, "CREATE USER secretive IDENTIFIED BY 'do_not_log_this';")
