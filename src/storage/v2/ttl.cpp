@@ -31,6 +31,10 @@
 #include "utils/temporal.hpp"
 
 namespace {
+// Upper bound on a single batch acquisition: the job abandons it on timeout when a stop is pending, so a
+// stop/join is never parked behind a lock the joining caller holds.
+constexpr auto kAccessPollSlice = std::chrono::milliseconds{100};
+
 template <typename T>
 int GetPart(auto &current) {
   const int whole_part = std::chrono::duration_cast<T>(current).count();
@@ -143,6 +147,12 @@ std::string TtlInfo::StringifyStartTime(std::chrono::system_clock::time_point st
 
 void TTL::SetInterval(std::optional<std::chrono::microseconds> period,
                       std::optional<std::chrono::system_clock::time_point> start_time) {
+  std::lock_guard lock{lifecycle_mutex_};
+  SetInterval_(period, start_time);
+}
+
+void TTL::SetInterval_(std::optional<std::chrono::microseconds> period,
+                       std::optional<std::chrono::system_clock::time_point> start_time) {
   if (!enabled_) {
     throw TtlException("TTL not enabled!");
   }
@@ -163,6 +173,30 @@ void TTL::SetInterval(std::optional<std::chrono::microseconds> period,
 }
 
 void TTL::Configure(bool should_run_edge_ttl) {
+  std::lock_guard lock{lifecycle_mutex_};
+  Configure_(should_run_edge_ttl);
+}
+
+void TTL::RestoreWorker(const WorkerState &state) {
+  std::lock_guard lock{lifecycle_mutex_};
+  // Nothing was running, TTL was disabled meanwhile, or a new generation already started: leave it alone.
+  if (!state.running || !state.enabled || !enabled_ || ttl_.IsRunning()) return;
+  stop_requested_.store(false, std::memory_order_relaxed);
+  info_ = state.info;
+  Configure_(info_.should_run_edge_ttl);
+  SetInterval_(info_.period, info_.start_time);
+  if (!state.paused) ttl_.Resume();
+}
+
+TTL::WorkerState TTL::SuspendWorker() {
+  std::lock_guard lock{lifecycle_mutex_};
+  WorkerState state{.enabled = enabled_, .running = ttl_.IsRunning(), .paused = ttl_.IsPaused(), .info = info_};
+  stop_requested_.store(true, std::memory_order_relaxed);
+  ttl_.Stop();
+  return state;
+}
+
+void TTL::Configure_(bool should_run_edge_ttl) {
   if (!enabled_) {
     throw TtlException("TTL not enabled!");
   }
@@ -170,6 +204,7 @@ void TTL::Configure(bool should_run_edge_ttl) {
     throw TtlException("TTL already running!");
   }
 
+  stop_requested_.store(false, std::memory_order_relaxed);
   info_.should_run_edge_ttl = should_run_edge_ttl;
 
   if (info_.should_run_edge_ttl && (storage_ptr_->GetStorageMode() == StorageMode::ON_DISK_TRANSACTIONAL ||
@@ -194,7 +229,7 @@ void TTL::Configure(bool should_run_edge_ttl) {
     const auto ttl_label = storage_ptr_->NameToLabel("TTL");
     const auto ttl_property = storage_ptr_->NameToProperty("ttl");
 
-    while (!finished_vertex || !finished_edge) {
+    while ((!finished_vertex || !finished_edge) && !StopRequested()) {
       try {
         constexpr size_t batch_size = 10'000;
         size_t n_deleted = 0;
@@ -202,7 +237,7 @@ void TTL::Configure(bool should_run_edge_ttl) {
 
         // Create a new transaction for this batch
         // This ensures each batch is isolated and can be retried independently
-        auto batch_accessor = storage_ptr_->Access(storage::StorageAccessType::WRITE);
+        auto batch_accessor = storage_ptr_->Access(storage::StorageAccessType::WRITE, std::nullopt, kAccessPollSlice);
 
         // Verify required indices exist and are ready for TTL operations
         // This ensures TTL can work efficiently using range-based filtering
@@ -221,10 +256,10 @@ void TTL::Configure(bool should_run_edge_ttl) {
             mem_storage->GetAsyncIndexer().Enqueue(ttl_label, std::move(ttl_property_path));
           } else {
             batch_accessor.reset();
-            batch_accessor = storage_ptr_->UniqueAccess();  // ATM no timeout/backoff
+            batch_accessor = storage_ptr_->UniqueAccess(std::nullopt, kAccessPollSlice);
             (void)batch_accessor->CreateIndex(ttl_label, std::move(ttl_property_path));
             batch_accessor.reset();
-            batch_accessor = storage_ptr_->Access(storage::StorageAccessType::WRITE);
+            batch_accessor = storage_ptr_->Access(storage::StorageAccessType::WRITE, std::nullopt, kAccessPollSlice);
           }
         }
 
@@ -236,10 +271,10 @@ void TTL::Configure(bool should_run_edge_ttl) {
             mem_storage->GetAsyncIndexer().Enqueue(ttl_property);
           } else {
             batch_accessor.reset();
-            batch_accessor = storage_ptr_->UniqueAccess();  // ATM no timeout/backoff
+            batch_accessor = storage_ptr_->UniqueAccess(std::nullopt, kAccessPollSlice);
             (void)batch_accessor->CreateGlobalEdgeIndex(ttl_property);
             batch_accessor.reset();
-            batch_accessor = storage_ptr_->Access(storage::StorageAccessType::WRITE);
+            batch_accessor = storage_ptr_->Access(storage::StorageAccessType::WRITE, std::nullopt, kAccessPollSlice);
           }
         }
 
@@ -313,6 +348,10 @@ void TTL::Configure(bool should_run_edge_ttl) {
           DMG_ASSERT(false, "Unsupported TTL state.");
         }
 
+        // A stop that landed during this batch must retire before the protector acquisition, which
+        // blocks on the gatekeeper mutex the joining caller may hold.
+        if (StopRequested()) return;
+
         auto protector = storage_ptr_->make_database_protector();
         if (!protector) [[unlikely]] {
           // database has been dropped, we should aim to stop this worker ASAP
@@ -330,6 +369,8 @@ void TTL::Configure(bool should_run_edge_ttl) {
         deleted_edges_.Increment(static_cast<double>(n_edges_deleted));
 
       } catch (const std::exception &e) {
+        // Abandon iff a stop is pending (the bounded acquire timed out on a lock the joiner holds).
+        if (StopRequested()) return;
         spdlog::trace("TTL error; retrying later: {}", e.what());
         std::this_thread::sleep_for(std::chrono::milliseconds{10});
       }

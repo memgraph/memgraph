@@ -6676,6 +6676,11 @@ Callback SwitchMemoryDevice(storage::StorageMode current_mode, storage::StorageM
           "automatically start in the default in-memory transactional storage mode.");
     }
     if (SwitchingFromInMemoryToDisk(current_mode, requested_mode)) {
+      // Stop TTL before the gatekeeper-held exclusive region: try_exclusively holds the gatekeeper mutex
+      // across ~InMemoryStorage, whose StopAllBackgroundTasks() joins the worker, and the worker's per-batch
+      // make_database_protector() needs that mutex -> AB-BA. A refused/failed switch restores the generation.
+      auto ttl_state = db->ttl().SuspendWorker();
+      auto restore_ttl = utils::OnScopeExit{[&db, &ttl_state]() { db->ttl().RestoreWorker(ttl_state); }};
       // Bounded wait rather than a single-shot check: transient accessor holders (a /metrics scrape,
       // a Lab session between queries) release within ms; 3s rides them out but still refuses a busy DB.
       constexpr auto kSwitchToDiskExclusiveTimeout = std::chrono::seconds{3};
@@ -6711,6 +6716,8 @@ Callback SwitchMemoryDevice(storage::StorageMode current_mode, storage::StorageM
             "and change the storage mode to on-disk from there. Then, you can reconnect with the Lab "
             "and continue to use the instance as usual.");
       }
+      // The old storage is being replaced; the stopped generation must not be restored onto it.
+      restore_ttl.Disable();
     }
     return std::vector<std::vector<TypedValue>>();
   };
