@@ -103,10 +103,11 @@ def test_tenant_replicated_after_unlicensed_restart(request):
         execute_and_fetch_all(main_cursor, query)
     mg_sleep_and_assert(10, partial(tenant_nodes, 7688))
 
-    set_organization_name(main_cursor, ORGANIZATION_NAME.swapcase())
+    set_organization_name(main_cursor, f"{ORGANIZATION_NAME}-invalid")
     interactive_mg_runner.stop(description, "main")
     start_unlicensed(description, "main")
     main_cursor = cursor(7687)
+    assert not dict(execute_and_fetch_all(main_cursor, "SHOW LICENSE INFO;"))["is_valid"]
     set_organization_name(main_cursor, ORGANIZATION_NAME)
 
     execute_and_fetch_all(main_cursor, "USE DATABASE tenant;")
