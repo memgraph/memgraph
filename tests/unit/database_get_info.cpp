@@ -9,6 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <gflags/gflags.h>
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 #include <filesystem>
@@ -78,6 +79,8 @@ class InfoTest : public testing::Test {
   }
 
   void SetUp() {
+    // DbmsHandler starts each database on the snapshot schedule in this flag, which the server sets at startup.
+    gflags::SetCommandLineOption("storage_snapshot_interval", "120");
 #ifdef MG_ENTERPRISE
     dbms_handler_.emplace(config);
     auto db_acc = dbms_handler_->Get();  // Default db
@@ -124,6 +127,7 @@ class InfoTest : public testing::Test {
         return config;
       }()  // iile
   };
+  gflags::FlagSaver flag_saver_;
   std::optional<memgraph::dbms::DbmsHandler> dbms_handler_;
   std::optional<memgraph::dbms::DatabaseAccess> db_acc_;
   std::optional<memgraph::memory::DbArenaScope> db_arena_scope_;
