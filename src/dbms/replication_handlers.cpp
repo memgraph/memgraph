@@ -370,12 +370,12 @@ bool SystemRecoveryHandler(DbmsHandler &dbms_handler, const std::vector<storage:
    * NO LICENSE, here or on MAIN: only the default DB is reconciled, and no other DB is dropped
    */
   auto const licensed = license::global_license_checker.IsEnterpriseValidFast();
+  if (!licensed) {
+    spdlog::error(
+        "Handling SystemRecovery, an enterprise RPC message, without license. Check your license status by running "
+        "SHOW LICENSE INFO.");
+  }
   if (!licensed || !includes_all_databases) {
-    if (!licensed) {
-      spdlog::error(
-          "Handling SystemRecovery, an enterprise RPC message, without license. Check your license status by running "
-          "SHOW LICENSE INFO.");
-    }
     for (const auto &config : database_configs) {
       // Only handle default DB
       if (config.name != kDefaultDB) continue;
