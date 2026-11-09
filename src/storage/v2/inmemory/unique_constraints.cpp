@@ -757,7 +757,10 @@ uint64_t InMemoryUniqueConstraints::RemoveObsoleteEntries(Storage *storage,
             continue;
           }
 
-          if ((next_it != acc.end() && it->vertex == next_it->vertex && it->values == next_it->values) ||
+          // The older of two entries for a vertex is redundant only once the newer one is visible to
+          // every reader; before that a reader older than the newer entry sees neither.
+          if ((next_it != acc.end() && it->vertex == next_it->vertex && it->values == next_it->values &&
+               (!preserve_recent_entries || next_it->timestamp < oldest_active_start_timestamp)) ||
               !AnyVersionHasLabelProperty(*it->vertex, label, *properties, it->values, oldest_active_start_timestamp)) {
             acc.remove(*it);
           }
