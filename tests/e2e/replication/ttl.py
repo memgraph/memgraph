@@ -357,5 +357,36 @@ def test_ttl_recovery_scenario(connection, test_name):
     mg_sleep_and_assert(True, e_checker.is_less, max_duration=5)
 
 
+def test_ttl_runs_on_tenant_created_on_replica_after_promotion(connection, test_name):
+    """A database the REPLICA received from MAIN runs TTL once the REPLICA is promoted."""
+    instances = {
+        "replica_1": {
+            "args": ["--bolt-port", f"{BOLT_PORTS['replica_1']}", "--log-level=TRACE"],
+            "log_file": f"{get_logs_path(file, test_name)}/replica1.log",
+            "data_directory": f"{get_data_path(file, test_name)}/replica1",
+            "setup_queries": [f"SET REPLICATION ROLE TO REPLICA WITH PORT {REPLICATION_PORTS['replica_1']};"],
+        },
+        "main": {
+            "args": ["--bolt-port", f"{BOLT_PORTS['main']}", "--log-level=TRACE"],
+            "log_file": f"{get_logs_path(file, test_name)}/main.log",
+            "data_directory": f"{get_data_path(file, test_name)}/main",
+            "setup_queries": [f"REGISTER REPLICA replica_1 SYNC TO '127.0.0.1:{REPLICATION_PORTS['replica_1']}';"],
+        },
+    }
+    interactive_mg_runner.start_all(instances, keep_directories=False)
+    cursor_main = connection(BOLT_PORTS["main"], "main").cursor()
+    execute_and_fetch_all(cursor_main, "CREATE DATABASE tenant;")
+    execute_and_fetch_all(cursor_main, "USE DATABASE tenant;")
+    execute_and_fetch_all(cursor_main, 'ENABLE TTL EVERY "1s";')
+
+    interactive_mg_runner.kill(instances, "main")
+    cursor = connection(BOLT_PORTS["replica_1"], "replica").cursor()
+    execute_and_fetch_all(cursor, "SET REPLICATION ROLE TO MAIN;")
+    execute_and_fetch_all(cursor, "USE DATABASE tenant;")
+    execute_and_fetch_all(cursor, "UNWIND range(1, 10) AS i CREATE (:TTL {ttl: 0});")
+
+    mg_sleep_and_assert(0, lambda: execute_and_fetch_all(cursor, "MATCH (n:TTL) RETURN count(n);")[0][0])
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))
