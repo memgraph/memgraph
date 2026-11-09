@@ -1061,6 +1061,8 @@ def test_multitenancy_replication_restart_replica_lost_database_directory(connec
     mg_sleep_and_assert(7, get_number_of_nodes_func(cursor_replica, "A"), max_duration=30)
     mg_sleep_and_assert(3, get_number_of_edges_func(cursor_replica, "A"))
     mg_sleep_and_assert(2, get_number_of_nodes_func(cursor_replica, "B"))
+    main_logs = Path(interactive_mg_runner.BUILD_DIR, "e2e", "logs", get_logs_path(file, test_name)).glob("main*.log")
+    assert any(f"Replica {replica_name} reported database A as empty" in log.read_text() for log in main_logs)
 
 
 @pytest.mark.parametrize("replica_name", [("replica_1"), ("replica_2")])
