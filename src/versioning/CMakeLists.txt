@@ -15,6 +15,7 @@ target_sources(mg-versioning
         name.hpp
         stub_state.hpp
         stub_index.hpp
+        stub_merge.hpp
         version_store.hpp
 
         PRIVATE

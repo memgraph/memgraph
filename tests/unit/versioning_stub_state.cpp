@@ -17,6 +17,7 @@
 #include <memory>
 #include <random>
 #include <set>
+#include <span>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -25,7 +26,9 @@
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/property_value.hpp"
+#include "tests/test_commit_args_helper.hpp"
 #include "tests/unit/versioning_stub_codec.hpp"
+#include "versioning/stub_merge.hpp"
 #include "versioning/stub_state.hpp"
 
 namespace ms = memgraph::storage;
@@ -378,4 +381,97 @@ TEST(StubCodec, AnEdgeStubRoundTripsItsPropertiesRemovalsAndDelete) {
   EXPECT_TRUE(*stub::IsEdgeDeleted(e, ms::View::NEW));
   ExpectSameState(*stub::DecodeEdge(e, ms::View::NEW), deleted);
   acc->Abort();
+}
+
+// Reads through the stub and the fork (stub_merge.hpp).
+
+TEST(StubReads, ALabelIsDecidedByTheStubOrLeftToTheFork) {
+  auto storage = MakeStorage();
+  auto acc = storage->Access(ms::WRITE);
+  auto v = acc->CreateVertex();
+  StubState s;
+  s.AddLabel(L(1));
+  s.RemoveLabel(L(2));
+  ASSERT_FALSE(stub::Apply(v, StubState{}, s).has_value());
+
+  EXPECT_EQ(**stub::DecidesLabel(v, L(1), ms::View::NEW), true);
+  EXPECT_EQ(**stub::DecidesLabel(v, L(2), ms::View::NEW), false);
+  EXPECT_FALSE(stub::DecidesLabel(v, L(3), ms::View::NEW)->has_value());
+  acc->Abort();
+}
+
+TEST(StubReads, APropertyIsTheStubsValueNullWhenRemovedElseTheForks) {
+  auto storage = MakeStorage();
+  ms::Gid fork_gid;
+  {
+    auto setup = storage->Access(ms::WRITE);
+    auto created = setup->CreateVertex();
+    fork_gid = created.Gid();
+    ASSERT_TRUE(created.SetProperty(P(1), V(100)).has_value());
+    ASSERT_TRUE(created.SetProperty(P(2), V(200)).has_value());
+    ASSERT_TRUE(created.SetProperty(P(3), V(300)).has_value());
+    ASSERT_TRUE(setup->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+  auto acc = storage->Access(ms::WRITE);
+  auto fork = acc->FindVertex(fork_gid, ms::View::OLD);
+  ASSERT_TRUE(fork.has_value());
+  auto v = acc->CreateVertex();
+  StubState s;
+  s.SetProperty(P(1), V(1));
+  s.RemoveProperty(P(2));
+  ASSERT_FALSE(stub::Apply(v, StubState{}, s).has_value());
+
+  EXPECT_EQ(*stub::MergeGetProperty(v, *fork, P(1), ms::View::NEW), V(1));
+  EXPECT_TRUE(stub::MergeGetProperty(v, *fork, P(2), ms::View::NEW)->IsNull());
+  EXPECT_EQ(*stub::MergeGetProperty(v, *fork, P(3), ms::View::NEW), V(300));
+  EXPECT_TRUE(stub::MergeGetProperty(v, *fork, P(9), ms::View::NEW)->IsNull());
+
+  EXPECT_GT(*stub::MergeGetPropertySize(v, *fork, P(1), ms::View::NEW), 0U);
+  EXPECT_EQ(*stub::MergeGetPropertySize(v, *fork, P(2), ms::View::NEW), 0U);
+  EXPECT_EQ(*stub::MergeGetPropertySize(v, *fork, P(3), ms::View::NEW), *fork->GetPropertySize(P(3), ms::View::NEW));
+  EXPECT_EQ(*stub::MergeGetPropertySize(v, *fork, P(9), ms::View::NEW), 0U);
+  acc->Abort();
+}
+
+namespace {
+
+// A stub whose single-key read misses a property that its multi-key read then finds (a torn READ_COMMITTED read).
+struct TornStub {
+  ms::PropertyId key;
+  ms::PropertyValue value;
+  ms::PropertyValue marker;
+
+  ms::Result<ms::PropertyValue> GetProperty(ms::PropertyId, ms::View) const { return ms::PropertyValue{}; }
+
+  ms::Result<uint64_t> GetPropertySize(ms::PropertyId, ms::View) const { return uint64_t{0}; }
+
+  ms::Result<void> ReadPropertyValues(ms::OrderedPropertyPaths const &ordered, std::span<ms::PropertyValue> out,
+                                      ms::View) const {
+    for (size_t i = 0; i < out.size(); ++i) {
+      out[i] = ordered.paths()[i] == ms::PropertyPath{key} ? value : marker;
+    }
+    return {};
+  }
+};
+
+struct SentinelFork {
+  ms::Result<ms::PropertyValue> GetProperty(ms::PropertyId, ms::View) const { return V(-1); }
+
+  ms::Result<uint64_t> GetPropertySize(ms::PropertyId, ms::View) const { return uint64_t{999}; }
+};
+
+}  // namespace
+
+TEST(StubReads, ATornStubReadFindingTheValueWinsOverTheMarkerAndTheFork) {
+  auto const marker_only = ms::PropertyValue{true};
+  ms::PropertyStore store;
+  store.SetProperty(P(1), V(42));
+  auto const real_size = uint64_t{store.PropertySize(P(1))};
+  ASSERT_GT(real_size, 0U);
+
+  for (auto const &marker : {ms::PropertyValue{}, marker_only}) {
+    TornStub const torn{.key = P(1), .value = V(42), .marker = marker};
+    EXPECT_EQ(*stub::MergeGetProperty(torn, SentinelFork{}, P(1), ms::View::NEW), V(42));
+    EXPECT_EQ(*stub::MergeGetPropertySize(torn, SentinelFork{}, P(1), ms::View::NEW), real_size);
+  }
 }
