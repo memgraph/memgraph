@@ -375,6 +375,9 @@ bool SystemRecoveryHandler(DbmsHandler &dbms_handler, const std::vector<storage:
         "Handling SystemRecovery, an enterprise RPC message, without license. Check your license status by running "
         "SHOW LICENSE INFO.");
   }
+  if (!includes_all_databases) {
+    spdlog::debug("SystemRecoveryHandler: MAIN sent no database list; updating only the default DB.");
+  }
   if (!licensed || !includes_all_databases) {
     for (const auto &config : database_configs) {
       // Only handle default DB
