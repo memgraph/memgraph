@@ -283,7 +283,7 @@ class TTL final {
 
   bool StopRequested() const noexcept { return stop_requested_.load(std::memory_order_relaxed); }
 
-  mutable std::mutex lifecycle_mutex_;       //!< serializes the TTL interface state (A3)
+  mutable std::mutex lifecycle_mutex_;       //!< serializes the TTL interface state
   std::atomic<bool> stop_requested_{false};  //!< polled by the job body at each batch boundary
   utils::Scheduler ttl_;  //!< background thread
   TtlInfo info_{};        //!< configuration

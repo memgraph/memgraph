@@ -638,10 +638,9 @@ TEST_F(DatabaseProtectorTest, DisableTtlCompletesUnderUniqueMidRun) {
 }
 
 // Guard: the TTL lifecycle API must stay live under concurrent stop/start and still reap afterwards.
-// The fix serializes the interface state (A3); this pins that the serialization does not deadlock the
-// worker or lose the final generation. Configure()/Run() stays out of the hammer: recreating the
-// scheduler thread concurrently with Stop()'s join mutates the same std::jthread and is not part of the
-// TTL interface contract this guard covers.
+// The lifecycle serialization must not deadlock the worker or lose the final generation.
+// Configure()/Run() stays out of the hammer: recreating the scheduler thread concurrently with a
+// Stop() join mutates the same std::jthread and is not covered by this guard.
 TEST_F(DatabaseProtectorTest, TtlConcurrentStopStartLifecycle) {
   auto *storage = new InMemoryStorage(config_);
   auto *ttl = TtlOf(storage);
