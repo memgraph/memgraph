@@ -1056,7 +1056,8 @@ def test_multitenancy_replication_unlicensed_main_keeps_replica_state(connection
 
     # 2/
     main_cursor = connection(BOLT_PORTS["main"], "main", "tester", "tester").cursor()
-    execute_and_fetch_all(main_cursor, f"SET DATABASE SETTING 'organization.name' TO '{organization_name.swapcase()}';")
+    execute_and_fetch_all(main_cursor, f"SET DATABASE SETTING 'organization.name' TO '{organization_name}-invalid';")
+    mg_sleep_and_assert(False, lambda: dict(execute_and_fetch_all(main_cursor, "SHOW LICENSE INFO;"))["is_valid"])
     time.sleep(5)
 
     # 3/
