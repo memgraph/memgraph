@@ -45,7 +45,8 @@ void ResumeDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system
                            uint64_t request_version, slk::Reader *req_reader, slk::Builder *res_builder);
 // Reconcile this replica to MAIN's authoritative hot/cold sets. database_configs = HOT salient
 // configs; cold_databases = the COLD set (each a salient + MAIN's as-of-suspend stats).
-// Converges {HOT ∪ COLD} to match MAIN. Returns false on a non-transient failure.
+// Converges {HOT ∪ COLD} to match MAIN. If this replica is unlicensed or includes_all_databases is false,
+// only the default DB is updated and nothing is dropped. Returns false on a non-transient failure.
 bool SystemRecoveryHandler(DbmsHandler &dbms_handler, const std::vector<storage::SalientConfig> &database_configs,
                            const std::vector<storage::ColdTenantRecovery> &cold_databases, bool includes_all_databases);
 
