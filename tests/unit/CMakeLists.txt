@@ -1554,6 +1554,11 @@ add_unit_test(logging
     LINK_TARGETS gflags mg-flags
 )
 
+add_unit_test(utils_terminate_handler
+    SOURCES utils_terminate_handler.cpp
+    LINK_TARGETS mg-utils
+)
+
 add_unit_test(utils_queued_byte_source
     SOURCES utils_queued_byte_source.cpp
     LINK_TARGETS mg-utils
