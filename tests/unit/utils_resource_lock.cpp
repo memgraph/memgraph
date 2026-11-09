@@ -1442,15 +1442,17 @@ TEST_F(ResourceLockTest, ConcurrentMutualExclusionInvariantsFuzzWithPendingScope
 // UNIQUE waiter of either kind the interleaving cannot arise and the test asserts nothing.
 TEST_F(ResourceLockTest, PendingUniqueIsWokenWhenSharedAcquirersAreAlsoParked) {
   using namespace std::chrono_literals;
-  // Well above any plausible scheduling delay, so a timeout means the pending UNIQUE was genuinely
-  // not woken rather than that its thread was starved of CPU.
+  // A missed wake leaves the waiter asleep for its whole timeout, and the timed-out wait can still
+  // succeed on its final check because everyone is asleep and the lock is free. So an attempt that
+  // lasts the whole timeout is a missed wake whatever it returns; the timeout is well above any
+  // scheduling delay, so a starved thread is not mistaken for one.
   constexpr auto kUniqueTimeout = 30s;
   constexpr auto kDuration = 2s;
   constexpr int kSharedCyclers = 4;
   constexpr int kUniqueWaiters = 4;
 
   std::atomic<bool> stop{false};
-  std::atomic<int> unique_timeouts{0};
+  std::atomic<int> missed_wakes{0};
   std::atomic<int> unique_acquisitions{0};
 
   std::vector<std::jthread> threads;
@@ -1472,11 +1474,14 @@ TEST_F(ResourceLockTest, PendingUniqueIsWokenWhenSharedAcquirersAreAlsoParked) {
   for (int i = 0; i < kUniqueWaiters; ++i) {
     threads.emplace_back([&] {
       while (!stop.load(std::memory_order_relaxed)) {
-        if (lock.try_lock_for(kUniqueTimeout)) {
+        auto const start = std::chrono::steady_clock::now();
+        auto const acquired = lock.try_lock_for(kUniqueTimeout);
+        if (acquired) {
           unique_acquisitions.fetch_add(1, std::memory_order_relaxed);
           lock.unlock();
-        } else {
-          unique_timeouts.fetch_add(1, std::memory_order_relaxed);
+        }
+        if (!acquired || std::chrono::steady_clock::now() - start >= kUniqueTimeout) {
+          missed_wakes.fetch_add(1, std::memory_order_relaxed);
         }
       }
     });
@@ -1487,6 +1492,6 @@ TEST_F(ResourceLockTest, PendingUniqueIsWokenWhenSharedAcquirersAreAlsoParked) {
   threads.clear();
 
   EXPECT_GT(unique_acquisitions.load(), 0) << "the UNIQUE waiter never acquired; the test proved nothing";
-  EXPECT_EQ(unique_timeouts.load(), 0) << "a pending UNIQUE waiter was not woken within " << kUniqueTimeout.count()
-                                       << "s while " << kSharedCyclers << " shared acquirers were parked";
+  EXPECT_EQ(missed_wakes.load(), 0) << "a pending UNIQUE waiter was not woken within " << kUniqueTimeout.count()
+                                    << "s while " << kSharedCyclers << " shared acquirers were parked";
 }
