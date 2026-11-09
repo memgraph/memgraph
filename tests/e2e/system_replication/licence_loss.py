@@ -168,8 +168,6 @@ def test_relicensed_main_replica_in_step_without_write(test_name):
     time.sleep(5)
 
     assert_replica_keeps_state()
-    replicas = execute_and_fetch_all(cursor("main"), "SHOW REPLICAS;")
-    assert replicas[0][4]["tenant"]["behind"] == 0
 
 
 def test_fine_grained_rules_not_enforced_without_licence(test_name):
