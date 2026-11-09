@@ -11317,7 +11317,6 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
       auto const &db_name = current_db_.db_acc_->get()->name();
       bool const allowed = rw_type == RWType::R || (rw_type == RWType::NONE && allowed_on_unlicensed_tenant);
       if (db_name != dbms::kDefaultDB && !allowed) {
-        query_execution = nullptr;
         throw WriteQueryOnUnlicensedTenantException(db_name);
       }
     }

@@ -12,6 +12,7 @@
 # Multi-tenancy is an enterprise feature: without a valid licence, databases other than the default stay readable but
 # refuse writes. The instance is licensed through settings only, so a mismatched organization name makes it unlicensed.
 
+import glob
 import os
 import sys
 from unittest.mock import patch
@@ -68,6 +69,7 @@ def test_tenant_read_only_without_licence(request):
     connection = mgclient.connect(host="localhost", port=7687)
     connection.autocommit = True
     cursor = connection.cursor()
+    execute(cursor, 'SET SESSION SETTING "log.failed_queries" TO "true";')
     set_organization_name(cursor, ORGANIZATION_NAME)
     execute(cursor, f"SET DATABASE SETTING 'enterprise.license' TO '{LICENSE_KEY}';")
     execute(cursor, "CREATE DATABASE tenant;")
@@ -91,6 +93,11 @@ def test_tenant_read_only_without_licence(request):
     ]:
         with pytest.raises(mgclient.DatabaseError, match="read-only without a valid license"):
             execute(cursor, write)
+    log_dir = os.path.join(
+        interactive_mg_runner.BUILD_DIR, "e2e", "logs", os.path.dirname(description["main"]["log_file"])
+    )
+    with open(glob.glob(f"{log_dir}/main*.log")[0]) as log:
+        assert 'query="CREATE INDEX ON :Label;"' in log.read()
     for read in ["SHOW TRIGGERS;", "SHOW STREAMS;", "RETURN 1;", "PROFILE RETURN 1;", "CREATE SNAPSHOT;"]:
         execute(cursor, read)
     with GraphDatabase.driver("bolt://localhost:7687", auth=("", "")) as driver:
