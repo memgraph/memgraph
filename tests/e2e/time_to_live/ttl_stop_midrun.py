@@ -9,23 +9,15 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
-"""gh5388: a TTL run must never make a stop/join or an exclusive switch hang.
+"""A multi-batch TTL run must not make a stop/join or an exclusive switch hang.
 
-The dataset is large enough that a TTL run lasts several batches. While it is deleting:
+While a large TTL run is deleting, DISABLE TTL and STORAGE MODE issued from fresh Bolt sessions must
+answer, and a fresh session must still be served. A refused STORAGE MODE must leave TTL running; a
+successful one must leave TTL off.
 
-* DISABLE TTL issued from a fresh Bolt session must answer (not block).
-* STORAGE MODE issued from a fresh Bolt session must answer (refusal or success), and the
-  database must still serve a fresh session afterwards.
-* A refused STORAGE MODE must leave TTL running, and a successful switch must leave TTL off.
-
-Before the fix the worker parks in the unbounded ``Storage::Access(WRITE)`` inside its batch, so
-``TTL::Disable`` (called under the caller's live UNIQUE accessor) and the gatekeeper-exclusive
-STORAGE MODE region both wait forever, and every new session then blocks behind them.
-
-Every query that can block on the bug runs in its own child process. A thread cannot bound it:
-while ``mgclient`` is blocked reading the reply it still holds the GIL, so a daemon-thread
-``join(timeout)`` never returns and the whole pytest process hangs instead of failing. Killing the
-child at the deadline leaves the test free to record the timeout as a failure.
+Every query that can block runs in its own child process: mgclient holds the GIL while blocked, so a
+daemon-thread join(timeout) would hang the whole pytest process instead of failing. Killing the child
+at the deadline records the timeout as the test's assertion failure.
 """
 
 import json
@@ -219,7 +211,7 @@ def _wait_until_ttl_deleting(database, total, timeout=15.0):
 
 
 def test_disable_ttl_midrun_returns():
-    """DISABLE TTL during a multi-batch run must answer and stop TTL (S3, R1, A8)."""
+    """DISABLE TTL during a multi-batch run must answer and stop TTL."""
     database = "ttl_disable_midrun"
     _load_and_enable(database)
 
@@ -241,7 +233,7 @@ def test_disable_ttl_midrun_returns():
 
 
 def test_storage_mode_refusal_restores_ttl():
-    """A refused switch must keep TTL running; a successful switch must leave TTL off (A4, R1)."""
+    """A refused switch must keep TTL running; a successful switch must leave TTL off."""
     refused = "ttl_refusal_restore"
     _create_database(refused)
     connection = _connect()
@@ -297,7 +289,7 @@ def test_storage_mode_refusal_restores_ttl():
 
 
 def test_storage_mode_midrun_and_sessions():
-    """STORAGE MODE and fresh sessions must answer during a multi-batch TTL run (S1, S2, R1, R2)."""
+    """STORAGE MODE and fresh sessions must answer during a multi-batch TTL run."""
     database = "ttl_storage_mode_midrun"
     _load_and_enable(database)
 

@@ -521,11 +521,11 @@ size_t CountAllVertices(InMemoryStorage *storage) {
 
 }  // namespace
 
-// A TTL stop/join must complete while the caller keeps a storage UNIQUE accessor live.
-// Pre-fix the worker parks in the unbounded Storage::Access(WRITE) at ttl.cpp:205; TTL::Disable()
-// then blocks in Scheduler::Stop() waiting for a worker that needs the UNIQUE this test holds.
-// Post-fix the batch acquisition is bounded and the top-of-batch stop check makes the worker retire
-// at the batch boundary without ever touching the UNIQUE lock again.
+// A TTL stop/join must complete while the caller keeps a storage UNIQUE accessor live: first the raw
+// TTL::Disable(), then DisableTtl() from the accessor. Pre-fix the worker parks in the unbounded
+// Storage::Access(WRITE) at ttl.cpp:205; the join then blocks waiting for a worker that needs the
+// UNIQUE the caller holds. Post-fix the batch acquisition is bounded and the top-of-batch stop check
+// makes the worker retire at the batch boundary without ever touching the UNIQUE lock again.
 TEST_F(DatabaseProtectorTest, TTLWorkerRetiresWhileUniqueHeld) {
   auto *storage = new InMemoryStorage(config_);
   auto *ttl = TtlOf(storage);
@@ -578,19 +578,11 @@ TEST_F(DatabaseProtectorTest, TTLWorkerRetiresWhileUniqueHeld) {
   stopper.join();
   EXPECT_FALSE(ttl->Enabled()) << "Disable() must leave TTL disabled";
   unique_acc.reset();
-  delete storage;
-}
 
-// The in-memory DISABLE TTL join runs from inside a live UNIQUE accessor (inmemory/storage.hpp:765-785):
-// DisableTtl drops the indices, joins the worker, then appends its md_delta. The join must complete
-// without the caller releasing the UNIQUE, for the main form and for the replica (is_main=false) form.
-TEST_F(DatabaseProtectorTest, DisableTtlCompletesUnderUniqueMidRun) {
-  auto *storage = new InMemoryStorage(config_);
-  auto *ttl = TtlOf(storage);
-
-  CreateTtlIndex(storage);
+  // DisableTtl() runs its join inside a live UNIQUE accessor (inmemory/storage.hpp:765-785): it drops
+  // the indices, joins the worker, then appends its md_delta. Both the main and the replica
+  // (is_main=false) form must return without the caller releasing the UNIQUE.
   CreateExpiredTtlVertices(storage, 30'000);
-
   ttl->Enable();
   ttl->Configure(false);
   ttl->SetInterval(std::chrono::milliseconds(100));
@@ -619,8 +611,8 @@ TEST_F(DatabaseProtectorTest, DisableTtlCompletesUnderUniqueMidRun) {
   std::this_thread::sleep_for(std::chrono::milliseconds(300));
   go.store(true, std::memory_order_release);
 
-  const auto deadline = std::chrono::steady_clock::now() + kRetireBound;
-  while (!done.load(std::memory_order_acquire) && std::chrono::steady_clock::now() < deadline) {
+  const auto disable_deadline = std::chrono::steady_clock::now() + kRetireBound;
+  while (!done.load(std::memory_order_acquire) && std::chrono::steady_clock::now() < disable_deadline) {
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
   }
 
@@ -638,10 +630,9 @@ TEST_F(DatabaseProtectorTest, DisableTtlCompletesUnderUniqueMidRun) {
 }
 
 // Guard: the TTL lifecycle API must stay live under concurrent stop/start and still reap afterwards.
-// The fix serializes the interface state (A3); this pins that the serialization does not deadlock the
-// worker or lose the final generation. Configure()/Run() stays out of the hammer: recreating the
-// scheduler thread concurrently with Stop()'s join mutates the same std::jthread and is not part of the
-// TTL interface contract this guard covers.
+// This pins that the serialized interface does not deadlock the worker or lose the final generation.
+// Configure()/Run() is excluded: recreating the scheduler thread concurrently with Stop()'s join
+// mutates the same std::jthread.
 TEST_F(DatabaseProtectorTest, TtlConcurrentStopStartLifecycle) {
   auto *storage = new InMemoryStorage(config_);
   auto *ttl = TtlOf(storage);
