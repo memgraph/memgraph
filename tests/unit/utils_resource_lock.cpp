@@ -834,11 +834,11 @@ TEST_F(ResourceLockTest, ReadOnlyLatencyIndependentOfNewWriterCount) {
   RecordProperty("ro_latency_small_burst_us", std::to_string(latency_small_burst.count()));
   RecordProperty("ro_latency_large_burst_us", std::to_string(latency_large_burst.count()));
 
-  // A 50ms budget is smaller than the scheduling noise a sanitizer build sees on a loaded machine,
+  // A 50ms budget is smaller than the scheduling noise an ASan build sees on a loaded machine,
   // and widening it far enough to be safe there would stop it catching the regression it exists
   // for. The late_before_ro check above has no latency budget and still runs everywhere.
 #if __has_feature(address_sanitizer)
-  GTEST_SKIP() << "READ_ONLY latency budget is below sanitizer scheduling noise";
+  GTEST_SKIP() << "READ_ONLY latency budget is below ASan scheduling noise";
 #endif
 
   // The large burst queues far more new writers behind the READ_ONLY request; if priority is
