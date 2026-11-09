@@ -134,9 +134,9 @@ def test_failover_to_unlicensed_replica_keeps_other_instances_state(test_name):
     for port in (7688, 7689):
         mg_sleep_and_assert(10, node_count(port))
 
-    execute_and_fetch_all(
-        cursor(7688), f"SET DATABASE SETTING 'organization.name' TO '{ORGANIZATION_NAME.swapcase()}';"
-    )
+    instance_2 = cursor(7688)
+    execute_and_fetch_all(instance_2, f"SET DATABASE SETTING 'organization.name' TO '{ORGANIZATION_NAME}-invalid';")
+    assert not dict(execute_and_fetch_all(instance_2, "SHOW LICENSE INFO;"))["is_valid"]
     execute_and_fetch_all(coordinator, "DEMOTE INSTANCE instance_1;")
     execute_and_fetch_all(coordinator, "SET INSTANCE instance_2 TO MAIN;")
 
