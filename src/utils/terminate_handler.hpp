@@ -15,6 +15,7 @@
 #include <spdlog/spdlog.h>
 #include <unistd.h>
 #include <csignal>
+#include <cstdio>
 #include <cstdlib>
 #include <iosfwd>
 #include <iostream>
