@@ -4,6 +4,7 @@ endfunction()
 
 copy_time_to_live_e2e_python_files(common.py)
 copy_time_to_live_e2e_python_files(multitenancy.py)
+copy_time_to_live_e2e_python_files(ttl_stop_midrun.py)
 
 copy_e2e_python_files_from_parent_folder(time_to_live ".." mg_utils.py)
 

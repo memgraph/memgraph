@@ -12,11 +12,77 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include <unistd.h>
+#include <atomic>
+#include <chrono>
+#include <cstdint>
+#include <filesystem>
+#include <memory>
+#include <thread>
+
+#include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/storage.hpp"
 
 namespace {
 constexpr auto kTimeout = std::chrono::milliseconds(100);
+// The bounded acquisition has to throw within this; pre-fix the disk path never throws at all.
+constexpr auto kObserveTimeout = std::chrono::seconds(2);
+
+std::filesystem::path MakeDiskConfig(memgraph::storage::Config &config) {
+  auto dir =
+      std::filesystem::temp_directory_path() / ("storage_v2_acc_disk_" + std::to_string(static_cast<int>(getpid())));
+  std::filesystem::remove_all(dir);
+  config.durability.storage_directory = dir;
+  config.disk.main_storage_directory = dir / "rocksdb_main_storage";
+  config.disk.label_index_directory = dir / "rocksdb_label_index";
+  config.disk.label_property_index_directory = dir / "rocksdb_label_property_index";
+  config.disk.unique_constraints_directory = dir / "rocksdb_unique_constraints";
+  config.disk.name_id_mapper_directory = dir / "rocksdb_name_id_mapper";
+  config.disk.id_name_mapper_directory = dir / "rocksdb_id_name_mapper";
+  config.disk.durability_directory = dir / "rocksdb_durability";
+  config.disk.wal_directory = dir / "rocksdb_wal";
+  config.force_on_disk = true;
+  return dir;
+}
+
+// Run `acquire` on a side thread while `holder` keeps the contended lock, and require it to throw
+// `Expected` within kObserveTimeout. On the pre-fix disk path the timeout is discarded, so the call
+// blocks until the holder is released; releasing it there lets the thread finish instead of wedging
+// the test binary, and the failure is reported as the assertion it is.
+template <typename Expected, typename Fn>
+void ExpectAccessTimeout(Fn acquire, const char *what, std::unique_ptr<memgraph::storage::Storage::Accessor> &holder) {
+  enum class Outcome : uint8_t { kBlocked, kExpected, kWrong };
+  std::atomic<Outcome> outcome{Outcome::kBlocked};
+  std::thread worker([&] {
+    try {
+      auto acc = acquire();
+      (void)acc;
+      outcome.store(Outcome::kWrong);
+    } catch (const Expected &) {
+      outcome.store(Outcome::kExpected);
+    } catch (const std::exception &) {
+      outcome.store(Outcome::kWrong);
+    }
+  });
+
+  const auto deadline = std::chrono::steady_clock::now() + kObserveTimeout;
+  while (outcome.load() == Outcome::kBlocked && std::chrono::steady_clock::now() < deadline) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+  }
+
+  const bool blocked = outcome.load() == Outcome::kBlocked;
+  if (blocked) {
+    ADD_FAILURE() << what
+                  << " did not throw within 2s: DiskStorage ignores the caller's timeout "
+                     "(disk/storage.cpp:2564,2574,2584) instead of forwarding it to AcquireGuardOrThrow";
+    holder.reset();
+  }
+  worker.join();
+  if (!blocked) {
+    EXPECT_EQ(outcome.load(), Outcome::kExpected) << what << " threw the wrong exception type";
+  }
+}
 }  // namespace
 
 /// Test that unique/shared accessors can timeout and not deadlock
@@ -112,4 +178,36 @@ TEST(StorageV2Acc, RW) {
     ASSERT_THROW(storage->ReadOnlyAccess({}, kTimeout), memgraph::storage::ReadOnlyAccessTimeout);
     ASSERT_THROW(storage->UniqueAccess({}, kTimeout), memgraph::storage::UniqueAccessTimeout);
   }
+}
+
+/// DiskStorage must forward the caller's timeout into AcquireGuardOrThrow. Pre-fix all three access
+/// methods discard it (disk/storage.cpp:2564,2574,2584), so a bounded acquisition silently blocks.
+TEST(StorageV2AccDisk, Timeouts) {
+  memgraph::storage::Config config{};
+  const auto dir = MakeDiskConfig(config);
+  std::unique_ptr<memgraph::storage::Storage> storage = std::make_unique<memgraph::storage::DiskStorage>(config);
+
+  {  // WRITE held: UniqueAccess and ReadOnlyAccess must time out.
+    auto holder = storage->Access(memgraph::storage::StorageAccessType::WRITE, {}, kTimeout);
+    ASSERT_TRUE(holder);
+    ExpectAccessTimeout<memgraph::storage::UniqueAccessTimeout>(
+        [&] { return storage->UniqueAccess({}, kTimeout); }, "DiskStorage::UniqueAccess", holder);
+  }
+  {
+    auto holder = storage->Access(memgraph::storage::StorageAccessType::WRITE, {}, kTimeout);
+    ASSERT_TRUE(holder);
+    ExpectAccessTimeout<memgraph::storage::ReadOnlyAccessTimeout>(
+        [&] { return storage->ReadOnlyAccess({}, kTimeout); }, "DiskStorage::ReadOnlyAccess", holder);
+  }
+  {  // UNIQUE held: Access(WRITE) must time out.
+    auto holder = storage->UniqueAccess({}, kTimeout);
+    ASSERT_TRUE(holder);
+    ExpectAccessTimeout<memgraph::storage::SharedAccessTimeout>(
+        [&] { return storage->Access(memgraph::storage::StorageAccessType::WRITE, {}, kTimeout); },
+        "DiskStorage::Access(WRITE)",
+        holder);
+  }
+
+  storage.reset();
+  std::filesystem::remove_all(dir);
 }

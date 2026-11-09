@@ -20,6 +20,8 @@
 #include "storage/v2/config.hpp"
 #include "storage/v2/database_protector.hpp"
 #include "storage/v2/inmemory/storage.hpp"
+#include "storage/v2/property_value.hpp"
+#include "storage/v2/ttl.hpp"
 #include "tests/test_commit_args_helper.hpp"
 #include "utils/gatekeeper.hpp"
 
@@ -461,5 +463,256 @@ TEST_F(DatabaseProtectorTest, TryDeleteDeadlocksUnderRealAsyncIndexerViaAccess) 
   delete gk;
   delete trap;
 }
+
+#ifdef MG_ENTERPRISE
+namespace {
+
+using memgraph::storage::InMemoryStorage;
+using memgraph::storage::PropertyPath;
+using memgraph::storage::PropertyValue;
+
+// The worker may spend one bounded acquisition slice (100 ms after the fix) plus one in-flight batch
+// retiring; several seconds is a generous ceiling that still fails a worker parked forever.
+constexpr auto kRetireBound = std::chrono::seconds(5);
+
+// Create the :TTL(ttl) label-property index synchronously, so the TTL worker never has to create it
+// in its first batch and the test's timing is about the batch Access(WRITE), not index creation.
+void CreateTtlIndex(InMemoryStorage *storage) {
+  auto label = storage->NameToLabel("TTL");
+  std::vector<PropertyPath> path{storage->NameToProperty("ttl")};
+  auto acc = storage->UniqueAccess();
+  ASSERT_TRUE(acc) << "Failed to acquire UNIQUE access for TTL index creation";
+  ASSERT_TRUE(acc->CreateIndex(label, path).has_value()) << "Failed to create the TTL label-property index";
+  ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value())
+      << "Failed to commit the TTL index";
+}
+
+// An expired :TTL vertex is one whose integer `ttl` property is below `now` in microseconds, i.e. 0.
+void CreateExpiredTtlVertices(InMemoryStorage *storage, size_t count) {
+  auto label = storage->NameToLabel("TTL");
+  auto prop = storage->NameToProperty("ttl");
+  auto acc = storage->Access(memgraph::storage::WRITE);
+  ASSERT_TRUE(acc) << "Failed to acquire WRITE access for TTL vertices";
+  for (size_t i = 0; i < count; ++i) {
+    auto vertex = acc->CreateVertex();
+    ASSERT_TRUE(vertex.AddLabel(label).has_value()) << "Failed to add the TTL label";
+    ASSERT_TRUE(vertex.SetProperty(prop, PropertyValue(0)).has_value()) << "Failed to set the expired ttl property";
+  }
+  ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value())
+      << "Failed to commit the TTL vertices";
+}
+
+// TTL ref lives inside the storage, outliving the accessor used to reach it.
+memgraph::storage::ttl::TTL *TtlOf(InMemoryStorage *storage) {
+  auto acc = storage->Access(memgraph::storage::WRITE);
+  return &acc->ttl();
+}
+
+size_t CountAllVertices(InMemoryStorage *storage) {
+  auto acc = storage->Access(memgraph::storage::WRITE);
+  size_t count = 0;
+  for (auto vertex : acc->Vertices(memgraph::storage::View::NEW)) {
+    (void)vertex;
+    ++count;
+  }
+  (void)acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs());
+  return count;
+}
+
+}  // namespace
+
+// A TTL stop/join must complete while the caller keeps a storage UNIQUE accessor live.
+// Pre-fix the worker parks in the unbounded Storage::Access(WRITE) at ttl.cpp:205; TTL::Disable()
+// then blocks in Scheduler::Stop() waiting for a worker that needs the UNIQUE this test holds.
+// Post-fix the batch acquisition is bounded and the top-of-batch stop check makes the worker retire
+// at the batch boundary without ever touching the UNIQUE lock again.
+TEST_F(DatabaseProtectorTest, TTLWorkerRetiresWhileUniqueHeld) {
+  auto *storage = new InMemoryStorage(config_);
+  auto *ttl = TtlOf(storage);
+
+  CreateTtlIndex(storage);
+  CreateExpiredTtlVertices(storage, 30'000);
+
+  ttl->Enable();
+  ttl->Configure(false);
+  ttl->SetInterval(std::chrono::milliseconds(100));
+
+  // Hold the UNIQUE across the whole stop/join, exactly as DisableTtl (inmemory/storage.hpp:781)
+  // and a live query transaction do.
+  auto unique_acc = storage->UniqueAccess();
+  ttl->Resume();
+  // Give the worker time to enter its first batch and park in Access(WRITE) pre-fix.
+  std::this_thread::sleep_for(std::chrono::milliseconds(300));
+
+  std::atomic<bool> retired{false};
+  std::thread stopper([ttl, &retired] {
+    ttl->Disable();
+    retired.store(true, std::memory_order_release);
+  });
+
+  const auto deadline = std::chrono::steady_clock::now() + kRetireBound;
+  while (!retired.load(std::memory_order_acquire) && std::chrono::steady_clock::now() < deadline) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+
+  if (!retired.load(std::memory_order_acquire)) {
+    ADD_FAILURE() << "TTL worker did not retire within 5s while the test held a UNIQUE accessor: Disable() -> "
+                     "Scheduler::Stop() is joining a worker parked in the unbounded Access(WRITE) (ttl.cpp:205), "
+                     "which needs the UNIQUE the caller holds.";
+    // Release the UNIQUE so the parked worker can drain. The worker's run is not cancellable pre-fix, so
+    // it drains all remaining batches before Stop() can join; give it room, then leak only if it really hangs.
+    unique_acc.reset();
+    const auto drain_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(20);
+    while (!retired.load(std::memory_order_acquire) && std::chrono::steady_clock::now() < drain_deadline) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    if (retired.load(std::memory_order_acquire)) {
+      stopper.join();
+      delete storage;
+    } else {
+      stopper.detach();  // leak storage; the detached thread still references it
+    }
+    return;
+  }
+
+  stopper.join();
+  EXPECT_FALSE(ttl->Enabled()) << "Disable() must leave TTL disabled";
+  unique_acc.reset();
+  delete storage;
+}
+
+// The in-memory DISABLE TTL join runs from inside a live UNIQUE accessor (inmemory/storage.hpp:765-785):
+// DisableTtl drops the indices, joins the worker, then appends its md_delta. The join must complete
+// without the caller releasing the UNIQUE, for the main form and for the replica (is_main=false) form.
+TEST_F(DatabaseProtectorTest, DisableTtlCompletesUnderUniqueMidRun) {
+  auto *storage = new InMemoryStorage(config_);
+  auto *ttl = TtlOf(storage);
+
+  CreateTtlIndex(storage);
+  CreateExpiredTtlVertices(storage, 30'000);
+
+  ttl->Enable();
+  ttl->Configure(false);
+  ttl->SetInterval(std::chrono::milliseconds(100));
+
+  std::atomic<bool> held{false};
+  std::atomic<bool> go{false};
+  std::atomic<bool> done{false};
+
+  // The same thread both holds the UNIQUE and calls DisableTtl, so the lock is acquired and released on
+  // one thread; the worker is parked in its batch Access(WRITE) by the time `go` is set.
+  std::thread disabler([storage, &held, &go, &done] {
+    auto acc = storage->UniqueAccess();
+    held.store(true, std::memory_order_release);
+    while (!go.load(std::memory_order_acquire)) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    }
+    acc->DisableTtl();
+    acc->DisableTtl(memgraph::storage::TTLReplicationArgs{.is_main = false});
+    done.store(true, std::memory_order_release);
+  });
+
+  while (!held.load(std::memory_order_acquire)) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(2));
+  }
+  ttl->Resume();
+  std::this_thread::sleep_for(std::chrono::milliseconds(300));
+  go.store(true, std::memory_order_release);
+
+  const auto deadline = std::chrono::steady_clock::now() + kRetireBound;
+  while (!done.load(std::memory_order_acquire) && std::chrono::steady_clock::now() < deadline) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+
+  if (!done.load(std::memory_order_acquire)) {
+    ADD_FAILURE() << "DisableTtl() did not return within 5s while the caller held a UNIQUE accessor: the worker is "
+                     "parked in the unbounded batch Access(WRITE) (ttl.cpp:205) and the join cannot get the UNIQUE "
+                     "the caller holds.";
+    disabler.detach();  // leak storage; the blocked thread still references it
+    return;
+  }
+
+  disabler.join();
+  EXPECT_FALSE(ttl->Enabled()) << "DisableTtl() must leave TTL disabled";
+  delete storage;
+}
+
+// Guard: the TTL lifecycle API must stay live under concurrent stop/start and still reap afterwards.
+// The fix serializes the interface state (A3); this pins that the serialization does not deadlock the
+// worker or lose the final generation. Configure()/Run() stays out of the hammer: recreating the
+// scheduler thread concurrently with Stop()'s join mutates the same std::jthread and is not part of the
+// TTL interface contract this guard covers.
+TEST_F(DatabaseProtectorTest, TtlConcurrentStopStartLifecycle) {
+  auto *storage = new InMemoryStorage(config_);
+  auto *ttl = TtlOf(storage);
+
+  CreateTtlIndex(storage);
+
+  ttl->Enable();
+  ttl->Configure(false);
+  ttl->SetInterval(std::chrono::milliseconds(50));
+  ttl->Resume();
+
+  std::atomic<bool> stop{false};
+  std::thread stopper([ttl, &stop] {
+    while (!stop.load(std::memory_order_acquire)) {
+      try {
+        ttl->Disable();
+      } catch (...) {
+      }
+      try {
+        ttl->Shutdown();
+      } catch (...) {
+      }
+      std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    }
+  });
+  std::thread starter([ttl, &stop] {
+    while (!stop.load(std::memory_order_acquire)) {
+      try {
+        ttl->Enable();
+      } catch (...) {
+      }
+      try {
+        ttl->SetInterval(std::chrono::milliseconds(50));
+      } catch (...) {
+      }
+      try {
+        ttl->Resume();
+      } catch (...) {
+      }
+      try {
+        ttl->Pause();
+      } catch (...) {
+      }
+      std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    }
+  });
+
+  std::this_thread::sleep_for(std::chrono::milliseconds(300));
+  stop.store(true, std::memory_order_release);
+  stopper.join();
+  starter.join();
+
+  // Settle to a known stopped state, then create one expired vertex and enable a fresh generation.
+  ttl->Disable();
+  CreateExpiredTtlVertices(storage, 1);
+
+  ttl->Enable();
+  ttl->Configure(false);
+  ttl->SetInterval(std::chrono::milliseconds(50));
+  ttl->Resume();
+
+  const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+  while (CountAllVertices(storage) != 0 && std::chrono::steady_clock::now() < deadline) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  }
+  EXPECT_EQ(CountAllVertices(storage), 0u)
+      << "A re-enabled TTL generation must still reap an expired vertex after concurrent stop/start";
+
+  ttl->Disable();
+  delete storage;
+}
+#endif  // MG_ENTERPRISE
 
 }  // namespace
