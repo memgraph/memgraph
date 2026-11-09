@@ -1184,3 +1184,56 @@ TEST_F(StorageV2GcIndexSweepCountTest, AnEdgeCreationArmsOnlyOnTheTransactionalR
   ASSERT_NO_FATAL_FAILURE(create_an_edge());
   EXPECT_EQ(SweptByOnePass(), 0) << "the analytical route arms none, and nothing it could sweep is stale";
 }
+
+namespace {
+// UpdateBeforeCommit and Abort cannot be interleaved through the public API, so reach the protected
+// transaction the way the commit path does.
+struct TransactionPeek : ms::Accessor {
+  static ms::Transaction &Of(ms::Accessor &acc) { return acc.*(&TransactionPeek::transaction_); }
+};
+}  // namespace
+
+// A unique-constraint sweep drops the older of two entries for the same vertex and key. While the
+// newer one is still in flight a reader at the horizon cannot see it, so the older one is the only
+// thing that makes the vertex's key visible to a concurrent committer's validation.
+TEST_F(StorageV2GcIndexSweepCountTest, UniqueConstraintSweepKeepsOlderDuplicateWhileNewerIsInFlight) {
+  ASSERT_NO_FATAL_FAILURE(CreateUniqueConstraint("L", "a"));
+
+  ms::Gid gid;
+  {
+    auto acc = storage->Access(ms::WRITE);
+    auto vertex = acc->CreateVertex();
+    gid = vertex.Gid();
+    ASSERT_TRUE(*vertex.AddLabel(acc->NameToLabel("L")));
+    ASSERT_NO_ERROR(vertex.SetProperty(acc->NameToProperty("a"), ms::PropertyValue{1}));
+    ASSERT_NO_FATAL_FAILURE(Commit(acc));
+  }
+  ASSERT_EQ(ConstraintEntryCount("L", "a"), 1);
+
+  auto acc2 = storage->Access(ms::WRITE);
+  {
+    auto vertex = acc2->FindVertex(gid, ms::View::OLD);
+    ASSERT_TRUE(vertex.has_value());
+    ASSERT_NO_ERROR(vertex->SetProperty(acc2->NameToProperty("a"), ms::PropertyValue{1}));
+  }
+
+  // What the commit path does before validating, stopping short of the commit.
+  auto &tx = TransactionPeek::Of(*acc2);
+  ASSERT_TRUE(tx.constraint_verification_info);
+  for (auto const *vertex : tx.constraint_verification_info->GetVerticesForUniqueConstraintChecking()) {
+    tx.active_constraints_->unique_->UpdateBeforeCommit(vertex, tx);
+  }
+  ASSERT_EQ(ConstraintEntryCount("L", "a"), 2);
+
+  // acc2 holds the main lock shared, so SweptByOnePass's unique hold would deadlock.
+  static_cast<ms::InMemoryStorage *>(storage.get())->FreeMemory({}, false);
+  EXPECT_EQ(ConstraintEntryCount("L", "a"), 2) << "the older entry went while the newer one is still in flight";
+
+  acc2->Abort();
+
+  auto acc3 = storage->Access(ms::WRITE);
+  auto other = acc3->CreateVertex();
+  ASSERT_TRUE(*other.AddLabel(acc3->NameToLabel("L")));
+  ASSERT_NO_ERROR(other.SetProperty(acc3->NameToProperty("a"), ms::PropertyValue{1}));
+  EXPECT_FALSE(TryCommit(acc3)) << "a duplicate of a committed unique key was accepted";
+}
