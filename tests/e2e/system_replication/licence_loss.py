@@ -147,6 +147,8 @@ def assert_replica_keeps_state():
     assert [row[0] for row in execute_and_fetch_all(replica_cursor, "SHOW USERS;")] == [USER]
     assert [row[0] for row in execute_and_fetch_all(replica_cursor, "SHOW ROLES;")] == ["analyst"]
     assert node_count(replica_cursor, "tenant")() == 10
+    with pytest.raises(mgclient.Error, match="Authentication failure"):
+        cursor("replica_1", authenticated=False)
 
 
 def test_replica_connecting_to_unlicensed_main_keeps_state(test_name):
@@ -160,18 +162,6 @@ def test_replica_connecting_to_unlicensed_main_keeps_state(test_name):
     wait_for_recovery(test_name, before)
 
     assert_replica_keeps_state()
-
-
-def test_replica_requires_credentials_after_main_loses_licence(test_name):
-    description = instances(test_name)
-    setup_licensed_cluster(description)
-
-    before = recoveries(test_name)
-    break_licence(cursor("main"))
-    wait_for_recovery(test_name, before)
-
-    with pytest.raises(mgclient.Error, match="Authentication failure"):
-        cursor("replica_1", authenticated=False)
 
 
 def test_relicensed_main_replica_in_step_without_write(test_name):
