@@ -185,8 +185,10 @@ def test_fine_grained_rules_not_enforced_without_licence(test_name):
     for query in [
         "USE DATABASE memgraph;",
         "UNWIND range(1, 3) AS i CREATE (:Node);",
+        "UNWIND range(1, 2) AS i CREATE (:Visible);",
         "CREATE USER restricted IDENTIFIED BY 'restricted';",
         "GRANT ALL PRIVILEGES TO restricted;",
+        "GRANT READ ON NODES CONTAINING LABELS :Visible TO restricted;",
     ]:
         execute_and_fetch_all(main_cursor, query)
     count_default_database = "MATCH (n) RETURN count(n);"
@@ -195,11 +197,11 @@ def test_fine_grained_rules_not_enforced_without_licence(test_name):
         restricted = connect(host="localhost", port=BOLT_PORTS["main"], username="restricted", password="restricted")
         return execute_and_fetch_all(restricted.cursor(), count_default_database)[0][0]
 
-    assert visible_to_restricted() == 0
+    assert visible_to_restricted() == 2
 
     break_licence(main_cursor)
 
-    assert visible_to_restricted() == 3
+    assert visible_to_restricted() == 5
 
 
 def test_user_profile_not_enforced_without_licence(test_name):
