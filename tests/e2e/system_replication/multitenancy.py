@@ -1055,10 +1055,17 @@ def test_multitenancy_replication_unlicensed_main_keeps_replica_state(connection
     mg_sleep_and_assert(2, get_number_of_nodes_func(cursor_replica, "B"))
 
     # 2/
+    replica_logs = Path(interactive_mg_runner.BUILD_DIR, "e2e", "logs", get_logs_path(file, test_name))
+
+    def recoveries():
+        logs = replica_logs.glob(f"{replica_name.replace('_', '')}*.log")
+        return sum(log.read_text().count("SystemRecoveryHandler: SUCCESS") for log in logs)
+
+    recoveries_before = recoveries()
     main_cursor = connection(BOLT_PORTS["main"], "main", "tester", "tester").cursor()
     execute_and_fetch_all(main_cursor, f"SET DATABASE SETTING 'organization.name' TO '{organization_name}-invalid';")
     mg_sleep_and_assert(False, lambda: dict(execute_and_fetch_all(main_cursor, "SHOW LICENSE INFO;"))["is_valid"])
-    time.sleep(5)
+    mg_sleep_and_assert(True, lambda: recoveries() > recoveries_before)
 
     # 3/
     cursor_replica = connection(BOLT_PORTS[replica_name], "replica", "tester", "tester").cursor()
