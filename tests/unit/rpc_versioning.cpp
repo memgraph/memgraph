@@ -422,6 +422,7 @@ TEST(RpcVersioning, SystemRecoveryRpc_V1AndV2Request_UpgradeOnServer) {
   uint64_t seen_version = 0;
   bool cold_defaulted_empty = false;
   bool params_defaulted_empty = false;
+  bool includes_auth_and_databases = false;
   rpc_server.Register<memgraph::replication::SystemRecoveryRpc>(
       [&](std::optional<memgraph::rpc::FileReplicationHandler> const & /*file_replication_handler*/,
           uint64_t const request_version,
@@ -430,8 +431,9 @@ TEST(RpcVersioning, SystemRecoveryRpc_V1AndV2Request_UpgradeOnServer) {
         memgraph::replication::SystemRecoveryReq req;
         memgraph::rpc::LoadWithUpgrade(req, request_version, req_reader);
         seen_version = request_version;
-        cold_defaulted_empty = req.cold_databases.empty();  // V3-only field, absent on the old wire
-        params_defaulted_empty = req.parameters.empty();    // V2+ field
+        cold_defaulted_empty = req.cold_databases.empty();              // V3-only field, absent on the old wire
+        params_defaulted_empty = req.parameters.empty();                // V2+ field
+        includes_auth_and_databases = req.includes_auth_and_databases;  // V4 field
         memgraph::replication::SystemRecoveryRes const res(memgraph::replication::SystemRecoveryRes::Result::SUCCESS);
         memgraph::rpc::SendFinalResponse(res, request_version, res_builder);
       });
@@ -456,6 +458,7 @@ TEST(RpcVersioning, SystemRecoveryRpc_V1AndV2Request_UpgradeOnServer) {
     EXPECT_EQ(seen_version, 1U) << "the server must observe the V1 wire version and run the upgrade chain";
     EXPECT_TRUE(cold_defaulted_empty) << "V3 cold_databases must default empty when upgrading a V1 request";
     EXPECT_TRUE(params_defaulted_empty) << "V2 parameters must default empty when upgrading a V1 request";
+    EXPECT_TRUE(includes_auth_and_databases) << "an older MAIN's lists must be read as its full state";
   }
   {
     // V2 request (has parameters, pre-hot/cold): 8-arg ctor -> wire version 2 -> upgraded V2->V3->V4.
@@ -472,6 +475,7 @@ TEST(RpcVersioning, SystemRecoveryRpc_V1AndV2Request_UpgradeOnServer) {
     EXPECT_EQ(reply.result, memgraph::replication::SystemRecoveryResV2::Result::SUCCESS);
     EXPECT_EQ(seen_version, 2U) << "the server must observe the V2 wire version and run the upgrade chain";
     EXPECT_TRUE(cold_defaulted_empty) << "V3 cold_databases must default empty when upgrading a V2 request";
+    EXPECT_TRUE(includes_auth_and_databases) << "an older MAIN's lists must be read as its full state";
   }
 }
 
