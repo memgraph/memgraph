@@ -1217,8 +1217,8 @@ TEST_F(ResourceLockTest, TimedUniqueTimeoutWakesSharedAcquirerItGated) {
 
   auto held_read = SharedResourceLockGuard(lock, SharedResourceLockGuard::READ);  // keeps state SHARED
 
-  // Long enough that the reader below is certainly parked before the timeout fires: the wake-up on
-  // timeout is what this test is about, so the timeout must not expire during the setup.
+  // The wake-up on timeout is what this test is about, so the timeout is long enough that the reader
+  // below parks well before it fires under any normal scheduling.
   auto timed_unique = std::async(std::launch::async, [&] { return lock.try_lock_for(2s); });
 
   // The reader below must park on the gate, so the gate has to be closed before it starts.
