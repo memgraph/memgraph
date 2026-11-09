@@ -1173,6 +1173,20 @@ TEST_F(ResourceLockTest, DowngradedHoldStillFreesTheLockForAWaitingUnique) {
   check(SharedResourceLockGuard::READ_ONLY);
 }
 
+namespace {
+// With a READ held, a refused READ can only be the pending-UNIQUE gate. Returns false if the UNIQUE
+// finishes first, so its gate was never observed closed.
+bool AwaitUniqueGate(ResourceLock &lock, std::future<bool> const &timed_unique) {
+  using namespace std::chrono_literals;
+  while (lock.try_lock_shared<ResourceLock::LockReq::READ>()) {
+    lock.unlock_shared<ResourceLock::LockReq::READ>();
+    if (timed_unique.wait_for(0s) == std::future_status::ready) return false;
+    std::this_thread::yield();
+  }
+  return true;
+}
+}  // namespace
+
 // A timed UNIQUE request gates new shared acquisitions for as long as it is waiting, exactly as the
 // untimed one does. This is the storage access-timeout path: acquisitions that wait out a timeout
 // are routine, so the registration has to behave the same as on the path that waits forever.
@@ -1185,16 +1199,7 @@ TEST_F(ResourceLockTest, TimedUniqueGatesNewSharedAcquisitionsWhilePending) {
 
   auto timed_unique = std::async(std::launch::async, [&] { return lock.try_lock_for(1s); });
 
-  // Spin until the gate is observably closed rather than sleeping a fixed amount: under load a
-  // fixed sleep can elapse before the UNIQUE has registered, leaving the probes testing nothing.
-  // READ is compatible with the held READ, so it can only be refused by the pending-UNIQUE gate.
-  // The deadline only bounds the spin; if the gate never closes, the probes below fail and report it.
-  const auto gate_deadline = std::chrono::steady_clock::now() + 60s;
-  while (lock.try_lock_shared<ResourceLock::LockReq::READ>()) {
-    lock.unlock_shared<ResourceLock::LockReq::READ>();
-    if (std::chrono::steady_clock::now() >= gate_deadline) break;
-    std::this_thread::yield();
-  }
+  ASSERT_TRUE(AwaitUniqueGate(lock, timed_unique)) << "the timed UNIQUE's gate was never observed closed";
   EXPECT_FALSE(lock.try_lock_shared<ResourceLock::LockReq::READ>());
   EXPECT_FALSE(lock.try_lock_shared<ResourceLock::LockReq::WRITE>());
   EXPECT_FALSE(lock.try_lock_shared<ResourceLock::LockReq::READ_ONLY>());
@@ -1216,20 +1221,8 @@ TEST_F(ResourceLockTest, TimedUniqueTimeoutWakesSharedAcquirerItGated) {
   // timeout is what this test is about, so the timeout must not expire during the setup.
   auto timed_unique = std::async(std::launch::async, [&] { return lock.try_lock_for(2s); });
 
-  // Spin until the gate is observably closed, so the reader really does park on it. A fixed sleep
-  // can elapse before the UNIQUE has registered, in which case the reader acquires immediately and
-  // the test proves nothing. READ is compatible with the held READ, so only the gate refuses it.
-  const auto gate_deadline = std::chrono::steady_clock::now() + 60s;
-  bool gate_timed_out = false;
-  while (lock.try_lock_shared<ResourceLock::LockReq::READ>()) {
-    lock.unlock_shared<ResourceLock::LockReq::READ>();
-    if (std::chrono::steady_clock::now() >= gate_deadline) {
-      gate_timed_out = true;
-      break;
-    }
-    std::this_thread::yield();
-  }
-  ASSERT_FALSE(gate_timed_out) << "the timed UNIQUE never registered as pending";
+  // The reader below must park on the gate, so the gate has to be closed before it starts.
+  ASSERT_TRUE(AwaitUniqueGate(lock, timed_unique)) << "the timed UNIQUE's gate was never observed closed";
 
   std::atomic<bool> reader_acquired{false};
   auto reader = std::async(std::launch::async, [&] {
