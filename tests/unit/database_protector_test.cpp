@@ -603,14 +603,13 @@ struct BlockingProtectorFactory {
 
 }  // namespace
 
-// A TTL stop/join must complete while the caller keeps a storage UNIQUE accessor live: first the raw
-// TTL::Disable(), then DisableTtl() from the accessor. Pre-fix the worker parks in the unbounded
-// Storage::Access(WRITE) at ttl.cpp:205; the join then blocks waiting for a worker that needs the
-// UNIQUE the caller holds. Post-fix the batch acquisition is bounded and the top-of-batch stop check
-// makes the worker retire at the batch boundary without ever touching the UNIQUE lock again.
+// A TTL stop/join must complete while the caller keeps a storage UNIQUE accessor live. DisableTtl()
+// runs its join inside a live UNIQUE accessor: it drops the indices, joins the worker, then appends
+// its md_delta. Without the fix the worker parks forever in the unbounded batch Access(WRITE) that
+// needs the UNIQUE the caller holds; with it the batch acquisition is bounded and the worker retires
+// at the batch boundary. Both the main and the replica (is_main=false) form must return.
 TEST_F(DatabaseProtectorTest, TTLWorkerRetiresWhileUniqueHeld) {
-  // A WAL is enabled so the DISABLE deltas' append order can be read back after the join (A2). The
-  // storage is a bare InMemoryStorage, as the rest of this fixture's tests use.
+  // A WAL is enabled so the DISABLE deltas' append order can be read back after the join.
   auto durability_config = config_;
   durability_config.durability.snapshot_wal_mode =
       memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL;
@@ -620,56 +619,6 @@ TEST_F(DatabaseProtectorTest, TTLWorkerRetiresWhileUniqueHeld) {
   CreateTtlIndex(storage);
   CreateExpiredTtlVertices(storage, 30'000);
 
-  ttl->Enable();
-  ttl->Configure(false);
-  ttl->SetInterval(std::chrono::milliseconds(100));
-
-  // Hold the UNIQUE across the whole stop/join, exactly as DisableTtl (inmemory/storage.hpp:781)
-  // and a live query transaction do.
-  auto unique_acc = storage->UniqueAccess();
-  ttl->Resume();
-  // Give the worker time to enter its first batch and park in Access(WRITE) pre-fix.
-  std::this_thread::sleep_for(std::chrono::milliseconds(300));
-
-  std::atomic<bool> retired{false};
-  std::thread stopper([ttl, &retired] {
-    ttl->Disable();
-    retired.store(true, std::memory_order_release);
-  });
-
-  const auto deadline = std::chrono::steady_clock::now() + kRetireBound;
-  while (!retired.load(std::memory_order_acquire) && std::chrono::steady_clock::now() < deadline) {
-    std::this_thread::sleep_for(std::chrono::milliseconds(10));
-  }
-
-  if (!retired.load(std::memory_order_acquire)) {
-    ADD_FAILURE() << "TTL worker did not retire within 5s while the test held a UNIQUE accessor: Disable() -> "
-                     "Scheduler::Stop() is joining a worker parked in the unbounded Access(WRITE) (ttl.cpp:205), "
-                     "which needs the UNIQUE the caller holds.";
-    // Release the UNIQUE so the parked worker can drain. The worker's run is not cancellable pre-fix, so
-    // it drains all remaining batches before Stop() can join; give it room, then leak only if it really hangs.
-    unique_acc.reset();
-    const auto drain_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(20);
-    while (!retired.load(std::memory_order_acquire) && std::chrono::steady_clock::now() < drain_deadline) {
-      std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    }
-    if (retired.load(std::memory_order_acquire)) {
-      stopper.join();
-      delete storage;
-    } else {
-      stopper.detach();  // leak storage; the detached thread still references it
-    }
-    return;
-  }
-
-  stopper.join();
-  EXPECT_FALSE(ttl->Enabled()) << "Disable() must leave TTL disabled";
-  unique_acc.reset();
-
-  // DisableTtl() runs its join inside a live UNIQUE accessor (inmemory/storage.hpp:765-785): it drops
-  // the indices, joins the worker, then appends its md_delta. Both the main and the replica
-  // (is_main=false) form must return without the caller releasing the UNIQUE.
-  CreateExpiredTtlVertices(storage, 30'000);
   ttl->Enable();
   ttl->Configure(false);
   ttl->SetInterval(std::chrono::milliseconds(100));
@@ -709,8 +658,7 @@ TEST_F(DatabaseProtectorTest, TTLWorkerRetiresWhileUniqueHeld) {
 
   if (!done.load(std::memory_order_acquire)) {
     ADD_FAILURE() << "DisableTtl() did not return within 5s while the caller held a UNIQUE accessor: the worker is "
-                     "parked in the unbounded batch Access(WRITE) (ttl.cpp:205) and the join cannot get the UNIQUE "
-                     "the caller holds.";
+                     "parked in the unbounded batch Access(WRITE) and the join cannot get the UNIQUE the caller holds.";
     disabler.detach();  // leak storage; the blocked thread still references it
     return;
   }
@@ -721,7 +669,7 @@ TEST_F(DatabaseProtectorTest, TTLWorkerRetiresWhileUniqueHeld) {
       << "the replica DISABLE transaction must commit, otherwise its delta never reaches the WAL";
   delete storage;  // finalizes the WAL
 
-  // A2: both DisableTtl forms append their md_delta after their join, and the WAL records the same
+  // Both DisableTtl forms append their md_delta after their join, and the WAL records the same
   // order. The main form drops the TTL index first, so the transaction must be
   // [label-properties-index drop, main DISABLE, replica DISABLE], replica last.
   const auto ttl_txn = ReadLastTtlWalTransaction(durability_config.durability.storage_directory);
@@ -815,10 +763,10 @@ TEST_F(DatabaseProtectorTest, TtlConcurrentStopStartLifecycle) {
   ttl->Disable();
   delete storage;
 
-  // A3 (red): a stop/join that is in flight must exclude every other lifecycle mutation. The worker is
-  // parked inside make_database_protector(), so Disable() has requested the stop and is joining but
-  // cannot return. Pre-fix Enable() is a bare bool write and completes during that window; post-fix it
-  // waits on the serialization lock until the join is done.
+  // A stop/join that is in flight must exclude every other lifecycle mutation. The worker is parked
+  // inside make_database_protector(), so Disable() has requested the stop and is joining but cannot
+  // return. Without the fix Enable() is a bare bool write and completes during that window; with it
+  // Enable() waits on the serialization lock until the join is done.
   BlockingProtectorFactory factory;
   // Auto index creation off so the only make_database_protector() caller is the TTL worker itself;
   // otherwise the fixture's async indexer parks in the factory and masks whether the join is in flight.
