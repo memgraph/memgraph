@@ -527,11 +527,20 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
           // a later write of what this clause read would reach its earlier rows.
           bool const reads_fresh = std::ranges::any_of(
               access.reads.referenced, [&](const auto &sym) { return pending_writes.symbols.contains(sym); });
+          // A symbol bound by a clause that creates or reads such an entity may hold it: a path through it, a CALL
+          // result.
+          std::optional<std::unordered_set<Symbol>> bound_before;
+          if (reads_fresh || !access.writes.symbols.empty()) bound_before = context.bound_symbols;
           // Set by an arm that drains and advances after its own writes.
           bool advanced_after = false;
           auto const record_writes = utils::OnScopeExit{[&] {
             if (advanced_after) return;
             pending_writes.Merge(access.writes);
+            if (bound_before) {
+              for (const auto &symbol : context.bound_symbols) {
+                if (!bound_before->contains(symbol)) pending_writes.symbols.insert(symbol);
+              }
+            }
             if (reads_new || reads_fresh) pending_new_reads.Merge(access.reads);
           }};
 
