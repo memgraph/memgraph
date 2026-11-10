@@ -507,12 +507,16 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
             barrier_before(reads);
           }
           if (BarriersOn() && Conflicts(pending_new_reads, access.writes)) plan_barrier();
+          // An entity bound since the last barrier is not there at View::OLD, so the evaluator reads it at View::NEW:
+          // a later write of what this clause read would reach its earlier rows.
+          bool const reads_fresh = std::ranges::any_of(
+              access.reads.referenced, [&](const auto &sym) { return pending_writes.symbols.contains(sym); });
           // Set by an arm that drains and advances after its own writes.
           bool advanced_after = false;
           auto const record_writes = utils::OnScopeExit{[&] {
             if (advanced_after) return;
             pending_writes.Merge(access.writes);
-            if (reads_new) pending_new_reads.Merge(access.reads);
+            if (reads_new || reads_fresh) pending_new_reads.Merge(access.reads);
           }};
 
           if (auto *ret = utils::Downcast<Return>(clause)) {

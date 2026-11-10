@@ -45,7 +45,11 @@ class ReadWriteCollector final : public HierarchicalTreeVisitor {
   using HierarchicalTreeVisitor::PreVisit;
   using HierarchicalTreeVisitor::Visit;
 
-  bool Visit(Identifier & /*ident*/) override { return true; }
+  bool Visit(Identifier &ident) override {
+    // An identifier the symbol generator left unmapped names no variable.
+    if (ident.symbol_pos_ >= 0 && ReadsGraph(&ident)) result.reads.referenced.insert(symbol_table_.at(ident));
+    return true;
+  }
 
   bool Visit(PrimitiveLiteral & /*literal*/) override { return true; }
 
@@ -340,6 +344,7 @@ void ReadWriteSet::Merge(const ReadWriteSet &other) {
   everything |= other.everything;
   access_check_labels |= other.access_check_labels;
   symbols.insert(other.symbols.begin(), other.symbols.end());
+  referenced.insert(other.referenced.begin(), other.referenced.end());
 }
 
 bool Conflicts(const ReadWriteSet &reads, const ReadWriteSet &writes) {
