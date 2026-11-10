@@ -922,8 +922,6 @@ TEST_F(ModuleFunctionTest, ReadsThroughAnEdgeListAfterAnEarlierWrite) {
   }
 }
 
-// A node the same CREATE made does not make the function read its other arguments at View::NEW: they still do not see
-// a later clause's write, nor the same CREATE's earlier rows.
 // A module reads the labels and degree of a vertex the same CREATE made at View::NEW, as a built-in does.
 TEST_F(ModuleFunctionTest, ReadsTheLabelsAndDegreeOfANodeTheSameCreateMade) {
   RegisterProbeFunctions();
@@ -935,6 +933,8 @@ TEST_F(ModuleFunctionTest, ReadsTheLabelsAndDegreeOfANodeTheSameCreateMade) {
   EXPECT_EQ(stream.GetResults()[0][1].ValueInt(), 1);
 }
 
+// A node the same CREATE made does not make the function read its other arguments at View::NEW: they still do not see
+// a later clause's write, nor the same CREATE's earlier rows.
 TEST_F(ModuleFunctionTest, ReadsAnotherArgumentsPropertyAtTheClausesView) {
   RegisterProbeFunctions();
   Interpret("CREATE (:O)");
