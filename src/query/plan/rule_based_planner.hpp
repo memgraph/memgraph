@@ -878,7 +878,8 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
   }
 
   /// Whether a clause's reads and fold branches read View::NEW: one that must see its own earlier rows, every clause
-  /// of a writing CALL body or of an EXISTS branch spliced after a write, and below the root one after a write. At the
+  /// of a writing CALL body or of an EXISTS branch spliced after a write (ReadNewThroughout then sets every reader),
+  /// and below the root one after a write. At the
   /// root a read sees earlier clauses through a barrier and View::OLD. Under batching and in a read-only body no
   /// barrier is planned, so only the folds use it.
   bool ClauseReadsNew(const Clause &clause, bool after_write) const {
@@ -1984,7 +1985,10 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
       context_->bound_symbols = std::move(branch_bound_symbols);
 
       // Every query part of a body is seeded with an Once, so this never comes back null.
-      return Plan(*matching.subquery);
+      auto branch = Plan(*matching.subquery);
+      // After a write every reader of the body reads View::NEW, as its MATCH does: ORDER BY, WHERE and UNWIND too.
+      if (write_occurred) impl::ReadNewThroughout(*branch);
+      return branch;
     }
 
     std::vector<Symbol> once_symbols(bound_symbols.begin(), bound_symbols.end());
