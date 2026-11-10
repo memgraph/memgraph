@@ -185,7 +185,7 @@ TEST_F(VersioningDurabilityRestartTest, BranchReadsMainAtItsForkAfterRestart) {
     memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/false)};
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
     gids = CreateBase(db);
-    ASSERT_TRUE(db.version_store()->CreateBranch("b", "main").has_value());
+    ASSERT_TRUE(db.version_store()->CreateBranch("b").has_value());
     gids = MoveMainOn(db, gids);
   }
 
@@ -234,7 +234,7 @@ TEST_F(VersioningDurabilityRestartTest, MainWritesAfterARestartStayInvisibleToAn
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
     gids = CreateBase(db);
     for (int i = 0; i < 10; ++i) db.Access(ms::READ)->Abort();
-    ASSERT_TRUE(db.version_store()->CreateBranch("b", "main").has_value());
+    ASSERT_TRUE(db.version_store()->CreateBranch("b").has_value());
   }
 
   const auto p_of = [&gids](memgraph::dbms::Database &db, ms::Storage::Accessor &acc) {
@@ -271,9 +271,9 @@ TEST_F(VersioningDurabilityRestartTest, DropAfterRestartKeepsTheOriginalForkOfTh
     memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/false)};
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
     gids = CreateBase(db);
-    ASSERT_TRUE(db.version_store()->CreateBranch("b1", "main").has_value());
+    ASSERT_TRUE(db.version_store()->CreateBranch("b1").has_value());
     SetV1(db, gids, 2);
-    auto b2 = db.version_store()->CreateBranch("b2", "b1");
+    auto b2 = db.version_store()->CreateBranch("b2");
     ASSERT_TRUE(b2.has_value());
     b2_recorded_fork_ts = b2->fork_ts;
     SetV1(db, gids, 3);
@@ -297,7 +297,7 @@ TEST_F(VersioningDurabilityRestartTest, DropAfterRestartKeepsTheOriginalForkOfTh
                    ->GetProperty(db.storage()->NameToProperty("p"), ms::View::OLD),
               ms::PropertyValue(3));
 
-    ASSERT_TRUE(db.version_store()->DropBranch("b1").value_or(false));
+    ASSERT_EQ(db.version_store()->DropBranch("b1"), mv::DropResult::kDropped);
     auto ledger = ReadLedger();
     ASSERT_TRUE(ledger.has_value());
     ASSERT_EQ(ledger->branches.size(), 1u);
@@ -306,7 +306,7 @@ TEST_F(VersioningDurabilityRestartTest, DropAfterRestartKeepsTheOriginalForkOfTh
 
     // A new commit and a new branch after the restart.
     SetV1(db, gids, 4);
-    ASSERT_TRUE(db.version_store()->CreateBranch("b3", "main").has_value());
+    ASSERT_TRUE(db.version_store()->CreateBranch("b3").has_value());
     SetV1(db, gids, 5);
   }
 
@@ -328,7 +328,7 @@ TEST_F(VersioningDurabilityRestartTest, StartupIsRefusedWithoutAWalAndTheBranche
     memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/false)};
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
     gids = CreateBase(db);
-    ASSERT_TRUE(db.version_store()->CreateBranch("b1", "main").has_value());
+    ASSERT_TRUE(db.version_store()->CreateBranch("b1").has_value());
   }
 
   memgraph::tests::ExpectStartupRefused(
@@ -348,7 +348,7 @@ TEST_F(VersioningDurabilityRestartTest, StartupIsRefusedWithoutRecoveryOnStartup
     memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/false)};
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
     CreateBase(db);
-    ASSERT_TRUE(db.version_store()->CreateBranch("b1", "main").has_value());
+    ASSERT_TRUE(db.version_store()->CreateBranch("b1").has_value());
   }
 
   memgraph::tests::ExpectStartupRefused(kStorageDirectory,
@@ -361,7 +361,7 @@ TEST_F(VersioningDurabilityRestartTest, StartupIsRefusedWithAnUnreadableLedger) 
     memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/false)};
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
     CreateBase(db);
-    ASSERT_TRUE(db.version_store()->CreateBranch("b1", "main").has_value());
+    ASSERT_TRUE(db.version_store()->CreateBranch("b1").has_value());
   }
   std::ofstream{kStorageDirectory / "branches" / "ledger", std::ios::trunc} << "garbage";
 
@@ -397,20 +397,19 @@ TEST_F(VersioningDurabilityRestartTest, BranchesSurviveRestartAndNewBranchesCont
     memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/false)};
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
     CreateBase(db);
-    ASSERT_TRUE(db.version_store()->CreateBranch("b1", "main").has_value());
-    ASSERT_TRUE(db.version_store()->CreateBranch("b2", "b1").has_value());
+    ASSERT_TRUE(db.version_store()->CreateBranch("b1").has_value());
+    ASSERT_TRUE(db.version_store()->CreateBranch("b2").has_value());
   }
 
   memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/true)};
   const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
   ASSERT_EQ(db.version_store()->List().size(), 2u);
-  EXPECT_EQ(db.version_store()->Get("b2")->parent, "b1");
-  EXPECT_EQ(Mem(db)->RetentionFloor(), mv::RecoverableBelow(db.version_store()->Get("b1")->recorded_fork_ts));
+  EXPECT_EQ(Mem(db)->RetentionFloor(), mv::RecoverableBelow(*db.version_store()->Get("b1")));
 
-  auto b3 = db.version_store()->CreateBranch("b3", "main");
+  auto b3 = db.version_store()->CreateBranch("b3");
   ASSERT_TRUE(b3.has_value());
   EXPECT_EQ(b3->number, 4u);
-  for (const auto *name : {"b1", "b2", "b3"}) ASSERT_TRUE(db.version_store()->DropBranch(name).value_or(false));
+  for (const auto *name : {"b1", "b2", "b3"}) ASSERT_EQ(db.version_store()->DropBranch(name), mv::DropResult::kDropped);
   EXPECT_FALSE(Mem(db)->OldestForkPin().has_value());
   EXPECT_FALSE(Mem(db)->RetentionFloor().has_value());
 }
@@ -420,7 +419,7 @@ TEST_F(VersioningDurabilityRestartTest, NewBranchesSkipTheNumbersOfLeftoverBranc
   std::filesystem::create_directories(kStorageDirectory / "branches" / "7");
   memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/true)};
   const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
-  auto created = db.version_store()->CreateBranch("b", "main");
+  auto created = db.version_store()->CreateBranch("b");
   ASSERT_TRUE(created.has_value());
   EXPECT_EQ(created->number, 8u);
 }
@@ -434,7 +433,7 @@ TEST_F(VersioningDurabilityRestartTest, MainSchemaOpAfterForkIsReplayedUnderTheF
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
 
     ASSERT_NE(db.version_store(), nullptr);
-    ASSERT_TRUE(db.version_store()->CreateBranch("b1", "main").has_value());
+    ASSERT_TRUE(db.version_store()->CreateBranch("b1").has_value());
 
     {
       auto acc = db.UniqueAccess();
@@ -476,7 +475,7 @@ TEST_P(BranchSnapshotRetentionTest, HiddenBranchSurvivesSnapshotRetention) {
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
     gids = CreateBase(db);
     if (snapshot_below_fork) Snapshot(db);
-    ASSERT_TRUE(db.version_store()->CreateBranch("b", "main").has_value());
+    ASSERT_TRUE(db.version_store()->CreateBranch("b").has_value());
     gids = MoveMainOn(db, gids);
   }
   const auto ledger = ReadLedger();
