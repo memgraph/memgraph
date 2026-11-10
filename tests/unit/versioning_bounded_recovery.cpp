@@ -23,6 +23,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <initializer_list>
 #include <iterator>
 #include <memory>
@@ -438,103 +439,12 @@ TEST_F(VersioningBoundedRecoveryTest, SnapshotsPastTheBoundWithoutWalFail) {
   }
 }
 
-// Creates a branch, then expects a restart under a condition that forbids branches to be refused with every file left
-// as it was, and the branch to be back once the previous settings are used again.
-void ExpectRestartRefused(ms::Config restart_config, std::initializer_list<std::string_view> fragments) {
-  {
-    memgraph::dbms::Database db{MakeConfig(false)};
-    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
-    for (int i = 0; i < 2; ++i) {
-      auto acc = db.Access(ms::WRITE);
-      acc->CreateVertex();
-      Commit(*acc);
-    }
-    ASSERT_TRUE(db.version_store()->CreateBranch("b").has_value());
-    {
-      auto acc = db.Access(ms::WRITE);
-      acc->CreateVertex();
-      Commit(*acc);
-    }
-  }
-
-  memgraph::tests::ExpectStartupRefused(kRoot, std::move(restart_config), fragments);
-
-  memgraph::dbms::Database db{MakeConfig(true)};
-  ASSERT_NE(db.version_store(), nullptr);
-  EXPECT_TRUE(db.version_store()->Exists("b"));
-}
-
-TEST_F(VersioningBoundedRecoveryTest, AnAnalyticalStartupIsRefused) {
-  auto config = MakeConfig(true);
-  config.salient.storage_mode = ms::StorageMode::IN_MEMORY_ANALYTICAL;
-  ExpectRestartRefused(std::move(config), {"Database '", "[b]", "IN_MEMORY_ANALYTICAL", "IN_MEMORY_TRANSACTIONAL"});
-}
-
-TEST_F(VersioningBoundedRecoveryTest, AnOnDiskStartupIsRefused) {
-  auto config = MakeConfig(true);
-  config.salient.storage_mode = ms::StorageMode::ON_DISK_TRANSACTIONAL;
-  ExpectRestartRefused(std::move(config), {"[b]", "ON_DISK_TRANSACTIONAL"});
-}
-
-TEST_F(VersioningBoundedRecoveryTest, StartupWithCommitLockNarrowingIsRefused) {
-  auto config = MakeConfig(true);
-  config.experimental_commit_lock_narrowing = true;
-  ExpectRestartRefused(std::move(config), {"[b]", "commit-lock-narrowing", "DROP BRANCH"});
-}
-
+namespace {
 std::string ReadWholeFile(const std::filesystem::path &file) {
   std::ifstream in{file, std::ios::binary};
   return {std::istreambuf_iterator<char>{in}, std::istreambuf_iterator<char>{}};
 }
 
-// Versioning off hides the branches instead of dropping them: main recovers unbounded with every commit, and the
-// ledger and the branch directory stay exactly as they were.
-TEST_F(VersioningBoundedRecoveryTest, StartupWithVersioningDisabledHidesTheBranches) {
-  {
-    memgraph::dbms::Database db{MakeConfig(false)};
-    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
-    for (int i = 0; i < 2; ++i) {
-      auto acc = db.Access(ms::WRITE);
-      acc->CreateVertex();
-      Commit(*acc);
-    }
-    ASSERT_TRUE(db.version_store()->CreateBranch("b").has_value());
-    auto acc = db.Access(ms::WRITE);
-    acc->CreateVertex();
-    Commit(*acc);
-  }
-
-  auto const ledger_file = kRoot / "branches" / "ledger";
-  auto const ledger_before = ReadWholeFile(ledger_file);
-  ASSERT_FALSE(ledger_before.empty());
-  auto const read = memgraph::versioning::BranchLedger{ledger_file}.Read();
-  ASSERT_TRUE(read.has_value() && read->has_value());
-  ASSERT_EQ((*read)->branches.size(), 1U);
-  auto const branch_directory = kRoot / "branches" / std::to_string((*read)->branches[0].info.number);
-  // The branch committed nothing, so it has no files yet; stand in for its WAL.
-  std::filesystem::create_directories(branch_directory / "wal");
-  {
-    std::ofstream{branch_directory / "wal" / "marker"} << "x";
-  }
-
-  {
-    memgraph::dbms::Database db{MakeConfig(true, /*versioning=*/false)};
-    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
-    EXPECT_EQ(db.Access(ms::READ)->ApproximateVertexCount(), 3U);
-    auto *store = db.version_store();
-    ASSERT_NE(store, nullptr);
-    EXPECT_TRUE(store->List().empty());
-    EXPECT_FALSE(store->Exists("b"));
-    EXPECT_FALSE(store->Empty());
-    EXPECT_FALSE(store->CreateBranch("b").has_value()) << "a hidden branch still owns its name";
-  }
-
-  EXPECT_EQ(ReadWholeFile(ledger_file), ledger_before);
-  EXPECT_TRUE(std::filesystem::exists(branch_directory / "wal" / "marker"));
-}
-
-namespace {
-// Every message logged at info or above while it lives.
 class LogCapture {
  public:
   LogCapture() : sink_(std::make_shared<Sink>()), previous_(spdlog::default_logger()) {
@@ -570,7 +480,6 @@ class LogCapture {
   std::shared_ptr<spdlog::logger> previous_;
 };
 
-// A database with versioning on, two commits, branch "b" and one more commit; closed again.
 void CreateBranchedDatabase() {
   memgraph::dbms::Database db{MakeConfig(false)};
   const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
@@ -584,9 +493,81 @@ void CreateBranchedDatabase() {
   acc->CreateVertex();
   Commit(*acc);
 }
+}  // namespace
 
-// With versioning off, a start that cannot rebuild the branches is not refused: they stay hidden, every branch file
-// stays as it was, and the log says what is not guaranteed.
+void ExpectRestartRefused(ms::Config restart_config, std::initializer_list<std::string_view> fragments,
+                          std::function<void()> before_refused = {}, std::function<void()> after_refused = {}) {
+  CreateBranchedDatabase();
+
+  if (before_refused) before_refused();
+  memgraph::tests::ExpectStartupRefused(kRoot, std::move(restart_config), fragments);
+  if (after_refused) after_refused();
+
+  memgraph::dbms::Database db{MakeConfig(true)};
+  ASSERT_NE(db.version_store(), nullptr);
+  EXPECT_EQ(db.version_store()->List().size(), 1U);
+  EXPECT_TRUE(db.version_store()->Exists("b"));
+}
+
+TEST_F(VersioningBoundedRecoveryTest, AnAnalyticalStartupIsRefused) {
+  auto config = MakeConfig(true);
+  config.salient.storage_mode = ms::StorageMode::IN_MEMORY_ANALYTICAL;
+  ExpectRestartRefused(std::move(config), {"Database '", "[b]", "IN_MEMORY_ANALYTICAL", "IN_MEMORY_TRANSACTIONAL"});
+}
+
+TEST_F(VersioningBoundedRecoveryTest, AnOnDiskStartupIsRefused) {
+  auto config = MakeConfig(true);
+  config.salient.storage_mode = ms::StorageMode::ON_DISK_TRANSACTIONAL;
+  ExpectRestartRefused(std::move(config), {"[b]", "ON_DISK_TRANSACTIONAL"});
+}
+
+TEST_F(VersioningBoundedRecoveryTest, ALeftoverOnDiskDirectoryRefusesAnInMemoryStartup) {
+  auto const leftover = kRoot / "rocksdb_main_storage";
+  auto config = MakeConfig(true);
+  config.disk.main_storage_directory = leftover;
+  ExpectRestartRefused(
+      std::move(config), {"[b]", "ON_DISK_TRANSACTIONAL"},
+      [&] { std::filesystem::create_directories(leftover); },
+      [&] { std::filesystem::remove_all(leftover); });
+}
+
+TEST_F(VersioningBoundedRecoveryTest, StartupWithVersioningDisabledHidesTheBranches) {
+  CreateBranchedDatabase();
+
+  auto const ledger_file = kRoot / "branches" / "ledger";
+  auto const ledger_before = ReadWholeFile(ledger_file);
+  ASSERT_FALSE(ledger_before.empty());
+  auto const read = memgraph::versioning::BranchLedger{ledger_file}.Read();
+  ASSERT_TRUE(read.has_value() && read->has_value());
+  ASSERT_EQ((*read)->branches.size(), 1U);
+  auto const branch_directory = kRoot / "branches" / std::to_string((*read)->branches[0].info.number);
+  // The branch committed nothing, so it has no files yet; stand in for its WAL.
+  std::filesystem::create_directories(branch_directory / "wal");
+  {
+    std::ofstream{branch_directory / "wal" / "marker"} << "x";
+  }
+
+  LogCapture log;
+  {
+    memgraph::dbms::Database db{MakeConfig(true, /*versioning=*/false)};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+    EXPECT_EQ(db.Access(ms::READ)->ApproximateVertexCount(), 3U);
+    auto *store = db.version_store();
+    ASSERT_NE(store, nullptr);
+    EXPECT_TRUE(store->List().empty());
+    EXPECT_FALSE(store->Exists("b"));
+    EXPECT_FALSE(store->Empty());
+    EXPECT_FALSE(store->CreateBranch("b").has_value()) << "a hidden branch still owns its name";
+  }
+
+  EXPECT_EQ(ReadWholeFile(ledger_file), ledger_before);
+  EXPECT_TRUE(std::filesystem::exists(branch_directory / "wal" / "marker"));
+  // The hidden branches survive a REPLICA's deletion only while this instance is MAIN: the log must not promise more.
+  EXPECT_THAT(log.Text(), ::testing::HasSubstr("[b]"));
+  EXPECT_THAT(log.Text(), ::testing::HasSubstr("REPLICA"));
+}
+
+namespace {
 void ExpectHiddenStart(ms::Config restart_config, bool expect_store, std::initializer_list<std::string_view> warned) {
   CreateBranchedDatabase();
   const auto before = memgraph::tests::ImageDurableFiles(kRoot);
@@ -627,41 +608,143 @@ TEST_F(VersioningBoundedRecoveryTest, AnAnalyticalStartupWithVersioningDisabledG
   ExpectHiddenStart(std::move(config), false, {"[b]", "IN_MEMORY_ANALYTICAL"});
 }
 
-// Versioning on keeps the refusals above; an unreadable ledger is one more.
-TEST_F(VersioningBoundedRecoveryTest, AnUnreadableLedgerRefusesTheStartOnlyWhileVersioningIsOn) {
+TEST_F(VersioningBoundedRecoveryTest, AnUnreadableLedgerStartsMainAndMakesEveryBranchOperationSayWhy) {
   CreateBranchedDatabase();
   const auto ledger_file = kRoot / "branches" / "ledger";
+  const auto good_ledger = ReadWholeFile(ledger_file);
   {
     std::ofstream out{ledger_file, std::ios::binary | std::ios::trunc};
     out << "not a ledger";
   }
   const auto corrupt = ReadWholeFile(ledger_file);
+  const auto before = memgraph::tests::ImageDurableFiles(kRoot);
 
-  memgraph::tests::ExpectStartupRefused(kRoot, MakeConfig(true), {"branch ledger", "cannot be read"});
-
-  LogCapture log;
   {
+    LogCapture log;
+    memgraph::dbms::Database db{MakeConfig(true)};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+    EXPECT_EQ(db.Access(ms::READ)->ApproximateVertexCount(), 3U) << "main recovers whole";
+    auto *store = db.version_store();
+    ASSERT_NE(store, nullptr);
+    const auto message = store->LedgerUnreadable();
+    ASSERT_TRUE(message.has_value());
+    EXPECT_THAT(*message, ::testing::HasSubstr("branch ledger"));
+    EXPECT_THAT(*message, ::testing::HasSubstr("cannot be read"));
+    EXPECT_THAT(*message, ::testing::HasSubstr(ledger_file.string()));
+    EXPECT_THAT(*message, ::testing::HasSubstr("restart Memgraph"));
+    EXPECT_EQ(store->CreateBranch("x").error(), *message);
+    EXPECT_EQ(store->DropBranch("b").error(), *message);
+    EXPECT_EQ(store->TryAcquireCheckout("b").error(), *message);
+    EXPECT_TRUE(db.storage()->config_.durability.retain_all_files) << "no WAL file of main may be deleted";
+    EXPECT_EQ(db.storage()->RetentionFloor(), std::nullopt) << "a floor of 0 would be a known base of nothing";
+    EXPECT_THAT(log.Text(), ::testing::HasSubstr("cannot be read"));
+    EXPECT_THAT(log.Text(), ::testing::HasSubstr("snapshots and write-ahead log files are all kept"));
+  }
+  EXPECT_EQ(ReadWholeFile(ledger_file), corrupt) << "the ledger is left for the administrator";
+  const auto after = memgraph::tests::ImageDurableFiles(kRoot);
+  for (const auto &[file, content] : before) {
+    if (file.starts_with("branches/")) EXPECT_EQ(after.at(file), content) << file;
+  }
+
+  {
+    LogCapture log;
     memgraph::dbms::Database db{MakeConfig(true, /*versioning=*/false)};
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
     EXPECT_EQ(db.Access(ms::READ)->ApproximateVertexCount(), 3U) << "main recovers whole";
+    EXPECT_EQ(db.version_store(), nullptr);
+    EXPECT_FALSE(db.storage()->RetentionFloor().has_value());
+    EXPECT_THAT(log.Text(), ::testing::HasSubstr("cannot be read"));
   }
-  EXPECT_THAT(log.Text(), ::testing::HasSubstr("branch ledger"));
-  EXPECT_THAT(log.Text(), ::testing::HasSubstr("cannot be read"));
-  EXPECT_EQ(ReadWholeFile(ledger_file), corrupt) << "the ledger is left for the administrator";
-}
+  EXPECT_EQ(ReadWholeFile(ledger_file), corrupt);
 
-// The hidden branches survive a REPLICA's deletion only while this instance is MAIN: the log must not promise more.
-TEST_F(VersioningBoundedRecoveryTest, TheHiddenBranchesLogLineSaysAReplicaDeletesThem) {
-  CreateBranchedDatabase();
-  LogCapture log;
   {
-    memgraph::dbms::Database db{MakeConfig(true, /*versioning=*/false)};
+    std::ofstream out{ledger_file, std::ios::binary | std::ios::trunc};
+    out << good_ledger;
   }
-  EXPECT_THAT(log.Text(), ::testing::HasSubstr("[b]"));
-  EXPECT_THAT(log.Text(), ::testing::HasSubstr("REPLICA"));
+  memgraph::dbms::Database db{MakeConfig(true)};
+  ASSERT_NE(db.version_store(), nullptr);
+  EXPECT_FALSE(db.version_store()->LedgerUnreadable().has_value());
+  EXPECT_TRUE(db.version_store()->Exists("b")) << "the restored ledger brings the branch back";
 }
 
-// A database gets a branch registry only if versioning is on or branches exist to protect.
+// Fork points are unknown while the ledger is unreadable, so a snapshot a branch may need as its base is kept.
+TEST_F(VersioningBoundedRecoveryTest, AnUnreadableLedgerPausesSnapshotDeletionUntilItIsFixed) {
+  constexpr uint64_t kKeep = 2;
+  constexpr int kSnapshots = 5;
+  CreateBranchedDatabase();
+  const auto ledger_file = kRoot / "branches" / "ledger";
+  const auto good_ledger = ReadWholeFile(ledger_file);
+  auto const snapshot_count = [] {
+    auto const snapshots = md::GetSnapshotFiles(kRoot / md::kSnapshotDirectory);
+    return snapshots ? snapshots->size() : size_t{0};
+  };
+  auto const take_snapshots = [&](int count) {
+    memgraph::dbms::Database db{[] {
+      auto config = MakeConfig(true);
+      config.durability.snapshot_retention_count = kKeep;
+      return config;
+    }()};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+    for (int i = 0; i < count; ++i) {
+      auto acc = db.Access(ms::WRITE);
+      acc->CreateVertex();
+      Commit(*acc);
+      ASSERT_TRUE(static_cast<ms::InMemoryStorage *>(db.storage())->CreateSnapshot().has_value());
+    }
+  };
+  {
+    std::ofstream out{ledger_file, std::ios::binary | std::ios::trunc};
+    out << "not a ledger";
+  }
+  take_snapshots(kSnapshots);
+  EXPECT_GE(snapshot_count(), static_cast<size_t>(kSnapshots)) << "no snapshot goes while the ledger is unreadable";
+
+  {
+    std::ofstream out{ledger_file, std::ios::binary | std::ios::trunc};
+    out << good_ledger;
+  }
+  take_snapshots(1);
+  EXPECT_LE(snapshot_count(), kKeep + 1) << "rotation resumes once the ledger reads again";
+}
+
+// A branch forked on a database with no commit has a fork base of nothing, which is a known floor of 0: it keeps every
+// WAL file but no snapshot, so rotation goes on. Only an unreadable ledger, whose fork points are unknown, keeps all.
+TEST_F(VersioningBoundedRecoveryTest, ABranchForkedBeforeAnyCommitDoesNotPauseSnapshotDeletion) {
+  constexpr uint64_t kKeep = 2;
+  constexpr int kSnapshots = 5;
+  auto config = MakeConfig(false);
+  config.durability.snapshot_retention_count = kKeep;
+  memgraph::dbms::Database db{std::move(config)};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+  ASSERT_TRUE(db.version_store()->CreateBranch("b").has_value());
+  for (int i = 0; i < kSnapshots; ++i) {
+    auto acc = db.Access(ms::WRITE);
+    acc->CreateVertex();
+    Commit(*acc);
+    ASSERT_TRUE(static_cast<ms::InMemoryStorage *>(db.storage())->CreateSnapshot().has_value());
+  }
+  auto const snapshots = md::GetSnapshotFiles(kRoot / md::kSnapshotDirectory);
+  ASSERT_TRUE(snapshots.has_value());
+  EXPECT_LE(snapshots->size(), kKeep) << "a floor of 0 is a known base, not an unreadable ledger";
+}
+
+// The ledger path holding a directory is the same damage, and must not take the process down with a stream error.
+TEST_F(VersioningBoundedRecoveryTest, ADirectoryInPlaceOfTheLedgerStartsMainAndSaysSo) {
+  CreateBranchedDatabase();
+  const auto ledger_file = kRoot / "branches" / "ledger";
+  std::filesystem::remove(ledger_file);
+  std::filesystem::create_directories(ledger_file);
+
+  memgraph::dbms::Database db{MakeConfig(true)};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+  EXPECT_EQ(db.Access(ms::READ)->ApproximateVertexCount(), 3U);
+  ASSERT_NE(db.version_store(), nullptr);
+  const auto message = db.version_store()->LedgerUnreadable();
+  ASSERT_TRUE(message.has_value());
+  EXPECT_THAT(*message, ::testing::HasSubstr("not a regular file"));
+  EXPECT_THAT(*message, ::testing::Not(::testing::HasSubstr("basic_filebuf")));
+}
+
 TEST_F(VersioningBoundedRecoveryTest, TheBranchRegistryExistsOnlyWhileVersioningIsOnOrBranchesExist) {
   {
     memgraph::dbms::Database db{MakeConfig(false, /*versioning=*/false)};

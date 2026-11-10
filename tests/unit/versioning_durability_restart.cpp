@@ -14,18 +14,31 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include <fmt/format.h>
+#include <fmt/ranges.h>
+
+#include <algorithm>
 #include <chrono>
 #include <filesystem>
 #include <fstream>
+#include <map>
 #include <optional>
 #include <string>
+#include <string_view>
+#include <utility>
+#include <vector>
 
 #include "dbms/database.hpp"
 #include "memory/db_arena.hpp"
+#include "storage/v2/durability/marker.hpp"
+#include "storage/v2/durability/paths.hpp"
+#include "storage/v2/durability/snapshot.hpp"
+#include "storage/v2/fmt.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/view.hpp"
 #include "tests/test_commit_args_helper.hpp"
 #include "tests/versioning_startup_refusal.hpp"
+#include "utils/file.hpp"
 #include "utils/scheduler.hpp"
 #include "versioning/branch_ledger.hpp"
 #include "versioning/version_store.hpp"
@@ -169,7 +182,42 @@ size_t CountFiles(std::string_view subdirectory) {
   return count;
 }
 
+// Flips bytes near the end of a WAL file, in the deltas rather than the header.
+void CorruptTail(const std::filesystem::path &wal) {
+  std::fstream f{wal, std::ios::in | std::ios::out | std::ios::binary};
+  f.seekp(-48, std::ios::end);
+  f.write("\xff\xff\xff\xff\xff\xff\xff\xff", 8);
+}
+
 void Snapshot(memgraph::dbms::Database &db) { ASSERT_TRUE(Mem(db)->CreateSnapshot(/*force=*/true).has_value()); }
+
+// Overwrites the first vertex marker so the snapshot header still reads but loading the body fails.
+void CorruptSnapshot(const std::filesystem::path &path) {
+  const auto info = memgraph::storage::durability::ReadSnapshotInfo(path);
+  memgraph::utils::OutputFile file;
+  ASSERT_TRUE(file.Open(path, memgraph::utils::OutputFile::Mode::OVERWRITE_EXISTING));
+  file.SetPosition(memgraph::utils::OutputFile::Position::SET, info.offset_vertices);
+  const auto value = static_cast<uint8_t>(memgraph::storage::durability::Marker::TYPE_MAP);
+  ASSERT_TRUE(file.Write(&value, sizeof(value)));
+  ASSERT_TRUE(file.Sync());
+  file.Close();
+}
+
+// Builds a database whose snapshot is past its only fork and whose WAL is gone.
+void MakeMainUnrecoverableUpToTheFork() {
+  memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/false)};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+  auto gids = CreateBase(db);
+  ASSERT_TRUE(db.version_store()->CreateBranch("b").has_value());
+  MoveMainOn(db, gids);
+  Snapshot(db);
+}
+
+void RemoveWalFiles() {
+  for (const auto &entry : std::filesystem::directory_iterator(kStorageDirectory / ms::durability::kWalDirectory)) {
+    std::filesystem::remove(entry.path());
+  }
+}
 }  // namespace
 
 class VersioningDurabilityRestartTest : public ::testing::Test {
@@ -356,18 +404,77 @@ TEST_F(VersioningDurabilityRestartTest, StartupIsRefusedWithoutRecoveryOnStartup
                                         {"[b1]", "recovery on startup", "--data-recovery-on-startup=true"});
 }
 
-TEST_F(VersioningDurabilityRestartTest, StartupIsRefusedWithAnUnreadableLedger) {
+// Main cannot be recovered up to the oldest fork: the snapshot is past it and the WAL that reaches back is gone.
+TEST_F(VersioningDurabilityRestartTest, StartupIsRefusedWhenMainCannotBeRecoveredUpToTheOldestFork) {
+  MakeMainUnrecoverableUpToTheFork();
+  RemoveWalFiles();
+
+  memgraph::tests::ExpectStartupRefused(
+      kStorageDirectory,
+      MakeConfig(/*recover_on_startup=*/true),
+      {"Database '", "[b]", "recovery up to the oldest fork point failed", "DROP BRANCH"});
+}
+
+// With allow_recovery_failure the storage comes up broken instead of throwing; startup is still refused.
+TEST_F(VersioningDurabilityRestartTest, StartupIsRefusedWhenAllowedRecoveryFailureLeavesStorageBroken) {
+  MakeMainUnrecoverableUpToTheFork();
+  RemoveWalFiles();
+
+  auto restart = MakeConfig(/*recover_on_startup=*/true);
+  restart.durability.allow_recovery_failure = true;
+  memgraph::tests::ExpectStartupRefused(
+      kStorageDirectory, std::move(restart), {"Database '", "[b]", "recovery up to the oldest fork point failed"});
+}
+
+// Without branches a failed recovery keeps the storage's own exception, not a Graph Versioning refusal.
+TEST_F(VersioningDurabilityRestartTest, FailedRecoveryWithoutBranchesKeepsTheStorageException) {
   {
     memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/false)};
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
     CreateBase(db);
-    ASSERT_TRUE(db.version_store()->CreateBranch("b1").has_value());
+    Snapshot(db);
   }
-  std::ofstream{kStorageDirectory / "branches" / "ledger", std::ios::trunc} << "garbage";
+  RemoveWalFiles();
+  const auto snapshots = ms::durability::GetSnapshotFiles(kStorageDirectory / ms::durability::kSnapshotDirectory);
+  ASSERT_TRUE(snapshots.has_value());
+  ASSERT_EQ(snapshots->size(), 1U);
+  CorruptSnapshot(snapshots->front().path);
 
-  memgraph::tests::ExpectStartupRefused(kStorageDirectory,
-                                        MakeConfig(/*recover_on_startup=*/true),
-                                        {"Database '", "ledger", "cannot be read", "To continue"});
+  try {
+    memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/true)};
+    ADD_FAILURE() << "recovery must fail";
+  } catch (const std::exception &e) {
+    EXPECT_EQ(std::string_view{e.what()}.find("Graph Versioning"), std::string_view::npos) << e.what();
+  }
+}
+
+// Main recovers up to the fork but the WAL after it does not replay. The exit snapshot of the half-built storage must
+// not be written over the files the next start needs.
+TEST_F(VersioningDurabilityRestartTest, StartupIsRefusedWhenTheWalAfterTheForkDoesNotReplay) {
+  Gids gids{};
+  {
+    memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/false)};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+    gids = CreateBase(db);
+    ASSERT_TRUE(db.version_store()->CreateBranch("b").has_value());
+  }
+  {
+    // A restart starts a new WAL file, which holds only commits past the fork.
+    memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/true)};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+    MoveMainOn(db, gids);
+  }
+  std::vector<std::filesystem::path> wals;
+  for (const auto &entry : std::filesystem::directory_iterator(kStorageDirectory / ms::durability::kWalDirectory)) {
+    wals.push_back(entry.path());
+  }
+  ASSERT_FALSE(wals.empty());
+  std::ranges::sort(wals);
+  CorruptTail(wals.back());
+
+  auto restart = MakeConfig(/*recover_on_startup=*/true);
+  restart.durability.snapshot_on_exit = true;
+  memgraph::tests::ExpectStartupRefused(kStorageDirectory, std::move(restart), {"[b]", "replaying", "DROP BRANCH"});
 }
 
 // The version store's callbacks hold the InMemoryStorage they were built over; the switch to on-disk replaces that
@@ -417,6 +524,8 @@ TEST_F(VersioningDurabilityRestartTest, BranchesSurviveRestartAndNewBranchesCont
 // A branch directory without a ledger entry (e.g. a drop whose directory removal was interrupted) keeps its number.
 TEST_F(VersioningDurabilityRestartTest, NewBranchesSkipTheNumbersOfLeftoverBranchDirectories) {
   std::filesystem::create_directories(kStorageDirectory / "branches" / "7");
+  for (const auto *ignored : {"12x", "x9"})
+    std::filesystem::create_directories(kStorageDirectory / "branches" / ignored);
   memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/true)};
   const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
   auto created = db.version_store()->CreateBranch("b");
@@ -460,9 +569,72 @@ TEST_F(VersioningDurabilityRestartTest, MainSchemaOpAfterForkIsReplayedUnderTheF
   EXPECT_FALSE(branch->FindVertex(post_fork_vertex, ms::View::OLD).has_value());
 }
 
-// Retention keeps only the newest snapshot while versioning is off, yet the hidden branch's fork base must stay
-// recoverable: the snapshot below the fork plus the WAL after it, or, when no snapshot exists below the fork, every WAL
-// file back to the first one. The run after it restores the branch.
+namespace {
+// Every vertex with its p and out edges, ordered by gid.
+std::string Dump(ms::Storage::Accessor &acc, ms::PropertyId p) {
+  std::map<uint64_t, std::string> vertices;
+  for (auto v : acc.Vertices(ms::View::OLD)) {
+    std::vector<uint64_t> edges;
+    for (const auto &e : v.OutEdges(ms::View::OLD)->edges) edges.push_back(e.Gid().AsUint());
+    std::ranges::sort(edges);
+    vertices[v.Gid().AsUint()] = fmt::format("{}{}", *v.GetProperty(p, ms::View::OLD), edges);
+  }
+  return fmt::format("{}", vertices);
+}
+}  // namespace
+
+// Files written with commit-lock narrowing on recover to the same branches, each at its own fork, with it on or off.
+TEST_F(VersioningDurabilityRestartTest, NarrowingOnAndOffRecoverTheSameBranches) {
+  const auto write_config = [] {
+    auto config = MakeConfig(/*recover_on_startup=*/false);
+    config.experimental_commit_lock_narrowing = true;
+    return config;
+  };
+  {
+    memgraph::dbms::Database db{write_config()};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+    auto gids = CreateBase(db);
+    ASSERT_TRUE(db.version_store()->CreateBranch("a1").has_value());
+    ASSERT_TRUE(db.version_store()->CreateBranch("a2").has_value());
+    SetV1(db, gids, 2);
+    ASSERT_TRUE(db.version_store()->CreateBranch("b").has_value());
+    MoveMainOn(db, gids);
+  }
+  const auto pristine = kStorageDirectory.string() + "_pristine";
+  std::filesystem::remove_all(pristine);
+  std::filesystem::copy(kStorageDirectory, pristine, std::filesystem::copy_options::recursive);
+
+  using State = std::map<std::string, std::pair<uint64_t, std::string>>;  // name -> {recorded fork, contents}
+  const auto restart = [&](bool narrowing) {
+    std::filesystem::remove_all(kStorageDirectory);
+    std::filesystem::copy(pristine, kStorageDirectory, std::filesystem::copy_options::recursive);
+    auto config = MakeConfig(/*recover_on_startup=*/true);
+    config.experimental_commit_lock_narrowing = narrowing;
+    memgraph::dbms::Database db{std::move(config)};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+    const auto p = db.storage()->NameToProperty("p");
+    State state;
+    for (const auto &[name, info] : db.version_store()->List()) {
+      auto branch = ReadBranch(db, name);
+      if (branch) state[name] = {info.recorded_fork_ts, Dump(*branch, p)};
+    }
+    state["main"] = {0, Dump(*db.Access(ms::READ), p)};
+    return state;
+  };
+  const auto on = restart(true);
+  const auto off = restart(false);
+  std::filesystem::remove_all(pristine);
+
+  ASSERT_EQ(on.size(), 4U);
+  EXPECT_EQ(on, off);
+  EXPECT_EQ(on.at("a1"), on.at("a2"));
+  EXPECT_LT(on.at("a1").first, on.at("b").first);
+  EXPECT_NE(on.at("a1").second, on.at("b").second);
+  EXPECT_NE(on.at("b").second, on.at("main").second);
+}
+
+// With versioning off, retention must still keep the hidden branch's fork base: the snapshot below the fork, or every
+// WAL back to the first one when none exists.
 class BranchSnapshotRetentionTest : public VersioningDurabilityRestartTest,
                                     public ::testing::WithParamInterface<bool> {};
 

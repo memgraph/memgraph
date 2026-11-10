@@ -177,9 +177,10 @@ struct BranchRecoveryPlan {
   versioning::LedgerContents ledger;
   // Set when branches can be rebuilt: main is recovered up to this timestamp, the rest replayed.
   std::optional<uint64_t> bound;
-  // Versioning is off and the ledger holds branches: main recovers normally and the ledger and branch files are kept
-  // untouched for a later start with versioning on. Nothing of them is read beyond the ledger.
+  // Versioning is off and the ledger holds branches: main recovers normally; ledger and branch files stay untouched.
   bool hidden{false};
+  // Versioning is on and the ledger cannot be read: the message that every branch operation fails with.
+  std::optional<std::string> ledger_unreadable;
 };
 
 std::string BranchNames(const versioning::LedgerContents &ledger) {
@@ -200,8 +201,7 @@ uint64_t NextFreeBranchNumber(const std::filesystem::path &branches_directory) {
   return next;
 }
 
-// Startup refuses instead of dropping: nothing is deleted, rewritten or moved, so the user decides what happens to the
-// branches.
+// Nothing is deleted, rewritten or moved: the user decides what happens to the branches.
 [[noreturn]] void RefuseToStart(std::string_view database, std::string_view branches, std::string_view reason,
                                 std::string_view how) {
   throw utils::BasicException(
@@ -222,7 +222,6 @@ BranchRecoveryPlan PlanBranchRecovery(const storage::Config &config, const std::
     std::string_view reason{read.error()};
     if (reason.ends_with('.')) reason.remove_suffix(1);
     if (!versioning) {
-      // Versioning is off, so the ledger only matters for protecting branches: warn and leave it alone.
       spdlog::warn(
           "Graph Versioning is disabled, and the branch ledger '{}' of database '{}' cannot be read: {}. The branches "
           "in "
@@ -233,13 +232,18 @@ BranchRecoveryPlan PlanBranchRecovery(const storage::Config &config, const std::
           reason);
       return plan;
     }
-    throw utils::BasicException(std::string{fmt::format(
-        "Database '{}' has a Graph Versioning branch ledger '{}' that cannot be read: {}. Memgraph will not start, so "
-        "no branch data is lost. To continue: repair or restore the ledger file, or, if the branches are no longer "
-        "needed, start with the previous settings and run DROP BRANCH, or move the 'branches' directory away.",
+    // Branches are unknown, so none is recovered; main's snapshots and WAL are all kept (floor 0) so the history they
+    // fork from survives.
+    plan.ledger_unreadable = fmt::format(
+        "The branch ledger of database '{}' cannot be read, so its Graph Versioning branches are unavailable: {}. Main "
+        "works as usual, but no branch can be listed, created, used or dropped, and main's snapshots and write-ahead "
+        "log files are all kept meanwhile. To continue: restore the ledger file '{}' from a backup and restart "
+        "Memgraph; or, to discard every branch, stop Memgraph, move the 'branches' directory away and start it again.",
         config.salient.name.str(),
-        ledger_file.string(),
-        reason)});
+        reason,
+        ledger_file.string());
+    spdlog::warn("Graph Versioning: {}", *plan.ledger_unreadable);
+    return plan;
   }
   if (!read->has_value()) return plan;
 
@@ -253,8 +257,7 @@ BranchRecoveryPlan PlanBranchRecovery(const storage::Config &config, const std::
   const bool on_disk = config.salient.storage_mode == storage::StorageMode::ON_DISK_TRANSACTIONAL ||
                        config.force_on_disk || utils::DirExists(config.disk.main_storage_directory);
   const auto mode = on_disk ? storage::StorageMode::ON_DISK_TRANSACTIONAL : config.salient.storage_mode;
-  // With versioning on, settings that cannot rebuild the branches refuse the start. With it off nothing is rebuilt, so
-  // they only warn: the branches stay in the ledger and on disk, and a later start with versioning on judges them.
+  // With versioning on, settings that cannot rebuild the branches refuse the start; with it off they only warn.
   std::optional<std::string> unrecoverable;
   std::string recoverable_how;
   if (mode != storage::StorageMode::IN_MEMORY_TRANSACTIONAL) {
@@ -286,13 +289,6 @@ BranchRecoveryPlan PlanBranchRecovery(const storage::Config &config, const std::
         BranchNames(plan.ledger));
     plan.hidden = true;
     return plan;
-  }
-
-  if (config.experimental_commit_lock_narrowing) {
-    RefuseToStart(config.salient.name.str(),
-                  BranchNames(plan.ledger),
-                  "Graph Versioning is not supported with --experimental-enabled=commit-lock-narrowing",
-                  fmt::format("start without --experimental-enabled=commit-lock-narrowing, or {}", kDropFirst));
   }
 
   plan.bound = BranchRecoveryBound(plan.ledger);
@@ -363,6 +359,8 @@ Database::Database(storage::Config config)
     // Main's WAL and snapshots must keep the history the hidden branches fork from; the snapshot thread starts with
     // the storage, so the floor goes in through the config.
     if (branch_plan.hidden) config.durability.retention_floor = BranchRecoveryBound(branch_plan.ledger);
+    // The branches' fork points are unknown, so no snapshot or WAL file of main may be deleted.
+    if (branch_plan.ledger_unreadable) config.durability.retain_all_files = true;
     if (branch_plan.bound) config.durability.recovery_history_bound = branch_plan.bound;
     std::string failure;
     try {
@@ -427,7 +425,9 @@ Database::Database(storage::Config config)
         [in_memory_storage](std::optional<uint64_t> floor) { in_memory_storage->SetRetentionFloor(floor); });
     version_store_->AttachLedger(branch_ledger_file);
 
-    if (branch_plan.bound) {
+    if (branch_plan.ledger_unreadable) {
+      version_store_->RestoreLedgerUnreadable(*branch_plan.ledger_unreadable);
+    } else if (branch_plan.bound) {
       version_store_->Restore(branch_plan.ledger);
       spdlog::info("Graph Versioning: restored branches [{}].", BranchNames(branch_plan.ledger));
     } else if (branch_plan.hidden) {

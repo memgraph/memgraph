@@ -29,8 +29,7 @@
 
 namespace memgraph::tests {
 
-// Every file the recovery paths could touch (main WAL and snapshots, the backup directory, the branches directory),
-// keyed by its path relative to `root`, with its contents.
+// Contents of every file under the recovery directories, keyed by path relative to `root`.
 using DurableFileImage = std::map<std::string, std::string>;
 
 inline DurableFileImage ImageDurableFiles(const std::filesystem::path &root) {
@@ -57,8 +56,7 @@ inline DurableFileImage ImageDurableFiles(const std::filesystem::path &root) {
   return image;
 }
 
-// Starting a Database over `config` must throw a message containing every fragment, and leave every durable file under
-// `root` byte-identical.
+// Startup must throw a message with every fragment plus the "no branch data is lost" assurance, files untouched.
 inline void ExpectStartupRefused(const std::filesystem::path &root, storage::Config config,
                                  std::initializer_list<std::string_view> fragments) {
   const auto before = ImageDurableFiles(root);

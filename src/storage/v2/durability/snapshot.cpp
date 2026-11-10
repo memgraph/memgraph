@@ -14675,6 +14675,8 @@ std::expected<std::filesystem::path, SnapshotCreationError> CreateSnapshot(
                std::chrono::duration<double>(timer.Elapsed()).count());
 
 #ifdef MG_ENTERPRISE
+  // The branches' fork points are unknown: no snapshot or WAL file may go.
+  if (storage->config_.durability.retain_all_files) return path;
   // Read the floor and delete under one lock, held for the whole pass: a fork lowering the floor waits for it, so it
   // never pins a base this pass already decided to delete.
   auto const floor_guard = std::scoped_lock{storage->retention_floor_mutex_};
