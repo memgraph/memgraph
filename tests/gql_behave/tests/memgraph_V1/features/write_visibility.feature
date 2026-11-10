@@ -1371,7 +1371,7 @@ Feature: Write visibility inside one query
         And with new index :WvQ(x)
         And having executed:
             """
-            CREATE (:WvQ {x: 1, k: 5}), (:WvQ {x: 2, k: 5})
+            CREATE (:WvQ {x: 1, k: 5}), (:WvQ {x: 2, k: 5}), (:WvQ {x: 3, k: 7})
             """
         When executing query:
             """
@@ -1379,14 +1379,14 @@ Feature: Write visibility inside one query
             WITH count(*) AS c MATCH (q:WvQ) WITH c, q ORDER BY q.x RETURN c, collect(q.x) AS xs
             """
         Then the result should be, in order:
-            | c | xs     |
-            | 2 | [5, 5] |
+            | c | xs        |
+            | 2 | [5, 5, 7] |
 
     Scenario: WITH * WHERE after SET without an index
         Given an empty graph
         And having executed:
             """
-            CREATE (:WvQ {x: 1, k: 5}), (:WvQ {x: 2, k: 5})
+            CREATE (:WvQ {x: 1, k: 5}), (:WvQ {x: 2, k: 5}), (:WvQ {x: 3, k: 7})
             """
         When executing query:
             """
@@ -1394,15 +1394,15 @@ Feature: Write visibility inside one query
             WITH count(*) AS c MATCH (q:WvQ) WITH c, q ORDER BY q.x RETURN c, collect(q.x) AS xs
             """
         Then the result should be, in order:
-            | c | xs     |
-            | 2 | [5, 5] |
+            | c | xs        |
+            | 2 | [5, 5, 7] |
 
     Scenario: WITH a WHERE after SET on an indexed property (indexes :WvQ(x))
         Given an empty graph
         And with new index :WvQ(x)
         And having executed:
             """
-            CREATE (:WvQ {x: 1, k: 5}), (:WvQ {x: 2, k: 5})
+            CREATE (:WvQ {x: 1, k: 5}), (:WvQ {x: 2, k: 5}), (:WvQ {x: 3, k: 7})
             """
         When executing query:
             """
@@ -1410,14 +1410,14 @@ Feature: Write visibility inside one query
             WITH count(*) AS c MATCH (q:WvQ) WITH c, q ORDER BY q.x RETURN c, collect(q.x) AS xs
             """
         Then the result should be, in order:
-            | c | xs     |
-            | 2 | [5, 5] |
+            | c | xs        |
+            | 2 | [5, 5, 7] |
 
     Scenario: CALL YIELD WHERE after SET sees the new property
         Given an empty graph
         And having executed:
             """
-            CREATE (:WvQ {x: 1, k: 5}), (:WvQ {x: 2, k: 5})
+            CREATE (:WvQ {x: 1, k: 5}), (:WvQ {x: 2, k: 5}), (:WvQ {x: 3, k: 7})
             """
         When executing query:
             """
@@ -1425,15 +1425,15 @@ Feature: Write visibility inside one query
             WITH count(*) AS c MATCH (q:WvQ) WITH c, q ORDER BY q.x RETURN c, collect(q.x) AS xs
             """
         Then the result should be, in order:
-            | c | xs     |
-            | 2 | [5, 5] |
+            | c | xs        |
+            | 2 | [5, 5, 7] |
 
     Scenario: CALL YIELD WHERE after SET sees the new property (indexes :WvQ(x))
         Given an empty graph
         And with new index :WvQ(x)
         And having executed:
             """
-            CREATE (:WvQ {x: 1, k: 5}), (:WvQ {x: 2, k: 5})
+            CREATE (:WvQ {x: 1, k: 5}), (:WvQ {x: 2, k: 5}), (:WvQ {x: 3, k: 7})
             """
         When executing query:
             """
@@ -1441,8 +1441,8 @@ Feature: Write visibility inside one query
             WITH count(*) AS c MATCH (q:WvQ) WITH c, q ORDER BY q.x RETURN c, collect(q.x) AS xs
             """
         Then the result should be, in order:
-            | c | xs     |
-            | 2 | [5, 5] |
+            | c | xs        |
+            | 2 | [5, 5, 7] |
 
     Scenario: WITH * WHERE after SET on an indexed edge property keeps the filter above the SET (indexes EDGE :WvE(w))
         Given an empty graph
@@ -1452,47 +1452,47 @@ Feature: Write visibility inside one query
             """
         And having executed:
             """
-            CREATE (:WvN)-[:WvE {w: 1, k: 5}]->(:WvN)
+            CREATE (:WvN)-[:WvE {w: 1, k: 5}]->(:WvN), (:WvN)-[:WvE {w: 3, k: 7}]->(:WvN)
             """
         When executing query:
             """
             MATCH ()-[r:WvE]->() SET r.w = r.k WITH * WHERE r.w = 5
-            WITH count(*) AS c MATCH ()-[q:WvE]->() RETURN c, collect(q.w) AS ws
+            WITH count(*) AS c MATCH ()-[q:WvE]->() WITH c, q ORDER BY q.w RETURN c, collect(q.w) AS ws
             """
-        Then the result should be:
-            | c | ws  |
-            | 1 | [5] |
+        Then the result should be, in order:
+            | c | ws     |
+            | 1 | [5, 7] |
 
     Scenario: WITH * WHERE after SET on an indexed edge property keeps the filter above the SET (indexes GLOBAL :(w))
         Given an empty graph
         And with new edge index :(w)
         And having executed:
             """
-            CREATE (:WvN)-[:WvE {w: 1, k: 5}]->(:WvN)
+            CREATE (:WvN)-[:WvE {w: 1, k: 5}]->(:WvN), (:WvN)-[:WvE {w: 3, k: 7}]->(:WvN)
             """
         When executing query:
             """
             MATCH ()-[r:WvE]->() SET r.w = r.k WITH * WHERE r.w = 5
-            WITH count(*) AS c MATCH ()-[q:WvE]->() RETURN c, collect(q.w) AS ws
+            WITH count(*) AS c MATCH ()-[q:WvE]->() WITH c, q ORDER BY q.w RETURN c, collect(q.w) AS ws
             """
-        Then the result should be:
-            | c | ws  |
-            | 1 | [5] |
+        Then the result should be, in order:
+            | c | ws     |
+            | 1 | [5, 7] |
 
     Scenario: WITH * WHERE after SET on an edge property without a property index
         Given an empty graph
         And having executed:
             """
-            CREATE (:WvN)-[:WvE {w: 1, k: 5}]->(:WvN)
+            CREATE (:WvN)-[:WvE {w: 1, k: 5}]->(:WvN), (:WvN)-[:WvE {w: 3, k: 7}]->(:WvN)
             """
         When executing query:
             """
             MATCH ()-[r:WvE]->() SET r.w = r.k WITH * WHERE r.w = 5
-            WITH count(*) AS c MATCH ()-[q:WvE]->() RETURN c, collect(q.w) AS ws
+            WITH count(*) AS c MATCH ()-[q:WvE]->() WITH c, q ORDER BY q.w RETURN c, collect(q.w) AS ws
             """
-        Then the result should be:
-            | c | ws  |
-            | 1 | [5] |
+        Then the result should be, in order:
+            | c | ws     |
+            | 1 | [5, 7] |
 
     Scenario: WITH * WHERE after SET on an edge property without a property index (indexes EDGE :WvE)
         Given an empty graph
@@ -1502,16 +1502,16 @@ Feature: Write visibility inside one query
             """
         And having executed:
             """
-            CREATE (:WvN)-[:WvE {w: 1, k: 5}]->(:WvN)
+            CREATE (:WvN)-[:WvE {w: 1, k: 5}]->(:WvN), (:WvN)-[:WvE {w: 3, k: 7}]->(:WvN)
             """
         When executing query:
             """
             MATCH ()-[r:WvE]->() SET r.w = r.k WITH * WHERE r.w = 5
-            WITH count(*) AS c MATCH ()-[q:WvE]->() RETURN c, collect(q.w) AS ws
+            WITH count(*) AS c MATCH ()-[q:WvE]->() WITH c, q ORDER BY q.w RETURN c, collect(q.w) AS ws
             """
-        Then the result should be:
-            | c | ws  |
-            | 1 | [5] |
+        Then the result should be, in order:
+            | c | ws     |
+            | 1 | [5, 7] |
 
     Scenario: WITH projection does not see a later SET for an earlier row
         Given an empty graph
@@ -2497,3 +2497,79 @@ Feature: Write visibility inside one query
             | id | c |
             | 1  | 0 |
             | 2  | 1 |
+
+    Scenario: A BFS search in a writing CALL body reaches what its earlier rows created
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:WvV {id: 1})
+            """
+        When executing query:
+            """
+            UNWIND [1, 2] AS i CALL (i) { MATCH (s:WvV {id: 1}) CREATE (s)-[:R]->(:WvV {id: 10 + i}) WITH s MATCH (s)-[*BFS]->(x) RETURN count(x) AS c } RETURN collect(c) AS cs
+            """
+        Then the result should be:
+            | cs     |
+            | [1, 2] |
+
+    Scenario: A weighted shortest path search in a writing CALL body reaches what its earlier rows created
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:WvV {id: 1})
+            """
+        When executing query:
+            """
+            UNWIND [1, 2] AS i CALL (i) { MATCH (s:WvV {id: 1}) CREATE (s)-[:R]->(:WvV {id: 10 + i}) WITH s MATCH (s)-[*WSHORTEST (r, n | 1) w]->(x) RETURN count(x) AS c } RETURN collect(c) AS cs
+            """
+        Then the result should be:
+            | cs     |
+            | [1, 2] |
+
+    Scenario: A all shortest paths search in a writing CALL body reaches what its earlier rows created
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:WvV {id: 1})
+            """
+        When executing query:
+            """
+            UNWIND [1, 2] AS i CALL (i) { MATCH (s:WvV {id: 1}) CREATE (s)-[:R]->(:WvV {id: 10 + i}) WITH s MATCH (s)-[*ALLSHORTEST (r, n | 1) w]->(x) RETURN count(x) AS c } RETURN collect(c) AS cs
+            """
+        Then the result should be:
+            | cs     |
+            | [1, 2] |
+
+    Scenario: A BFS between two bound nodes in a writing CALL body reaches what its earlier rows created
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:WvV {id: 1}), (:WvV {id: 2})
+            """
+        When executing query:
+            """
+            UNWIND [1, 2] AS i CALL (i) { MATCH (s:WvV {id: 1}), (t:WvV {id: 2}) CREATE (s)-[:R]->(:WvV {id: 10 + i})-[:R]->(t) WITH s, t MATCH p = (s)-[*BFS]->(t) RETURN count(p) AS c } RETURN collect(c) AS cs
+            """
+        Then the result should be:
+            | cs     |
+            | [1, 1] |
+
+    Scenario: A label test in a later CREATE reads a node an earlier CREATE made
+        Given an empty graph
+        When executing query:
+            """
+            CREATE (a:WvFa {x: 1}) CREATE (b:WvFb {v: a:WvFa}) RETURN b.v AS v
+            """
+        Then the result should be:
+            | v     |
+            | true |
+
+    Scenario: A map projection in a later CREATE reads a node an earlier CREATE made
+        Given an empty graph
+        When executing query:
+            """
+            CREATE (a:WvFa {x: 1}) CREATE (b:WvFb {m: a{.*}}) RETURN b.m AS m
+            """
+        Then the result should be:
+            | m        |
+            | {x: 1} |

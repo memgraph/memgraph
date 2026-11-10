@@ -1041,11 +1041,16 @@ class FakeDbAccessor {
   }
 
   bool PointIndexExists(memgraph::storage::LabelId label, memgraph::storage::PropertyId property) const {
-    return false;
+    return point_index_.contains({label, property});
   }
 
   std::optional<uint64_t> VerticesPointCount(storage::LabelId label, storage::PropertyId property) const {
-    return std::nullopt;
+    if (!PointIndexExists(label, property)) return std::nullopt;
+    return 1;
+  }
+
+  void SetPointIndex(memgraph::storage::LabelId label, memgraph::storage::PropertyId property) {
+    point_index_.emplace(label, property);
   }
 
   int64_t EdgesCount() const {
@@ -1281,6 +1286,7 @@ class FakeDbAccessor {
   std::unordered_map<std::string, memgraph::storage::EdgeTypeId> edge_types_;
   std::unordered_map<std::string, memgraph::storage::PropertyId> properties_;
 
+  std::set<std::pair<memgraph::storage::LabelId, memgraph::storage::PropertyId>> point_index_;
   std::unordered_map<memgraph::storage::LabelId, int64_t> label_index_;
   std::vector<std::tuple<memgraph::storage::LabelId, std::vector<memgraph::storage::PropertyPath>, int64_t,
                          memgraph::storage::IndexOrder>>

@@ -656,7 +656,8 @@ void AddBatchedProbe(ProbeModule &module, const char *name, BatchedProbe *probe)
 // Probe module functions that read through the module API:
 // - `getx(v)` and `lastx(a, v)`: property `x` of the vertex `v`;
 // - `startx(es)`: property `x` of the start node of the first edge in the list `es`;
-// - `indegree(a, v)`: the in-degree of the vertex `v`.
+// - `indegree(a, v)`: the in-degree of the vertex `v`;
+// - `labelcount(v)`: the number of labels of the vertex `v`.
 mgp_vertex *LastVertexArg(mgp_list *args) {
   size_t size{0};
   mgp_value *arg{nullptr};
@@ -711,6 +712,20 @@ void ReturnInDegree(mgp_list *args, mgp_func_context * /*ctx*/, mgp_func_result 
   mgp_value_destroy(value);
 }
 
+void ReturnLabelCount(mgp_list *args, mgp_func_context * /*ctx*/, mgp_func_result *result, mgp_memory *memory) {
+  mgp_vertex *vertex = LastVertexArg(args);
+  size_t count{0};
+  mgp_value *value{nullptr};
+  if (!vertex || mgp_vertex_labels_count(vertex, &count) != mgp_error::MGP_ERROR_NO_ERROR ||
+      mgp_value_make_int(static_cast<int64_t>(count), memory, &value) != mgp_error::MGP_ERROR_NO_ERROR) {
+    MG_ASSERT(mgp_func_result_set_error_msg(result, "could not read the labels", memory) ==
+              mgp_error::MGP_ERROR_NO_ERROR);
+    return;
+  }
+  MG_ASSERT(mgp_func_result_set_value(result, value, memory) == mgp_error::MGP_ERROR_NO_ERROR);
+  mgp_value_destroy(value);
+}
+
 void AddFunction(ProbeModule &module, const char *name, mgp_func_cb callback, int arity) {
   mgp_func func(name, callback, memgraph::utils::NewDeleteResource());
   mgp_type *any_type{nullptr};
@@ -727,6 +742,7 @@ void AddProbeFunctions(ProbeModule &module) {
   AddFunction(module, "lastx", ReturnX<LastVertexArg>, 2);
   AddFunction(module, "startx", ReturnX<FirstEdgeStart>, 1);
   AddFunction(module, "indegree", ReturnInDegree, 2);
+  AddFunction(module, "labelcount", ReturnLabelCount, 1);
 }
 
 }  // namespace
@@ -908,6 +924,17 @@ TEST_F(ModuleFunctionTest, ReadsThroughAnEdgeListAfterAnEarlierWrite) {
 
 // A node the same CREATE made does not make the function read its other arguments at View::NEW: they still do not see
 // a later clause's write, nor the same CREATE's earlier rows.
+// A module reads the labels and degree of a vertex the same CREATE made at View::NEW, as a built-in does.
+TEST_F(ModuleFunctionTest, ReadsTheLabelsAndDegreeOfANodeTheSameCreateMade) {
+  RegisterProbeFunctions();
+  auto stream = Interpret(
+      "CREATE (a:A:B)-[:R]->(b), (c {n: probe_fn.labelcount(a), d: probe_fn.indegree(b, b)}) RETURN c.n AS n, c.d AS "
+      "d");
+  ASSERT_EQ(stream.GetResults().size(), 1U);
+  EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 2);
+  EXPECT_EQ(stream.GetResults()[0][1].ValueInt(), 1);
+}
+
 TEST_F(ModuleFunctionTest, ReadsAnotherArgumentsPropertyAtTheClausesView) {
   RegisterProbeFunctions();
   Interpret("CREATE (:O)");
