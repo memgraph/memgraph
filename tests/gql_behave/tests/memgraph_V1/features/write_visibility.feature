@@ -2554,11 +2554,11 @@ Feature: Write visibility inside one query
             | cs     |
             | [1, 1] |
 
-    Scenario: A label test in a later CREATE reads a node an earlier CREATE made
+    Scenario: A label test in a CREATE map reads a node the same CREATE made
         Given an empty graph
         When executing query:
             """
-            CREATE (a:WvFa {x: 1}) CREATE (b:WvFb {v: a:WvFa}) RETURN b.v AS v
+            CREATE (a:WvFa {x: 1}), (b:WvFb {v: a:WvFa}) RETURN b.v AS v
             """
         Then the result should be:
             | v     |
