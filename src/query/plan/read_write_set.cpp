@@ -99,9 +99,13 @@ class ReadWriteCollector final : public HierarchicalTreeVisitor {
   }
 
   bool PreVisit(Function &function) override {
-    // It reads what the planner cannot name: every label, key or edge of an entity. A module function may read
-    // anything.
-    if (FunctionReadsGraph(function.function_name_)) result.reads.everything = true;
+    // It reads what the planner cannot name: every label, key or edge of an entity. A built-in says whether it reads
+    // one; a module function reaches the graph only through its arguments.
+    auto const reads_graph =
+        function.is_user_defined_
+            ? std::ranges::any_of(function.arguments_, [this](Expression *arg) { return MayHoldEntity(arg); })
+            : FunctionReadsGraph(function.function_name_);
+    if (reads_graph) result.reads.everything = true;
     return true;
   }
 
@@ -226,6 +230,28 @@ class ReadWriteCollector final : public HierarchicalTreeVisitor {
     if (non_graph_.contains(symbol)) return false;
     auto const type = symbol.type();
     return type == Symbol::Type::ANY || type == Symbol::Type::VERTEX || type == Symbol::Type::EDGE;
+  }
+
+  /// Whether a value may be, or hold, a node, an edge or a path.
+  bool MayHoldEntity(Expression *value) const {
+    if (utils::Downcast<PrimitiveLiteral>(value) || utils::Downcast<ParameterLookup>(value)) return false;
+    if (auto *list = utils::Downcast<ListLiteral>(value)) {
+      return std::ranges::any_of(list->elements_, [this](Expression *element) { return MayHoldEntity(element); });
+    }
+    if (auto *map = utils::Downcast<MapLiteral>(value)) {
+      return std::ranges::any_of(map->elements_, [this](const auto &entry) { return MayHoldEntity(entry.second); });
+    }
+    if (auto *lookup = utils::Downcast<PropertyLookup>(value)) {
+      // A property of a node or an edge is never an entity; a map's may be.
+      auto *object = utils::Downcast<Identifier>(lookup->expression_);
+      if (!object) return true;
+      auto const type = symbol_table_.at(*object).type();
+      return type != Symbol::Type::VERTEX && type != Symbol::Type::EDGE;
+    }
+    if (auto *ident = utils::Downcast<Identifier>(value)) {
+      return ReadsGraph(ident) || symbol_table_.at(*ident).type() == Symbol::Type::PATH;
+    }
+    return true;
   }
 
   /// Whether every node the term matches has a label, so a created node can match it only through a label write.
