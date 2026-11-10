@@ -327,7 +327,7 @@ bool ReplicationHandler::DoToMainPromotion(const utils::UUID &main_uuid, bool co
       spdlog::trace("New timestamp is {} for the database {}.", storage->timestamp_, db_acc->name());
     });
 
-    // STEP 5) Resume TTL
+    // STEP 5) Resume TTL where it should run
     dbms_handler_.ForEach([](dbms::DatabaseAccess db_acc) {
       auto &ttl = db_acc->ttl();
       ttl.ResumeIfWanted();
