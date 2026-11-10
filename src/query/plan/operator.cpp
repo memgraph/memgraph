@@ -5882,6 +5882,7 @@ std::unique_ptr<LogicalOperator> CacheProperties::Clone(AstStorage *storage) con
   auto object = std::make_unique<CacheProperties>();
   object->input_ = input_ ? input_->Clone(storage) : nullptr;
   object->groups_ = groups_;
+  object->view_ = view_;
   return object;
 }
 
@@ -5928,7 +5929,7 @@ auto CacheProperties::CachePropertiesCursor::AnyPropertyReadable(CachedPropertyG
 
   // A vertex's permissions are decided from its labels, and reading those takes the record's lock,
   // so the whole group is decided from one read of them.
-  auto const labels = input.ValueVertex().Labels(storage::View::NEW);
+  auto const labels = input.ValueVertex().Labels(self_.view_);
   if (!labels) return false;
   return mark([&](storage::PropertyId property) { return PropertyReadAllowed(checker, *labels, property); });
 }
@@ -5989,11 +5990,14 @@ bool CacheProperties::CachePropertiesCursor::Pull(Frame &frame, ExecutionContext
     }
 #endif
 
-    // NEW so that the row sees writes made earlier in this same transaction, as a
-    // property lookup evaluated at this point would.
-    auto const read =
-        reads_a_vertex ? input_value.ValueVertex().impl_.ReadPropertyValues(group.ordered(), slots, storage::View::NEW)
-                       : input_value.ValueEdge().impl_.ReadPropertyValues(group.ordered(), slots, storage::View::NEW);
+    // The projection's view, as each property lookup it replaces would read.
+    auto const read_at = [&](storage::View view) {
+      return reads_a_vertex ? input_value.ValueVertex().impl_.ReadPropertyValues(group.ordered(), slots, view)
+                            : input_value.ValueEdge().impl_.ReadPropertyValues(group.ordered(), slots, view);
+    };
+    auto read = read_at(self_.view_);
+    // A record this command created is not there at View::OLD; a property lookup then reads View::NEW instead.
+    if (read == std::unexpected{storage::Error::NONEXISTENT_OBJECT}) read = read_at(storage::View::NEW);
     if (!read) ThrowPropertyReadError(read.error());
 
     for (std::size_t slot = 0; slot != slots.size(); ++slot) {
