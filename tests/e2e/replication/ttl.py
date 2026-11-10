@@ -291,6 +291,76 @@ def test_stopped_ttl_stays_stopped_after_promotion(connection, test_name):
     assert v_checker.is_same()
 
 
+def test_enabled_ttl_runs_after_replica_restart_and_promotion(connection, test_name):
+    # Goal: Check that a REPLICA restarted from its exit snapshot keeps TTL enabled, so promotion resumes it
+    # 0/ Setup replication with main and replica
+    # 1/ MAIN Create dataset that expires one vertex per second and enable TTL
+    # 2/ Restart REPLICA, recovering from its exit snapshot
+    # 3/ Kill MAIN and promote REPLICA
+    # 4/ Verify that TTL runs on the new MAIN
+
+    MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL = {
+        "replica_1": {
+            "args": [
+                "--bolt-port",
+                f"{BOLT_PORTS['replica_1']}",
+                "--log-level=TRACE",
+                "--storage-snapshot-on-exit=true",
+            ],
+            "log_file": f"{get_logs_path(file, test_name)}/replica1.log",
+            "data_directory": f"{get_data_path(file, test_name)}/replica1",
+            "setup_queries": [
+                f"SET REPLICATION ROLE TO REPLICA WITH PORT {REPLICATION_PORTS['replica_1']};",
+            ],
+        },
+        "main": {
+            "args": [
+                "--bolt-port",
+                f"{BOLT_PORTS['main']}",
+                "--log-level=TRACE",
+            ],
+            "log_file": f"{get_logs_path(file, test_name)}/main.log",
+            "data_directory": f"{get_data_path(file, test_name)}/main",
+            "setup_queries": [
+                f"REGISTER REPLICA replica_1 SYNC TO '127.0.0.1:{REPLICATION_PORTS['replica_1']}';",
+            ],
+        },
+    }
+    replica_restart = {
+        "replica_1": {
+            k: v for k, v in MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL["replica_1"].items() if k != "setup_queries"
+        }
+    }
+
+    # 0/
+    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL, keep_directories=False)
+    cursor_main = connection(BOLT_PORTS["main"], "main").cursor()
+
+    def n_vertices(cursor):
+        return execute_and_fetch_all(cursor, "MATCH (n:TTL) RETURN count(n);")[0][0]
+
+    # 1/
+    execute_and_fetch_all(
+        cursor_main, "UNWIND RANGE(1,100) AS d CREATE (:TTL{ttl:timestamp() + timestamp(duration({second:d}))});"
+    )
+    execute_and_fetch_all(cursor_main, 'ENABLE TTL EVERY "1s";')
+    v_checker = VertexChecker(partial(n_vertices, cursor_main))
+    mg_sleep_and_assert(True, v_checker.is_less, max_duration=3)
+
+    # 2/
+    interactive_mg_runner.stop(replica_restart, "replica_1")
+    interactive_mg_runner.start(replica_restart, "replica_1")
+
+    # 3/
+    interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL, "main")
+    cursor_replica = connection(BOLT_PORTS["replica_1"], "replica").cursor()
+    execute_and_fetch_all(cursor_replica, "SET REPLICATION ROLE TO MAIN;")
+
+    # 4/
+    v_checker = VertexChecker(partial(n_vertices, cursor_replica))
+    mg_sleep_and_assert(True, v_checker.is_less, max_duration=3)
+
+
 def test_ttl_recovery_scenario(connection, test_name):
     # Goal: Test that TTL behaves correctly during recovery scenarios
     # 0/ Setup replication with main and replica
