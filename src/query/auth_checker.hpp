@@ -20,6 +20,7 @@
 #include "dbms/constants.hpp"
 #include "query/edge_accessor.hpp"
 #include "query/query_user.hpp"
+#include "query/read_created.hpp"
 #include "query/vertex_accessor.hpp"
 #include "storage/v2/id_types.hpp"
 
@@ -137,7 +138,7 @@ inline bool PropertyReadAllowed(FineGrainedAuthChecker const *auth_checker, std:
 inline bool PropertyReadAllowed(FineGrainedAuthChecker const *auth_checker, VertexAccessor const &vertex,
                                 storage::View view, storage::PropertyId property) {
   if (!auth_checker || !auth_checker->HasPropertyRestrictions()) return true;
-  const auto maybe_labels = vertex.Labels(view);
+  const auto maybe_labels = ReadSeeingCreated(view, [&](storage::View at) { return vertex.Labels(at); });
   if (!maybe_labels) return false;
   return PropertyReadAllowed(auth_checker, *maybe_labels, property);
 }
