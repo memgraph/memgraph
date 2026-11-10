@@ -60,6 +60,7 @@ using testing::UnorderedElementsAre;
 using memgraph::io::network::Endpoint;
 using memgraph::query::RegisterReplicaError;
 using memgraph::query::UnregisterReplicaResult;
+using memgraph::replication::ReplicationClient;
 using memgraph::replication::ReplicationClientConfig;
 using memgraph::replication::ReplicationHandler;
 using memgraph::replication::ReplicationServerConfig;
@@ -721,6 +722,21 @@ TEST_F(ReplicationTest, MultipleSynchronousReplicationTest) {
   }
 }
 
+auto FirstClient(MinMemgraph &main) -> ReplicationClient & {
+  auto locked_repl_state = main.repl_state.Lock();
+  return std::get<memgraph::replication::RoleMainData>(locked_repl_state->ReplicationData())
+      .registered_replicas_.front();
+}
+
+auto ReachesState(ReplicationClient &client, ReplicationClient::State const expected) -> bool {
+  auto const deadline = std::chrono::steady_clock::now() + std::chrono::seconds{5};
+  while (*client.state_.ReadLock() != expected) {
+    if (std::chrono::steady_clock::now() > deadline) return false;
+    std::this_thread::sleep_for(std::chrono::milliseconds{10});
+  }
+  return true;
+}
+
 TEST_F(ReplicationTest, UnregisterReplicaUnderSystemTransactionDoesNotDeadlockWithRecovery) {
   MinMemgraph main(main_conf);
   MinMemgraph replica(repl_conf);
@@ -739,17 +755,42 @@ TEST_F(ReplicationTest, UnregisterReplicaUnderSystemTransactionDoesNotDeadlockWi
   // DROP REPLICA unregisters while its query holds the system transaction
   auto system_txn = main.system_.TryCreateTransaction();
   ASSERT_TRUE(system_txn);
-  std::get<memgraph::replication::RoleMainData>(main.repl_state.Lock()->ReplicationData())
-      .registered_replicas_.front()
-      .state_.WithLock([](auto &state) { state = memgraph::replication::ReplicationClient::State::BEHIND; });
-  // Let the replica checker start recovering the client while the system transaction is held
-  std::this_thread::sleep_for(std::chrono::seconds{2});
+  auto &client = FirstClient(main);
+  client.state_.WithLock([](auto &state) { state = ReplicationClient::State::BEHIND; });
+  ASSERT_TRUE(ReachesState(client, ReplicationClient::State::RECOVERY));
 
   auto unregister = std::async(std::launch::async, [&] { return main.repl_handler.UnregisterReplica(replicas[0]); });
   auto const finished = unregister.wait_for(std::chrono::seconds{5}) == std::future_status::ready;
   system_txn.reset();
   ASSERT_TRUE(finished);
   ASSERT_EQ(unregister.get(), UnregisterReplicaResult::SUCCESS);
+}
+
+TEST_F(ReplicationTest, SystemRecoveryResumesOnceSystemTransactionEnds) {
+  MinMemgraph main(main_conf);
+  MinMemgraph replica(repl_conf);
+
+  replica.repl_handler.TrySetReplicationRoleReplica(ReplicationServerConfig{
+      .repl_server = Endpoint(local_host, ports[0]),
+  });
+  ASSERT_TRUE(main.repl_handler
+                  .TryRegisterReplica(ReplicationClientConfig{
+                      .name = replicas[0],
+                      .mode = ReplicationMode::SYNC,
+                      .repl_server_endpoint = Endpoint(local_host, ports[0]),
+                  })
+                  .has_value());
+
+  auto system_txn = main.system_.TryCreateTransaction();
+  ASSERT_TRUE(system_txn);
+  auto &client = FirstClient(main);
+  client.state_.WithLock([](auto &state) { state = ReplicationClient::State::BEHIND; });
+  ASSERT_TRUE(ReachesState(client, ReplicationClient::State::RECOVERY));
+  // The checker cannot take the system lock, so it leaves the client to retry
+  ASSERT_TRUE(ReachesState(client, ReplicationClient::State::BEHIND));
+
+  system_txn.reset();
+  ASSERT_TRUE(ReachesState(client, ReplicationClient::State::READY));
 }
 
 TEST_F(ReplicationTest, RecoveryProcess) {
