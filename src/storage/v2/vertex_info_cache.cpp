@@ -16,6 +16,10 @@
 #include "utils/flag_validation.hpp"
 #include "utils/small_vector.hpp"
 
+#include <boost/unordered/unordered_flat_map.hpp>
+#include "absl/hash/hash.h"
+
+#include <algorithm>
 #include <functional>
 #include <optional>
 #include <span>
@@ -28,11 +32,59 @@ DEFINE_VALIDATED_uint64(delta_chain_cache_threshold, 128,
 
 namespace memgraph::storage {
 
+/// Note: not a tuple because need a canonical form for the edge types
+struct VertexInfoCache::EdgeKey {
+  EdgeKey(Vertex const *src_vertex, Vertex const *dst_vertex, std::vector<EdgeTypeId> edge_types);
+
+  friend bool operator==(EdgeKey const &, EdgeKey const &) = default;
+
+  friend bool operator==(EdgeKey const &lhs, std::tuple<Vertex const *, EdgeTypeId> const &rhs) {
+    return lhs.src_vertex_ == std::get<0>(rhs) && std::ranges::contains(lhs.edge_types_, std::get<1>(rhs));
+  }
+
+  template <typename H>
+  friend H AbslHashValue(H h, EdgeKey const &key) {
+    return H::combine(std::move(h), key.src_vertex_, key.dst_vertex_, key.edge_types_);
+  }
+
+ private:
+  Vertex const *src_vertex_;
+  Vertex const *dst_vertex_;
+  std::vector<EdgeTypeId> edge_types_;  // TODO: use a SBO set type
+};
+
+struct VertexInfoCache::Caches {
+  void Clear();
+
+  template <typename K, typename V>
+  using map = boost::unordered_flat_map<K, V, absl::Hash<K>>;
+
+  // TODO: Why are exists + deleted separate, is there a good reason?
+  map<Vertex const *, bool> existsCache_;
+  map<Vertex const *, bool> deletedCache_;
+  map<std::tuple<Vertex const *, LabelId>, bool> hasLabelCache_;
+  map<std::tuple<Vertex const *, PropertyId>, PropertyValue> propertyValueCache_;
+  map<Vertex const *, VertexKey> labelCache_;
+  map<Vertex const *, std::map<PropertyId, PropertyValue>> propertiesCache_;
+  // TODO: nest keys (edge_types) -> (src+dst) -> EdgeStore
+  map<EdgeKey, EdgeStore> inEdgesCache_;
+  // TODO: nest keys (edge_types) -> (src+dst) -> EdgeStore
+  map<EdgeKey, EdgeStore> outEdgesCache_;
+  map<Vertex const *, size_t> inDegreeCache_;
+  map<Vertex const *, size_t> outDegreeCache_;
+};
+
+struct VertexInfoCache::Impl {
+  Caches old_;
+  Caches new_;
+};
+
 /// Helpers to reduce typo errors
 template <typename Ret, typename Func, typename... Keys>
 auto FetchHelper(VertexInfoCache const &caches, Func &&getCache, View view, Keys &&...keys)
     -> std::optional<std::conditional_t<std::is_trivially_copyable_v<Ret>, Ret, std::reference_wrapper<Ret const>>> {
-  auto const &cache = (view == View::OLD) ? getCache(caches.old_) : getCache(caches.new_);
+  if (!caches.impl_) return std::nullopt;
+  auto const &cache = (view == View::OLD) ? getCache(caches.impl_->old_) : getCache(caches.impl_->new_);
   // check empty first, cheaper than the relative cost of doing an actual hash + find
   if (cache.empty()) return std::nullopt;
 
@@ -51,11 +103,14 @@ auto FetchHelper(VertexInfoCache const &caches, Func &&getCache, View view, Keys
 
 template <typename Value, typename Func, typename... Keys>
 void Store(Value &&value, VertexInfoCache &caches, Func &&getCache, View view, Keys &&...keys) {
-  auto &cache = (view == View::OLD) ? getCache(caches.old_) : getCache(caches.new_);
+  if (!caches.impl_) caches.impl_ = std::make_unique<VertexInfoCache::Impl>();
+  auto &cache = (view == View::OLD) ? getCache(caches.impl_->old_) : getCache(caches.impl_->new_);
   using key_type = typename std::remove_cvref_t<decltype(cache)>::key_type;
   cache.emplace(key_type{std::forward<Keys>(keys)...}, std::forward<Value>(value));
 }
 
+VertexInfoCache::VertexInfoCache() = default;
+VertexInfoCache::~VertexInfoCache() = default;
 VertexInfoCache::VertexInfoCache(VertexInfoCache &&) noexcept = default;
 VertexInfoCache &VertexInfoCache::operator=(VertexInfoCache &&) noexcept = default;
 
@@ -76,18 +131,20 @@ void VertexInfoCache::StoreDeleted(View view, Vertex const *vertex, bool res) {
 }
 
 void VertexInfoCache::Invalidate(Vertex const *vertex) {
-  new_.existsCache_.erase(vertex);
-  new_.deletedCache_.erase(vertex);
-  new_.labelCache_.erase(vertex);
-  new_.propertiesCache_.erase(vertex);
-  new_.inDegreeCache_.erase(vertex);
-  new_.outDegreeCache_.erase(vertex);
+  if (!impl_) return;
+  auto &fresh = impl_->new_;
+  fresh.existsCache_.erase(vertex);
+  fresh.deletedCache_.erase(vertex);
+  fresh.labelCache_.erase(vertex);
+  fresh.propertiesCache_.erase(vertex);
+  fresh.inDegreeCache_.erase(vertex);
+  fresh.outDegreeCache_.erase(vertex);
 
   // aggressive cache invalidation, TODO: be smarter
-  new_.hasLabelCache_.clear();
-  new_.propertyValueCache_.clear();
-  new_.inEdgesCache_.clear();
-  new_.outEdgesCache_.clear();
+  fresh.hasLabelCache_.clear();
+  fresh.propertyValueCache_.clear();
+  fresh.inEdgesCache_.clear();
+  fresh.outEdgesCache_.clear();
 }
 
 auto VertexInfoCache::GetLabels(View view, Vertex const *vertex) const
@@ -108,8 +165,10 @@ void VertexInfoCache::StoreHasLabel(View view, Vertex const *vertex, LabelId lab
 }
 
 void VertexInfoCache::Invalidate(Vertex const *vertex, LabelId label) {
-  new_.labelCache_.erase(vertex);
-  new_.hasLabelCache_.erase(std::tuple{vertex, label});
+  if (!impl_) return;
+  auto &fresh = impl_->new_;
+  fresh.labelCache_.erase(vertex);
+  fresh.hasLabelCache_.erase(std::tuple{vertex, label});
 }
 
 auto VertexInfoCache::GetProperty(View view, Vertex const *vertex, PropertyId property) const
@@ -131,8 +190,10 @@ void VertexInfoCache::StoreProperties(View view, Vertex const *vertex, std::map<
 }
 
 void VertexInfoCache::Invalidate(Vertex const *vertex, PropertyId property_key) {
-  new_.propertiesCache_.erase(vertex);
-  new_.propertyValueCache_.erase(std::tuple{vertex, property_key});
+  if (!impl_) return;
+  auto &fresh = impl_->new_;
+  fresh.propertiesCache_.erase(vertex);
+  fresh.propertyValueCache_.erase(std::tuple{vertex, property_key});
 }
 
 auto VertexInfoCache::GetInEdges(View view, Vertex const *src_vertex, Vertex const *dst_vertex,
@@ -186,19 +247,22 @@ void VertexInfoCache::StoreOutDegree(View view, Vertex const *vertex, std::size_
 }
 
 void VertexInfoCache::Invalidate(Vertex const *vertex, EdgeTypeId /*unused*/, EdgeDirection direction) {
+  if (!impl_) return;
+  auto &fresh = impl_->new_;
   // EdgeTypeId is currently unused but could be used to be more precise in future
   if (direction == EdgeDirection::IN) {
-    new_.inDegreeCache_.erase(vertex);
-    new_.inEdgesCache_.clear();  // TODO: be more precise
+    fresh.inDegreeCache_.erase(vertex);
+    fresh.inEdgesCache_.clear();  // TODO: be more precise
   } else {
-    new_.outDegreeCache_.erase(vertex);
-    new_.outEdgesCache_.clear();  // TODO: be more precise
+    fresh.outDegreeCache_.erase(vertex);
+    fresh.outEdgesCache_.clear();  // TODO: be more precise
   }
 }
 
 void VertexInfoCache::Clear() {
-  old_.Clear();
-  new_.Clear();
+  if (!impl_) return;
+  impl_->old_.Clear();
+  impl_->new_.Clear();
 }
 
 void VertexInfoCache::Caches::Clear() {

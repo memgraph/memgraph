@@ -25,6 +25,8 @@
 #include <unordered_set>
 #include <utility>
 
+#include <boost/unordered/unordered_flat_set.hpp>
+#include "absl/hash/hash.h"
 #include "ctre.hpp"
 #include "dbms/constants.hpp"
 #include "flags/experimental.hpp"
