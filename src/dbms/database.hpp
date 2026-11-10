@@ -173,14 +173,7 @@ class Database {
   query::stream::Streams *streams() { return streams_.get(); }
 
 #ifdef MG_ENTERPRISE
-  /**
-   * @brief Returns the raw VersionStore pointer (branch registry).
-   *
-   * Only non-null for IN_MEMORY_TRANSACTIONAL databases; null
-   * for ON_DISK_TRANSACTIONAL and IN_MEMORY_ANALYTICAL.
-   *
-   * @return versioning::VersionStore*
-   */
+  /// Branch registry; null unless IN_MEMORY_TRANSACTIONAL and (versioning is enabled or the ledger has branches).
   versioning::VersionStore *version_store() { return version_store_.get(); }
 #endif
 
@@ -289,9 +282,8 @@ class Database {
   std::unique_ptr<storage::Storage> storage_;           //!< Underlying storage
   std::unique_ptr<query::TriggerStore> trigger_store_;  //!< Triggers associated with the storage
 #ifdef MG_ENTERPRISE
-  // Branch registry (graph versioning). Destroyed before storage_ (declared after it) since its
-  // GC-pin callbacks capture a raw InMemoryStorage* and it owns the shared per-branch BranchCores (diff engines),
-  // which reference storage_ -- see the ctor in database.cpp.
+  // Declared after storage_ so it is destroyed first: its GC-pin callbacks capture a raw InMemoryStorage*
+  // and its BranchCores reference storage_.
   std::unique_ptr<versioning::VersionStore> version_store_;
 #endif
   // One-way latch: transitions ACTIVE → TERMINATED exactly once (during force-drop teardown) and is

@@ -129,6 +129,10 @@ struct Config {
     // Durable timestamp that snapshot/WAL retention keeps recoverable from the start, before anything lowers it.
     // Unlike recovery_history_bound it does not alter recovery.
     std::optional<uint64_t> retention_floor{std::nullopt};  // PER DATABASE
+
+    // When set, retention deletes no snapshot or WAL file: what a branch may need recoverable is unknown (a branch
+    // ledger that cannot be read). A retention_floor of 0 is not this: it is a known base of nothing.
+    bool retain_all_files{false};  // PER DATABASE
 #endif
     friend bool operator==(const Durability &lrh, const Durability &rhs) = default;
   } durability;

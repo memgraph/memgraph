@@ -11,8 +11,6 @@
 
 #pragma once
 
-#include <gtest/gtest.h>
-
 #include <filesystem>
 #include <fstream>
 #include <initializer_list>
@@ -20,17 +18,12 @@
 #include <map>
 #include <string>
 #include <string_view>
-#include <utility>
 
-#include "dbms/database.hpp"
-#include "storage/v2/config.hpp"
 #include "storage/v2/durability/paths.hpp"
-#include "utils/exceptions.hpp"
 
 namespace memgraph::tests {
 
-// Every file the recovery paths could touch (main WAL and snapshots, the backup directory, the branches directory),
-// keyed by its path relative to `root`, with its contents.
+// Contents of every file under the recovery directories, keyed by path relative to `root`.
 using DurableFileImage = std::map<std::string, std::string>;
 
 inline DurableFileImage ImageDurableFiles(const std::filesystem::path &root) {
@@ -55,25 +48,6 @@ inline DurableFileImage ImageDurableFiles(const std::filesystem::path &root) {
     }
   }
   return image;
-}
-
-// Starting a Database over `config` must throw a message containing every fragment, and leave every durable file under
-// `root` byte-identical.
-inline void ExpectStartupRefused(const std::filesystem::path &root, storage::Config config,
-                                 std::initializer_list<std::string_view> fragments) {
-  const auto before = ImageDurableFiles(root);
-  ASSERT_FALSE(before.empty());
-  try {
-    dbms::Database db{std::move(config)};
-    ADD_FAILURE() << "startup must be refused";
-  } catch (const utils::BasicException &e) {
-    const std::string_view what{e.what()};
-    for (const auto fragment : fragments) {
-      EXPECT_NE(what.find(fragment), std::string_view::npos) << "'" << fragment << "' missing from: " << what;
-    }
-    EXPECT_NE(what.find("Memgraph will not start, so no branch data is lost"), std::string_view::npos) << what;
-  }
-  EXPECT_EQ(ImageDurableFiles(root), before) << "a refused startup must leave every file untouched";
 }
 
 }  // namespace memgraph::tests

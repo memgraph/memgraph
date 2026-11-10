@@ -26,8 +26,8 @@
 
 namespace memgraph::dbms {
 
-// Durable ts up to which main must be recovered so every branch's fork base can be rebuilt: fork_ts - 1, since readers
-// at a fork_ts see commits with ts < fork_ts. nullopt when the ledger holds no branch.
+// Durable ts up to which main must be recovered to rebuild every branch's fork base: the earliest branch's recorded
+// fork_ts - 1 (clamped at 0), since a fork sees commits with ts < fork_ts. nullopt when the ledger has no branch.
 std::optional<uint64_t> BranchRecoveryBound(const versioning::LedgerContents &ledger);
 
 // Replays `tail` into the freshly recovered `storage` as MVCC txns with WAL appends suppressed, registering a fork pin

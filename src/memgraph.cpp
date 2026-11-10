@@ -96,6 +96,9 @@
 #include "utils/terminate_handler.hpp"
 #include "utils/variant_helpers.hpp"
 #include "version.hpp"
+#ifdef MG_ENTERPRISE
+#include "versioning/gate.hpp"
+#endif
 
 #include <fmt/format.h>
 #include <gflags/gflags.h>
@@ -734,6 +737,13 @@ int main(int argc, char **argv) {
   }
 
 #ifdef MG_ENTERPRISE
+  // Only the startup flags: a database created later in another storage mode is handled by the runtime gate.
+  if (!is_coordinator_instance && db_config.experimental_versioning) {
+    if (const auto error = memgraph::versioning::StartupConfigError(db_config.salient.storage_mode, db_config)) {
+      LOG_FATAL("{}", *error);
+    }
+  }
+
   MG_ASSERT(!(coordination_setup.IsDataInstanceManagedByCoordinator() &&
               db_config.salient.storage_mode == IN_MEMORY_ANALYTICAL),
             "Data instances cannot use analytical mode!");

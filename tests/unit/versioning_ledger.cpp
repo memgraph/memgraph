@@ -31,7 +31,7 @@
 #include "memory/db_arena.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "tests/test_commit_args_helper.hpp"
-#include "tests/versioning_startup_refusal.hpp"
+#include "tests/versioning_durable_files.hpp"
 #include "utils/crc_accumulator.hpp"
 #include "utils/scheduler.hpp"
 #include "utils/uuid.hpp"
@@ -608,7 +608,7 @@ ms::Config MakeRestartConfig(bool recover_on_startup) {
 }
 }  // namespace
 
-TEST(BranchLedgerRestartTest, AnUnreadableLedgerRefusesStartup) {
+TEST(BranchLedgerRestartTest, AnUnreadableLedgerStartsMainAndLeavesEveryBranchFileAsItIs) {
   fs::remove_all(kRestartDirectory);
   {
     memgraph::dbms::Database db{MakeRestartConfig(/*recover_on_startup=*/false)};
@@ -628,7 +628,14 @@ TEST(BranchLedgerRestartTest, AnUnreadableLedgerRefusesStartup) {
   Spit(ledger_file, data);
   ASSERT_FALSE(BranchLedger{ledger_file}.Read().has_value()) << "the ledger must be unreadable";
 
-  memgraph::tests::ExpectStartupRefused(
-      kRestartDirectory, MakeRestartConfig(/*recover_on_startup=*/true), {"branch ledger", "cannot be read"});
+  const auto before = memgraph::tests::ImageDurableFiles(kRestartDirectory);
+  {
+    memgraph::dbms::Database db{MakeRestartConfig(/*recover_on_startup=*/true)};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+    EXPECT_EQ(db.Access(ms::READ)->ApproximateVertexCount(), 1U) << "main recovers";
+    ASSERT_TRUE(db.version_store()->LedgerUnreadable().has_value());
+    EXPECT_FALSE(db.version_store()->Exists("b")) << "the branches are unknown, not guessed";
+  }
+  EXPECT_EQ(memgraph::tests::ImageDurableFiles(kRestartDirectory), before) << "no branch file is touched";
   fs::remove_all(kRestartDirectory);
 }
