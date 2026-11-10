@@ -42,6 +42,7 @@ pytestmark = pytest.mark.skipif(
 
 @pytest.fixture(autouse=True)
 def cleanup_after_test():
+    interactive_mg_runner.kill_all(keep_directories=False)
     yield
     interactive_mg_runner.kill_all(keep_directories=False)
 
