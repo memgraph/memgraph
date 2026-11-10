@@ -94,8 +94,8 @@ auto NameToFunction(const std::string &function_name) -> std::variant<std::monos
 /// @return true if the function is a pure builtin function, false otherwise
 bool IsFunctionPure(std::string_view function_name);
 
-/// Whether a function reads graph state through `FunctionContext::view`. True for a function that is not built in,
-/// since a module function may read anything.
+/// Whether a built-in function reads graph state through `FunctionContext::view`. True for a name that is not built
+/// in, as the safe answer; the planner classifies a module function by its arguments instead.
 bool FunctionReadsGraph(std::string_view function_name);
 
 // Returns the current hops counter if set, otherwise null.
