@@ -719,6 +719,22 @@ TEST_F(ReplicationTest, MultipleSynchronousReplicationTest) {
   }
 }
 
+TEST_F(ReplicationTest, HaDemotionRefusesSystemWritesUntilPromotion) {
+  MinMemgraph main(main_conf);
+  auto const config = ReplicationServerConfig{.repl_server = Endpoint(local_host, ports[0])};
+
+  auto pass = main.system_.MainWrites().TryEnter();
+  ASSERT_TRUE(pass);
+  EXPECT_FALSE(main.repl_handler.SetReplicationRoleReplica(config, std::nullopt));
+  EXPECT_TRUE(main.repl_state.ReadLock()->IsMain());
+  pass.reset();
+  EXPECT_FALSE(main.system_.MainWrites().TryEnter());
+
+  ASSERT_TRUE(main.repl_handler.SetReplicationRoleReplica(config, std::nullopt));
+  ASSERT_TRUE(main.repl_handler.SetReplicationRoleMain());
+  EXPECT_TRUE(main.system_.MainWrites().TryEnter());
+}
+
 TEST_F(ReplicationTest, RecoveryProcess) {
   std::vector<Gid> vertex_gids;
   // Force the creation of snapshot

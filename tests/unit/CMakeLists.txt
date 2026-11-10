@@ -1319,6 +1319,11 @@ add_unit_test(replication_state_writing
     LINK_TARGETS mg-replication mg-repl_coord_glue
 )
 
+add_unit_test(system_main_write_gate
+    SOURCES system_main_write_gate.cpp
+    LINK_TARGETS mg-system
+)
+
 # Test websocket
 
 add_unit_test(monitoring
