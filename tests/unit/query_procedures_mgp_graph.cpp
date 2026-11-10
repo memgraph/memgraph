@@ -848,3 +848,12 @@ TYPED_TEST(MgpGraphTest, GraphlessGraphStillAnswersWhatNeedsNoGraph) {
   EXPECT_SUCCESS(mgp_graph_is_transactional(&graph, &is_transactional));
   EXPECT_NE(is_transactional, 0);
 }
+
+// A vertex this command created does not exist at View::OLD. Reading it is a query error, not a process abort.
+TYPED_TEST(MgpGraphTest, ReadingAVertexTheViewCannotSeeIsAnError) {
+  mgp_graph graph = this->CreateGraph(memgraph::storage::View::OLD);
+  auto *dba = std::get<memgraph::query::DbAccessor *>(graph.impl);
+  mgp_vertex vertex{dba->InsertVertex(), &graph, memgraph::utils::NewDeleteResource()};
+  mgp_value *value{nullptr};
+  EXPECT_EQ(mgp_vertex_get_property(&vertex, "x", &this->memory, &value), mgp_error::MGP_ERROR_LOGIC_ERROR);
+}

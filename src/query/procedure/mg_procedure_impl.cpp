@@ -256,7 +256,8 @@ enum class ObjectKind : std::uint8_t { Vertex, Edge };
     case memgraph::storage::Error::DELETED_OBJECT:
       throw DeletedObjectException{fmt::format("Cannot {} a deleted {}!", op, noun)};
     case memgraph::storage::Error::NONEXISTENT_OBJECT:
-      LOG_FATAL("Query modules shouldn't have access to nonexistent objects: tried to {} {} {}.", op, article, noun);
+      // The view cannot see the object yet, as View::OLD cannot see what this command created.
+      throw std::logic_error{fmt::format("Cannot {} {} {} that the query cannot see yet.", op, article, noun)};
     case memgraph::storage::Error::PROPERTIES_DISABLED:
     case memgraph::storage::Error::VERTEX_HAS_EDGES:
     case memgraph::storage::Error::SERIALIZATION_ERROR:
