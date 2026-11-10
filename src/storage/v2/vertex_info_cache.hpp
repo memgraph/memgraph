@@ -10,7 +10,6 @@
 // licenses/APL.txt.
 #pragma once
 
-#include <algorithm>
 #include "storage/v2/edge_direction.hpp"
 #include "storage/v2/edge_ref.hpp"
 #include "storage/v2/id_types.hpp"
@@ -20,8 +19,7 @@
 #include "storage/v2/view.hpp"
 #include "utils/small_vector.hpp"
 
-#include <boost/unordered/unordered_flat_map.hpp>
-#include "absl/hash/hash.h"
+#include "absl/container/flat_hash_map.h"
 
 #include <gflags/gflags.h>
 #include <tuple>
@@ -144,7 +142,7 @@ struct VertexInfoCache final {
     void Clear();
 
     template <typename K, typename V>
-    using map = boost::unordered_flat_map<K, V, absl::Hash<K>>;
+    using map = absl::flat_hash_map<K, V>;
 
     // TODO: Why are exists + deleted separate, is there a good reason?
     map<Vertex const *, bool> existsCache_;
