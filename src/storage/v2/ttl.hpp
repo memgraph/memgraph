@@ -11,7 +11,6 @@
 
 #pragma once
 
-#include <atomic>
 #include <chrono>
 #include <functional>
 #include <optional>
@@ -20,6 +19,8 @@
 #include "metrics/metric_handles.hpp"
 
 #ifdef MG_ENTERPRISE
+
+#include <atomic>
 
 #include <fmt/format.h>
 #include <nlohmann/json_fwd.hpp>
