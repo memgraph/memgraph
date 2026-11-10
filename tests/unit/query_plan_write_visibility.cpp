@@ -758,6 +758,33 @@ TEST_F(WriteVisibilityPlan, FunctionTableMarksTheGraphReadingFunctions) {
   EXPECT_TRUE(FunctionReadsGraph("module.function"));
 }
 
+// ---------------------------------------------------------------- the items of one SET or REMOVE
+
+TEST_F(WriteVisibilityPlan, ParserMarksTheItemsAfterTheFirstOfOneSetOrRemove) {
+  auto *query = Parse("MATCH (a) SET a.x = 1, a.y = 2 REMOVE a.z, a:L SET a.w = 3");
+  auto const &clauses = query->single_query_->clauses_;
+  ASSERT_EQ(clauses.size(), 6);
+  std::vector<bool> continues;
+  for (auto *clause : clauses) continues.push_back(clause->continues_previous_);
+  EXPECT_EQ(continues, (std::vector<bool>{false, false, true, false, true, false}));
+  EXPECT_TRUE(clauses[2]->Clone(&storage_)->continues_previous_);
+  EXPECT_TRUE(clauses[4]->Clone(&storage_)->continues_previous_);
+}
+
+TEST_F(WriteVisibilityPlan, NoBarrierBetweenTheItemsOfOneSet) {
+  EXPECT_EQ(Chain(Plan("MATCH (a) SET a.x = 1, a.y = a.x")),
+            (Names{"EmptyResult", "SetProperty", "SetProperty", "ScanAll", "Once"}));
+  // Separate clauses keep their barrier.
+  EXPECT_EQ(Chain(Plan("MATCH (a) SET a.x = 1 SET a.y = a.x")),
+            (Names{"EmptyResult", "SetProperty", "Accumulate+", "SetProperty", "ScanAll", "Once"}));
+}
+
+TEST_F(WriteVisibilityPlan, OneSetDecidesItsBarrierFromAllItsItems) {
+  // The second item reads what an earlier clause wrote: the barrier goes before the whole SET.
+  EXPECT_EQ(Chain(Plan("MATCH (a) SET a.x = 1 SET a.z = 0, a.y = a.x")),
+            (Names{"EmptyResult", "SetProperty", "SetProperty", "Accumulate+", "SetProperty", "ScanAll", "Once"}));
+}
+
 // The new write facts agree with the coarse ones the planner and the interpreter use today.
 TEST_F(WriteVisibilityPlan, WritesAgreeWithRwCheckerAndQueryParts) {
   int checked = 0;

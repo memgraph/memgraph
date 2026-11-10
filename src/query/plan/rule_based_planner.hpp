@@ -500,13 +500,29 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
               is_projection && !reads_new
                   ? ReadsAndWrites{}
                   : CollectReadsAndWrites(*clause, *context.symbol_table, context.bound_symbols, non_graph_symbols_);
-          if (!is_projection) {
-            auto reads = access.reads;
+          // The items of one SET or REMOVE are one clause: the first item decides for all of them, so no barrier or
+          // drain falls between two items.
+          auto group_access = access;
+          if (!clause->continues_previous_) {
+            auto const &clauses = single_query_part.remaining_clauses;
+            for (auto next = std::next(std::ranges::find(clauses, clause));
+                 next != clauses.end() && (*next)->continues_previous_;
+                 ++next) {
+              auto const item =
+                  CollectReadsAndWrites(**next, *context.symbol_table, context.bound_symbols, non_graph_symbols_);
+              group_access.reads.Merge(item.reads);
+              group_access.writes.Merge(item.writes);
+            }
+          }
+          if (!is_projection && !clause->continues_previous_) {
+            auto reads = group_access.reads;
             // View::NEW sees what this command created; only a View::OLD reader needs the advance for that.
             if (reads_new) reads.symbols.clear();
             barrier_before(reads);
           }
-          if (BarriersOn() && Conflicts(pending_new_reads, access.writes)) plan_barrier();
+          if (!clause->continues_previous_ && BarriersOn() && Conflicts(pending_new_reads, group_access.writes)) {
+            plan_barrier();
+          }
           // An entity bound since the last barrier is not there at View::OLD, so the evaluator reads it at View::NEW:
           // a later write of what this clause read would reach its earlier rows.
           bool const reads_fresh = std::ranges::any_of(
