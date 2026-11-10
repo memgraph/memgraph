@@ -528,7 +528,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
           bool const reads_fresh = std::ranges::any_of(
               access.reads.referenced, [&](const auto &sym) { return pending_writes.symbols.contains(sym); });
           // A symbol bound by a clause that creates or reads such an entity may hold it: a path through it, a CALL
-          // result.
+          // result whose RETURN expression may.
           std::optional<std::unordered_set<Symbol>> bound_before;
           if (reads_fresh || !access.writes.symbols.empty()) bound_before = context.bound_symbols;
           // Set by an arm that drains and advances after its own writes.
@@ -537,8 +537,18 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
             if (advanced_after) return;
             pending_writes.Merge(access.writes);
             if (bound_before) {
+              auto *call = utils::Downcast<query::CallSubquery>(clause);
               for (const auto &symbol : context.bound_symbols) {
-                if (!bound_before->contains(symbol)) pending_writes.symbols.insert(symbol);
+                if (bound_before->contains(symbol)) continue;
+                if (call && !CallResultMayBeFresh(*call,
+                                                  symbol,
+                                                  *context.symbol_table,
+                                                  pending_writes.symbols,
+                                                  *bound_before,
+                                                  non_graph_symbols_)) {
+                  continue;
+                }
+                pending_writes.symbols.insert(symbol);
               }
             }
             if (reads_new || reads_fresh) pending_new_reads.Merge(access.reads);
