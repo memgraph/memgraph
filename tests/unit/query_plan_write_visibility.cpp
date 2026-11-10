@@ -703,6 +703,24 @@ TEST_F(WriteVisibilityPlan, DrainBetweenAReadOfAMergedNodeAndALaterWriteOfTheKey
             (Names{"EmptyResult", "CreateNode", "CreateNode", "Once"}));
 }
 
+// A path or a CALL result can hold an entity the command created, so a read through it is a View::NEW read too. Every
+// node is labelled: an unlabelled one makes the MERGE read which nodes exist, and the CREATE then gets a barrier.
+TEST_F(WriteVisibilityPlan, DrainBetweenAReadThroughAnAliasOfAMergedNodeAndALaterWrite) {
+  auto const drains_before_set = [](Names const &chain) {
+    auto const set = std::ranges::find(chain, "SetProperty");
+    return set != chain.end() && std::next(set) != chain.end() && *std::next(set) == "Accumulate+";
+  };
+  EXPECT_TRUE(drains_before_set(
+      Chain(Plan("UNWIND [1, 2] AS i MERGE p = (a:A)-[:R]->(b:B) CREATE (c {v: nodes(p)[0].x}) SET a.x = i"))));
+  EXPECT_TRUE(drains_before_set(Chain(
+      Plan("UNWIND [1, 2] AS i MERGE p = (a:A)-[r:R]->(b:B) CREATE (c {v: relationships(p)[0].w}) SET r.w = i"))));
+  EXPECT_TRUE(drains_before_set(
+      Chain(Plan("UNWIND [1, 2] AS i MERGE (a:A) CALL (a) { RETURN a AS b } CREATE (c {v: b.x}) SET a.x = i"))));
+  // A key nothing later writes needs no drain.
+  EXPECT_FALSE(drains_before_set(
+      Chain(Plan("UNWIND [1, 2] AS i MERGE p = (a:A)-[:R]->(b:B) CREATE (c {v: nodes(p)[0].x}) SET a.y = i"))));
+}
+
 TEST_F(WriteVisibilityPlan, DrainBetweenADeleteThatReadsAndALaterWriteOfTheKey) {
   EXPECT_EQ(Chain(Plan("MATCH (a), (b) DETACH DELETE (CASE WHEN b.x = 1 THEN a ELSE null END) SET b.x = 1")),
             (Names{"EmptyResult", "SetProperty", "Accumulate+", "Delete", "Cartesian"}));
@@ -722,6 +740,20 @@ TEST_F(WriteVisibilityPlan, MergeMatchFilterReadsNew) {
   auto views = Views<Filter>(plan);
   ASSERT_FALSE(views.empty());
   for (auto view : views) EXPECT_EQ(view, View::NEW);
+}
+
+// An EXISTS or a pattern comprehension in a Filter's WHERE reads the Filter's view.
+TEST_F(WriteVisibilityPlan, SubqueriesInTheFilterOfANewMatchingReadNew) {
+  for (auto const *query : {
+           "MATCH (a) SET a.c = size([(a)-[*0]-(x) WHERE EXISTS { MATCH (x) WHERE x.c IS NOT NULL } | x])",
+           "MATCH (a) SET a.c = size([(a)-[*0]-(x) WHERE [(x)-[*0]-(y) WHERE y.c IS NOT NULL | y] <> [] | x])",
+       }) {
+    auto &plan = Plan(query);
+    auto filters = Views<Filter>(plan);
+    ASSERT_GE(filters.size(), 2) << query;
+    for (auto view : filters) EXPECT_EQ(view, View::NEW) << query;
+    for (auto view : Views<Produce>(plan)) EXPECT_EQ(view, View::NEW) << query;
+  }
 }
 
 TEST_F(WriteVisibilityPlan, RewrittenHashJoinInAWritingBodyReadsNew) {
