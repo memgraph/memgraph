@@ -239,14 +239,14 @@ std::unique_ptr<LogicalOperator> GenReturn(Return &ret, std::unique_ptr<LogicalO
                                            SymbolTable &symbol_table, bool is_write,
                                            const std::unordered_set<Symbol> &bound_symbols, AstStorage &storage,
                                            SubqueryContext &subquery_ctx, Expression *commit_frequency,
-                                           bool is_root_query, storage::View read_view);
+                                           bool may_advance, storage::View read_view);
 
 std::unique_ptr<LogicalOperator> GenWith(With &with, std::unique_ptr<LogicalOperator> input_op,
                                          SymbolTable &symbol_table, bool is_write,
                                          std::unordered_set<Symbol> &bound_symbols, AstStorage &storage,
                                          SubqueryContext &subquery_ctx, Expression *commit_frequency,
                                          bool in_subquery_body, const std::unordered_set<Symbol> &scoped_call_imports,
-                                         storage::View read_view = storage::View::NEW, bool may_advance = true);
+                                         storage::View read_view, bool may_advance);
 
 /// Sets View::NEW on every reading operator of @p plan, branches included.
 void ReadNewThroughout(LogicalOperator &plan);
@@ -356,6 +356,10 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
       // What its View::NEW readers read since the last barrier; a write that meets it gets a drain first, or the
       // reader would see that write for its earlier rows.
       ReadWriteSet pending_new_reads;
+      auto forget_pending = [&] {
+        pending_writes.Clear();
+        pending_new_reads.Clear();
+      };
       // Ends the command here: drains every row through the clauses so far, so a read above sees all their writes.
       auto plan_barrier = [&]() {
         if (input_op) {
@@ -363,8 +367,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
           std::vector<Symbol> symbols(context.bound_symbols.begin(), context.bound_symbols.end());
           input_op = std::make_unique<Accumulate>(std::move(input_op), symbols, read_scope_ == ReadScope::kRoot);
         }
-        pending_writes.Clear();
-        pending_new_reads.Clear();
+        forget_pending();
         wrote_since_with = false;
       };
       auto barrier_before = [&](const ReadWriteSet &reads) {
@@ -602,8 +605,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
             // WITH clause advances the command, so reset the flag. It drains only after a write, and only a drain
             // ends what the reads before it can see.
             if (wrote_since_with) {
-              pending_writes.Clear();
-              pending_new_reads.Clear();
+              forget_pending();
             }
             wrote_since_with = false;
           } else if (IsWriteClause(clause)) {
@@ -744,8 +746,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
                 input_op = std::make_unique<Accumulate>(
                     std::move(input_op), input_op->ModifiedSymbols(*context.symbol_table), is_root_query);
                 if (BarriersOn()) {
-                  pending_writes.Clear();
-                  pending_new_reads.Clear();
+                  forget_pending();
                   advanced_after = true;
                 }
               }

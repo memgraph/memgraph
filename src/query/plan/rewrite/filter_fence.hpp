@@ -24,20 +24,26 @@ namespace memgraph::query::plan {
 /// walks the fenced operator's input and restores them afterwards.
 class FilterFence {
  public:
-  void Enter(Filters &filters, bool active = true) {
+  explicit FilterFence(Filters &filters) : filters_(filters) {}
+
+  FilterFence(const FilterFence &) = delete;
+  FilterFence &operator=(const FilterFence &) = delete;
+
+  void Enter(bool active = true) {
     if (active) {
-      stashed_.emplace_back(std::exchange(filters, Filters{}));
+      stashed_.emplace_back(std::exchange(filters_, Filters{}));
     } else {
       stashed_.emplace_back(std::nullopt);
     }
   }
 
-  void Exit(Filters &filters) {
-    if (stashed_.back()) filters = std::move(*stashed_.back());
+  void Exit() {
+    if (stashed_.back()) filters_ = std::move(*stashed_.back());
     stashed_.pop_back();
   }
 
  private:
+  Filters &filters_;
   std::vector<std::optional<Filters>> stashed_;
 };
 

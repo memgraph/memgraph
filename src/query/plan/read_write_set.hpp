@@ -50,6 +50,8 @@ struct ReadWriteSet {
   /// the last barrier makes the read a View::NEW read (`ReadSeeingCreated`), which a later write must not reach.
   std::unordered_set<Symbol> referenced;
 
+  /// Whether it names no graph key. `access_check_labels` and `referenced` do not count: the first conflicts only
+  /// with a label write, the second only marks a read as a View::NEW read.
   bool Empty() const;
   void Merge(const ReadWriteSet &other);
 
@@ -82,7 +84,6 @@ ReadsAndWrites CollectReadsAndWrites(utils::Visitable<HierarchicalTreeVisitor> &
 
 /// The reads of a planned MATCH: its pattern atoms and its filters.
 ReadWriteSet CollectReads(const Matching &matching, const SymbolTable &symbol_table,
-                          const std::unordered_set<Symbol> &bound = {},
-                          const std::unordered_set<Symbol> &non_graph = {});
+                          const std::unordered_set<Symbol> &bound, const std::unordered_set<Symbol> &non_graph);
 
 }  // namespace memgraph::query::plan

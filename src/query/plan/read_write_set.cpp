@@ -147,20 +147,11 @@ class ReadWriteCollector final : public HierarchicalTreeVisitor {
     return true;
   }
 
-  bool PreVisit(LoadCsv &load) override {
-    non_graph_.insert(symbol_table_.at(*load.row_var_));
-    return true;
-  }
+  bool PreVisit(LoadCsv &load) override { return ReadsAFileRow(*load.row_var_); }
 
-  bool PreVisit(LoadParquet &load) override {
-    non_graph_.insert(symbol_table_.at(*load.row_var_));
-    return true;
-  }
+  bool PreVisit(LoadParquet &load) override { return ReadsAFileRow(*load.row_var_); }
 
-  bool PreVisit(LoadJsonl &load) override {
-    non_graph_.insert(symbol_table_.at(*load.row_var_));
-    return true;
-  }
+  bool PreVisit(LoadJsonl &load) override { return ReadsAFileRow(*load.row_var_); }
 
   // ---------------------------------------------------------------- writes
 
@@ -220,20 +211,8 @@ class ReadWriteCollector final : public HierarchicalTreeVisitor {
 
   ReadsAndWrites result;
 
- private:
-  /// A lookup on a map value reads nothing from the graph; one on an entity, or a value of unknown type, does.
-  bool ReadsGraph(Expression *object) const {
-    if (utils::Downcast<MapLiteral>(object)) return false;
-    auto *ident = utils::Downcast<Identifier>(object);
-    if (!ident) return true;
-    auto const &symbol = symbol_table_.at(*ident);
-    if (non_graph_.contains(symbol)) return false;
-    auto const type = symbol.type();
-    return type == Symbol::Type::ANY || type == Symbol::Type::VERTEX || type == Symbol::Type::EDGE;
-  }
-
- public:
-  /// Whether a value may be, or hold, a node, an edge or a path.
+  /// Whether a value may be, or hold, a node, an edge or a path. `ReadsGraph` asks the narrower question of a lookup's
+  /// object: whether the object itself may be a node or an edge.
   bool MayHoldEntity(Expression *value) const {
     if (utils::Downcast<PrimitiveLiteral>(value) || utils::Downcast<ParameterLookup>(value)) return false;
     if (auto *list = utils::Downcast<ListLiteral>(value)) {
@@ -260,9 +239,26 @@ class ReadWriteCollector final : public HierarchicalTreeVisitor {
   }
 
  private:
+  /// Whether a lookup on @p object reads the graph: it may be a node or an edge, not a map value.
+  bool ReadsGraph(Expression *object) const {
+    if (utils::Downcast<MapLiteral>(object)) return false;
+    auto *ident = utils::Downcast<Identifier>(object);
+    if (!ident) return true;
+    auto const &symbol = symbol_table_.at(*ident);
+    if (non_graph_.contains(symbol)) return false;
+    auto const type = symbol.type();
+    return type == Symbol::Type::ANY || type == Symbol::Type::VERTEX || type == Symbol::Type::EDGE;
+  }
+
   /// Whether a variable may be, or hold, a node, an edge, a path or an edge list.
   bool MayHoldEntity(const Symbol &symbol) const {
     return !non_graph_.contains(symbol) && symbol.type() != Symbol::Type::NUMBER;
+  }
+
+  /// A LOAD clause's row variable holds a file row, never a graph entity.
+  bool ReadsAFileRow(Identifier &row_var) {
+    non_graph_.insert(symbol_table_.at(row_var));
+    return true;
   }
 
   /// Whether every node the term matches has a label, so a created node can match it only through a label write.
@@ -369,7 +365,7 @@ class ReadWriteCollector final : public HierarchicalTreeVisitor {
 
 bool ReadWriteSet::Empty() const {
   return properties.empty() && !any_property && labels.empty() && !any_label && edge_types.empty() && !any_edge_type &&
-         !nodes && !everything && !access_check_labels && symbols.empty();
+         !nodes && !everything && symbols.empty();
 }
 
 void ReadWriteSet::Merge(const ReadWriteSet &other) {
@@ -388,9 +384,7 @@ void ReadWriteSet::Merge(const ReadWriteSet &other) {
 
 bool Conflicts(const ReadWriteSet &reads, const ReadWriteSet &writes) {
   if (reads.access_check_labels && (writes.any_label || !writes.labels.empty())) return true;
-  auto graph_reads = reads;
-  graph_reads.access_check_labels = false;
-  if (graph_reads.Empty() || writes.Empty()) return false;
+  if (reads.Empty() || writes.Empty()) return false;
   if (reads.everything || writes.everything) return true;
   // A pattern through a node this command created: View::OLD cannot see it at all.
   if (std::ranges::any_of(reads.symbols, [&writes](const auto &sym) { return writes.symbols.contains(sym); })) {

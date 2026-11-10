@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include <benchmark/benchmark.h>
+#include <fmt/format.h>
 #include <string>
 #include <variant>
 
@@ -83,7 +84,7 @@ static void BM_PlanWriteChain(benchmark::State &state) {
   memgraph::query::DbAccessor dba(storage_dba.get());
   std::string query_string = "MATCH (n) SET n.p0 = 0";
   for (int i = 1; i < state.range(0); ++i) {
-    query_string += " SET n.p" + std::to_string(i) + " = n.p" + std::to_string(i - 1);
+    query_string += fmt::format(" SET n.p{} = n.p{}", i, i - 1);
   }
   while (state.KeepRunning()) {
     state.PauseTiming();

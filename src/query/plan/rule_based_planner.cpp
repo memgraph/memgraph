@@ -1279,8 +1279,18 @@ std::unordered_set<Symbol> GetSubqueryBoundSymbols(const std::vector<SingleQuery
                                  .planner = nullptr,
                                  .write_occurred = false};
     // No planning context here, hence no scoped `CALL` imports either.
-    auto input_op =
-        impl::GenWith(*with, nullptr, symbol_table, false, bound_symbols, storage, subquery_ctx, nullptr, false, {});
+    auto input_op = impl::GenWith(*with,
+                                  nullptr,
+                                  symbol_table,
+                                  false,
+                                  bound_symbols,
+                                  storage,
+                                  subquery_ctx,
+                                  nullptr,
+                                  false,
+                                  {},
+                                  storage::View::NEW,
+                                  /*may_advance=*/true);
     return bound_symbols;
   }
 
@@ -1313,7 +1323,7 @@ std::unique_ptr<LogicalOperator> GenReturn(Return &ret, std::unique_ptr<LogicalO
                                            SymbolTable &symbol_table, bool is_write,
                                            const std::unordered_set<Symbol> &bound_symbols, AstStorage &storage,
                                            SubqueryContext &subquery_ctx, Expression *commit_frequency,
-                                           bool is_root_query, storage::View read_view) {
+                                           bool may_advance, storage::View read_view) {
   // Similar to WITH clause, but we want to accumulate when the query writes to
   // the database. This way we handle the case when we want to return
   // expressions with the latest updated results. For example, `MATCH (n) -- ()
@@ -1324,7 +1334,7 @@ std::unique_ptr<LogicalOperator> GenReturn(Return &ret, std::unique_ptr<LogicalO
   bool const accumulate = is_write && !has_periodic_commit;
   // At the root the drain also advances, so ORDER BY, a fold and a later UNION leg read every write through
   // View::OLD. A body's RETURN runs once per outer row, and an advance there would change the outer scan mid-way.
-  bool const advance_command = is_root_query;
+  bool const advance_command = may_advance;
   const ReturnBodyContext body(ret.body_, symbol_table, bound_symbols, storage, &subquery_ctx);
   return GenReturnBody(std::move(input_op), advance_command, body, accumulate, commit_frequency, read_view);
 }
