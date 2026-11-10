@@ -1256,9 +1256,9 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   storage::PropertyValue GetProperty(const TRecordAccessor &record_accessor, const PropertyIx &prop) {
     RequireAccessor("Reading a property");
     if (!IsPropertyAllowed(record_accessor, ctx_->properties[prop.ix])) return storage::PropertyValue{};
-    auto view = view_;
-    auto maybe_prop = ReadSeeingCreated(
-        view, [&](storage::View at) { return ReadProperty<kCompact>(record_accessor, at, ctx_->properties[prop.ix]); });
+    auto maybe_prop = ReadSeeingCreated(view_, [&](storage::View at) {
+      return ReadProperty<kCompact>(record_accessor, at, ctx_->properties[prop.ix]);
+    });
     if (!maybe_prop) ThrowPropertyReadError(maybe_prop.error());
     return *std::move(maybe_prop);
   }
@@ -1268,9 +1268,8 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     RequireAccessor("Reading a property");
     auto prop_id = dba_->NameToProperty(name);
     if (!IsPropertyAllowed(record_accessor, prop_id)) return storage::PropertyValue{};
-    auto view = view_;
-    auto maybe_prop =
-        ReadSeeingCreated(view, [&](storage::View at) { return ReadProperty<kCompact>(record_accessor, at, prop_id); });
+    auto maybe_prop = ReadSeeingCreated(
+        view_, [&](storage::View at) { return ReadProperty<kCompact>(record_accessor, at, prop_id); });
     if (!maybe_prop) ThrowPropertyReadError(maybe_prop.error());
     return *maybe_prop;
   }
@@ -1296,8 +1295,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     const auto read = [&](storage::View view) {
       return ctx_->lazy_vector_refs ? record_accessor.PropertiesCompact(view) : record_accessor.Properties(view);
     };
-    auto view = view_;
-    auto maybe_props = ReadSeeingCreated(view, read);
+    auto maybe_props = ReadSeeingCreated(view_, read);
     if (!maybe_props) {
       switch (maybe_props.error()) {
         case storage::Error::DELETED_OBJECT:
@@ -1345,16 +1343,14 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   storage::LabelId GetLabel(const LabelIx &label) const { return ctx_->labels[label.ix]; }
 
   bool HasLabel(const VertexAccessor &vertex, const LabelIx &label) const {
-    auto view = view_;
-    auto result = ReadSeeingCreated(view, [&](storage::View at) { return vertex.HasLabel(at, GetLabel(label)); });
+    auto result = ReadSeeingCreated(view_, [&](storage::View at) { return vertex.HasLabel(at, GetLabel(label)); });
     if (!result) ThrowLabelReadError(result.error());
     return *result;
   }
 
   /// Whether the vertex carries any label, which is what `%` asks.
   bool HasAnyLabel(const VertexAccessor &vertex) const {
-    auto view = view_;
-    auto result = ReadSeeingCreated(view, [&](storage::View at) { return vertex.HasAnyLabel(at); });
+    auto result = ReadSeeingCreated(view_, [&](storage::View at) { return vertex.HasAnyLabel(at); });
     if (!result) ThrowLabelReadError(result.error());
     return *result;
   }

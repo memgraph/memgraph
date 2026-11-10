@@ -2360,9 +2360,9 @@ namespace {
 /// Reads a real vertex at its graph's view; one this command created reads View::NEW (`ReadSeeingCreated`).
 template <class TRead>
 auto ReadVertex(mgp_vertex *v, TRead &&read) {
-  auto view = v->graph->view;
-  return memgraph::query::ReadSeeingCreated(
-      view, [&](memgraph::storage::View at) { return v->VisitReal([&](auto &impl) { return read(impl, at); }); });
+  return memgraph::query::ReadSeeingCreated(v->graph->view, [&](memgraph::storage::View at) {
+    return v->VisitReal([&](auto &impl) { return read(impl, at); });
+  });
 }
 }  // namespace
 
@@ -3145,9 +3145,8 @@ mgp_error mgp_edge_get_property(mgp_edge *e, const char *name, mgp_memory *memor
         return std::visit(
             memgraph::utils::Overloaded{
                 [&](const memgraph::query::EdgeAccessor &ea) {
-                  auto view = e->from.graph->view;
                   auto maybe_prop = memgraph::query::ReadSeeingCreated(
-                      view, [&](memgraph::storage::View at) { return ea.GetProperty(at, key); });
+                      e->from.graph->view, [&](memgraph::storage::View at) { return ea.GetProperty(at, key); });
                   if (!maybe_prop) ThrowOnReadError(maybe_prop.error(), "get a property of", ObjectKind::Edge);
                   return NewRawMgpObject<mgp_value>(memory, std::move(*maybe_prop), GetNameIdMapper(e->from.graph));
                 },
@@ -3296,9 +3295,8 @@ mgp_error mgp_edge_iter_properties(mgp_edge *e, mgp_memory *memory, mgp_properti
       [e, memory] {
         return std::visit(memgraph::utils::Overloaded{
                               [&](const memgraph::query::EdgeAccessor &ea) {
-                                auto view = e->from.graph->view;
                                 auto maybe_props = memgraph::query::ReadSeeingCreated(
-                                    view, [&](memgraph::storage::View at) { return ea.Properties(at); });
+                                    e->from.graph->view, [&](memgraph::storage::View at) { return ea.Properties(at); });
                                 if (!maybe_props)
                                   ThrowOnReadError(maybe_props.error(), "get the properties of", ObjectKind::Edge);
                                 return NewRawMgpObject<mgp_properties_iterator>(

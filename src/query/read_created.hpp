@@ -17,14 +17,15 @@
 namespace memgraph::query {
 
 /// Reads a record at `view`. A record this command created is not there at View::OLD until the command advances, so
-/// that read falls back to View::NEW, and `view` becomes View::NEW for the caller's later reads of the record.
+/// that read falls back to View::NEW. `seen`, when given, receives the view the read used, for later reads of it.
 template <class TRead>
-auto ReadSeeingCreated(storage::View &view, TRead &&read) {
+auto ReadSeeingCreated(storage::View view, TRead &&read, storage::View *seen = nullptr) {
   auto result = read(view);
   if (view == storage::View::OLD && result == std::unexpected{storage::Error::NONEXISTENT_OBJECT}) {
     view = storage::View::NEW;
     result = read(view);
   }
+  if (seen) *seen = view;
   return result;
 }
 
