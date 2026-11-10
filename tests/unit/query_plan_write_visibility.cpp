@@ -865,8 +865,8 @@ TEST_F(WriteVisibilityPlan, WritesAgreeWithRwCheckerAndQueryParts) {
 
 // ---------------------------------------------------------------- each write fences a filter on its own
 
-// A CALL ... YIELD WHERE is the one Filter that sits directly on a write, with no WITH Accumulate between them, so the
-// write's own fence decides whether a rewriter moves the filter into a scan below it.
+// Under batching no barrier is planned, so a CALL ... YIELD WHERE sits directly on the write before it, and the write's
+// own fence decides whether a rewriter moves the filter into a scan below it.
 TEST_F(WriteVisibilityPlan, EachWriteKeepsAYieldWhereAboveIt) {
   LabelPropertyIndex("Q", "x");
   for (auto const *write : {"SET a.x = 5",
@@ -880,12 +880,14 @@ TEST_F(WriteVisibilityPlan, EachWriteKeepsAYieldWhereAboveIt) {
                             "MERGE (:Z)",
                             "DETACH DELETE a",
                             "FOREACH (i IN [1] | SET a.x = i)"}) {
-    auto &plan =
-        Plan(fmt::format("MATCH (a:Q) {} CALL mg.procedures() YIELD name WHERE a.x = 5 RETURN count(*) AS c", write));
+    auto &plan = Plan(fmt::format(
+        "USING PERIODIC COMMIT 10 MATCH (a:Q) {} CALL mg.procedures() YIELD name WHERE a.x = 5 RETURN count(*) AS c",
+        write));
     EXPECT_TRUE(Collect<ScanAllByLabelProperties>(plan).empty()) << write;
   }
   // A read procedure is no fence.
-  auto &plan = Plan("MATCH (a:Q) CALL mg.procedures() YIELD name WHERE a.x = 5 RETURN count(*) AS c");
+  auto &plan =
+      Plan("USING PERIODIC COMMIT 10 MATCH (a:Q) CALL mg.procedures() YIELD name WHERE a.x = 5 RETURN count(*) AS c");
   EXPECT_EQ(Collect<ScanAllByLabelProperties>(plan).size(), 1);
 }
 
@@ -898,11 +900,15 @@ TEST_F(WriteVisibilityPlan, EachWriteKeepsAYieldWhereOutOfAHashJoin) {
                             "MERGE (:Z)",
                             "DETACH DELETE a",
                             "FOREACH (i IN [1] | SET a.x = i)"}) {
-    auto &plan = Plan(fmt::format(
-        "MATCH (a:Q), (b:P) {} CALL mg.procedures() YIELD name WHERE a.x = b.y RETURN count(*) AS c", write));
+    auto &plan =
+        Plan(fmt::format("USING PERIODIC COMMIT 10 MATCH (a:Q), (b:P) {} CALL mg.procedures() YIELD name WHERE a.x = "
+                         "b.y RETURN count(*) AS c",
+                         write));
     EXPECT_TRUE(Collect<HashJoin>(plan).empty()) << write;
   }
-  auto &plan = Plan("MATCH (a:Q), (b:P) CALL mg.procedures() YIELD name WHERE a.x = b.y RETURN count(*) AS c");
+  auto &plan = Plan(
+      "USING PERIODIC COMMIT 10 MATCH (a:Q), (b:P) CALL mg.procedures() YIELD name WHERE a.x = b.y RETURN count(*) AS "
+      "c");
   EXPECT_EQ(Collect<HashJoin>(plan).size(), 1);
 }
 
@@ -918,11 +924,15 @@ TEST_F(WriteVisibilityPlan, EachWriteKeepsAYieldWhereOutOfAnEdgeIndexSeek) {
                             "MERGE (:Z)",
                             "DELETE r",
                             "FOREACH (i IN [1] | SET r.w = i)"}) {
-    auto &plan = Plan(fmt::format(
-        "MATCH (n)-[r:E]->() {} CALL mg.procedures() YIELD name WHERE r.w = 5 RETURN count(*) AS c", write));
+    auto &plan =
+        Plan(fmt::format("USING PERIODIC COMMIT 10 MATCH (n)-[r:E]->() {} CALL mg.procedures() YIELD name WHERE r.w = "
+                         "5 RETURN count(*) AS c",
+                         write));
     EXPECT_TRUE(Collect<ScanAllByEdgeTypeProperty>(plan).empty()) << write;
   }
-  auto &plan = Plan("MATCH (n)-[r:E]->() CALL mg.procedures() YIELD name WHERE r.w = 5 RETURN count(*) AS c");
+  auto &plan = Plan(
+      "USING PERIODIC COMMIT 10 MATCH (n)-[r:E]->() CALL mg.procedures() YIELD name WHERE r.w = 5 RETURN count(*) AS "
+      "c");
   EXPECT_EQ(Collect<ScanAllByEdgeTypeProperty>(plan).size(), 1);
 }
 
