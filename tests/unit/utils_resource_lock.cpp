@@ -837,8 +837,10 @@ TEST_F(ResourceLockTest, ReadOnlyLatencyIndependentOfNewWriterCount) {
   // A 50ms budget is smaller than the scheduling noise an ASan build sees on a loaded machine,
   // and widening it far enough to be safe there would stop it catching the regression it exists
   // for. The late_before_ro check above has no latency budget and still runs everywhere.
+#if defined(__has_feature)
 #if __has_feature(address_sanitizer)
   GTEST_SKIP() << "READ_ONLY latency budget is below ASan scheduling noise";
+#endif
 #endif
 
   // The large burst queues far more new writers behind the READ_ONLY request; if priority is
