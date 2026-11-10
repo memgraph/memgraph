@@ -2530,3 +2530,21 @@ Feature: Write visibility inside one query
         Then the result should be:
             | lo | hi |
             | 5  | 5  |
+
+    Scenario: A SET after WITH * sees every relationship an earlier CREATE made
+        # Measured by hand, not by the oracle, which returns 1, 2, 3: a later clause sees all rows of an earlier one
+        # (openCypher 9 p.130 example 2 uses WITH * as the boundary).
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:WvCw)
+            """
+        When executing query:
+            """
+            UNWIND [1, 2, 3] AS i MATCH (s:WvCw) CREATE (s)-[:T]->(c:WvCwC {i: i}) WITH * SET c.d = size([(s)-[:T]->(x) | x]) RETURN c.i AS i, c.d AS d ORDER BY i
+            """
+        Then the result should be, in order:
+            | i | d |
+            | 1 | 3 |
+            | 2 | 3 |
+            | 3 | 3 |
