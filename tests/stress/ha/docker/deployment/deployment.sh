@@ -37,6 +37,7 @@ DEFAULT_DATA_FLAGS=(
     "--log-level=TRACE"
     "--also-log-to-stderr=true"
     "--metrics-format=OpenMetrics"
+    "--telemetry-enabled=false"
 )
 
 # Default flags for Memgraph Coordinator Nodes
@@ -44,6 +45,7 @@ DEFAULT_COORD_FLAGS=(
     "--log-level=TRACE"
     "--also-log-to-stderr=true"
     "--metrics-format=OpenMetrics"
+    "--telemetry-enabled=false"
 )
 
 # Data node configurations: name, bolt_port, management_port, monitoring_port, metrics_port

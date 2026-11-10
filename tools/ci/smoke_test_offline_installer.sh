@@ -96,7 +96,7 @@ run_in_container() {
   echo "==> Starting memgraph"
   # `su` without `-`: a login shell would wipe MEMGRAPH_ENTERPRISE_LICENSE and
   # MEMGRAPH_ORGANIZATION_NAME before memgraph gets a chance to read them.
-  su memgraph -c "/usr/lib/memgraph/memgraph --also-log-to-stderr" > "$MEMGRAPH_LOG" 2>&1 &
+  su memgraph -c "/usr/lib/memgraph/memgraph --also-log-to-stderr --telemetry-enabled=false" > "$MEMGRAPH_LOG" 2>&1 &
   local mg_pid=$!
   # shellcheck disable=SC2064  # expand mg_pid now: it is a local, and the trap
   # fires once this function has already returned.
