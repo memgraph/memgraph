@@ -42,6 +42,12 @@ uint64_t LastDurableTimestamp(storage::InMemoryStorage const &storage) {
 }
 }  // namespace
 
+std::optional<uint64_t> BranchRecoveryBound(const versioning::LedgerContents &ledger) {
+  if (ledger.branches.empty()) return std::nullopt;
+  const auto earliest = std::ranges::min(ledger.branches, std::less{}, [](const auto &b) { return b.info.fork_ts; });
+  return versioning::RecoverableBelow(earliest.info);
+}
+
 std::expected<std::vector<uint64_t>, std::string> ReplayHistoryTail(storage::InMemoryStorage &storage,
                                                                     const storage::durability::RecoveryTail &tail,
                                                                     std::span<const uint64_t> fork_ts) {
