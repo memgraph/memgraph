@@ -232,6 +232,7 @@ class ReadWriteCollector final : public HierarchicalTreeVisitor {
     return type == Symbol::Type::ANY || type == Symbol::Type::VERTEX || type == Symbol::Type::EDGE;
   }
 
+ public:
   /// Whether a value may be, or hold, a node, an edge or a path.
   bool MayHoldEntity(Expression *value) const {
     if (utils::Downcast<PrimitiveLiteral>(value) || utils::Downcast<ParameterLookup>(value)) return false;
@@ -258,6 +259,7 @@ class ReadWriteCollector final : public HierarchicalTreeVisitor {
     return true;
   }
 
+ private:
   /// Whether a variable may be, or hold, a node, an edge, a path or an edge list.
   bool MayHoldEntity(const Symbol &symbol) const {
     return !non_graph_.contains(symbol) && symbol.type() != Symbol::Type::NUMBER;
@@ -398,6 +400,49 @@ bool Conflicts(const ReadWriteSet &reads, const ReadWriteSet &writes) {
          KeysConflict(reads.labels, reads.any_label, writes.labels, writes.any_label) ||
          KeysConflict(reads.edge_types, reads.any_edge_type, writes.edge_types, writes.any_edge_type) ||
          (reads.nodes && writes.nodes);
+}
+
+namespace {
+
+/// The RETURN clauses that end @p query and its UNION parts, through a final WHEN.
+void CollectReturns(CypherQuery &query, std::vector<Return *> &returns) {
+  auto const collect = [&](SingleQuery *single) {
+    if (!single || single->clauses_.empty()) return;
+    auto *last = single->clauses_.back();
+    if (auto *ret = utils::Downcast<Return>(last)) {
+      returns.push_back(ret);
+    } else if (auto *branches = utils::Downcast<ConditionalBranches>(last)) {
+      for (auto &branch : branches->branches_) CollectReturns(*branch.body, returns);
+    }
+  };
+  collect(query.single_query_);
+  for (auto *cypher_union : query.cypher_unions_) collect(cypher_union->single_query_);
+}
+
+}  // namespace
+
+bool CallResultMayBeFresh(CallSubquery &call, const Symbol &result, const SymbolTable &symbol_table,
+                          const std::unordered_set<Symbol> &fresh, const std::unordered_set<Symbol> &outer_bound,
+                          const std::unordered_set<Symbol> &non_graph) {
+  std::vector<Return *> returns;
+  CollectReturns(*call.cypher_query_, returns);
+  ReadWriteCollector collector(symbol_table, outer_bound, non_graph);
+  bool named = false;
+  for (auto *ret : returns) {
+    for (auto *named_expression : ret->body_.named_expressions) {
+      if (symbol_table.at(*named_expression) != result) continue;
+      named = true;
+      if (!collector.MayHoldEntity(named_expression->expression_)) continue;
+      UsedSymbolsCollector used(symbol_table);
+      named_expression->expression_->Accept(used);
+      if (std::ranges::any_of(used.symbols_, [&](const Symbol &symbol) {
+            return fresh.contains(symbol) || !outer_bound.contains(symbol);
+          })) {
+        return true;
+      }
+    }
+  }
+  return !named;
 }
 
 ReadsAndWrites CollectReadsAndWrites(utils::Visitable<HierarchicalTreeVisitor> &tree, const SymbolTable &symbol_table,

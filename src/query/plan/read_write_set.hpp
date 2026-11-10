@@ -19,6 +19,7 @@
 #include "query/frontend/semantic/symbol.hpp"
 
 namespace memgraph::query {
+class CallSubquery;
 class SymbolTable;
 }  // namespace memgraph::query
 
@@ -63,6 +64,14 @@ struct ReadsAndWrites {
   ReadWriteSet reads;
   ReadWriteSet writes;
 };
+
+/// Whether the variable @p result that @p call returns may hold an entity in @p fresh: a RETURN expression of the
+/// body may hold an entity and reads a variable in @p fresh or one the body binds itself. A result no RETURN names, as
+/// in a UNION, may.
+/// @param outer_bound the variables bound before @p call.
+bool CallResultMayBeFresh(CallSubquery &call, const Symbol &result, const SymbolTable &symbol_table,
+                          const std::unordered_set<Symbol> &fresh, const std::unordered_set<Symbol> &outer_bound,
+                          const std::unordered_set<Symbol> &non_graph);
 
 /// The reads and writes of @p tree (a clause, an expression or a whole query), subqueries included.
 /// @param bound symbols bound before @p tree; a CREATE atom naming one creates nothing.

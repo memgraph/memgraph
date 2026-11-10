@@ -721,6 +721,27 @@ TEST_F(WriteVisibilityPlan, DrainBetweenAReadThroughAnAliasOfAMergedNodeAndALate
       Chain(Plan("UNWIND [1, 2] AS i MERGE p = (a:A)-[:R]->(b:B) CREATE (c {v: nodes(p)[0].x}) SET a.y = i"))));
 }
 
+// A CALL result is fresh only when it may hold an entity and derives from a fresh one: a scalar, or a node the body
+// only passes through, needs no barrier or drain. One the body binds itself may derive from the fresh node.
+TEST_F(WriteVisibilityPlan, CallResultIsFreshOnlyWhenItMayHoldAFreshEntity) {
+  EXPECT_TRUE(
+      Collect<Accumulate>(Plan("MATCH (o:O) UNWIND [1, 2] AS i MERGE (n:N {id: i}) CALL (n) { RETURN n.id AS j } "
+                               "CREATE (:M {v: o.x, j: j}) SET o.x = i"))
+          .empty());
+  EXPECT_TRUE(
+      Collect<Accumulate>(Plan("MATCH (o:O) UNWIND [1, 2] AS i MERGE (a:F) CALL (a, o) { RETURN o AS o2, a AS a2 } "
+                               "CREATE (:C {v: size([(o2)-[:R]->(:Q) | 1])})"))
+          .empty());
+  auto const drains_before_set = [](Names const &chain) {
+    auto const set = std::ranges::find(chain, "SetProperty");
+    return set != chain.end() && std::next(set) != chain.end() && *std::next(set) == "Accumulate+";
+  };
+  EXPECT_TRUE(drains_before_set(Chain(
+      Plan("UNWIND [1, 2] AS i MERGE (a:A) CALL (a) { WITH a AS x RETURN x AS b } CREATE (c {v: b.x}) SET a.x = i"))));
+  EXPECT_TRUE(drains_before_set(
+      Chain(Plan("UNWIND [1, 2] AS i MERGE (a:A) CALL (a) { RETURN [a] AS b } CREATE (c {v: b[0].x}) SET a.x = i"))));
+}
+
 TEST_F(WriteVisibilityPlan, DrainBetweenADeleteThatReadsAndALaterWriteOfTheKey) {
   EXPECT_EQ(Chain(Plan("MATCH (a), (b) DETACH DELETE (CASE WHEN b.x = 1 THEN a ELSE null END) SET b.x = 1")),
             (Names{"EmptyResult", "SetProperty", "Accumulate+", "Delete", "Cartesian"}));
