@@ -1189,7 +1189,8 @@ std::unordered_set<Symbol> CollectPatternComprehensionSymbols(const std::vector<
 
 namespace {
 
-/// Sets View::NEW on every read in a plan: a writing CALL body tree reads its own earlier rows' writes.
+/// Sets View::NEW on every read in a plan: a writing CALL body tree reads its own earlier rows' writes. It runs
+/// before the rewriters, so it lists only what the planner builds; a rewriter copies the view of what it replaces.
 class ReadNewViewSetter final : public HierarchicalLogicalOperatorVisitor {
  public:
   using HierarchicalLogicalOperatorVisitor::PostVisit;
@@ -1204,15 +1205,7 @@ class ReadNewViewSetter final : public HierarchicalLogicalOperatorVisitor {
     return true;                   \
   }
   MG_READ_NEW(ScanAll)
-  MG_READ_NEW(ScanAllByLabel)
-  MG_READ_NEW(ScanAllByLabelProperties)
-  MG_READ_NEW(ScanAllById)
   MG_READ_NEW(ScanAllByEdge)
-  MG_READ_NEW(ScanAllByEdgeType)
-  MG_READ_NEW(ScanAllByEdgeTypeProperty)
-  MG_READ_NEW(ScanAllByEdgeProperty)
-  MG_READ_NEW(ScanAllByEdgeId)
-  MG_READ_NEW(ScanAllByVertexProperty)
   MG_READ_NEW(Expand)
   MG_READ_NEW(ExpandVariable)
   MG_READ_NEW(Filter)
@@ -1220,16 +1213,11 @@ class ReadNewViewSetter final : public HierarchicalLogicalOperatorVisitor {
   MG_READ_NEW(Aggregate)
   MG_READ_NEW(OrderBy)
   MG_READ_NEW(Unwind)
-  MG_READ_NEW(HashJoin)
   MG_READ_NEW(CreateNode)
   MG_READ_NEW(CreateExpand)
   MG_READ_NEW(CallProcedure)
+  MG_READ_NEW(Conditional)
 #undef MG_READ_NEW
-
-  bool PreVisit(Conditional &op) override {
-    op.predicate_view_ = storage::View::NEW;
-    return true;
-  }
 };
 
 }  // namespace

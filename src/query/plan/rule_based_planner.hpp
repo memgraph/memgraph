@@ -354,7 +354,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
       bool wrote_since_with = false;
       // What this UNION part wrote since its last barrier; a read that meets it gets a barrier first.
       ReadWriteSet pending_writes;
-      // What its View::NEW readers read since the last barrier; a write that meets it gets a barrier first, or the
+      // What its View::NEW readers read since the last barrier; a write that meets it gets a drain first, or the
       // reader would see that write for its earlier rows.
       ReadWriteSet pending_new_reads;
       // Ends the command here: drains every row through the clauses so far, so a read above sees all their writes.
@@ -370,6 +370,9 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
       };
       auto barrier_before = [&](const ReadWriteSet &reads) {
         if (BarriersOn() && Conflicts(reads, pending_writes)) plan_barrier();
+      };
+      auto drain_before = [&](const ReadWriteSet &writes) {
+        if (BarriersOn() && Conflicts(pending_new_reads, writes)) plan_barrier();
       };
       for (const auto &single_query_part : query_part.single_query_parts) {
         // Installed before HandleMatching, which plans MATCH-clause comprehensions through the same member.
@@ -520,9 +523,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
             if (reads_new) reads.symbols.clear();
             barrier_before(reads);
           }
-          if (!clause->continues_previous_ && BarriersOn() && Conflicts(pending_new_reads, group_access.writes)) {
-            plan_barrier();
-          }
+          if (!clause->continues_previous_) drain_before(group_access.writes);
           // An entity bound since the last barrier is not there at View::OLD, so the evaluator reads it at View::NEW:
           // a later write of what this clause read would reach its earlier rows.
           bool const reads_fresh = std::ranges::any_of(
@@ -819,7 +820,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
     }
 
     auto root = std::make_unique<Conditional>(std::move(input), std::move(branches), conditional.output_symbols);
-    root->predicate_view_ = ScopeView();
+    root->view_ = ScopeView();
     bound_symbols.insert(conditional.output_symbols.begin(), conditional.output_symbols.end());
     context_->bound_symbols = std::move(bound_symbols);
     return root;
@@ -856,7 +857,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
     kRoot,          ///< the root query: reads use View::OLD behind a barrier
     kReadOnlyTree,  ///< a CALL body tree that writes nothing: View::OLD, it runs before any later write
     kWritingTree,   ///< a root-level CALL body tree that writes: View::NEW, to see its own earlier rows
-    kBatching,      ///< periodic commit or IN TRANSACTIONS anywhere: master's views, no barriers
+    kBatching,      ///< periodic commit or IN TRANSACTIONS anywhere: no barriers, reads use View::NEW
   };
   ReadScope read_scope_{ReadScope::kRoot};
   /// Symbols that hold a row of a file, never a graph entity: a lookup on them reads nothing from the graph.
@@ -874,7 +875,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
            utils::IsSubtype(clause, query::Foreach::kType);
   }
 
-  /// The view of a read whose master view is View::NEW and that follows the scope rule.
+  /// The view of a projection, a CREATE map or a WHEN predicate: View::OLD at the root and in a read-only CALL body.
   storage::View ScopeView() const {
     return read_scope_ == ReadScope::kRoot || read_scope_ == ReadScope::kReadOnlyTree ? storage::View::OLD
                                                                                       : storage::View::NEW;

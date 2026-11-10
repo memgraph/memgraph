@@ -10911,7 +10911,7 @@ std::unique_ptr<LogicalOperator> Conditional::Clone(AstStorage *storage) const {
     cloned.columns = branch.columns;
   }
   object->output_symbols_ = output_symbols_;
-  object->predicate_view_ = predicate_view_;
+  object->view_ = view_;
   return object;
 }
 
@@ -10959,7 +10959,7 @@ bool Conditional::ConditionalCursor::Pull(Frame &frame, ExecutionContext &contex
 
     // In a writing body a predicate sees the writes earlier rows' branches made (View::NEW).
     ExpressionEvaluator evaluator{
-        &frame, context, self_.predicate_view_, context.frame_change_collector, &context.number_of_hops};
+        &frame, context, self_.view_, context.frame_change_collector, &context.number_of_hops};
     for (size_t i = 0; i < self_.branches_.size(); ++i) {
       for (const auto &fold : branches_[i].pattern_filters) {
         fold->Pull(frame, context);

@@ -2297,7 +2297,7 @@ Feature: Write visibility inside one query
             | [1] |
 
     Scenario: CREATE property map reads a node created earlier in the same CREATE
-        # Deliberate: a CREATE whose property map reads an entity the same CREATE makes is not refused; memgraph answers 1 on master and must keep answering it once root reads go OLD.
+        # Deliberate: a CREATE whose property map reads an entity the same CREATE makes is not refused; it answers 1, as it did before root reads went OLD.
         # Pre-flight: existing
         Given an empty graph
         When executing query:
@@ -2391,7 +2391,7 @@ Feature: Write visibility inside one query
             CREATE (:WvCs)
             """
         # The batched write is a setup step, so the parallel pass leaves it unprefixed: USING PARALLEL EXECUTION
-        # with PERIODIC COMMIT aborts the server on master too.
+        # with PERIODIC COMMIT aborts the server (a known engine bug, not this feature).
         And having executed:
             """
             USING PERIODIC COMMIT 100 UNWIND [1, 2] AS i MATCH (s:WvCs) CREATE (s)-[:T]->(c:WvCc {i: i, d: size([(s)-[:T]->(x) | x])})

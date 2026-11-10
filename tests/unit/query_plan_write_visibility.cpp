@@ -174,18 +174,9 @@ TEST_F(WriteVisibilityPlan, ReadOnlyReturnHasNoDrain) {
 using memgraph::storage::View;
 
 template <class TOp>
-View &ViewOf(TOp &op) {
-  if constexpr (std::is_same_v<TOp, Conditional>) {
-    return op.predicate_view_;
-  } else {
-    return op.view_;
-  }
-}
-
-template <class TOp>
 std::vector<View> Views(LogicalOperator &plan) {
   std::vector<View> views;
-  for (auto *op : Collect<TOp>(plan)) views.push_back(ViewOf(*op));
+  for (auto *op : Collect<TOp>(plan)) views.push_back(op->view_);
   return views;
 }
 
@@ -196,10 +187,10 @@ void ExpectCloneKeepsView(LogicalOperator &plan, AstStorage &storage) {
   auto ops = Collect<TOp>(plan);
   ASSERT_FALSE(ops.empty());
   // Not the planned view, so a Clone that drops the field reads back the default.
-  auto const flipped = ViewOf(*ops.front()) == View::NEW ? View::OLD : View::NEW;
-  for (auto *op : ops) ViewOf(*op) = flipped;
+  auto const flipped = ops.front()->view_ == View::NEW ? View::OLD : View::NEW;
+  for (auto *op : ops) op->view_ = flipped;
   auto clone = plan.Clone(&storage);
-  for (auto *op : Collect<TOp>(*clone)) EXPECT_EQ(ViewOf(*op), flipped);
+  for (auto *op : Collect<TOp>(*clone)) EXPECT_EQ(op->view_, flipped);
 }
 
 TEST_F(WriteVisibilityPlan, CloneKeepsProduceAndAggregateView) {
@@ -233,7 +224,7 @@ TEST_F(WriteVisibilityPlan, RootProjectionAndCreateReadOld) {
   EXPECT_EQ(Views<CreateExpand>(plan), (std::vector{View::OLD}));
 }
 
-TEST_F(WriteVisibilityPlan, BatchingKeepsMastersViews) {
+TEST_F(WriteVisibilityPlan, BatchingReadsNew) {
   auto &plan = Plan("USING PERIODIC COMMIT 10 UNWIND range(1, 3) AS i CREATE (b {v: i}) RETURN count(*) AS c");
   EXPECT_EQ(Views<Produce>(plan), (std::vector{View::NEW}));
   EXPECT_EQ(Views<Aggregate>(plan), (std::vector{View::NEW}));

@@ -42,7 +42,6 @@ struct FunctionContext {
   utils::MemoryResource *memory;
   int64_t timestamp;
   std::unordered_map<std::string, int64_t> *counters;
-  // A built-in function that reads entities through it sets `func_info::reads_graph_`.
   storage::View view;
   int64_t hops_counter{0};
   const QueryUserOrRole *user_or_role{nullptr};
@@ -94,8 +93,7 @@ auto NameToFunction(const std::string &function_name) -> std::variant<std::monos
 /// @return true if the function is a pure builtin function, false otherwise
 bool IsFunctionPure(std::string_view function_name);
 
-/// Whether a built-in function reads graph state through `FunctionContext::view`. True for a name that is not built
-/// in, as the safe answer; the planner classifies a module function by its arguments instead.
+/// Whether a built-in function reads graph state through `FunctionContext::view`; true for an unknown name.
 bool FunctionReadsGraph(std::string_view function_name);
 
 // Returns the current hops counter if set, otherwise null.
