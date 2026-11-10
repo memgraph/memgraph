@@ -22,7 +22,7 @@
 #include "utils/pmr/unordered_map.hpp"
 #include "utils/pmr/vector.hpp"
 
-#include <boost/unordered/unordered_flat_set.hpp>
+#include "absl/container/flat_hash_set.h"
 #include "utils/frame_change_id.hpp"
 
 namespace memgraph::query {
@@ -37,7 +37,8 @@ struct CachedSet {
   using alloc_traits = std::allocator_traits<allocator_type>;
 
   // Cached value, this can be probably templateized
-  boost::unordered_flat_set<TypedValue, TypedValue::Hash, TypedValue::BoolEqual, allocator_type> cache_;
+  absl::flat_hash_set<TypedValue, absl::DefaultHashContainerHash<TypedValue>, TypedValue::BoolEqual, allocator_type>
+      cache_;
 
   /// Whether a lookup here answers the equality question `IN` asks.
   ///
