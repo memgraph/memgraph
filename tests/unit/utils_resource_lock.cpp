@@ -1454,7 +1454,7 @@ TEST_F(ResourceLockTest, PendingUniqueIsWokenWhenSharedAcquirersAreAlsoParked) {
   constexpr int kUniqueWaiters = 4;
 
   std::atomic<bool> stop{false};
-  std::atomic<int> missed_wakes{0};
+  std::atomic<int> full_timeout_waits{0};
   std::atomic<int> unique_acquisitions{0};
 
   std::vector<std::jthread> threads;
@@ -1483,7 +1483,7 @@ TEST_F(ResourceLockTest, PendingUniqueIsWokenWhenSharedAcquirersAreAlsoParked) {
           lock.unlock();
         }
         if (!acquired || std::chrono::steady_clock::now() - start >= kUniqueTimeout) {
-          missed_wakes.fetch_add(1, std::memory_order_relaxed);
+          full_timeout_waits.fetch_add(1, std::memory_order_relaxed);
         }
       }
     });
@@ -1494,6 +1494,6 @@ TEST_F(ResourceLockTest, PendingUniqueIsWokenWhenSharedAcquirersAreAlsoParked) {
   threads.clear();
 
   EXPECT_GT(unique_acquisitions.load(), 0) << "the UNIQUE waiter never acquired; the test proved nothing";
-  EXPECT_EQ(missed_wakes.load(), 0) << "a pending UNIQUE waiter was not woken within " << kUniqueTimeout.count()
-                                    << "s while " << kSharedCyclers << " shared acquirers were parked";
+  EXPECT_EQ(full_timeout_waits.load(), 0) << "a pending UNIQUE waiter was not woken within " << kUniqueTimeout.count()
+                                          << "s while " << kSharedCyclers << " shared acquirers were parked";
 }
