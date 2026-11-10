@@ -1028,19 +1028,27 @@ TEST_F(WriteVisibilityPlan, EveryReaderOfAWritingCallBodyReadsNew) {
 }
 
 // An EXISTS branch planned after a write, here inside a SET's fold, reads View::NEW in every operator, not only in its
-// MATCH; the root RETURN still reads View::OLD.
+// MATCH; the root scan and the root RETURN still read View::OLD.
 TEST_F(WriteVisibilityPlan, AnExistsBranchAfterAWriteReadsNewThroughout) {
-  for (auto const *body : {
-           "MATCH (b) WITH b.x AS bx WHERE bx = 1 RETURN 1",
-           "MATCH (b) WITH b WHERE b.x = 1 RETURN 1",
-           "MATCH (b) WITH b ORDER BY b.x LIMIT 1 RETURN b.x AS bx",
-           "MATCH (b) UNWIND [b.x] AS u WITH u WHERE u = 1 RETURN 1",
+  struct Case {
+    char const *body;
+    char const *reader;
+  };
+
+  for (auto const [body, reader] : {
+           Case{"MATCH (b) WITH b.x AS bx WHERE bx = 1 RETURN 1", "Filter"},
+           Case{"MATCH (b) WITH b WHERE b.x = 1 RETURN 1", "Filter"},
+           Case{"MATCH (b) WITH b ORDER BY b.x LIMIT 1 RETURN b.x AS bx", "OrderBy"},
+           Case{"MATCH (b) UNWIND [b.x] AS u WITH u WHERE u = 1 RETURN 1", "Unwind"},
        }) {
     auto &plan = Plan(fmt::format(
         "MATCH (a:A) SET a.x = 1, a.c = size([(a)-->(b) WHERE EXISTS {{ {} }} | b]) RETURN a.c AS c", body));
     auto *root = dynamic_cast<Produce *>(&plan);
     ASSERT_NE(root, nullptr) << body;
     EXPECT_EQ(root->view_, View::OLD) << body;
+    auto const root_scans = Collect<ScanAll>(plan);
+    ASSERT_EQ(root_scans.size(), 1U) << body;
+    EXPECT_EQ(root_scans[0]->view_, View::OLD) << body;
     std::map<std::string, int> counts;
     std::vector<std::string> old_readers;
     auto check = [&]<class TOp>(TOp *) {
@@ -1057,6 +1065,7 @@ TEST_F(WriteVisibilityPlan, AnExistsBranchAfterAWriteReadsNewThroughout) {
     check(static_cast<OrderBy *>(nullptr));
     check(static_cast<memgraph::query::plan::Unwind *>(nullptr));
     EXPECT_GT(counts["Produce"], 0) << body;
+    EXPECT_GT(counts[reader], 0) << body;
     EXPECT_TRUE(old_readers.empty()) << body << ": " << fmt::format("{}", fmt::join(old_readers, ", "));
   }
 }
