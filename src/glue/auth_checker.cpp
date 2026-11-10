@@ -23,6 +23,7 @@
 #include "query/db_accessor.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/query_user.hpp"
+#include "query/read_created.hpp"
 #include "storage/v2/id_types.hpp"
 #include "utils/logging.hpp"
 #include "utils/synchronized.hpp"
@@ -240,7 +241,9 @@ auth::FineGrainedAccessPermissions const &FineGrainedAuthChecker::GetCachedEdgeP
 bool FineGrainedAuthChecker::Has(const memgraph::query::VertexAccessor &vertex, const memgraph::storage::View view,
                                  const memgraph::query::AuthQuery::FineGrainedPrivilege fine_grained_privilege) const {
   if (HasUnrestrictedAccessToVertices()) return true;
-  auto maybe_labels = vertex.Labels(view);
+  auto at = view;
+  auto maybe_labels =
+      memgraph::query::ReadSeeingCreated(at, [&](memgraph::storage::View v) { return vertex.Labels(v); });
   if (!maybe_labels) {
     memgraph::query::ThrowVertexLabelsReadFailure(maybe_labels.error());
   }
