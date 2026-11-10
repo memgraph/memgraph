@@ -467,9 +467,12 @@ TypedValue Properties(const TypedValue *args, int64_t nargs, const FunctionConte
     TypedValue::TMap properties(ctx.memory);
     // With lazy refs on, embeddings stay lazy VectorRefs: a retained map costs O(references), not O(N*dim) floats.
     auto view = ctx.view;
-    auto maybe_props = ReadSeeingCreated(view, [&](storage::View at) {
-      return ctx.lazy_vector_refs ? record_accessor.PropertiesCompact(at) : record_accessor.Properties(at);
-    });
+    auto maybe_props = ReadSeeingCreated(
+        view,
+        [&](storage::View at) {
+          return ctx.lazy_vector_refs ? record_accessor.PropertiesCompact(at) : record_accessor.Properties(at);
+        },
+        &view);
     if (!maybe_props) {
       switch (maybe_props.error()) {
         case storage::Error::DELETED_OBJECT:
@@ -524,8 +527,7 @@ TypedValue Properties(const TypedValue *args, int64_t nargs, const FunctionConte
   if (value.IsVertex()) {
     auto const &vertex = value.ValueVertex();
     if (!checker) return get_properties(vertex, allow_all_properties);
-    auto view = ctx.view;
-    auto maybe_labels = ReadSeeingCreated(view, [&](storage::View at) { return vertex.Labels(at); });
+    auto maybe_labels = ReadSeeingCreated(ctx.view, [&](storage::View at) { return vertex.Labels(at); });
     if (!maybe_labels) {
       ThrowVertexLabelsReadFailure(maybe_labels.error());
     }
@@ -578,9 +580,8 @@ TypedValue PropertySize(const TypedValue *args, int64_t nargs, const FunctionCon
   }
 
   auto const size_of = [&](const auto &record) -> int64_t {
-    auto view = ctx.view;
     auto size =
-        ReadSeeingCreated(view, [&](storage::View at) { return record.GetPropertySize(*maybe_property_id, at); });
+        ReadSeeingCreated(ctx.view, [&](storage::View at) { return record.GetPropertySize(*maybe_property_id, at); });
     if (!size) {
       switch (size.error()) {
         case storage::Error::DELETED_OBJECT:
@@ -670,7 +671,7 @@ TypedValue Degree(const TypedValue *args, int64_t nargs, const FunctionContext &
   const auto &vertex = args[0].ValueVertex();
   auto view = ctx.view;
   size_t out_degree =
-      UnwrapDegreeResult(ReadSeeingCreated(view, [&](storage::View at) { return vertex.OutDegree(at); }));
+      UnwrapDegreeResult(ReadSeeingCreated(view, [&](storage::View at) { return vertex.OutDegree(at); }, &view));
   size_t in_degree = UnwrapDegreeResult(vertex.InDegree(view));
   return TypedValue(static_cast<int64_t>(out_degree + in_degree), ctx.memory);
 }
@@ -679,8 +680,8 @@ TypedValue InDegree(const TypedValue *args, int64_t nargs, const FunctionContext
   FType<Or<Null, Vertex>>("inDegree", args, nargs);
   if (args[0].IsNull()) return TypedValue(ctx.memory);
   const auto &vertex = args[0].ValueVertex();
-  auto view = ctx.view;
-  size_t in_degree = UnwrapDegreeResult(ReadSeeingCreated(view, [&](storage::View at) { return vertex.InDegree(at); }));
+  size_t in_degree =
+      UnwrapDegreeResult(ReadSeeingCreated(ctx.view, [&](storage::View at) { return vertex.InDegree(at); }));
   return TypedValue(static_cast<int64_t>(in_degree), ctx.memory);
 }
 
@@ -688,9 +689,8 @@ TypedValue OutDegree(const TypedValue *args, int64_t nargs, const FunctionContex
   FType<Or<Null, Vertex>>("outDegree", args, nargs);
   if (args[0].IsNull()) return TypedValue(ctx.memory);
   const auto &vertex = args[0].ValueVertex();
-  auto view = ctx.view;
   size_t out_degree =
-      UnwrapDegreeResult(ReadSeeingCreated(view, [&](storage::View at) { return vertex.OutDegree(at); }));
+      UnwrapDegreeResult(ReadSeeingCreated(ctx.view, [&](storage::View at) { return vertex.OutDegree(at); }));
   return TypedValue(static_cast<int64_t>(out_degree), ctx.memory);
 }
 
@@ -970,8 +970,7 @@ TypedValue Keys(const TypedValue *args, int64_t nargs, const FunctionContext &ct
   auto *dba = ctx.db_accessor;
   auto get_keys = [&](const auto &record_accessor, auto const &is_allowed) {
     TypedValue::TVector keys(ctx.memory);
-    auto view = ctx.view;
-    auto maybe_props = ReadSeeingCreated(view, [&](storage::View at) { return record_accessor.Properties(at); });
+    auto maybe_props = ReadSeeingCreated(ctx.view, [&](storage::View at) { return record_accessor.Properties(at); });
     if (!maybe_props) {
       switch (maybe_props.error()) {
         case storage::Error::DELETED_OBJECT:
@@ -998,8 +997,7 @@ TypedValue Keys(const TypedValue *args, int64_t nargs, const FunctionContext &ct
   if (value.IsVertex()) {
     auto const &vertex = value.ValueVertex();
     if (!checker) return get_keys(vertex, allow_all_properties);
-    auto view = ctx.view;
-    auto maybe_labels = ReadSeeingCreated(view, [&](storage::View at) { return vertex.Labels(at); });
+    auto maybe_labels = ReadSeeingCreated(ctx.view, [&](storage::View at) { return vertex.Labels(at); });
     if (!maybe_labels) {
       ThrowVertexLabelsReadFailure(maybe_labels.error());
     }
@@ -1044,9 +1042,12 @@ TypedValue Values(const TypedValue *args, int64_t nargs, const FunctionContext &
     TypedValue::TVector values(ctx.memory);
     // Like properties(n): with lazy refs on, embeddings stay VectorRefs.
     auto view = ctx.view;
-    auto maybe_props = ReadSeeingCreated(view, [&](storage::View at) {
-      return ctx.lazy_vector_refs ? record_accessor.PropertiesCompact(at) : record_accessor.Properties(at);
-    });
+    auto maybe_props = ReadSeeingCreated(
+        view,
+        [&](storage::View at) {
+          return ctx.lazy_vector_refs ? record_accessor.PropertiesCompact(at) : record_accessor.Properties(at);
+        },
+        &view);
     if (!maybe_props) {
       switch (maybe_props.error()) {
         case storage::Error::DELETED_OBJECT:
@@ -1080,8 +1081,7 @@ TypedValue Values(const TypedValue *args, int64_t nargs, const FunctionContext &
   if (value.IsVertex()) {
     auto const &vertex = value.ValueVertex();
     if (!checker) return get_values(vertex, allow_all_properties);
-    auto view = ctx.view;
-    auto maybe_labels = ReadSeeingCreated(view, [&](storage::View at) { return vertex.Labels(at); });
+    auto maybe_labels = ReadSeeingCreated(ctx.view, [&](storage::View at) { return vertex.Labels(at); });
     if (!maybe_labels) {
       ThrowVertexLabelsReadFailure(maybe_labels.error());
     }
@@ -1136,9 +1136,8 @@ TypedValue Labels(const TypedValue *args, int64_t nargs, const FunctionContext &
     return TypedValue(std::move(labels));
   }
   TypedValue::TVector labels(ctx.memory);
-  auto view = ctx.view;
   auto const &vertex = args[0].ValueVertex();
-  auto maybe_labels = ReadSeeingCreated(view, [&](storage::View at) { return vertex.Labels(at); });
+  auto maybe_labels = ReadSeeingCreated(ctx.view, [&](storage::View at) { return vertex.Labels(at); });
   if (!maybe_labels) {
     ThrowVertexLabelsReadFailure(maybe_labels.error());
   }

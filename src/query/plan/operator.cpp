@@ -5976,8 +5976,7 @@ bool CacheProperties::CachePropertiesCursor::Pull(Frame &frame, ExecutionContext
       return reads_a_vertex ? input_value.ValueVertex().impl_.ReadPropertyValues(group.ordered(), slots, view)
                             : input_value.ValueEdge().impl_.ReadPropertyValues(group.ordered(), slots, view);
     };
-    auto view = self_.view_;
-    auto read = ReadSeeingCreated(view, read_at);
+    auto read = ReadSeeingCreated(self_.view_, read_at);
     if (!read) ThrowPropertyReadError(read.error());
 
     for (std::size_t slot = 0; slot != slots.size(); ++slot) {
