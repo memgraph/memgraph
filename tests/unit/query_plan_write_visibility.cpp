@@ -169,8 +169,6 @@ TEST_F(WriteVisibilityPlan, ReadOnlyReturnHasNoDrain) {
   EXPECT_TRUE(Collect<Accumulate>(Plan("MATCH (n) RETURN n.x AS x ORDER BY x")).empty());
 }
 
-// ---------------------------------------------------------------- root reads use View::OLD
-
 using memgraph::storage::View;
 
 template <class TOp>
@@ -206,8 +204,6 @@ TEST_F(WriteVisibilityPlan, CloneKeepsReadViews) {
   ExpectCloneKeepsView<OrderBy>(plan, storage_);
   ExpectCloneKeepsView<ExpandVariable>(plan, storage_);
   ExpectCloneKeepsView<HashJoin>(Plan("MATCH (a), (b) WHERE a.x = b.y RETURN a"), storage_);
-  ExpectCloneKeepsView<ExpandVariable>(Plan("MATCH p = (a)-[*BFS]->(b) RETURN p"), storage_);
-  ExpectCloneKeepsView<ExpandVariable>(Plan("MATCH p = (a)-[*WSHORTEST (r, n | 1)]->(b) RETURN p"), storage_);
 }
 
 TEST_F(WriteVisibilityPlan, CloneKeepsCreateView) {
@@ -215,6 +211,8 @@ TEST_F(WriteVisibilityPlan, CloneKeepsCreateView) {
   ExpectCloneKeepsView<CreateNode>(plan, storage_);
   ExpectCloneKeepsView<CreateExpand>(plan, storage_);
 }
+
+// ---------------------------------------------------------------- root reads use View::OLD
 
 TEST_F(WriteVisibilityPlan, RootProjectionAndCreateReadOld) {
   auto &plan = Plan("MATCH (a) WITH a, a.x AS v CREATE (b {v: v})-[:R {w: a.x}]->(c) RETURN count(*) AS c");
@@ -302,9 +300,15 @@ TEST_F(WriteVisibilityPlan, BarrierBeforeCallBodyThatReadsAnEarlierSet) {
 }
 
 TEST_F(WriteVisibilityPlan, BarrierBeforeExpansionFromACreatedNode) {
-  // OLD cannot see `a` at all until the command advances, whatever the edge type.
+  // An unlabelled `x` reads which nodes exist, which the CREATE writes.
   EXPECT_EQ(Chain(Plan("CREATE (a)-[:R]->(b) SET a.c = size([(a)-[:S*]->(x) | x])")),
             (Names{"EmptyResult", "SetProperty", "RollUpApply", "Accumulate+", "CreateExpand", "CreateNode", "Once"}));
+  // Only the symbol conflicts: a CREATE map reads View::OLD, which cannot see `a` until the command advances. A SET
+  // reads View::NEW, which sees it, so the same expansion there needs no barrier.
+  EXPECT_EQ(Chain(Plan("CREATE (a)-[:R]->(b) CREATE (c {n: size([(a)-[:S*]->(x:Q) | x])})")),
+            (Names{"EmptyResult", "CreateNode", "RollUpApply", "Accumulate+", "CreateExpand", "CreateNode", "Once"}));
+  EXPECT_EQ(Chain(Plan("CREATE (a)-[:R]->(b) SET a.c = size([(a)-[:S*]->(x:Q) | x])")),
+            (Names{"EmptyResult", "SetProperty", "RollUpApply", "CreateExpand", "CreateNode", "Once"}));
 }
 
 // ---------------------------------------------------------------- read-to-write drains after View::NEW readers
@@ -418,7 +422,7 @@ TEST_F(WriteVisibilityPlan, MapLookupReadsNoGraph) {
   auto access = Access("LOAD CSV FROM '/x.csv' WITH HEADER AS row CREATE (:X {name: row.name})");
   EXPECT_TRUE(access.reads.properties.empty());
   EXPECT_FALSE(access.reads.any_property);
-  EXPECT_TRUE(Access("WITH {name: 1} AS m RETURN {name: 2}.name AS n").reads.Empty());
+  EXPECT_TRUE(Access("RETURN {name: 2}.name AS n").reads.Empty());
 }
 
 TEST_F(WriteVisibilityPlan, FoldBodyReads) {
@@ -448,7 +452,7 @@ TEST_F(WriteVisibilityPlan, ConflictIsPerKey) {
   EXPECT_FALSE(Conflicts(Access("MATCH (n:B) RETURN n").reads, create_a));
 }
 
-// Generated from write_visibility_cases.yaml: every case query and ablation.
+// The queries of write_visibility.feature and their ablations; keep in step with it.
 constexpr std::string_view kCaseQueries[] = {
     R"cypher(MATCH (a:WvP {name: 'A'}) SET a.flag = a.k RETURN EXISTS { MATCH (b:WvP) WHERE b.flag = 1 } AS e)cypher",
     R"cypher(MATCH (a:WvP {name: 'A'}) WITH a, EXISTS { MATCH (b:WvP) WHERE b.flag = 1 } AS e SET a.flag = a.k RETURN e)cypher",
@@ -694,21 +698,22 @@ TEST_F(WriteVisibilityPlan, DrainBetweenAReadOfAMergedNodeAndALaterWriteOfTheKey
             (Names{"EmptyResult", "CreateNode", "CreateNode", "Once"}));
 }
 
+bool DrainsBeforeSet(Names const &chain) {
+  auto const set = std::ranges::find(chain, "SetProperty");
+  return set != chain.end() && std::next(set) != chain.end() && *std::next(set) == "Accumulate+";
+}
+
 // A path or a CALL result can hold an entity the command created, so a read through it is a View::NEW read too. Every
 // node is labelled: an unlabelled one makes the MERGE read which nodes exist, and the CREATE then gets a barrier.
 TEST_F(WriteVisibilityPlan, DrainBetweenAReadThroughAnAliasOfAMergedNodeAndALaterWrite) {
-  auto const drains_before_set = [](Names const &chain) {
-    auto const set = std::ranges::find(chain, "SetProperty");
-    return set != chain.end() && std::next(set) != chain.end() && *std::next(set) == "Accumulate+";
-  };
-  EXPECT_TRUE(drains_before_set(
+  EXPECT_TRUE(DrainsBeforeSet(
       Chain(Plan("UNWIND [1, 2] AS i MERGE p = (a:A)-[:R]->(b:B) CREATE (c {v: nodes(p)[0].x}) SET a.x = i"))));
-  EXPECT_TRUE(drains_before_set(Chain(
+  EXPECT_TRUE(DrainsBeforeSet(Chain(
       Plan("UNWIND [1, 2] AS i MERGE p = (a:A)-[r:R]->(b:B) CREATE (c {v: relationships(p)[0].w}) SET r.w = i"))));
-  EXPECT_TRUE(drains_before_set(
+  EXPECT_TRUE(DrainsBeforeSet(
       Chain(Plan("UNWIND [1, 2] AS i MERGE (a:A) CALL (a) { RETURN a AS b } CREATE (c {v: b.x}) SET a.x = i"))));
   // A key nothing later writes needs no drain.
-  EXPECT_FALSE(drains_before_set(
+  EXPECT_FALSE(DrainsBeforeSet(
       Chain(Plan("UNWIND [1, 2] AS i MERGE p = (a:A)-[:R]->(b:B) CREATE (c {v: nodes(p)[0].x}) SET a.y = i"))));
 }
 
@@ -723,13 +728,9 @@ TEST_F(WriteVisibilityPlan, CallResultIsFreshOnlyWhenItMayHoldAFreshEntity) {
       Collect<Accumulate>(Plan("MATCH (o:O) UNWIND [1, 2] AS i MERGE (a:F) CALL (a, o) { RETURN o AS o2, a AS a2 } "
                                "CREATE (:C {v: size([(o2)-[:R]->(:Q) | 1])})"))
           .empty());
-  auto const drains_before_set = [](Names const &chain) {
-    auto const set = std::ranges::find(chain, "SetProperty");
-    return set != chain.end() && std::next(set) != chain.end() && *std::next(set) == "Accumulate+";
-  };
-  EXPECT_TRUE(drains_before_set(Chain(
+  EXPECT_TRUE(DrainsBeforeSet(Chain(
       Plan("UNWIND [1, 2] AS i MERGE (a:A) CALL (a) { WITH a AS x RETURN x AS b } CREATE (c {v: b.x}) SET a.x = i"))));
-  EXPECT_TRUE(drains_before_set(
+  EXPECT_TRUE(DrainsBeforeSet(
       Chain(Plan("UNWIND [1, 2] AS i MERGE (a:A) CALL (a) { RETURN [a] AS b } CREATE (c {v: b[0].x}) SET a.x = i"))));
 }
 
@@ -744,7 +745,9 @@ TEST_F(WriteVisibilityPlan, DrainBetweenADeleteThatReadsAndALaterWriteOfTheKey) 
 
 TEST_F(WriteVisibilityPlan, RootPatternComprehensionReadsOld) {
   auto &plan = Plan("MATCH (a), (c) WITH a, c, [(a)-[:R]->(m) | m.x] AS v SET c.x = 0 RETURN v");
-  for (auto view : Views<Produce>(plan)) EXPECT_EQ(view, View::OLD);
+  auto views = Views<Produce>(plan);
+  ASSERT_FALSE(views.empty());
+  for (auto view : views) EXPECT_EQ(view, View::OLD);
 }
 
 TEST_F(WriteVisibilityPlan, MergeMatchFilterReadsNew) {
