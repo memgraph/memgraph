@@ -908,25 +908,26 @@ TEST_F(ModuleFunctionTest, ReadsThroughAnEdgeListAfterAnEarlierWrite) {
 
 // A node the same CREATE made does not make the function read its other arguments at View::NEW: they still do not see
 // a later clause's write, nor the same CREATE's earlier rows.
-TEST_F(ModuleFunctionTest, ReadsOtherArgumentsAtTheClausesView) {
+TEST_F(ModuleFunctionTest, ReadsAnotherArgumentsPropertyAtTheClausesView) {
   RegisterProbeFunctions();
   Interpret("CREATE (:O)");
-  {
-    auto stream = Interpret(
-        "MATCH (o:O) UNWIND [1, 2] AS i CREATE (a:A {i: i}), (c:C {i: i, v: probe_fn.lastx(a, o)}) SET o.x = i "
-        "RETURN c.v AS v ORDER BY c.i");
-    ASSERT_EQ(stream.GetResults().size(), 2U);
-    EXPECT_EQ(stream.GetResults()[0][0].type(), memgraph::communication::bolt::Value::Type::Null);
-    EXPECT_EQ(stream.GetResults()[1][0].type(), memgraph::communication::bolt::Value::Type::Null);
-  }
-  {
-    auto stream = Interpret(
-        "MATCH (o:O) UNWIND [1, 2] AS i CREATE (a:D {i: i})-[:R]->(o), (c:E {i: i, d: probe_fn.indegree(a, o)}) "
-        "RETURN c.d AS d ORDER BY c.i");
-    ASSERT_EQ(stream.GetResults().size(), 2U);
-    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 0);
-    EXPECT_EQ(stream.GetResults()[1][0].ValueInt(), 0);
-  }
+  auto stream = Interpret(
+      "MATCH (o:O) UNWIND [1, 2] AS i CREATE (a:A {i: i}), (c:C {i: i, v: probe_fn.lastx(a, o)}) SET o.x = i "
+      "RETURN c.v AS v ORDER BY c.i");
+  ASSERT_EQ(stream.GetResults().size(), 2U);
+  EXPECT_EQ(stream.GetResults()[0][0].type(), memgraph::communication::bolt::Value::Type::Null);
+  EXPECT_EQ(stream.GetResults()[1][0].type(), memgraph::communication::bolt::Value::Type::Null);
+}
+
+TEST_F(ModuleFunctionTest, ReadsAnotherArgumentsDegreeAtTheClausesView) {
+  RegisterProbeFunctions();
+  Interpret("CREATE (:O)");
+  auto stream = Interpret(
+      "MATCH (o:O) UNWIND [1, 2] AS i CREATE (a:D {i: i})-[:R]->(o), (c:E {i: i, d: probe_fn.indegree(a, o)}) "
+      "RETURN c.d AS d ORDER BY c.i");
+  ASSERT_EQ(stream.GetResults().size(), 2U);
+  EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 0);
+  EXPECT_EQ(stream.GetResults()[1][0].ValueInt(), 0);
 }
 
 // Column headers from the accessor-free path must be byte-identical to the normal path's (clients

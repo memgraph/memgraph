@@ -1,7 +1,6 @@
 Feature: Write visibility inside one query
 
     Scenario: EXISTS after SET in the same part sees the new property
-        # Pre-flight: new
         Given an empty graph
         And having executed:
             """
@@ -16,7 +15,6 @@ Feature: Write visibility inside one query
             | true |
 
     Scenario: EXISTS after SET in the same part sees the new property (indexes :WvP(flag))
-        # Pre-flight: new
         Given an empty graph
         And with new index :WvP(flag)
         And having executed:
@@ -32,7 +30,6 @@ Feature: Write visibility inside one query
             | true |
 
     Scenario: COUNT after SET sees the writes of every row
-        # Pre-flight: new
         Given an empty graph
         And having executed:
             """
@@ -47,7 +44,6 @@ Feature: Write visibility inside one query
             | [2, 2] |
 
     Scenario: COUNT after SET sees the writes of every row (indexes :WvS(x))
-        # Pre-flight: new
         Given an empty graph
         And with new index :WvS(x)
         And having executed:
@@ -63,7 +59,6 @@ Feature: Write visibility inside one query
             | [2, 2] |
 
     Scenario: COLLECT after SET sees the new property
-        # Pre-flight: new
         Given an empty graph
         And having executed:
             """
@@ -78,7 +73,6 @@ Feature: Write visibility inside one query
             | ['A'] |
 
     Scenario: Correlated EXISTS after SET label sees the new label
-        # Pre-flight: new
         Given an empty graph
         And having executed:
             """
@@ -93,7 +87,6 @@ Feature: Write visibility inside one query
             | true |
 
     Scenario: Pattern comprehension after SET sees the new property
-        # Pre-flight: new
         Given an empty graph
         And having executed:
             """
@@ -108,7 +101,6 @@ Feature: Write visibility inside one query
             | 1 |
 
     Scenario: Pattern comprehension after SET sees the new property (indexes :WvP(flag))
-        # Pre-flight: new
         Given an empty graph
         And with new index :WvP(flag)
         And having executed:
@@ -124,7 +116,6 @@ Feature: Write visibility inside one query
             | 1 |
 
     Scenario: List comprehension after SET sees the new property
-        # Pre-flight: existing
         Given an empty graph
         And having executed:
             """
@@ -139,7 +130,6 @@ Feature: Write visibility inside one query
             | [1] |
 
     Scenario: List comprehension over collect after SET and WITH sees every row
-        # Pre-flight: existing
         Given an empty graph
         And having executed:
             """
@@ -154,7 +144,6 @@ Feature: Write visibility inside one query
             | 2 |
 
     Scenario: COUNT after SET and WITH sees every row
-        # Pre-flight: existing
         Given an empty graph
         And having executed:
             """
@@ -169,7 +158,6 @@ Feature: Write visibility inside one query
             | 2 | 2 |
 
     Scenario: COUNT after SET and WITH sees every row (indexes :WvS(x))
-        # Pre-flight: existing
         Given an empty graph
         And with new index :WvS(x)
         And having executed:
@@ -185,7 +173,6 @@ Feature: Write visibility inside one query
             | 2 | 2 |
 
     Scenario: Scoped CALL reads the CREATE before it
-        # Pre-flight: new
         Given an empty graph
         When executing query:
             """
@@ -196,7 +183,6 @@ Feature: Write visibility inside one query
             | 1 |
 
     Scenario: Scoped CALL reads the CREATE before it (indexes :WvX)
-        # Pre-flight: new
         Given an empty graph
         And with new index :WvX
         When executing query:
@@ -208,7 +194,6 @@ Feature: Write visibility inside one query
             | 1 |
 
     Scenario: Unscoped CALL reads the CREATE before it
-        # Pre-flight: new
         Given an empty graph
         When executing query:
             """
@@ -219,7 +204,6 @@ Feature: Write visibility inside one query
             | 1 |
 
     Scenario: CALL after CREATE and WITH reads the CREATE
-        # Pre-flight: existing
         Given an empty graph
         When executing query:
             """
@@ -230,7 +214,6 @@ Feature: Write visibility inside one query
             | 1 |
 
     Scenario: MATCH after a nested writing CALL inside a CALL body sees the CREATE
-        # Pre-flight: new
         Given an empty graph
         And having executed:
             """
@@ -245,7 +228,6 @@ Feature: Write visibility inside one query
             | 2    |
 
     Scenario: MATCH after a nested writing CALL inside a CALL body sees the CREATE (indexes :WvI(id))
-        # Pre-flight: new
         Given an empty graph
         And with new index :WvI(id)
         And having executed:
@@ -261,7 +243,6 @@ Feature: Write visibility inside one query
             | 2    |
 
     Scenario: MATCH after a writing CALL at top level sees the CREATE
-        # Pre-flight: existing
         Given an empty graph
         And having executed:
             """
@@ -276,7 +257,6 @@ Feature: Write visibility inside one query
             | 2 |
 
     Scenario: MATCH after a writing CALL at top level sees the CREATE (indexes :WvI(id))
-        # Pre-flight: existing
         Given an empty graph
         And with new index :WvI(id)
         And having executed:
@@ -292,7 +272,6 @@ Feature: Write visibility inside one query
             | 2 |
 
     Scenario: CALL body WITH WHERE sees its own write for an earlier row
-        # Pre-flight: new
         Given an empty graph
         And having executed:
             """
@@ -307,7 +286,6 @@ Feature: Write visibility inside one query
             | [1] | [1] |
 
     Scenario: CALL body MATCH WHERE sees its own write for an earlier row
-        # Pre-flight: new
         Given an empty graph
         And having executed:
             """
@@ -322,7 +300,6 @@ Feature: Write visibility inside one query
             | [1] | 1 |
 
     Scenario: CALL body MATCH WHERE sees its own write for an earlier row (indexes :WvB(x))
-        # Pre-flight: new
         Given an empty graph
         And with new index :WvB(x)
         And having executed:
@@ -338,7 +315,6 @@ Feature: Write visibility inside one query
             | [1] | 1 |
 
     Scenario: CALL body count sees the CREATEs of earlier rows
-        # Pre-flight: new
         Given an empty graph
         When executing query:
             """
@@ -349,7 +325,6 @@ Feature: Write visibility inside one query
             | [0, 1, 2] |
 
     Scenario: CALL body count sees the CREATEs of earlier rows (indexes :WvB)
-        # Pre-flight: new
         Given an empty graph
         And with new index :WvB
         When executing query:
@@ -361,7 +336,6 @@ Feature: Write visibility inside one query
             | [0, 1, 2] |
 
     Scenario: CALL body with a disconnected MATCH sees the CREATEs of earlier rows
-        # Pre-flight: new
         Given an empty graph
         And having executed:
             """
@@ -376,7 +350,6 @@ Feature: Write visibility inside one query
             | [0, 1, 2] |
 
     Scenario: WHERE in a CALL between two SETs sees the first and not the second
-        # Pre-flight: new
         Given an empty graph
         And having executed:
             """
@@ -394,7 +367,6 @@ Feature: Write visibility inside one query
             | 1 | [0, 1] |
 
     Scenario: WHEN in a CALL between two SETs sees the first and not the second
-        # Pre-flight: new
         Given an empty graph
         And having executed:
             """
@@ -412,7 +384,6 @@ Feature: Write visibility inside one query
             | 1 | [0, 1] |
 
     Scenario: WHERE in a CALL between two SETs with WITH * sees the first and not the second
-        # Pre-flight: existing
         Given an empty graph
         And having executed:
             """
@@ -430,7 +401,6 @@ Feature: Write visibility inside one query
             | 1 | [0, 1] |
 
     Scenario: Read-only conditional CALL before a later SET does not see that SET
-        # Pre-flight: new
         Given an empty graph
         And having executed:
             """
@@ -447,7 +417,6 @@ Feature: Write visibility inside one query
             | 2 | [1, 1] |
 
     Scenario: WHERE before a later SET does not see that SET
-        # Pre-flight: existing
         Given an empty graph
         And having executed:
             """
@@ -464,7 +433,6 @@ Feature: Write visibility inside one query
             | 2 | [1, 1] |
 
     Scenario: WHERE before a later SET does not see that SET (indexes :WvT(x))
-        # Pre-flight: existing
         Given an empty graph
         And with new index :WvT(x)
         And having executed:
@@ -482,7 +450,6 @@ Feature: Write visibility inside one query
             | 2 | [1, 1] |
 
     Scenario: CALL WITH WHERE before a later SET does not see that SET
-        # Pre-flight: existing
         Given an empty graph
         And having executed:
             """
@@ -499,7 +466,6 @@ Feature: Write visibility inside one query
             | 2 | [1, 1] |
 
     Scenario: Index range scan does not revisit nodes a later CALL moved into the range (indexes :WvA(p))
-        # Pre-flight: new
         Given an empty graph
         And with new index :WvA(p)
         And having executed:
@@ -517,7 +483,7 @@ Feature: Write visibility inside one query
             | 2 | [11, 12] |
 
     Scenario: Label scan does not revisit nodes a later CALL moved into the range
-        # Pre-flight: existing
+        # A control: the scan reads each node once with or without a barrier.
         Given an empty graph
         And having executed:
             """
@@ -534,7 +500,6 @@ Feature: Write visibility inside one query
             | 2 | [11, 12] |
 
     Scenario: MERGE does not see a later MERGE's write for an earlier row
-        # Pre-flight: new
         Given an empty graph
         And having executed:
             """
@@ -550,7 +515,6 @@ Feature: Write visibility inside one query
             | 4 | 3 |
 
     Scenario: MERGE does not see a later MERGE's write for an earlier row (indexes :WvG(name))
-        # Pre-flight: new
         Given an empty graph
         And with new index :WvG(name)
         And having executed:
@@ -567,7 +531,6 @@ Feature: Write visibility inside one query
             | 4 | 3 |
 
     Scenario: MERGE after CREATE sees the CREATEs of every row
-        # Pre-flight: new
         Given an empty graph
         And having executed:
             """
@@ -583,7 +546,6 @@ Feature: Write visibility inside one query
             | 6 | 3 |
 
     Scenario: MERGE after CREATE sees the CREATEs of every row (indexes :WvK)
-        # Pre-flight: new
         Given an empty graph
         And with new index :WvK
         And having executed:
@@ -600,7 +562,6 @@ Feature: Write visibility inside one query
             | 6 | 3 |
 
     Scenario: MERGE after a one-row CREATE sees it
-        # Pre-flight: existing
         Given an empty graph
         And having executed:
             """
@@ -615,7 +576,6 @@ Feature: Write visibility inside one query
             | 2 | 2 |
 
     Scenario: MERGE sees its own CREATE for an earlier row
-        # Pre-flight: existing
         Given an empty graph
         When executing query:
             """
@@ -626,7 +586,6 @@ Feature: Write visibility inside one query
             | 3 | 2 |
 
     Scenario: MERGE sees its own CREATE for an earlier row (indexes :WvG(k))
-        # Pre-flight: existing
         Given an empty graph
         And with new index :WvG(k)
         When executing query:
@@ -638,7 +597,6 @@ Feature: Write visibility inside one query
             | 3 | 2 |
 
     Scenario: MERGE of a relationship sees its own CREATE for an earlier row
-        # Pre-flight: existing
         Given an empty graph
         And having executed:
             """
@@ -654,7 +612,6 @@ Feature: Write visibility inside one query
             | 3 | 1 |
 
     Scenario: MERGE of a relationship sees its own CREATE for an earlier row (indexes EDGE :R)
-        # Pre-flight: existing
         Given an empty graph
         And having executed:
             """
@@ -674,7 +631,6 @@ Feature: Write visibility inside one query
             | 3 | 1 |
 
     Scenario: ORDER BY a non-projected property after SET sorts by the new value
-        # Pre-flight: new
         Given an empty graph
         And having executed:
             """
@@ -689,7 +645,6 @@ Feature: Write visibility inside one query
             | 2  |
 
     Scenario: ORDER BY a projected but unaliased property after SET sorts by the new value
-        # Pre-flight: new
         Given an empty graph
         And having executed:
             """
@@ -704,7 +659,6 @@ Feature: Write visibility inside one query
             | 2  | -2  |
 
     Scenario: ORDER BY an alias after SET sorts by the new value
-        # Pre-flight: existing
         Given an empty graph
         And having executed:
             """
@@ -719,7 +673,6 @@ Feature: Write visibility inside one query
             | 2  | -2 |
 
     Scenario: WITH ORDER BY after SET sorts by the new value
-        # Pre-flight: existing
         Given an empty graph
         And having executed:
             """
@@ -734,7 +687,6 @@ Feature: Write visibility inside one query
             | 2  |
 
     Scenario: RETURN after a cross-row SET sees the final value on every row
-        # Pre-flight: existing
         Given an empty graph
         And having executed:
             """
@@ -749,7 +701,6 @@ Feature: Write visibility inside one query
             | [2, 2, 2, 2] |
 
     Scenario: Grouping key after a cross-row SET uses the final value
-        # Pre-flight: existing
         Given an empty graph
         And having executed:
             """
@@ -764,7 +715,6 @@ Feature: Write visibility inside one query
             | 2 | 4 |
 
     Scenario: UNION ALL branch sees the CREATE of an earlier branch
-        # Pre-flight: new
         Given an empty graph
         And having executed:
             """
@@ -780,7 +730,6 @@ Feature: Write visibility inside one query
             | 2 |
 
     Scenario: UNION ALL branch sees the CREATE of an earlier branch (indexes :WvK)
-        # Pre-flight: new
         Given an empty graph
         And with new index :WvK
         And having executed:
@@ -797,7 +746,6 @@ Feature: Write visibility inside one query
             | 2 |
 
     Scenario: UNION branch sees the CREATE of an earlier branch
-        # Pre-flight: new
         Given an empty graph
         And having executed:
             """
@@ -813,7 +761,6 @@ Feature: Write visibility inside one query
             | 2 |
 
     Scenario: UNION ALL branch sees the SET of an earlier branch
-        # Pre-flight: new
         Given an empty graph
         And having executed:
             """
@@ -829,7 +776,6 @@ Feature: Write visibility inside one query
             | 1 |
 
     Scenario: UNION ALL branch sees the SET of an earlier branch (indexes :WvS(x))
-        # Pre-flight: new
         Given an empty graph
         And with new index :WvS(x)
         And having executed:
@@ -846,7 +792,6 @@ Feature: Write visibility inside one query
             | 1 |
 
     Scenario: UNION ALL branch sees the relationship CREATE of an earlier branch
-        # Pre-flight: new
         Given an empty graph
         And having executed:
             """
@@ -863,7 +808,6 @@ Feature: Write visibility inside one query
             | 1 |
 
     Scenario: UNION ALL branch sees the relationship CREATE of an earlier branch (indexes EDGE :R)
-        # Pre-flight: new
         Given an empty graph
         And having executed:
             """
@@ -884,7 +828,6 @@ Feature: Write visibility inside one query
             | 1 |
 
     Scenario: UNION ALL branch does not see a node an earlier branch deleted
-        # Pre-flight: new
         Given an empty graph
         And having executed:
             """
@@ -900,7 +843,6 @@ Feature: Write visibility inside one query
             | 1 |
 
     Scenario: Third UNION ALL branch sees the CREATEs of both earlier branches
-        # Pre-flight: new
         Given an empty graph
         And having executed:
             """
@@ -917,7 +859,7 @@ Feature: Write visibility inside one query
             | 3 |
 
     Scenario: UNION ALL earlier read branch does not see a later CREATE
-        # Pre-flight: existing
+        # A control: an earlier branch runs before a later one writes.
         Given an empty graph
         And having executed:
             """
@@ -933,7 +875,7 @@ Feature: Write visibility inside one query
             | 1 |
 
     Scenario: SET across two variables reads the earlier assignment
-        # Pre-flight: existing
+        # A control: the two items of one SET read each other in order.
         Given an empty graph
         And having executed:
             """
@@ -948,7 +890,7 @@ Feature: Write visibility inside one query
             | 2  | 2  |
 
     Scenario: SET += with a map reads the old values
-        # Pre-flight: existing
+        # A control: the map's right-hand side reads before the write.
         Given an empty graph
         And having executed:
             """
@@ -963,7 +905,6 @@ Feature: Write visibility inside one query
             | 2 | 1 |
 
     Scenario: SET label then WITH then MATCH the label
-        # Pre-flight: existing
         Given an empty graph
         And having executed:
             """
@@ -978,7 +919,6 @@ Feature: Write visibility inside one query
             | 4 |
 
     Scenario: SET label then WITH then MATCH the label (indexes :WvT)
-        # Pre-flight: existing
         Given an empty graph
         And with new index :WvT
         And having executed:
@@ -994,7 +934,6 @@ Feature: Write visibility inside one query
             | 4 |
 
     Scenario: Cross-row SET property then WITH then MATCH the property
-        # Pre-flight: existing
         Given an empty graph
         And having executed:
             """
@@ -1009,7 +948,6 @@ Feature: Write visibility inside one query
             | 4 |
 
     Scenario: Cross-row SET property then WITH then MATCH the property (indexes :WvS(x))
-        # Pre-flight: existing
         Given an empty graph
         And with new index :WvS(x)
         And having executed:
@@ -1025,7 +963,6 @@ Feature: Write visibility inside one query
             | 4 |
 
     Scenario: REMOVE label then WITH then MATCH the label
-        # Pre-flight: existing
         Given an empty graph
         And having executed:
             """
@@ -1040,7 +977,6 @@ Feature: Write visibility inside one query
             | 1 |
 
     Scenario: REMOVE label then WITH then MATCH the label (indexes :WvS)
-        # Pre-flight: existing
         Given an empty graph
         And with new index :WvS
         And having executed:
@@ -1056,7 +992,6 @@ Feature: Write visibility inside one query
             | 1 |
 
     Scenario: REMOVE property then WITH then MATCH on the property
-        # Pre-flight: existing
         Given an empty graph
         And having executed:
             """
@@ -1071,7 +1006,6 @@ Feature: Write visibility inside one query
             | 1 |
 
     Scenario: REMOVE property then WITH then MATCH on the property (indexes :WvS(x))
-        # Pre-flight: existing
         Given an empty graph
         And with new index :WvS(x)
         And having executed:
@@ -1087,7 +1021,6 @@ Feature: Write visibility inside one query
             | 1 |
 
     Scenario: DELETE then WITH then MATCH
-        # Pre-flight: existing
         Given an empty graph
         And having executed:
             """
@@ -1102,7 +1035,6 @@ Feature: Write visibility inside one query
             | 1 |
 
     Scenario: DELETE then WITH then MATCH (indexes :WvK(id))
-        # Pre-flight: existing
         Given an empty graph
         And with new index :WvK(id)
         And having executed:
@@ -1118,7 +1050,6 @@ Feature: Write visibility inside one query
             | 1 |
 
     Scenario: DELETE then WITH then OPTIONAL MATCH the deleted node
-        # Pre-flight: existing
         Given an empty graph
         And having executed:
             """
@@ -1133,7 +1064,6 @@ Feature: Write visibility inside one query
             | 0 |
 
     Scenario: DELETE then WITH then OPTIONAL MATCH the deleted node (indexes :WvK(id))
-        # Pre-flight: existing
         Given an empty graph
         And with new index :WvK(id)
         And having executed:
@@ -1149,7 +1079,6 @@ Feature: Write visibility inside one query
             | 0 |
 
     Scenario: DETACH DELETE then WITH then expand
-        # Pre-flight: existing
         Given an empty graph
         And having executed:
             """
@@ -1164,7 +1093,6 @@ Feature: Write visibility inside one query
             | 0 |
 
     Scenario: DETACH DELETE then WITH then expand (indexes EDGE :R)
-        # Pre-flight: existing
         Given an empty graph
         And having executed:
             """
@@ -1183,7 +1111,6 @@ Feature: Write visibility inside one query
             | 0 |
 
     Scenario: DELETE relationship then WITH then expand
-        # Pre-flight: existing
         Given an empty graph
         And having executed:
             """
@@ -1198,7 +1125,6 @@ Feature: Write visibility inside one query
             | 0 |
 
     Scenario: DELETE relationship then WITH then expand (indexes EDGE :R)
-        # Pre-flight: existing
         Given an empty graph
         And having executed:
             """
@@ -1217,7 +1143,6 @@ Feature: Write visibility inside one query
             | 0 |
 
     Scenario: CREATE relationship then WITH then expand
-        # Pre-flight: existing
         Given an empty graph
         And having executed:
             """
@@ -1232,7 +1157,6 @@ Feature: Write visibility inside one query
             | 4 |
 
     Scenario: CREATE relationship then WITH then expand (indexes EDGE :R)
-        # Pre-flight: existing
         Given an empty graph
         And having executed:
             """
@@ -1251,7 +1175,6 @@ Feature: Write visibility inside one query
             | 4 |
 
     Scenario: FOREACH SET then WITH then MATCH on the property
-        # Pre-flight: existing
         Given an empty graph
         And having executed:
             """
@@ -1266,7 +1189,6 @@ Feature: Write visibility inside one query
             | 4 |
 
     Scenario: FOREACH SET then WITH then MATCH on the property (indexes :WvS(x))
-        # Pre-flight: existing
         Given an empty graph
         And with new index :WvS(x)
         And having executed:
@@ -1282,7 +1204,6 @@ Feature: Write visibility inside one query
             | 4 |
 
     Scenario: FOREACH CREATE then WITH then MATCH the label
-        # Pre-flight: existing
         Given an empty graph
         When executing query:
             """
@@ -1293,7 +1214,6 @@ Feature: Write visibility inside one query
             | 4 |
 
     Scenario: FOREACH CREATE then WITH then MATCH the label (indexes :WvK)
-        # Pre-flight: existing
         Given an empty graph
         And with new index :WvK
         When executing query:
@@ -1305,7 +1225,7 @@ Feature: Write visibility inside one query
             | 4 |
 
     Scenario: FOREACH body reads its own earlier iteration
-        # Pre-flight: existing
+        # A control: FOREACH already reads its own iterations.
         Given an empty graph
         And having executed:
             """
@@ -1320,7 +1240,6 @@ Feature: Write visibility inside one query
             | 3 |
 
     Scenario: SET indexed property then WITH then MATCH on it
-        # Pre-flight: existing
         Given an empty graph
         And having executed:
             """
@@ -1335,7 +1254,6 @@ Feature: Write visibility inside one query
             | 4 |
 
     Scenario: SET indexed property then WITH then MATCH on it (indexes :WvL(p))
-        # Pre-flight: existing
         Given an empty graph
         And with new index :WvL(p)
         And having executed:
@@ -1351,7 +1269,6 @@ Feature: Write visibility inside one query
             | 4 |
 
     Scenario: SET indexed property then WITH then MATCH on the old value
-        # Pre-flight: existing
         Given an empty graph
         And having executed:
             """
@@ -1366,7 +1283,6 @@ Feature: Write visibility inside one query
             | 0 |
 
     Scenario: SET indexed property then WITH then MATCH on the old value (indexes :WvL(p))
-        # Pre-flight: existing
         Given an empty graph
         And with new index :WvL(p)
         And having executed:
@@ -1382,7 +1298,6 @@ Feature: Write visibility inside one query
             | 0 |
 
     Scenario: MATCH then CREATE of the same label ends
-        # Pre-flight: existing
         Given an empty graph
         And having executed:
             """
@@ -1397,7 +1312,6 @@ Feature: Write visibility inside one query
             | 2 | 4 |
 
     Scenario: MATCH then CREATE of the same label ends (indexes :WvK)
-        # Pre-flight: existing
         Given an empty graph
         And with new index :WvK
         And having executed:
@@ -1413,7 +1327,6 @@ Feature: Write visibility inside one query
             | 2 | 4 |
 
     Scenario: Pattern comprehension expands variable length from a node created in the same part
-        # Pre-flight: new
         Given an empty graph
         When executing query:
             """
@@ -1424,7 +1337,6 @@ Feature: Write visibility inside one query
             | [2] |
 
     Scenario: COUNT expands variable length from a node created in the same part
-        # Pre-flight: new
         Given an empty graph
         When executing query:
             """
@@ -1435,7 +1347,6 @@ Feature: Write visibility inside one query
             | 1 |
 
     Scenario: CALL expands variable length from a node created in the same part
-        # Pre-flight: new
         Given an empty graph
         When executing query:
             """
@@ -1446,7 +1357,6 @@ Feature: Write visibility inside one query
             | 2   |
 
     Scenario: Variable-length MATCH after CREATE and WITH
-        # Pre-flight: existing
         Given an empty graph
         When executing query:
             """
@@ -1457,7 +1367,6 @@ Feature: Write visibility inside one query
             | 2   |
 
     Scenario: WITH * WHERE after SET on an indexed property keeps the filter above the SET (indexes :WvQ(x))
-        # Pre-flight: new
         Given an empty graph
         And with new index :WvQ(x)
         And having executed:
@@ -1474,7 +1383,6 @@ Feature: Write visibility inside one query
             | 2 | [5, 5] |
 
     Scenario: WITH * WHERE after SET without an index
-        # Pre-flight: existing
         Given an empty graph
         And having executed:
             """
@@ -1490,7 +1398,6 @@ Feature: Write visibility inside one query
             | 2 | [5, 5] |
 
     Scenario: WITH a WHERE after SET on an indexed property (indexes :WvQ(x))
-        # Pre-flight: existing
         Given an empty graph
         And with new index :WvQ(x)
         And having executed:
@@ -1507,7 +1414,6 @@ Feature: Write visibility inside one query
             | 2 | [5, 5] |
 
     Scenario: CALL YIELD WHERE after SET sees the new property
-        # Pre-flight: new
         Given an empty graph
         And having executed:
             """
@@ -1523,7 +1429,6 @@ Feature: Write visibility inside one query
             | 2 | [5, 5] |
 
     Scenario: CALL YIELD WHERE after SET sees the new property (indexes :WvQ(x))
-        # Pre-flight: new
         Given an empty graph
         And with new index :WvQ(x)
         And having executed:
@@ -1540,7 +1445,6 @@ Feature: Write visibility inside one query
             | 2 | [5, 5] |
 
     Scenario: WITH * WHERE after SET on an indexed edge property keeps the filter above the SET (indexes EDGE :WvE(w))
-        # Pre-flight: new
         Given an empty graph
         And having executed:
             """
@@ -1560,7 +1464,6 @@ Feature: Write visibility inside one query
             | 1 | [5] |
 
     Scenario: WITH * WHERE after SET on an indexed edge property keeps the filter above the SET (indexes GLOBAL :(w))
-        # Pre-flight: new
         Given an empty graph
         And with new edge index :(w)
         And having executed:
@@ -1577,7 +1480,6 @@ Feature: Write visibility inside one query
             | 1 | [5] |
 
     Scenario: WITH * WHERE after SET on an edge property without a property index
-        # Pre-flight: existing
         Given an empty graph
         And having executed:
             """
@@ -1593,7 +1495,6 @@ Feature: Write visibility inside one query
             | 1 | [5] |
 
     Scenario: WITH * WHERE after SET on an edge property without a property index (indexes EDGE :WvE)
-        # Pre-flight: existing
         Given an empty graph
         And having executed:
             """
@@ -1613,7 +1514,6 @@ Feature: Write visibility inside one query
             | 1 | [5] |
 
     Scenario: WITH projection does not see a later SET for an earlier row
-        # Pre-flight: new
         Given an empty graph
         And having executed:
             """
@@ -1629,7 +1529,6 @@ Feature: Write visibility inside one query
             | [2, 1] | [10, 10] |
 
     Scenario: SET right-hand side does not see a later SET for an earlier row
-        # Pre-flight: new
         Given an empty graph
         And having executed:
             """
@@ -1645,7 +1544,6 @@ Feature: Write visibility inside one query
             | [2, 1] | [10, 10] |
 
     Scenario: CREATE property map does not see a later SET for an earlier row
-        # Pre-flight: new
         Given an empty graph
         And having executed:
             """
@@ -1661,7 +1559,6 @@ Feature: Write visibility inside one query
             | [2, 1] |
 
     Scenario: SET right-hand side does not see a later SET of the same key on another node
-        # Pre-flight: new
         Given an empty graph
         And having executed:
             """
@@ -1676,7 +1573,6 @@ Feature: Write visibility inside one query
             | [5, 5] |
 
     Scenario: Pattern comprehension in a SET right-hand side sees an earlier SET
-        # Pre-flight: new
         Given an empty graph
         And having executed:
             """
@@ -1691,7 +1587,6 @@ Feature: Write visibility inside one query
             | 1 |
 
     Scenario: Pattern comprehension in a CREATE property map sees an earlier SET
-        # Pre-flight: new
         Given an empty graph
         And having executed:
             """
@@ -1707,7 +1602,6 @@ Feature: Write visibility inside one query
             | 1 | [1] |
 
     Scenario: Pattern comprehension as a FOREACH list sees an earlier SET
-        # Pre-flight: new
         Given an empty graph
         And having executed:
             """
@@ -1723,7 +1617,6 @@ Feature: Write visibility inside one query
             | 1 | ['A'] |
 
     Scenario: Pattern comprehension in an importing CALL body sees an earlier SET
-        # Pre-flight: new
         Given an empty graph
         And having executed:
             """
@@ -1738,7 +1631,6 @@ Feature: Write visibility inside one query
             | 1 |
 
     Scenario: MERGE property map sees an earlier SET of another row
-        # Pre-flight: new
         Given an empty graph
         And having executed:
             """
@@ -1754,7 +1646,6 @@ Feature: Write visibility inside one query
             | 2 | [1, 1] |
 
     Scenario: CREATE property map sees an earlier SET of another row
-        # Pre-flight: new
         Given an empty graph
         And having executed:
             """
@@ -1770,7 +1661,6 @@ Feature: Write visibility inside one query
             | 2 | [1, 1] |
 
     Scenario: FOREACH list sees an earlier SET of another row
-        # Pre-flight: new
         Given an empty graph
         And having executed:
             """
@@ -1786,7 +1676,6 @@ Feature: Write visibility inside one query
             | 2 | [1, 1] |
 
     Scenario: SET right-hand side sees an earlier SET of another row
-        # Pre-flight: new
         Given an empty graph
         And having executed:
             """
@@ -1801,7 +1690,6 @@ Feature: Write visibility inside one query
             | [1, 1] |
 
     Scenario: CALL body sees an earlier SET of another row through an import
-        # Pre-flight: new
         Given an empty graph
         And having executed:
             """
@@ -1817,7 +1705,6 @@ Feature: Write visibility inside one query
             | [1, 1] |
 
     Scenario: UNION ALL inside a CALL body sees the CREATE of an earlier leg
-        # Pre-flight: new
         Given an empty graph
         And having executed:
             """
@@ -1832,7 +1719,6 @@ Feature: Write visibility inside one query
             | [1, 2] |
 
     Scenario: Two write-read conflicts in one part each see their write
-        # Pre-flight: new
         Given an empty graph
         And having executed:
             """
@@ -1851,7 +1737,6 @@ Feature: Write visibility inside one query
             | 1  | 1  |
 
     Scenario: Two write-read conflicts in one part each see their write (indexes :WvS(x))
-        # Pre-flight: new
         Given an empty graph
         And with new index :WvS(x)
         And having executed:
@@ -1871,7 +1756,6 @@ Feature: Write visibility inside one query
             | 1  | 1  |
 
     Scenario: COUNT with a parameter key after SET sees the new property
-        # Pre-flight: new
         Given an empty graph
         And having executed:
             """
@@ -1888,7 +1772,6 @@ Feature: Write visibility inside one query
             | 1 |
 
     Scenario: COUNT after SET += a parameter map sees the new property
-        # Pre-flight: new
         Given an empty graph
         And having executed:
             """
@@ -1905,7 +1788,6 @@ Feature: Write visibility inside one query
             | 1 |
 
     Scenario: COUNT after SET = a parameter map sees the new property
-        # Pre-flight: new
         Given an empty graph
         And having executed:
             """
@@ -1922,7 +1804,6 @@ Feature: Write visibility inside one query
             | 1 |
 
     Scenario: EXISTS after SET of a dynamic label sees the label
-        # Pre-flight: new
         Given an empty graph
         And having executed:
             """
@@ -1939,7 +1820,6 @@ Feature: Write visibility inside one query
             | true |
 
     Scenario: COUNT reading properties() after SET sees the new property
-        # Pre-flight: new
         Given an empty graph
         And having executed:
             """
@@ -1954,7 +1834,6 @@ Feature: Write visibility inside one query
             | 1 |
 
     Scenario: BFS in a CALL body sees an edge created before it
-        # Pre-flight: new
         Given an empty graph
         And having executed:
             """
@@ -1969,7 +1848,6 @@ Feature: Write visibility inside one query
             | 2 |
 
     Scenario: BFS in a CALL body sees an edge created before it (indexes EDGE :R)
-        # Pre-flight: new
         Given an empty graph
         And having executed:
             """
@@ -1988,7 +1866,6 @@ Feature: Write visibility inside one query
             | 2 |
 
     Scenario: BFS pattern comprehension sees an edge created before it
-        # Pre-flight: new
         Given an empty graph
         And having executed:
             """
@@ -2003,7 +1880,6 @@ Feature: Write visibility inside one query
             | 2 |
 
     Scenario: BFS after CREATE and WITH sees the new edge
-        # Pre-flight: existing
         Given an empty graph
         And having executed:
             """
@@ -2018,7 +1894,6 @@ Feature: Write visibility inside one query
             | 2 |
 
     Scenario: WSHORTEST in a CALL body sees an edge created before it
-        # Pre-flight: new
         Given an empty graph
         And having executed:
             """
@@ -2033,7 +1908,6 @@ Feature: Write visibility inside one query
             | 2 |
 
     Scenario: WSHORTEST after CREATE and WITH sees the new edge
-        # Pre-flight: existing
         Given an empty graph
         And having executed:
             """
@@ -2048,7 +1922,6 @@ Feature: Write visibility inside one query
             | 2 |
 
     Scenario: KSHORTEST in a CALL body sees an edge created before it
-        # Pre-flight: new
         Given an empty graph
         And having executed:
             """
@@ -2064,7 +1937,6 @@ Feature: Write visibility inside one query
             | [1, 2] |
 
     Scenario: KSHORTEST after CREATE and WITH sees the new edge
-        # Pre-flight: existing
         Given an empty graph
         And having executed:
             """
@@ -2080,7 +1952,6 @@ Feature: Write visibility inside one query
             | [1, 2] |
 
     Scenario: ALLSHORTEST in a CALL body sees an edge created before it
-        # Pre-flight: new
         Given an empty graph
         And having executed:
             """
@@ -2096,7 +1967,6 @@ Feature: Write visibility inside one query
             | [1] |
 
     Scenario: ALLSHORTEST after CREATE and WITH sees the new edge
-        # Pre-flight: existing
         Given an empty graph
         And having executed:
             """
@@ -2112,7 +1982,7 @@ Feature: Write visibility inside one query
             | [1] |
 
     Scenario: Keyed MERGE import on one label
-        # Pre-flight: existing
+        # A control: both orders give these rows; the plan shape is a unit test.
         Given an empty graph
         When executing query:
             """
@@ -2125,7 +1995,6 @@ Feature: Write visibility inside one query
             | 4 | 3     | 4     |
 
     Scenario: Keyed MERGE import on one label (indexes :WvL(id))
-        # Pre-flight: existing
         Given an empty graph
         And with new index :WvL(id)
         When executing query:
@@ -2139,7 +2008,7 @@ Feature: Write visibility inside one query
             | 4 | 3     | 4     |
 
     Scenario: Keyed MERGE import on two labels
-        # Pre-flight: existing
+        # A control: both orders give these rows; the plan shape is a unit test.
         Given an empty graph
         When executing query:
             """
@@ -2152,7 +2021,6 @@ Feature: Write visibility inside one query
             | 4 | 6     | 4     |
 
     Scenario: CALL body UNWIND reads the list the body set
-        # Pre-flight: existing
         Given an empty graph
         And having executed:
             """
@@ -2167,7 +2035,6 @@ Feature: Write visibility inside one query
             | [[1, 1], [2, 2]] |
 
     Scenario: CALL body variable-length expansion after a body CREATE and WITH *
-        # Pre-flight: existing
         Given an empty graph
         And having executed:
             """
@@ -2182,7 +2049,6 @@ Feature: Write visibility inside one query
             | [1, 2] |
 
     Scenario: CALL body variable-length expansion after a body CREATE and WITH * (indexes EDGE :R)
-        # Pre-flight: existing
         Given an empty graph
         And having executed:
             """
@@ -2201,7 +2067,6 @@ Feature: Write visibility inside one query
             | [1, 2] |
 
     Scenario: CALL body variable-length expansion after a body CREATE and WITH a
-        # Pre-flight: existing
         Given an empty graph
         And having executed:
             """
@@ -2216,7 +2081,6 @@ Feature: Write visibility inside one query
             | [1, 2] |
 
     Scenario: Nested read-only CALL body before a later SET does not see that SET
-        # Pre-flight: existing
         Given an empty graph
         And having executed:
             """
@@ -2233,7 +2097,7 @@ Feature: Write visibility inside one query
             | 2 | [1, 1] |
 
     Scenario: CALL body SET then WITH then variable-length MATCH
-        # Pre-flight: existing
+        # A control: no edge changes, so both views give the same count.
         Given an empty graph
         And having executed:
             """
@@ -2248,7 +2112,6 @@ Feature: Write visibility inside one query
             | 2 |
 
     Scenario: CALL body CREATE edge then WITH then variable-length MATCH
-        # Pre-flight: existing
         Given an empty graph
         And having executed:
             """
@@ -2263,7 +2126,6 @@ Feature: Write visibility inside one query
             | 3 |
 
     Scenario: CALL body CREATE edge then WITH then variable-length MATCH (indexes EDGE :R)
-        # Pre-flight: existing
         Given an empty graph
         And having executed:
             """
@@ -2282,7 +2144,6 @@ Feature: Write visibility inside one query
             | 3 |
 
     Scenario: CALL body CREATE path then WITH then variable-length pattern comprehension
-        # Pre-flight: existing
         Given an empty graph
         And having executed:
             """
@@ -2298,7 +2159,6 @@ Feature: Write visibility inside one query
 
     Scenario: CREATE property map reads a node created earlier in the same CREATE
         # Deliberate: a CREATE whose property map reads an entity the same CREATE makes is not refused; it answers 1, as it did before root reads went OLD.
-        # Pre-flight: existing
         Given an empty graph
         When executing query:
             """
@@ -2309,7 +2169,6 @@ Feature: Write visibility inside one query
         | 1 |
 
     Scenario: A CREATE map reads every property through values() after a SET
-        # Pre-flight: new
         Given an empty graph
         And having executed:
             """
@@ -2324,7 +2183,6 @@ Feature: Write visibility inside one query
             | [10] |
 
     Scenario: A SET from a computed entity value does not see a later SET for earlier rows
-        # Pre-flight: new
         Given an empty graph
         And having executed:
             """
@@ -2340,7 +2198,6 @@ Feature: Write visibility inside one query
             | 5 |
 
     Scenario: A label negation in a read-only CALL body sees a node the outer query created
-        # Pre-flight: new
         Given an empty graph
         And having executed:
             """
@@ -2355,7 +2212,6 @@ Feature: Write visibility inside one query
             | 2 |
 
     Scenario: A CREATE map does not see a later SET of a node an earlier row merged
-        # Pre-flight: new
         Given an empty graph
         When executing query:
             """
@@ -2367,7 +2223,6 @@ Feature: Write visibility inside one query
             | 2 | null |
 
     Scenario: A comprehension in a CREATE map does not see the relationships the same CREATE made for earlier rows
-        # Pre-flight: new
         Given an empty graph
         And having executed:
             """
@@ -2384,7 +2239,6 @@ Feature: Write visibility inside one query
             | 3 | 0 |
 
     Scenario: A batched CREATE comprehension does not see the relationships the same CREATE made for earlier rows
-        # Pre-flight: new
         Given an empty graph
         And having executed:
             """
@@ -2406,7 +2260,6 @@ Feature: Write visibility inside one query
             | 2 | 0 |
 
     Scenario: A DELETE expression does not see a later SET for earlier rows
-        # Pre-flight: new
         Given an empty graph
         And having executed:
             """
@@ -2421,7 +2274,6 @@ Feature: Write visibility inside one query
             | 2 |
 
     Scenario: A pattern comprehension in a WITH does not see a later SET for earlier rows
-        # Pre-flight: new
         Given an empty graph
         And having executed:
             """
@@ -2437,7 +2289,6 @@ Feature: Write visibility inside one query
             | 2  | [5] |
 
     Scenario: MERGE ON MATCH SET of the matched key makes a later row create
-        # Pre-flight: new
         Given an empty graph
         And having executed:
             """
@@ -2453,7 +2304,6 @@ Feature: Write visibility inside one query
             | 5 |
 
     Scenario: MERGE ON MATCH SET of the matched key makes a later row create (indexes :WvMm(k))
-        # Pre-flight: new
         Given an empty graph
         And with new index :WvMm(k)
         And having executed:
@@ -2470,7 +2320,6 @@ Feature: Write visibility inside one query
             | 5 |
 
     Scenario: A hash join in a writing CALL body sees the body's earlier SET
-        # Pre-flight: new
         Given an empty graph
         And having executed:
             """
@@ -2485,7 +2334,6 @@ Feature: Write visibility inside one query
             | 1 |
 
     Scenario: A hash join in a writing CALL body sees the body's writes for earlier outer rows
-        # Pre-flight: new
         Given an empty graph
         And having executed:
             """
@@ -2501,7 +2349,6 @@ Feature: Write visibility inside one query
             | 2 | 0 |
 
     Scenario: An IN-list index seek in a writing CALL body sees the body's earlier SET (indexes :WvInL(k))
-        # Pre-flight: new
         Given an empty graph
         And with new index :WvInL(k)
         And having executed:
@@ -2517,7 +2364,6 @@ Feature: Write visibility inside one query
             | 1 |
 
     Scenario: Two cached properties in a WITH do not see a later SET for earlier rows
-        # Pre-flight: new
         Given an empty graph
         And having executed:
             """
