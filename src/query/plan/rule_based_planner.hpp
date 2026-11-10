@@ -804,7 +804,8 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
       auto fold_bound_symbols = bound_symbols;
       branch.predicate = parts.predicate;
       branch.pattern_filters =
-          ExtractPatternFilters(parts.predicate_filters, symbol_table, storage, fold_bound_symbols);
+          // View::OLD as before; a writing tree's view pass sets View::NEW on it afterwards.
+          ExtractPatternFilters(parts.predicate_filters, symbol_table, storage, fold_bound_symbols, storage::View::OLD);
     }
 
     auto root = std::make_unique<Conditional>(std::move(input), std::move(branches), conditional.output_symbols);
@@ -1918,7 +1919,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
                                               std::unordered_set<Symbol> &bound_symbols, Filters &filters,
                                               AstStorage &storage, const SymbolTable &symbol_table,
                                               storage::View view) {
-    auto pattern_filters = ExtractPatternFilters(filters, symbol_table, storage, bound_symbols);
+    auto pattern_filters = ExtractPatternFilters(filters, symbol_table, storage, bound_symbols, view);
     auto *filter_expr = impl::ExtractFilters(bound_symbols, filters, storage);
 
     if (filter_expr) {
@@ -1987,9 +1988,10 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
   /// `Filter` side branch, which is why a projection uses the forced fold instead.
   std::unique_ptr<LogicalOperator> MakeSubqueryFilter(const SubqueryMatching &matching, const SymbolTable &symbol_table,
                                                       AstStorage &storage,
-                                                      const std::unordered_set<Symbol> &bound_symbols) {
-    // Outside an EXISTS branch the flag is false, which resolves to View::OLD.
-    auto last_op = MakeSubqueryBranch(matching, symbol_table, storage, bound_symbols, subquery_branch_after_write_);
+                                                      const std::unordered_set<Symbol> &bound_symbols,
+                                                      storage::View view) {
+    auto last_op = MakeSubqueryBranch(
+        matching, symbol_table, storage, bound_symbols, view == storage::View::NEW || subquery_branch_after_write_);
     auto const fold = impl::ToOperatorFold(matching.fold);
     if (fold == Fold::kList) {
       return std::make_unique<EvaluatePatternFilter>(
@@ -2000,7 +2002,8 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
 
   std::unique_ptr<LogicalOperator> MakePatternComprehensionFilter(const PatternComprehensionMatching &matching,
                                                                   const SymbolTable &symbol_table, AstStorage &storage,
-                                                                  std::unordered_set<Symbol> &bound_symbols) {
+                                                                  std::unordered_set<Symbol> &bound_symbols,
+                                                                  storage::View view) {
     std::vector<Symbol> once_symbols(bound_symbols.begin(), bound_symbols.end());
     std::unique_ptr<LogicalOperator> last_op = std::make_unique<Once>(once_symbols);
 
@@ -2008,19 +2011,12 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
     std::vector<Symbol> new_symbols;
     std::unordered_map<Symbol, std::vector<Symbol>> named_paths;
 
-    last_op = HandleExpansions(std::move(last_op),
-                               matching,
-                               symbol_table,
-                               storage,
-                               bound_symbols,
-                               new_symbols,
-                               named_paths,
-                               filters,
-                               storage::View::OLD);
+    last_op = HandleExpansions(
+        std::move(last_op), matching, symbol_table, storage, bound_symbols, new_symbols, named_paths, filters, view);
     last_op = ApplyNestedPatternComprehensions(
-        std::move(last_op), matching.nested_pattern_comprehensions, symbol_table, bound_symbols, storage::View::OLD);
+        std::move(last_op), matching.nested_pattern_comprehensions, symbol_table, bound_symbols, view);
     auto produce = std::make_unique<Produce>(std::move(last_op), std::vector{matching.result_expr});
-    produce->view_ = storage::View::OLD;
+    produce->view_ = view;
     last_op = std::move(produce);
     auto list_collection_symbols = last_op->ModifiedSymbols(symbol_table);
     last_op = std::make_unique<RollUpApply>(
@@ -2029,10 +2025,12 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
     return last_op;
   }
 
+  /// The EXISTS and pattern comprehension branches of a Filter's expression, which read the Filter's view.
   std::vector<std::shared_ptr<LogicalOperator>> ExtractPatternFilters(const Filters &filters,
                                                                       const SymbolTable &symbol_table,
                                                                       AstStorage &storage,
-                                                                      std::unordered_set<Symbol> &bound_symbols) {
+                                                                      std::unordered_set<Symbol> &bound_symbols,
+                                                                      storage::View view) {
     std::vector<std::shared_ptr<LogicalOperator>> operators;
 
     for (const auto &filter : filters) {
@@ -2041,11 +2039,11 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
       }
 
       for (const auto &matching : filter.subquery_matchings) {
-        operators.push_back(MakeSubqueryFilter(matching, symbol_table, storage, bound_symbols));
+        operators.push_back(MakeSubqueryFilter(matching, symbol_table, storage, bound_symbols, view));
       }
 
       for (const auto &matching : filter.pattern_comprehension_matchings) {
-        operators.push_back(MakePatternComprehensionFilter(matching, symbol_table, storage, bound_symbols));
+        operators.push_back(MakePatternComprehensionFilter(matching, symbol_table, storage, bound_symbols, view));
       }
     }
 
