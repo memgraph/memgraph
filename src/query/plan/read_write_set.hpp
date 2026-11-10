@@ -45,8 +45,8 @@ struct ReadWriteSet {
   /// Reads: the symbols a pattern expands from or through. Writes: the symbols a CREATE or MERGE first binds, which
   /// View::OLD cannot see until the command advances.
   std::unordered_set<Symbol> symbols;
-  /// Reads only: the entity symbols an expression reads by value. One that a CREATE or MERGE bound since the last
-  /// barrier makes the read a View::NEW read (see `eval.hpp`'s fallback), which a later write must not reach.
+  /// Reads only: the entity and path symbols an expression reads by value. One that may hold an entity created since
+  /// the last barrier makes the read a View::NEW read (`ReadSeeingCreated`), which a later write must not reach.
   std::unordered_set<Symbol> referenced;
 
   bool Empty() const;

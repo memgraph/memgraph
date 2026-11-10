@@ -46,8 +46,10 @@ class ReadWriteCollector final : public HierarchicalTreeVisitor {
   using HierarchicalTreeVisitor::Visit;
 
   bool Visit(Identifier &ident) override {
-    // An identifier the symbol generator left unmapped names no variable.
-    if (ident.symbol_pos_ >= 0 && ReadsGraph(&ident)) result.reads.referenced.insert(symbol_table_.at(ident));
+    // An identifier the symbol generator left unmapped names no variable. A path holds entities too.
+    if (ident.symbol_pos_ < 0) return true;
+    auto const &symbol = symbol_table_.at(ident);
+    if (ReadsGraph(&ident) || symbol.type() == Symbol::Type::PATH) result.reads.referenced.insert(symbol);
     return true;
   }
 
