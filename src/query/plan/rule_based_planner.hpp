@@ -490,7 +490,9 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
               std::move(input_op), pending_comprehensions, context.bound_symbols, clause_reads_new, eligible);
         };
 
-        for (const auto &clause : single_query_part.remaining_clauses) {
+        auto const &clauses = single_query_part.remaining_clauses;
+        for (auto clause_it = clauses.begin(); clause_it != clauses.end(); ++clause_it) {
+          auto *clause = *clause_it;
           MG_ASSERT(!utils::IsSubtype(*clause, Match::kType), "Unexpected Match in remaining clauses");
 
           // A writing clause is marked before its own comprehensions are planned, so they see earlier rows' writes.
@@ -510,10 +512,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
           // drain falls between two items.
           auto group_access = access;
           if (!clause->continues_previous_) {
-            auto const &clauses = single_query_part.remaining_clauses;
-            for (auto next = std::next(std::ranges::find(clauses, clause));
-                 next != clauses.end() && (*next)->continues_previous_;
-                 ++next) {
+            for (auto next = std::next(clause_it); next != clauses.end() && (*next)->continues_previous_; ++next) {
               auto const item =
                   CollectReadsAndWrites(**next, *context.symbol_table, context.bound_symbols, non_graph_symbols_);
               group_access.reads.Merge(item.reads);
