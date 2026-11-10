@@ -926,6 +926,18 @@ TEST_F(WriteVisibilityPlan, EachWriteKeepsAYieldWhereOutOfAnEdgeIndexSeek) {
   EXPECT_EQ(Collect<ScanAllByEdgeTypeProperty>(plan).size(), 1);
 }
 
+// The point index answers at View::OLD only, so a writing body, which reads View::NEW, scans and filters instead.
+TEST_F(WriteVisibilityPlan, AWritingCallBodySeeksNoPointIndex) {
+  dba_.SetPointIndex(dba_.Label("Pt"), dba_.Property("loc"));
+  auto const *filter = "WHERE point.distance(n.loc, point({x: 0, y: 0})) < 10 RETURN count(n) AS c";
+  EXPECT_EQ(Collect<ScanAllByPointDistance>(Plan(fmt::format("MATCH (n:Pt) {}", filter))).size(), 1);
+  EXPECT_TRUE(Collect<ScanAllByPointDistance>(
+                  Plan(fmt::format("UNWIND [1, 2] AS i CALL (i) {{ CREATE (:Pt {{loc: point({{x: i, y: 0}})}}) WITH 1 "
+                                   "AS one MATCH (n:Pt) {} }} RETURN collect(c) AS cs",
+                                   filter)))
+                  .empty());
+}
+
 // ---------------------------------------------------------------- every reader of a writing CALL body reads View::NEW
 
 /// Counts, per operator type, the operators under every Apply of @p plan, and names each that does not read View::NEW.
