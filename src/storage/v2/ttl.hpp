@@ -215,16 +215,15 @@ class TTL final {
   }
 
   /**
-   * @brief Whether TTL has been asked to run (ENABLE TTL) rather than stopped. This is what durability
-   *        records; it survives demotion and shutdown, which only pause the background job.
+   * @brief Whether the last command was ENABLE TTL (true) or STOP TTL (false). Snapshots record it;
+   *        demotion and shutdown leave it unchanged.
    */
   bool Wanted() const { return wanted_; }
 
   void SetWanted(bool wanted) { wanted_ = wanted; }
 
   /**
-   * @brief Stop the background job and record that TTL should stay stopped (STOP TTL).
-   *
+   * @brief Pause the background job and record that TTL should stay stopped (STOP TTL).
    */
   void Pause() {
     wanted_ = false;
