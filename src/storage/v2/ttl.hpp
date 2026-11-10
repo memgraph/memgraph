@@ -138,7 +138,8 @@ inline bool operator==(const TtlInfo &lhs, const TtlInfo &rhs) {
  *
  * Interface is mutex protected, only so that coordinator can resume thread is paused.
  * TTL queries are uniquely accessed, to the interface doesn't need protecting from the user side.
- * However, if instance becomes a REPLICA, the thread is paused until reverted beck to MAIN.
+ * Role changes use Suspend() and ResumeIfWanted(), which keep Wanted(); ENABLE TTL and STOP TTL use
+ * Resume() and Pause(), which set it.
  *
  */
 class TTL final {
