@@ -33,6 +33,7 @@
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/interpret/awesome_memgraph_functions.hpp"
 #include "query/interpret/frame.hpp"
+#include "query/read_created.hpp"
 #include "query/relations/comparability.hpp"
 #include "query/relations/equality.hpp"
 #include "query/typed_value.hpp"
@@ -1255,16 +1256,9 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   storage::PropertyValue GetProperty(const TRecordAccessor &record_accessor, const PropertyIx &prop) {
     RequireAccessor("Reading a property");
     if (!IsPropertyAllowed(record_accessor, ctx_->properties[prop.ix])) return storage::PropertyValue{};
-    auto maybe_prop = ReadProperty<kCompact>(record_accessor, view_, ctx_->properties[prop.ix]);
-    if (maybe_prop == std::unexpected{storage::Error::NONEXISTENT_OBJECT}) {
-      // This is a very nasty and temporary hack in order to make MERGE work.
-      // The old storage had the following logic when returning an `OLD` view:
-      // `return old ? old : new`. That means that if the `OLD` view didn't
-      // exist, it returned the NEW view. With this hack we simulate that
-      // behavior.
-      // TODO (mferencevic, teon.banek): Remove once MERGE is reimplemented.
-      maybe_prop = ReadProperty<kCompact>(record_accessor, storage::View::NEW, ctx_->properties[prop.ix]);
-    }
+    auto view = view_;
+    auto maybe_prop = ReadSeeingCreated(
+        view, [&](storage::View at) { return ReadProperty<kCompact>(record_accessor, at, ctx_->properties[prop.ix]); });
     if (!maybe_prop) ThrowPropertyReadError(maybe_prop.error());
     return *std::move(maybe_prop);
   }
@@ -1309,16 +1303,8 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     const auto read = [&](storage::View view) {
       return ctx_->lazy_vector_refs ? record_accessor.PropertiesCompact(view) : record_accessor.Properties(view);
     };
-    auto maybe_props = read(view_);
-    if (maybe_props == std::unexpected{storage::Error::NONEXISTENT_OBJECT}) {
-      // This is a very nasty and temporary hack in order to make MERGE work.
-      // The old storage had the following logic when returning an `OLD` view:
-      // `return old ? old : new`. That means that if the `OLD` view didn't
-      // exist, it returned the NEW view. With this hack we simulate that
-      // behavior.
-      // TODO (mferencevic, teon.banek): Remove once MERGE is reimplemented.
-      maybe_props = read(storage::View::NEW);
-    }
+    auto view = view_;
+    auto maybe_props = ReadSeeingCreated(view, read);
     if (!maybe_props) {
       switch (maybe_props.error()) {
         case storage::Error::DELETED_OBJECT:
@@ -1365,23 +1351,17 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
 
   storage::LabelId GetLabel(const LabelIx &label) const { return ctx_->labels[label.ix]; }
 
-  // This is a very nasty and temporary hack in order to make MERGE work. The old storage had the following logic
-  // when returning an `OLD` view: `return old ? old : new`. That means that if the `OLD` view didn't exist, it
-  // returned the NEW view. With this hack we simulate that behavior.
-  // TODO: Remove once MERGE is reimplemented.
   bool HasLabel(const VertexAccessor &vertex, const LabelIx &label) const {
-    auto result = vertex.HasLabel(view_, GetLabel(label));
-    if (result == std::unexpected{storage::Error::NONEXISTENT_OBJECT}) {
-      result = vertex.HasLabel(storage::View::NEW, GetLabel(label));
-    }
+    auto view = view_;
+    auto result = ReadSeeingCreated(view, [&](storage::View at) { return vertex.HasLabel(at, GetLabel(label)); });
     if (!result) ThrowLabelReadError(result.error());
     return *result;
   }
 
-  /// Whether the vertex carries any label, which is what `%` asks. The same MERGE hack applies.
+  /// Whether the vertex carries any label, which is what `%` asks.
   bool HasAnyLabel(const VertexAccessor &vertex) const {
-    auto result = vertex.HasAnyLabel(view_);
-    if (result == std::unexpected{storage::Error::NONEXISTENT_OBJECT}) result = vertex.HasAnyLabel(storage::View::NEW);
+    auto view = view_;
+    auto result = ReadSeeingCreated(view, [&](storage::View at) { return vertex.HasAnyLabel(at); });
     if (!result) ThrowLabelReadError(result.error());
     return *result;
   }

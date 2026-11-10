@@ -65,6 +65,7 @@
 #include "query/plan/scoped_profile.hpp"
 #include "query/procedure/mg_procedure_impl.hpp"
 #include "query/procedure/module.hpp"
+#include "query/read_created.hpp"
 #include "query/trigger_context.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/id_types.hpp"
@@ -5975,9 +5976,8 @@ bool CacheProperties::CachePropertiesCursor::Pull(Frame &frame, ExecutionContext
       return reads_a_vertex ? input_value.ValueVertex().impl_.ReadPropertyValues(group.ordered(), slots, view)
                             : input_value.ValueEdge().impl_.ReadPropertyValues(group.ordered(), slots, view);
     };
-    auto read = read_at(self_.view_);
-    // A record this command created is not there at View::OLD; a property lookup then reads View::NEW instead.
-    if (read == std::unexpected{storage::Error::NONEXISTENT_OBJECT}) read = read_at(storage::View::NEW);
+    auto view = self_.view_;
+    auto read = ReadSeeingCreated(view, read_at);
     if (!read) ThrowPropertyReadError(read.error());
 
     for (std::size_t slot = 0; slot != slots.size(); ++slot) {
