@@ -12,15 +12,13 @@
 #include "query/plan/read_write_set.hpp"
 
 #include <algorithm>
-#include <array>
-#include <string_view>
 #include <variant>
 
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/ast_visitor.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
+#include "query/interpret/awesome_memgraph_functions.hpp"
 #include "query/plan/preprocess.hpp"
-#include "utils/string.hpp"
 
 namespace memgraph::query::plan {
 
@@ -35,13 +33,6 @@ bool KeysConflict(const std::set<std::string> &read_keys, bool read_any, const s
   if (read_any) return write_any || !write_keys.empty();
   if (write_any) return !read_keys.empty();
   return Intersects(read_keys, write_keys);
-}
-
-/// Functions that read what the planner cannot name: every label, key or edge of an entity.
-bool ReadsTheWholeEntity(std::string_view function_name) {
-  static constexpr auto kNames =
-      std::array<std::string_view, 6>{"LABELS", "KEYS", "PROPERTIES", "DEGREE", "INDEGREE", "OUTDEGREE"};
-  return std::ranges::contains(kNames, utils::ToUpperCase(function_name));
 }
 
 class ReadWriteCollector final : public HierarchicalTreeVisitor {
@@ -102,7 +93,8 @@ class ReadWriteCollector final : public HierarchicalTreeVisitor {
   }
 
   bool PreVisit(Function &function) override {
-    if (ReadsTheWholeEntity(function.function_name_)) result.reads.everything = true;
+    // It reads what the planner cannot name: every label, key or edge of an entity.
+    if (function.IsBuiltin() && FunctionReadsGraph(function.function_name_)) result.reads.everything = true;
     return true;
   }
 
