@@ -67,8 +67,7 @@ struct SubqueryBranchPlanner {
                                                               const std::unordered_set<Symbol> &bound_symbols) = 0;
 };
 
-/// The view of a fold or comprehension branch: one planned after a write reads View::NEW. At the root and in a writing
-/// CALL body the planner passes `false` and `true` by scope; the write history decides only under batching.
+/// The view of a fold or comprehension branch that must, or need not, see earlier writes (`ClauseReadsNew`).
 inline storage::View ViewAfterWrite(bool write_occurred) {
   return write_occurred ? storage::View::NEW : storage::View::OLD;
 }
@@ -80,7 +79,7 @@ struct SubqueryContext {
   /// as they are planned, like @c pending_comprehensions.
   std::unordered_map<Symbol, SubqueryMatching> &pending_subqueries;
   SubqueryBranchPlanner *planner;
-  /// Whether a write clause has already been planned in this query part; feeds @c ViewAfterWrite.
+  /// Whether the clause's fold branches read View::NEW (`ClauseReadsNew`); feeds @c ViewAfterWrite.
   bool write_occurred;
 };
 
@@ -386,9 +385,15 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
           for (const auto &optional : single_query_part.optional_matching) {
             reads.Merge(CollectReads(optional, *context.symbol_table, context.bound_symbols, non_graph_symbols_));
           }
-          barrier_before(reads);
-          // Every read of a writing CALL body is a View::NEW read.
-          if (read_scope_ == ReadScope::kWritingTree) pending_new_reads.Merge(reads);
+          if (read_scope_ == ReadScope::kWritingTree) {
+            // Every read of a writing CALL body is a View::NEW read, which sees what this command created.
+            auto new_reads = reads;
+            new_reads.symbols.clear();
+            barrier_before(new_reads);
+            pending_new_reads.Merge(reads);
+          } else {
+            barrier_before(reads);
+          }
         }
         input_op = HandleMatching(std::move(input_op), single_query_part, *context.symbol_table, context.bound_symbols);
 
@@ -477,30 +482,28 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
         // FOREACH arms below read to ask about this part alone.
         auto const branch_sees_write = [&] { return write_occurred || subquery_branch_after_write_; };
 
-        // Whether a fold or comprehension of the current clause reads View::NEW. At the root a read sees earlier
-        // clauses through a barrier and View::OLD; only a clause that must see its own earlier rows reads View::NEW.
-        bool clause_sees_write = false;
+        // Whether the current clause reads View::NEW (`ClauseReadsNew`).
+        bool clause_reads_new = false;
         // Plan and apply the satisfiable comprehensions this clause originates, before the clause itself.
         auto plan_and_apply_comprehensions = [&](const std::unordered_set<Symbol> &eligible) {
           input_op = SpliceSatisfiedComprehensions(
-              std::move(input_op), pending_comprehensions, context.bound_symbols, clause_sees_write, eligible);
+              std::move(input_op), pending_comprehensions, context.bound_symbols, clause_reads_new, eligible);
         };
 
         for (const auto &clause : single_query_part.remaining_clauses) {
           MG_ASSERT(!utils::IsSubtype(*clause, Match::kType), "Unexpected Match in remaining clauses");
 
           // A writing clause is marked before its own comprehensions are planned, so they see earlier rows' writes.
-          clause_sees_write = ReadsNewView(*clause) || (read_scope_ != ReadScope::kRoot && branch_sees_write());
+          clause_reads_new = ClauseReadsNew(*clause, branch_sees_write());
           SubqueryContext subquery_ctx{.pending_comprehensions = pending_comprehensions,
                                        .pending_subqueries = pending_subqueries,
                                        .planner = this,
-                                       .write_occurred = clause_sees_write};
+                                       .write_occurred = clause_reads_new};
 
           // With and Return drain in their own Accumulate.
           auto const is_projection = utils::Downcast<Return>(clause) || utils::Downcast<query::With>(clause);
-          bool const reads_new = ReadsNewView(*clause) || read_scope_ == ReadScope::kWritingTree;
           auto const access =
-              is_projection && !reads_new
+              is_projection && !clause_reads_new
                   ? ReadsAndWrites{}
                   : CollectReadsAndWrites(*clause, *context.symbol_table, context.bound_symbols, non_graph_symbols_);
           // The items of one SET or REMOVE are one clause: the first item decides for all of them, so no barrier or
@@ -520,7 +523,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
           if (!is_projection && !clause->continues_previous_) {
             auto reads = group_access.reads;
             // View::NEW sees what this command created; only a View::OLD reader needs the advance for that.
-            if (reads_new) reads.symbols.clear();
+            if (clause_reads_new) reads.symbols.clear();
             barrier_before(reads);
           }
           if (!clause->continues_previous_) drain_before(group_access.writes);
@@ -552,7 +555,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
                 pending_writes.symbols.insert(symbol);
               }
             }
-            if (reads_new || reads_fresh) pending_new_reads.Merge(access.reads);
+            if (clause_reads_new || reads_fresh) pending_new_reads.Merge(access.reads);
           }};
 
           if (auto *ret = utils::Downcast<Return>(clause)) {
@@ -648,12 +651,11 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
                                                              call_proc->void_procedure_);
             // Above the operator, below the Filter: the slot is rewritten per procedure output row, which is what
             // the WHERE reads.
-            input_op =
-                SpliceSatisfiedComprehensions(std::move(input_op),
-                                              pending_comprehensions,
-                                              context.bound_symbols,
-                                              clause_sees_write || call_proc->graph_access_ == GraphAccess::Write,
-                                              eligible);
+            input_op = SpliceSatisfiedComprehensions(std::move(input_op),
+                                                     pending_comprehensions,
+                                                     context.bound_symbols,
+                                                     clause_reads_new || call_proc->graph_access_ == GraphAccess::Write,
+                                                     eligible);
             if (call_proc->where_) {
               // Split as filter collection splits, so an index scan below finds the label test it consumes.
               // Written back, because planning runs once per start node the variable-start planner tries.
@@ -873,6 +875,14 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
            utils::IsSubtype(clause, query::RemoveProperty::kType) ||
            utils::IsSubtype(clause, query::RemoveLabels::kType) || utils::IsSubtype(clause, query::Merge::kType) ||
            utils::IsSubtype(clause, query::Foreach::kType);
+  }
+
+  /// Whether a clause's reads and fold branches read View::NEW: one that must see its own earlier rows, every clause
+  /// of a writing CALL body, and below the root one after a write. At the root a read sees earlier clauses through a
+  /// barrier and View::OLD. Under batching and in a read-only body no barrier is planned, so only the folds use it.
+  bool ClauseReadsNew(const Clause &clause, bool after_write) const {
+    return ReadsNewView(clause) || read_scope_ == ReadScope::kWritingTree ||
+           (read_scope_ != ReadScope::kRoot && after_write);
   }
 
   /// The view of a projection, a CREATE map or a WHEN predicate: View::OLD at the root and in a read-only CALL body.
