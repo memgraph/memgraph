@@ -651,6 +651,29 @@ void AddBatchedProbe(ProbeModule &module, const char *name, BatchedProbe *probe)
   module.procedures.emplace(name, std::move(proc));
 }
 
+// A module function `getx(v)` that returns property `x` of the vertex it gets.
+void AddGetX(ProbeModule &module) {
+  auto callback = [](mgp_list *args, mgp_func_context * /*ctx*/, mgp_func_result *result, mgp_memory *memory) {
+    mgp_value *arg{nullptr};
+    mgp_vertex *vertex{nullptr};
+    mgp_value *x{nullptr};
+    if (mgp_list_at(args, 0, &arg) != mgp_error::MGP_ERROR_NO_ERROR ||
+        mgp_value_get_vertex(arg, &vertex) != mgp_error::MGP_ERROR_NO_ERROR ||
+        mgp_vertex_get_property(vertex, "x", memory, &x) != mgp_error::MGP_ERROR_NO_ERROR) {
+      MG_ASSERT(mgp_func_result_set_error_msg(result, "getx could not read x", memory) ==
+                mgp_error::MGP_ERROR_NO_ERROR);
+      return;
+    }
+    MG_ASSERT(mgp_func_result_set_value(result, x, memory) == mgp_error::MGP_ERROR_NO_ERROR);
+    mgp_value_destroy(x);
+  };
+  mgp_func func("getx", +callback, memgraph::utils::NewDeleteResource());
+  mgp_type *any_type{nullptr};
+  MG_ASSERT(mgp_type_any(&any_type) == mgp_error::MGP_ERROR_NO_ERROR);
+  MG_ASSERT(mgp_func_add_arg(&func, "v", any_type) == mgp_error::MGP_ERROR_NO_ERROR);
+  module.functions.emplace("getx", std::move(func));
+}
+
 }  // namespace
 
 // Registering a module is private to the registry, so the probes are set up from the fixture, which
@@ -670,6 +693,13 @@ class ProcedureTeardownTest : public InterpreterTest<memgraph::storage::InMemory
     }
     const std::unique_lock registry_lock{procedure::gModuleRegistry.lock_};
     ASSERT_TRUE(procedure::gModuleRegistry.RegisterModule("probe_module", std::move(module)));
+  }
+
+  void RegisterGetX() {
+    auto module = std::make_unique<ProbeModule>();
+    AddGetX(*module);
+    const std::unique_lock registry_lock{procedure::gModuleRegistry.lock_};
+    ASSERT_TRUE(procedure::gModuleRegistry.RegisterModule("probe_fn", std::move(module)));
   }
 
   // Set by a test that ends with a stream still live, to pin where that stream is torn down.
@@ -766,6 +796,37 @@ TEST_F(ProcedureTeardownTest, ProcedureStreamOutlivesTheQueryUntilTheInterpreter
   Pull(&stream, 1, qid);
   ASSERT_EQ(probe.inits, 1);
   ASSERT_GT(probe.remaining, 0);
+}
+
+class ModuleFunctionTest : public ProcedureTeardownTest {
+ protected:
+  bool PlanHasAccumulate(const std::string &query) {
+    memgraph::storage::ExternalPropertyValue::map_t params;
+    params.emplace("p", memgraph::storage::ExternalPropertyValue(int64_t{1}));
+    auto stream = Interpret("EXPLAIN " + query, params);
+    return std::ranges::any_of(stream.GetResults(), [](const auto &row) {
+      return row[0].ValueString().find("Accumulate") != std::string::npos;
+    });
+  }
+};
+
+// A CREATE map reads View::OLD, where a node the same CREATE made does not exist yet: the read falls back to
+// View::NEW, as a property lookup does.
+TEST_F(ModuleFunctionTest, ReadsANodeTheSameCreateMade) {
+  RegisterGetX();
+  auto stream = Interpret("CREATE (a {x: 5}), (b {v: probe_fn.getx(a)}) RETURN b.v AS v");
+  ASSERT_EQ(stream.GetResults().size(), 1U);
+  EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 5);
+}
+
+// A C module function reaches the graph only through its arguments.
+TEST_F(ModuleFunctionTest, ReadsTheGraphOnlyThroughAnArgumentThatMayHoldAnEntity) {
+  RegisterGetX();
+  EXPECT_FALSE(PlanHasAccumulate("UNWIND [1, 2] AS i MERGE (n:L {id: i}) SET n.s = probe_fn.getx('x')"));
+  EXPECT_FALSE(PlanHasAccumulate("UNWIND [1, 2] AS i MERGE (n:L {id: i}) SET n.s = probe_fn.getx([$p, {k: 1}])"));
+  EXPECT_FALSE(PlanHasAccumulate("UNWIND [1, 2] AS i MERGE (n:L {id: i}) SET n.s = probe_fn.getx(n.x)"));
+  EXPECT_TRUE(PlanHasAccumulate("UNWIND [1, 2] AS i MERGE (n:L {id: i}) SET n.s = probe_fn.getx(n)"));
+  EXPECT_TRUE(PlanHasAccumulate("UNWIND [1, 2] AS i MERGE (n:L {id: i}) SET n.s = probe_fn.getx([n])"));
 }
 
 // Column headers from the accessor-free path must be byte-identical to the normal path's (clients

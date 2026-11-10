@@ -2548,3 +2548,106 @@ Feature: Write visibility inside one query
             | 1 | 3 |
             | 2 | 3 |
             | 3 | 3 |
+
+    Scenario: A subscript in a later CREATE reads a node an earlier CREATE made
+        Given an empty graph
+        When executing query:
+            """
+            CREATE (a:WvFa {x: 1}) CREATE (b:WvFb {v: a['x']}) RETURN b.v AS v
+            """
+        Then the result should be:
+            | v |
+            | 1 |
+
+    Scenario: A subscript in a read-only CALL body reads a node the outer query created
+        Given an empty graph
+        When executing query:
+            """
+            CREATE (a:WvFa {x: 1}) CALL (a) { RETURN a['x'] AS v } RETURN v
+            """
+        Then the result should be:
+            | v |
+            | 1 |
+
+    Scenario: Graph-reading functions in a CREATE map read a node the same CREATE made
+        Given an empty graph
+        When executing query:
+            """
+            CREATE (a:WvFa {x: 1}), (c:WvFc {p: properties(a), k: keys(a), l: labels(a), v: values(a)}) RETURN c.p AS p, c.k AS k, c.l AS l, c.v AS v
+            """
+        Then the result should be:
+            | p      | k     | l        | v   |
+            | {x: 1} | ['x'] | ['WvFa'] | [1] |
+
+    Scenario: Degree functions in a CREATE map read a node the same CREATE made
+        Given an empty graph
+        When executing query:
+            """
+            CREATE (a:WvFa {x: 1})-[:R]->(c:WvFc {d: degree(a), i: inDegree(a), o: outDegree(a), s: propertySize(a, 'x') > 0}) RETURN c.d AS d, c.i AS i, c.o AS o, c.s AS s
+            """
+        Then the result should be:
+            | d | i | o | s    |
+            | 0 | 0 | 0 | true |
+
+    Scenario: A CREATE map read through a path does not see a later SET of a node an earlier row merged
+        Given an empty graph
+        When executing query:
+            """
+            UNWIND [1, 2] AS i MERGE p = (a:WvPa)-[:R]->(b:WvPb) CREATE (c:WvPc {i: i, v: nodes(p)[0].x}) SET a.x = i WITH count(*) AS n MATCH (c:WvPc) RETURN c.i AS i, c.v AS v ORDER BY i
+            """
+        Then the result should be, in order:
+            | i | v    |
+            | 1 | null |
+            | 2 | null |
+
+    Scenario: A CREATE map read through a path does not see a later SET of a relationship an earlier row merged
+        Given an empty graph
+        When executing query:
+            """
+            UNWIND [1, 2] AS i MERGE p = (a:WvPa)-[r:R]->(b:WvPb) CREATE (c:WvPc {i: i, v: relationships(p)[0].w}) SET r.w = i WITH count(*) AS n MATCH (c:WvPc) RETURN c.i AS i, c.v AS v ORDER BY i
+            """
+        Then the result should be, in order:
+            | i | v    |
+            | 1 | null |
+            | 2 | null |
+
+    Scenario: A CREATE map read through a CALL result does not see a later SET of a node an earlier row merged
+        Given an empty graph
+        When executing query:
+            """
+            UNWIND [1, 2] AS i MERGE (a:WvCa) CALL (a) { RETURN a AS b } CREATE (c:WvCc {i: i, v: b.x}) SET a.x = i WITH count(*) AS n MATCH (c:WvCc) RETURN c.i AS i, c.v AS v ORDER BY i
+            """
+        Then the result should be, in order:
+            | i | v    |
+            | 1 | null |
+            | 2 | null |
+
+    Scenario: An EXISTS in a SET sees the same SET's write for an earlier row
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:WvEx {id: 1}), (:WvEx {id: 2})
+            """
+        When executing query:
+            """
+            MATCH (a:WvEx) WITH a ORDER BY a.id SET a.c = size([(x:WvEx)-[*0]-() WHERE EXISTS { MATCH (x) WHERE x.c IS NOT NULL } | x]) RETURN a.id AS id, a.c AS c ORDER BY id
+            """
+        Then the result should be, in order:
+            | id | c |
+            | 1  | 0 |
+            | 2  | 1 |
+
+    Scenario: A comprehension in a WHERE in a SET sees the same SET's write for an earlier row
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:WvEx {id: 1}), (:WvEx {id: 2})
+            """
+        When executing query:
+            """
+            MATCH (a:WvEx) WITH a ORDER BY a.id SET a.c = size([(x:WvEx)-[*0]-() WHERE [(x)-[*0]-(y) WHERE y.c IS NOT NULL | y] <> [] | x]) RETURN a.id AS id, a.c AS c ORDER BY id
+            """
+        Then the result should be, in order:
+            | id | c |
+            | 1  | 0 |
+            | 2  | 1 |
