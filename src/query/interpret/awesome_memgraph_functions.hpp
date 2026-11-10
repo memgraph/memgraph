@@ -42,6 +42,7 @@ struct FunctionContext {
   utils::MemoryResource *memory;
   int64_t timestamp;
   std::unordered_map<std::string, int64_t> *counters;
+  // A built-in function that reads entities through it sets `func_info::reads_graph_`.
   storage::View view;
   int64_t hops_counter{0};
   const QueryUserOrRole *user_or_role{nullptr};
@@ -56,6 +57,8 @@ using func_impl =
 struct func_info {
   func_impl func_;
   bool is_pure_;  // if true we can cache the result becasue result wouldn't change on 2nd evaluation
+  // Reads an entity's labels, properties or edges through `FunctionContext::view`; the planner orders it after writes.
+  bool reads_graph_{false};
 };
 
 using user_func = std::pair<func_impl, std::shared_ptr<procedure::Module>>;
@@ -90,6 +93,10 @@ auto NameToFunction(const std::string &function_name) -> std::variant<std::monos
 /// @param function_name The name of the function to check
 /// @return true if the function is a pure builtin function, false otherwise
 bool IsFunctionPure(std::string_view function_name);
+
+/// Whether a function reads graph state through `FunctionContext::view`. True for a function that is not built in,
+/// since a module function may read anything.
+bool FunctionReadsGraph(std::string_view function_name);
 
 // Returns the current hops counter if set, otherwise null.
 TypedValue GetHopsCounter(const TypedValue *args, int64_t nargs, const FunctionContext &ctx);

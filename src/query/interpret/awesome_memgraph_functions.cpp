@@ -2195,16 +2195,16 @@ auto BuiltinFunctions() -> boost::unordered_flat_map<std::string, func_info> con
       {"DESCRIPTION", func_info{.func_ = Description, .is_pure_ = false}},
 
       // Scalar functions
-      {"DEGREE", func_info{.func_ = Degree, .is_pure_ = true}},
-      {"INDEGREE", func_info{.func_ = InDegree, .is_pure_ = true}},
-      {"OUTDEGREE", func_info{.func_ = OutDegree, .is_pure_ = true}},
+      {"DEGREE", func_info{.func_ = Degree, .is_pure_ = true, .reads_graph_ = true}},
+      {"INDEGREE", func_info{.func_ = InDegree, .is_pure_ = true, .reads_graph_ = true}},
+      {"OUTDEGREE", func_info{.func_ = OutDegree, .is_pure_ = true, .reads_graph_ = true}},
       {"ENDNODE", func_info{.func_ = EndNode, .is_pure_ = true}},
       {"HEAD", func_info{.func_ = Head, .is_pure_ = true}},
       {kId, func_info{.func_ = Id, .is_pure_ = true}},
       {kElementId, func_info{.func_ = ElementId, .is_pure_ = true}},
       {"LAST", func_info{.func_ = Last, .is_pure_ = true}},
       {"NULLIF", func_info{.func_ = NullIf, .is_pure_ = true}},
-      {"PROPERTIES", func_info{.func_ = Properties, .is_pure_ = true}},
+      {"PROPERTIES", func_info{.func_ = Properties, .is_pure_ = true, .reads_graph_ = true}},
       {"RANDOMUUID", func_info{.func_ = RandomUuid, .is_pure_ = false}},
       {"SIZE", func_info{.func_ = Size, .is_pure_ = true}},
       {"LENGTH", func_info{.func_ = Size, .is_pure_ = true}},
@@ -2224,8 +2224,8 @@ auto BuiltinFunctions() -> boost::unordered_flat_map<std::string, func_info> con
       {"VALUETYPE", func_info{.func_ = ValueType, .is_pure_ = true}},
 
       // List, map functions
-      {"KEYS", func_info{.func_ = Keys, .is_pure_ = true}},
-      {"LABELS", func_info{.func_ = Labels, .is_pure_ = true}},
+      {"KEYS", func_info{.func_ = Keys, .is_pure_ = true, .reads_graph_ = true}},
+      {"LABELS", func_info{.func_ = Labels, .is_pure_ = true, .reads_graph_ = true}},
       {"NODES", func_info{.func_ = Nodes, .is_pure_ = true}},
       {"RANGE", func_info{.func_ = Range, .is_pure_ = true}},
       {"RELATIONSHIPS", func_info{.func_ = Relationships, .is_pure_ = true}},
@@ -2408,6 +2408,11 @@ bool IsFunctionPure(std::string_view function_name) {
   // This may change in the future when we have a mechanism to mark
   // user-provided functions as pure.
   return false;
+}
+
+bool FunctionReadsGraph(std::string_view function_name) {
+  auto const it = builtin_functions.find(utils::ToUpperCase(function_name));
+  return it == builtin_functions.end() || it->second.reads_graph_;
 }
 
 }  // namespace memgraph::query
