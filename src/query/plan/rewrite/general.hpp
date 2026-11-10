@@ -20,6 +20,7 @@
 #include <unordered_set>
 
 #include "query/frontend/ast/query/expression.hpp"
+#include "storage/v2/view.hpp"
 
 namespace memgraph::query {
 class AstStorage;
@@ -53,8 +54,10 @@ struct UnwoundMembershipList {
 /// too: an id scan coerces to an int64 id, and the property index compares
 /// numerics cross-type, so a collapsed value still matches what the raw list
 /// would.
+/// The Unwind reads @p view, the view of the scan it feeds.
 UnwoundMembershipList UnwindMembershipList(SymbolTable &symbol_table, AstStorage *ast_storage,
-                                           std::shared_ptr<LogicalOperator> input, Expression *list_expr);
+                                           std::shared_ptr<LogicalOperator> input, Expression *list_expr,
+                                           storage::View view);
 
 // Return the new root expression after removing the given expressions from the
 // given expression tree. This function does NOT modify the original expression tree;
