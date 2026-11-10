@@ -808,8 +808,9 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
     new_input = PlanMatching(match_ctx, std::move(new_input));
     new_input = ApplyNestedPatternComprehensions(
         std::move(new_input), matching.nested_pattern_comprehensions, symbol_table, pc_bound_symbols, view);
-    new_input = std::make_unique<Produce>(std::move(new_input), std::vector{matching.result_expr});
-    return new_input;
+    auto produce = std::make_unique<Produce>(std::move(new_input), std::vector{matching.result_expr});
+    produce->view_ = view;
+    return produce;
   }
 
   TPlanningContext *context_;
@@ -1168,7 +1169,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
     // Try to generate any filters even before the 1st match operator. This
     // optimizes the optional match which filters only on symbols bound in
     // regular match.
-    auto last_op = GenFilters(std::move(input_op), bound_symbols, filters, storage, symbol_table);
+    auto last_op = GenFilters(std::move(input_op), bound_symbols, filters, storage, symbol_table, match_context.view);
 
     last_op = HandleExpansions(std::move(last_op),
                                matching,
@@ -1357,7 +1358,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
         }
       }
 
-      last_op = GenFilters(std::move(last_op), bound_symbols, filters, storage, symbol_table);
+      last_op = GenFilters(std::move(last_op), bound_symbols, filters, storage, symbol_table, view);
 
       // we aggregate all the so far new symbols so we can test them in the next iteration against the new
       // expansion group
@@ -1487,9 +1488,9 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
       bound_symbols.insert(edge_symbol);
       bound_symbols.insert(node2_symbol);
 
-      last_op = GenFilters(std::move(last_op), bound_symbols, filters, storage, symbol_table);
+      last_op = GenFilters(std::move(last_op), bound_symbols, filters, storage, symbol_table, view);
       last_op = impl::GenNamedPaths(std::move(last_op), bound_symbols, named_paths);
-      last_op = GenFilters(std::move(last_op), bound_symbols, filters, storage, symbol_table);
+      last_op = GenFilters(std::move(last_op), bound_symbols, filters, storage, symbol_table, view);
 
       return last_op;
     }
@@ -1499,13 +1500,13 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
       last_op = std::make_unique<ScanAll>(std::move(last_op), node1_symbol, view);
       new_symbols.emplace_back(node1_symbol);
 
-      last_op = GenFilters(std::move(last_op), bound_symbols, filters, storage, symbol_table);
+      last_op = GenFilters(std::move(last_op), bound_symbols, filters, storage, symbol_table, view);
       last_op = impl::GenNamedPaths(std::move(last_op), bound_symbols, named_paths);
-      last_op = GenFilters(std::move(last_op), bound_symbols, filters, storage, symbol_table);
+      last_op = GenFilters(std::move(last_op), bound_symbols, filters, storage, symbol_table, view);
     } else if (!named_paths.empty()) {
-      last_op = GenFilters(std::move(last_op), bound_symbols, filters, storage, symbol_table);
+      last_op = GenFilters(std::move(last_op), bound_symbols, filters, storage, symbol_table, view);
       last_op = impl::GenNamedPaths(std::move(last_op), bound_symbols, named_paths);
-      last_op = GenFilters(std::move(last_op), bound_symbols, filters, storage, symbol_table);
+      last_op = GenFilters(std::move(last_op), bound_symbols, filters, storage, symbol_table, view);
     }
 
     if (expansion.edge) {
@@ -1528,8 +1529,10 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
         auto *is_node = storage.Create<LabelsTest>(identifier, std::vector<LabelIx>{});
         Filters node_filter;
         node_filter.SetFilters({FilterInfo{FilterInfo::Type::Node, is_node, {node1_symbol}}});
-        last_op = std::make_unique<Filter>(
+        auto filter = std::make_unique<Filter>(
             std::move(last_op), std::vector<std::shared_ptr<LogicalOperator>>{}, is_node, std::move(node_filter));
+        filter->view_ = view;
+        last_op = std::move(filter);
       }
     }
 
@@ -1677,9 +1680,9 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
 
     last_op = EnsureCyphermorphism(std::move(last_op), edge_symbol, matching, bound_symbols);
 
-    last_op = GenFilters(std::move(last_op), bound_symbols, filters, storage, symbol_table);
+    last_op = GenFilters(std::move(last_op), bound_symbols, filters, storage, symbol_table, view);
     last_op = impl::GenNamedPaths(std::move(last_op), bound_symbols, named_paths);
-    last_op = GenFilters(std::move(last_op), bound_symbols, filters, storage, symbol_table);
+    last_op = GenFilters(std::move(last_op), bound_symbols, filters, storage, symbol_table, view);
 
     return last_op;
   }
@@ -1885,9 +1888,11 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
     return std::make_unique<Cartesian>(std::move(left), left_symbols, std::move(right), right_symbols);
   }
 
+  /// The filters of a matching read the matching's view, as its scans and expansions do.
   std::unique_ptr<LogicalOperator> GenFilters(std::unique_ptr<LogicalOperator> last_op,
                                               std::unordered_set<Symbol> &bound_symbols, Filters &filters,
-                                              AstStorage &storage, const SymbolTable &symbol_table) {
+                                              AstStorage &storage, const SymbolTable &symbol_table,
+                                              storage::View view) {
     auto pattern_filters = ExtractPatternFilters(filters, symbol_table, storage, bound_symbols);
     auto *filter_expr = impl::ExtractFilters(bound_symbols, filters, storage);
 
@@ -1895,8 +1900,10 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
       filter_expr = CompactFilters(filter_expr, storage);  // Can only compact; not delete the whole expression
                                                            // Could do in the future when we have parse-time constants
       auto operator_filters = Filters::FromExpression(filter_expr, symbol_table, storage);
-      last_op = std::make_unique<Filter>(
+      auto filter = std::make_unique<Filter>(
           std::move(last_op), std::move(pattern_filters), filter_expr, std::move(operator_filters));
+      filter->view_ = view;
+      last_op = std::move(filter);
     }
     return last_op;
   }
@@ -1987,7 +1994,9 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
                                storage::View::OLD);
     last_op = ApplyNestedPatternComprehensions(
         std::move(last_op), matching.nested_pattern_comprehensions, symbol_table, bound_symbols, storage::View::OLD);
-    last_op = std::make_unique<Produce>(std::move(last_op), std::vector{matching.result_expr});
+    auto produce = std::make_unique<Produce>(std::move(last_op), std::vector{matching.result_expr});
+    produce->view_ = storage::View::OLD;
+    last_op = std::move(produce);
     auto list_collection_symbols = last_op->ModifiedSymbols(symbol_table);
     last_op = std::make_unique<RollUpApply>(
         std::make_unique<Once>(), std::move(last_op), list_collection_symbols, matching.result_symbol, true);
