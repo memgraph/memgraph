@@ -20,12 +20,13 @@
 #include "storage/v2/view.hpp"
 #include "utils/small_vector.hpp"
 
-#include <boost/unordered/unordered_flat_map.hpp>
-#include "absl/hash/hash.h"
-
 #include <gflags/gflags.h>
+#include <map>
+#include <memory>
+#include <optional>
+#include <span>
 #include <tuple>
-#include "utils/small_vector.hpp"
+#include <vector>
 
 DECLARE_uint64(delta_chain_cache_threshold);
 
@@ -49,10 +50,13 @@ struct Transaction;
  * - transaction_id
  * - command_id
  * - only for View::OLD
+ *
+ * The maps are allocated on the first store, so a transaction that never caches
+ * carries a single null pointer.
  */
 struct VertexInfoCache final {
-  VertexInfoCache() = default;
-  ~VertexInfoCache() = default;
+  VertexInfoCache();
+  ~VertexInfoCache();
 
   // By design would be a mistake to copy the cache
   VertexInfoCache(VertexInfoCache const &) = delete;
@@ -119,50 +123,11 @@ struct VertexInfoCache final {
   void Clear();
 
  private:
-  /// Note: not a tuple because need a canonical form for the edge types
-  struct EdgeKey {
-    EdgeKey(Vertex const *src_vertex, Vertex const *dst_vertex, std::vector<EdgeTypeId> edge_types);
+  struct EdgeKey;
+  struct Caches;
+  struct Impl;
 
-    friend bool operator==(EdgeKey const &, EdgeKey const &) = default;
-
-    friend bool operator==(EdgeKey const &lhs, std::tuple<Vertex const *, EdgeTypeId> const &rhs) {
-      return lhs.src_vertex_ == std::get<0>(rhs) && std::ranges::contains(lhs.edge_types_, std::get<1>(rhs));
-    }
-
-    template <typename H>
-    friend H AbslHashValue(H h, EdgeKey const &key) {
-      return H::combine(std::move(h), key.src_vertex_, key.dst_vertex_, key.edge_types_);
-    }
-
-   private:
-    Vertex const *src_vertex_;
-    Vertex const *dst_vertex_;
-    std::vector<EdgeTypeId> edge_types_;  // TODO: use a SBO set type
-  };
-
-  struct Caches {
-    void Clear();
-
-    template <typename K, typename V>
-    using map = boost::unordered_flat_map<K, V, absl::Hash<K>>;
-
-    // TODO: Why are exists + deleted separate, is there a good reason?
-    map<Vertex const *, bool> existsCache_;
-    map<Vertex const *, bool> deletedCache_;
-    map<std::tuple<Vertex const *, LabelId>, bool> hasLabelCache_;
-    map<std::tuple<Vertex const *, PropertyId>, PropertyValue> propertyValueCache_;
-    map<Vertex const *, VertexKey> labelCache_;
-    map<Vertex const *, std::map<PropertyId, PropertyValue>> propertiesCache_;
-    // TODO: nest keys (edge_types) -> (src+dst) -> EdgeStore
-    map<EdgeKey, EdgeStore> inEdgesCache_;
-    // TODO: nest keys (edge_types) -> (src+dst) -> EdgeStore
-    map<EdgeKey, EdgeStore> outEdgesCache_;
-    map<Vertex const *, size_t> inDegreeCache_;
-    map<Vertex const *, size_t> outDegreeCache_;
-  };
-
-  Caches old_;
-  Caches new_;
+  std::unique_ptr<Impl> impl_;
 
   // Helpers
   template <typename Ret, typename Func, typename... Keys>
