@@ -12,12 +12,15 @@
 // Plans for reads and writes in one query: where the planner puts command barriers, which view each read uses,
 // and which rewrites must not move a read across a write.
 
+#include <map>
 #include <memory>
 #include <string>
 #include <string_view>
 #include <type_traits>
 #include <vector>
 
+#include <fmt/format.h>
+#include <fmt/ranges.h>
 #include <gtest/gtest.h>
 
 #include "query/frontend/ast/ast.hpp"
@@ -858,6 +861,195 @@ TEST_F(WriteVisibilityPlan, WritesAgreeWithRwCheckerAndQueryParts) {
     ++checked;
   }
   EXPECT_GT(checked, 150);
+}
+
+// ---------------------------------------------------------------- each write fences a filter on its own
+
+// A CALL ... YIELD WHERE is the one Filter that sits directly on a write, with no WITH Accumulate between them, so the
+// write's own fence decides whether a rewriter moves the filter into a scan below it.
+TEST_F(WriteVisibilityPlan, EachWriteKeepsAYieldWhereAboveIt) {
+  LabelPropertyIndex("Q", "x");
+  for (auto const *write : {"SET a.x = 5",
+                            "SET a += {x: 5}",
+                            "SET a = {x: 5}",
+                            "SET a:L",
+                            "REMOVE a.x",
+                            "REMOVE a:L",
+                            "CREATE (:Z)",
+                            "CREATE (a)-[:R]->(:Z)",
+                            "MERGE (:Z)",
+                            "DETACH DELETE a",
+                            "FOREACH (i IN [1] | SET a.x = i)"}) {
+    auto &plan =
+        Plan(fmt::format("MATCH (a:Q) {} CALL mg.procedures() YIELD name WHERE a.x = 5 RETURN count(*) AS c", write));
+    EXPECT_TRUE(Collect<ScanAllByLabelProperties>(plan).empty()) << write;
+  }
+  // A read procedure is no fence.
+  auto &plan = Plan("MATCH (a:Q) CALL mg.procedures() YIELD name WHERE a.x = 5 RETURN count(*) AS c");
+  EXPECT_EQ(Collect<ScanAllByLabelProperties>(plan).size(), 1);
+}
+
+TEST_F(WriteVisibilityPlan, EachWriteKeepsAYieldWhereOutOfAHashJoin) {
+  for (auto const *write : {"SET a.x = 5",
+                            "SET a += {x: 5}",
+                            "SET a:L",
+                            "REMOVE a.x",
+                            "CREATE (:Z)",
+                            "MERGE (:Z)",
+                            "DETACH DELETE a",
+                            "FOREACH (i IN [1] | SET a.x = i)"}) {
+    auto &plan = Plan(fmt::format(
+        "MATCH (a:Q), (b:P) {} CALL mg.procedures() YIELD name WHERE a.x = b.y RETURN count(*) AS c", write));
+    EXPECT_TRUE(Collect<HashJoin>(plan).empty()) << write;
+  }
+  auto &plan = Plan("MATCH (a:Q), (b:P) CALL mg.procedures() YIELD name WHERE a.x = b.y RETURN count(*) AS c");
+  EXPECT_EQ(Collect<HashJoin>(plan).size(), 1);
+}
+
+TEST_F(WriteVisibilityPlan, EachWriteKeepsAYieldWhereOutOfAnEdgeIndexSeek) {
+  auto const edge_type = dba_.EdgeType("E");
+  dba_.SetIndexCount(edge_type, 1);
+  dba_.SetIndexCount(edge_type, dba_.Property("w"), 1);
+  for (auto const *write : {"SET r.w = 5",
+                            "SET r += {w: 5}",
+                            "REMOVE r.w",
+                            "SET n:L",
+                            "CREATE (:Z)",
+                            "MERGE (:Z)",
+                            "DELETE r",
+                            "FOREACH (i IN [1] | SET r.w = i)"}) {
+    auto &plan = Plan(fmt::format(
+        "MATCH (n)-[r:E]->() {} CALL mg.procedures() YIELD name WHERE r.w = 5 RETURN count(*) AS c", write));
+    EXPECT_TRUE(Collect<ScanAllByEdgeTypeProperty>(plan).empty()) << write;
+  }
+  auto &plan = Plan("MATCH (n)-[r:E]->() CALL mg.procedures() YIELD name WHERE r.w = 5 RETURN count(*) AS c");
+  EXPECT_EQ(Collect<ScanAllByEdgeTypeProperty>(plan).size(), 1);
+}
+
+// ---------------------------------------------------------------- every reader of a writing CALL body reads View::NEW
+
+/// Counts, per operator type, the operators under every Apply of @p plan, and names each that does not read View::NEW.
+template <class... TOps>
+void CheckBodyViews(LogicalOperator &plan, std::map<std::string, int> &counts, std::vector<std::string> &old_readers) {
+  for (auto *apply : Collect<Apply>(plan)) {
+    (
+        [&] {
+          for (auto *op : Collect<TOps>(*apply->subquery_)) {
+            std::string const name{TOps::kType.name};
+            ++counts[name];
+            if (op->view_ != View::NEW) old_readers.push_back(name);
+          }
+        }(),
+        ...);
+  }
+}
+
+// After the rewriters too: a rewriter that builds an operator must copy the view of what it replaces.
+TEST_F(WriteVisibilityPlan, EveryReaderOfAWritingCallBodyReadsNew) {
+  LabelPropertyIndex("Q", "x");
+  dba_.SetIndexCount(dba_.Label("L"), 1);
+  dba_.SetIndexCount(dba_.EdgeType("E"), 1);
+  std::map<std::string, int> counts;
+  std::vector<std::string> old_readers;
+  for (auto const *body : {
+           "MATCH (n:Q {x: 1}) RETURN n.x AS v",
+           "MATCH (n:Q) WHERE n.x IN [1, 2] RETURN n.x AS v",
+           "MATCH (n:L) RETURN n.x AS v",
+           "MATCH (n) WHERE id(n) = 1 RETURN n.x AS v",
+           "MATCH ()-[r:E]->() RETURN r.w AS v",
+           "MATCH (a:P), (b:K) WHERE a.x = b.y RETURN a.x AS v",
+           "MATCH (n:P)-[:R]->(m) RETURN m.x AS v",
+           "MATCH (n:P)-[*1..2]->(m) RETURN count(m) AS v",
+           "MATCH (n:P) WITH n ORDER BY n.x RETURN n.x AS v",
+           "MATCH (n:P) RETURN n.x + n.y + n.z AS v",
+           "CALL mg.procedures() YIELD name RETURN name AS v",
+           "UNWIND [1, 2] AS u RETURN u AS v",
+       }) {
+    auto &plan = Plan(fmt::format("UNWIND [1, 2] AS i CALL (i) {{ CREATE (:N {{i: i}}) WITH i {} }} RETURN v", body));
+    CheckBodyViews<ScanAll,
+                   ScanAllByLabel,
+                   ScanAllByLabelProperties,
+                   ScanAllById,
+                   ScanAllByEdgeType,
+                   Expand,
+                   ExpandVariable,
+                   Filter,
+                   Produce,
+                   Aggregate,
+                   OrderBy,
+                   memgraph::query::plan::Unwind,
+                   HashJoin,
+                   CacheProperties,
+                   CreateNode,
+                   memgraph::query::plan::CallProcedure>(plan, counts, old_readers);
+  }
+  EXPECT_TRUE(old_readers.empty()) << fmt::format("{}", fmt::join(old_readers, ", "));
+  for (auto const *name : {"ScanAll",
+                           "ScanAllByLabel",
+                           "ScanAllByLabelProperties",
+                           "ScanAllById",
+                           "ScanAllByEdgeType",
+                           "Expand",
+                           "ExpandVariable",
+                           "Filter",
+                           "Produce",
+                           "Aggregate",
+                           "OrderBy",
+                           "Unwind",
+                           "HashJoin",
+                           "CacheProperties",
+                           "CreateNode",
+                           "CallProcedure"}) {
+    EXPECT_GT(counts[name], 0) << name;
+  }
+}
+
+// ---------------------------------------------------------------- read and write sets of single arms
+
+TEST_F(WriteVisibilityPlan, ExpressionReadsOfLabelsAndKeys) {
+  EXPECT_TRUE(Access("MATCH (n) RETURN n{.*} AS m").reads.any_property);
+  EXPECT_TRUE(Access("MATCH (n) RETURN n['x'] AS v").reads.properties.contains("x"));
+  EXPECT_TRUE(Access("MATCH (n) RETURN n[$k] AS v").reads.any_property);
+  EXPECT_TRUE(Access("RETURN [1, 2][0] AS v").reads.Empty());
+  EXPECT_TRUE(Access("MATCH (n) RETURN n:A AS v").reads.labels.contains("A"));
+  EXPECT_TRUE(Access("MATCH (n) SET n += $m").writes.any_property);
+}
+
+TEST_F(WriteVisibilityPlan, DeleteWritesEverything) {
+  EXPECT_TRUE(Access("MATCH (n) DETACH DELETE n").writes.everything);
+}
+
+TEST_F(WriteVisibilityPlan, ConflictOnEdgeTypeAlone) {
+  auto const create_t = Access("CREATE (x)-[y:T]->(z)").writes;
+  EXPECT_TRUE(Conflicts(Access("MATCH (p:A)-[e:T]->(q:A) RETURN 1 AS one").reads, create_t));
+  EXPECT_FALSE(Conflicts(Access("MATCH (p:A)-[e:U]->(q:A) RETURN 1 AS one").reads, create_t));
+}
+
+#ifdef MG_ENTERPRISE
+// The access check of a label write reads the node's labels: it waits for a label write, and only for that.
+TEST_F(WriteVisibilityPlan, LabelWriteAccessCheckConflictsOnlyWithALabelWrite) {
+  auto const reads = Access("MATCH (n:A) SET n:B").reads;
+  EXPECT_TRUE(reads.access_check_labels);
+  EXPECT_TRUE(Conflicts(reads, Access("MATCH (m:C) SET m:D").writes));
+  EXPECT_FALSE(Conflicts(Access("MATCH (n:A) SET n:B").reads, Access("MATCH (m:C) SET m.x = 1").writes));
+}
+#endif
+
+TEST_F(WriteVisibilityPlan, NoDrainInsideOneSet) {
+  EXPECT_EQ(Chain(Plan("MATCH (a) SET a.y = a.x, a.x = 1")),
+            (Names{"EmptyResult", "SetProperty", "SetProperty", "ScanAll", "Once"}));
+}
+
+// A result no RETURN names, as in a UNION, may hold the fresh node: the scalar that drains nothing alone drains here.
+TEST_F(WriteVisibilityPlan, AnUnnamedCallResultIsFresh) {
+  EXPECT_TRUE(
+      Collect<Accumulate>(Plan("MATCH (o:O) UNWIND [1, 2] AS i MERGE (n:N {id: i}) CALL (n) { RETURN n.id AS j } "
+                               "CREATE (:M {v: o.x, j: j}) SET o.x = i"))
+          .empty());
+  EXPECT_FALSE(
+      Collect<Accumulate>(Plan("MATCH (o:O) UNWIND [1, 2] AS i MERGE (n:N {id: i}) CALL (n) { RETURN n.id AS j "
+                               "UNION RETURN n.id AS j } CREATE (:M {v: o.x, j: j}) SET o.x = i"))
+          .empty());
 }
 
 }  // namespace
