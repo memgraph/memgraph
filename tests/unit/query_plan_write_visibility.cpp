@@ -1027,6 +1027,16 @@ TEST_F(WriteVisibilityPlan, EveryReaderOfAWritingCallBodyReadsNew) {
   }
 }
 
+// An EXISTS branch planned after a write reads View::NEW in its projections too, not only in its MATCH.
+TEST_F(WriteVisibilityPlan, AnExistsBranchAfterAWriteProjectsAtViewNew) {
+  auto &plan = Plan(
+      "MATCH (a:A) SET a.x = 1, a.c = size([(a)-->(b) WHERE EXISTS { MATCH (b) WITH b.x AS bx WHERE bx = 1 RETURN 1 } "
+      "| b])");
+  auto const produces = Collect<Produce>(plan);
+  ASSERT_FALSE(produces.empty());
+  for (auto const *produce : produces) EXPECT_EQ(produce->view_, View::NEW);
+}
+
 // ---------------------------------------------------------------- read and write sets of single arms
 
 TEST_F(WriteVisibilityPlan, ExpressionReadsOfLabelsAndKeys) {

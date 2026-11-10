@@ -2573,3 +2573,18 @@ Feature: Write visibility inside one query
         Then the result should be:
             | m        |
             | {x: 1} |
+
+    Scenario: An EXISTS in a SET reads earlier rows the same way through a WITH and through a WHERE
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (t:WvE {id: 1, x: 0}), (s:WvE {id: 2, x: 0}), (s)-[:R]->(t)
+            """
+        When executing query:
+            """
+            MATCH (a:WvE) WITH a ORDER BY a.id SET a.x = 1, a.c = size([(a)-->(b) WHERE EXISTS { MATCH (b) WITH b.x AS bx WHERE bx = 1 RETURN 1 } | b]), a.d = size([(a)-->(b) WHERE EXISTS { MATCH (b) WHERE b.x = 1 } | b]) RETURN a.id AS id, a.c AS c, a.d AS d
+            """
+        Then the result should be:
+            | id | c | d |
+            | 1  | 0 | 0 |
+            | 2  | 1 | 1 |

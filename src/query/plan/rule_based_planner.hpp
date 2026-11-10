@@ -878,15 +878,18 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
   }
 
   /// Whether a clause's reads and fold branches read View::NEW: one that must see its own earlier rows, every clause
-  /// of a writing CALL body, and below the root one after a write. At the root a read sees earlier clauses through a
-  /// barrier and View::OLD. Under batching and in a read-only body no barrier is planned, so only the folds use it.
+  /// of a writing CALL body or of an EXISTS branch spliced after a write, and below the root one after a write. At the
+  /// root a read sees earlier clauses through a barrier and View::OLD. Under batching and in a read-only body no
+  /// barrier is planned, so only the folds use it.
   bool ClauseReadsNew(const Clause &clause, bool after_write) const {
-    return ReadsNewView(clause) || read_scope_ == ReadScope::kWritingTree ||
+    return ReadsNewView(clause) || read_scope_ == ReadScope::kWritingTree || subquery_branch_after_write_ ||
            (read_scope_ != ReadScope::kRoot && after_write);
   }
 
-  /// The view of a projection, a CREATE map or a WHEN predicate: View::OLD at the root and in a read-only CALL body.
+  /// The view of a projection, a CREATE map or a WHEN predicate: View::OLD at the root and in a read-only CALL body,
+  /// unless an EXISTS branch spliced after a write is being planned, which reads View::NEW as its MATCH does.
   storage::View ScopeView() const {
+    if (subquery_branch_after_write_) return storage::View::NEW;
     return read_scope_ == ReadScope::kRoot || read_scope_ == ReadScope::kReadOnlyTree ? storage::View::OLD
                                                                                       : storage::View::NEW;
   }
