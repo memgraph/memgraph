@@ -199,6 +199,31 @@ TypedValue EvaluateConfigMapToTypedValue(std::unordered_map<Expression *, Expres
   return {std::move(result), memory};
 }
 
+// A system query not named here is treated as a write.
+bool IsSystemRead(memgraph::query::Query *query) {
+  using memgraph::query::AuthQuery;
+  using memgraph::query::ParameterQuery;
+  if (auto const *auth_query = memgraph::utils::Downcast<AuthQuery>(query)) {
+    switch (auth_query->action_) {
+      case AuthQuery::Action::SHOW_ROLES:
+      case AuthQuery::Action::SHOW_CURRENT_USER:
+      case AuthQuery::Action::SHOW_CURRENT_ROLE:
+      case AuthQuery::Action::SHOW_USERS:
+      case AuthQuery::Action::SHOW_PRIVILEGES:
+      case AuthQuery::Action::SHOW_ROLE_FOR_USER:
+      case AuthQuery::Action::SHOW_USERS_FOR_ROLE:
+      case AuthQuery::Action::SHOW_DATABASE_PRIVILEGES:
+        return true;
+      default:
+        return false;
+    }
+  }
+  if (auto const *parameter_query = memgraph::utils::Downcast<ParameterQuery>(query)) {
+    return parameter_query->action_ == ParameterQuery::Action::SHOW_PARAMETERS;
+  }
+  return false;
+}
+
 }  // namespace
 
 // Accessors need to be able to throw if unable to gain access. Otherwise there could be a deadlock, where some queries
@@ -10848,6 +10873,7 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
       }
       return system_txn;
     });
+    bool const system_write = system_transaction && !IsSystemRead(parsed_query.query);
 
 #ifdef MG_ENTERPRISE
     // TODO(antoniofilipovic) extend to cover Lab queries
@@ -11317,6 +11343,22 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     }
     query_execution->summary["db"] = *query_execution->prepared_query->db;
 
+    // The first PULL makes the write and replicates it inside one pass of the gate, so a demotion cannot land between
+    // them. Later PULLs only stream the rows.
+    if (system_write) {
+      query_execution->prepared_query->query_handler =
+          [this, handler = std::move(query_execution->prepared_query->query_handler), committed = false](
+              AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
+        if (committed) return handler(stream, n);
+        auto const pass = interpreter_context_->system_->MainWrites().TryEnter();
+        if (!pass) throw QueryException("Cannot commit because instance is not main anymore.");
+        auto result = handler(stream, n);
+        CommitSystemTransaction();
+        committed = true;
+        return result;
+      };
+    }
+
     // prepare is done, move system txn guard to be owned by interpreter
     system_transaction_ = std::move(system_transaction);
     return {.headers = query_execution->prepared_query->header,
@@ -11644,7 +11686,7 @@ void RunTriggersAfterCommit(dbms::DatabaseAccess db_acc, InterpreterContext *int
 // An auth transaction buffered its writes and its replication actions instead of applying them per statement.
 // Flush it here, under a system transaction created only now, so the system mutex covers the flush rather than
 // the whole time the user held the transaction open.
-void Interpreter::CommitAuthTransaction() {
+auto Interpreter::CommitAuthTransaction() -> system::MainWriteGate::Pass {
   // Covers every exit of this function, a throw included. On a throw it also drops `system_transaction_`, which
   // would otherwise hold the system mutex until the session next aborts, refusing every other session's
   // system queries meanwhile.
@@ -11746,17 +11788,16 @@ void Interpreter::CommitAuthTransaction() {
     throw QueryRuntimeException(e.what());
   }
 #endif
-  // The role is checked only when a statement is prepared, and an auth transaction holds no accessor for a
-  // demotion to wait on, so it is checked again here. The lock is taken after the system transaction, in the
-  // order SET REPLICATION ROLE takes them. A demotion takes it with TryLock, so it fails rather than waits
-  // while the check runs. The lock is released before the system transaction commits, which needs the write
-  // lock, so a demotion can still land between the two; the change is then durable here and not replicated,
-  // as it is for an autocommit system query.
+  // The role is checked only when a statement is prepared, so it is checked again here. SET REPLICATION ROLE holds
+  // the system transaction, so it cannot change the role from here on. An HA demotion takes no system transaction;
+  // it closes the gate and waits for the returned pass, which the caller holds until the flush is replicated.
+  auto pass = system::MainWriteGate::Pass{};
   std::optional<decltype(interpreter_context_->repl_state->ReadLock())> locked_repl_state;
   if (!on_coordinator && auth_transaction_->HasWrites()) {
+    pass = interpreter_context_->system_->MainWrites().TryEnter();
     locked_repl_state.emplace(interpreter_context_->repl_state->ReadLock());
   }
-  bool const demoted = locked_repl_state && !(*locked_repl_state)->IsMain();
+  bool const demoted = locked_repl_state && (!pass || !(*locked_repl_state)->IsMain());
   bool const committed =
       !demoted && interpreter_context_->auth->CommitTransaction(*auth_transaction_, system_transaction_ptr());
   locked_repl_state.reset();
@@ -11764,6 +11805,31 @@ void Interpreter::CommitAuthTransaction() {
     if (demoted) throw QueryException("Cannot commit because instance is not main anymore.");
     throw TransactionSerializationException();
   }
+  return pass;
+}
+
+void Interpreter::CommitSystemTransaction() {
+  auto const main_commit = [&](replication::RoleMainData &mainData) {
+  // With valid enterprise license: replicate all. Without license: only parameter-only transactions replicate.
+#ifdef MG_ENTERPRISE
+    if (license::global_license_checker.IsEnterpriseValidFast() || system_transaction_->CanReplicateInCommunity()) {
+      return system_transaction_->Commit(memgraph::system::DoReplication{mainData});
+    }
+    return system_transaction_->Commit(memgraph::system::DoNothing{});
+#else
+    return system_transaction_->Commit(memgraph::system::DoReplication{mainData});
+#endif
+  };
+
+  auto const replica_commit = [&](replication::RoleReplicaData &) {
+    return system_transaction_->Commit(memgraph::system::DoNothing{});
+  };
+
+  auto const commit_method = utils::Overloaded{main_commit, replica_commit};
+  [[maybe_unused]] auto sync_result =
+      std::visit(commit_method, interpreter_context_->repl_state->Lock()->ReplicationData());
+  // TODO: something with sync_result
+  system_transaction_.reset();
 }
 
 void Interpreter::Commit() {
@@ -11788,7 +11854,7 @@ void Interpreter::Commit() {
   // We should document clearly that all results should be pulled to complete
   // a query.
   if (!current_db_.db_transactional_accessor_ || !current_db_.db_acc_) {
-    if (auth_transaction_) CommitAuthTransaction();
+    auto const main_write = auth_transaction_ ? CommitAuthTransaction() : system::MainWriteGate::Pass{};
 
     // No database nor db transaction; check for system transaction
     if (!system_transaction_) {
@@ -11828,26 +11894,7 @@ void Interpreter::Commit() {
       current_transaction_.reset();
     });
 
-    auto const main_commit = [&](replication::RoleMainData &mainData) {
-    // With valid enterprise license: replicate all. Without license: only parameter-only transactions replicate.
-#ifdef MG_ENTERPRISE
-      if (license::global_license_checker.IsEnterpriseValidFast() || system_transaction_->CanReplicateInCommunity()) {
-        return system_transaction_->Commit(memgraph::system::DoReplication{mainData});
-      }
-      return system_transaction_->Commit(memgraph::system::DoNothing{});
-#else
-      return system_transaction_->Commit(memgraph::system::DoReplication{mainData});
-#endif
-    };
-
-    auto const replica_commit = [&](replication::RoleReplicaData &) {
-      return system_transaction_->Commit(memgraph::system::DoNothing{});
-    };
-
-    auto const commit_method = utils::Overloaded{main_commit, replica_commit};
-    [[maybe_unused]] auto sync_result =
-        std::visit(commit_method, interpreter_context_->repl_state->Lock()->ReplicationData());
-    // TODO: something with sync_result
+    CommitSystemTransaction();
     return;
   }
   auto *db = current_db_.db_acc_->get();

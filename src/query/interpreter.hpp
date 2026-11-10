@@ -31,6 +31,7 @@
 #include "query/plan_v2/frontend/query_planner_context.hpp"
 #include "query/stream.hpp"
 #include "query/trigger_context.hpp"
+#include "system/main_write_gate.hpp"
 #include "system/transaction.hpp"
 #include "utils/event_trigger.hpp"
 #include "utils/memory.hpp"
@@ -807,7 +808,8 @@ class Interpreter final {
 
   PreparedQuery PrepareTransactionQuery(Interpreter::TransactionQuery tx_query_enum, QueryExtras const &extras = {});
   void Commit();
-  void CommitAuthTransaction();
+  auto CommitAuthTransaction() -> system::MainWriteGate::Pass;
+  void CommitSystemTransaction();
   // Resets tx-tracking left ACTIVE by SetupInterpreterTransaction when NOTHING skips Commit()/Abort()'s cleanup.
   void FinishAutocommitNothing();
   void AdvanceCommand();
