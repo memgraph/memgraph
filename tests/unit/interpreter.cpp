@@ -654,8 +654,9 @@ void AddBatchedProbe(ProbeModule &module, const char *name, BatchedProbe *probe)
 }
 
 // Probe module functions that read through the module API:
-// - `getx(v)`: property `x` of the vertex `v`;
-// - `startx(es)`: property `x` of the start node of the first edge in the list `es`.
+// - `getx(v)` and `lastx(a, v)`: property `x` of the vertex `v`;
+// - `startx(es)`: property `x` of the start node of the first edge in the list `es`;
+// - `indegree(a, v)`: the in-degree of the vertex `v`.
 mgp_vertex *LastVertexArg(mgp_list *args) {
   size_t size{0};
   mgp_value *arg{nullptr};
@@ -696,6 +697,20 @@ void ReturnX(mgp_list *args, mgp_func_context * /*ctx*/, mgp_func_result *result
   mgp_value_destroy(x);
 }
 
+void ReturnInDegree(mgp_list *args, mgp_func_context * /*ctx*/, mgp_func_result *result, mgp_memory *memory) {
+  mgp_vertex *vertex = LastVertexArg(args);
+  size_t degree{0};
+  mgp_value *value{nullptr};
+  if (!vertex || mgp_vertex_get_in_degree(vertex, &degree) != mgp_error::MGP_ERROR_NO_ERROR ||
+      mgp_value_make_int(static_cast<int64_t>(degree), memory, &value) != mgp_error::MGP_ERROR_NO_ERROR) {
+    MG_ASSERT(mgp_func_result_set_error_msg(result, "could not read the degree", memory) ==
+              mgp_error::MGP_ERROR_NO_ERROR);
+    return;
+  }
+  MG_ASSERT(mgp_func_result_set_value(result, value, memory) == mgp_error::MGP_ERROR_NO_ERROR);
+  mgp_value_destroy(value);
+}
+
 void AddFunction(ProbeModule &module, const char *name, mgp_func_cb callback, int arity) {
   mgp_func func(name, callback, memgraph::utils::NewDeleteResource());
   mgp_type *any_type{nullptr};
@@ -709,7 +724,9 @@ void AddFunction(ProbeModule &module, const char *name, mgp_func_cb callback, in
 
 void AddProbeFunctions(ProbeModule &module) {
   AddFunction(module, "getx", ReturnX<LastVertexArg>, 1);
+  AddFunction(module, "lastx", ReturnX<LastVertexArg>, 2);
   AddFunction(module, "startx", ReturnX<FirstEdgeStart>, 1);
+  AddFunction(module, "indegree", ReturnInDegree, 2);
 }
 
 }  // namespace
@@ -886,6 +903,29 @@ TEST_F(ModuleFunctionTest, ReadsThroughAnEdgeListAfterAnEarlierWrite) {
   for (const auto &row : stream.GetResults()) {
     ASSERT_EQ(row[0].type(), memgraph::communication::bolt::Value::Type::Int);
     EXPECT_EQ(row[0].ValueInt(), 2);
+  }
+}
+
+// A node the same CREATE made does not make the function read its other arguments at View::NEW: they still do not see
+// a later clause's write, nor the same CREATE's earlier rows.
+TEST_F(ModuleFunctionTest, ReadsOtherArgumentsAtTheClausesView) {
+  RegisterProbeFunctions();
+  Interpret("CREATE (:O)");
+  {
+    auto stream = Interpret(
+        "MATCH (o:O) UNWIND [1, 2] AS i CREATE (a:A {i: i}), (c:C {i: i, v: probe_fn.lastx(a, o)}) SET o.x = i "
+        "RETURN c.v AS v ORDER BY c.i");
+    ASSERT_EQ(stream.GetResults().size(), 2U);
+    EXPECT_EQ(stream.GetResults()[0][0].type(), memgraph::communication::bolt::Value::Type::Null);
+    EXPECT_EQ(stream.GetResults()[1][0].type(), memgraph::communication::bolt::Value::Type::Null);
+  }
+  {
+    auto stream = Interpret(
+        "MATCH (o:O) UNWIND [1, 2] AS i CREATE (a:D {i: i})-[:R]->(o), (c:E {i: i, d: probe_fn.indegree(a, o)}) "
+        "RETURN c.d AS d ORDER BY c.i");
+    ASSERT_EQ(stream.GetResults().size(), 2U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 0);
+    EXPECT_EQ(stream.GetResults()[1][0].ValueInt(), 0);
   }
 }
 

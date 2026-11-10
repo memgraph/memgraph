@@ -36,6 +36,7 @@
 #include "query/procedure/cypher_types.hpp"
 #include "query/procedure/fmt.hpp"
 #include "query/procedure/mg_procedure_helpers.hpp"
+#include "query/read_created.hpp"
 #include "query/stream/common.hpp"
 #include "query/string_helpers.hpp"
 #include "query/typed_value.hpp"
@@ -2355,6 +2356,16 @@ mgp_error mgp_vertex_get_id(mgp_vertex *v, mgp_vertex_id *result) {
       result);
 }
 
+namespace {
+/// Reads a real vertex at its graph's view; one this command created reads View::NEW (`ReadSeeingCreated`).
+template <class TRead>
+auto ReadVertex(mgp_vertex *v, TRead &&read) {
+  auto view = v->graph->view;
+  return memgraph::query::ReadSeeingCreated(
+      view, [&](memgraph::storage::View at) { return v->VisitReal([&](auto &impl) { return read(impl, at); }); });
+}
+}  // namespace
+
 mgp_error mgp_vertex_get_in_degree(struct mgp_vertex *v, size_t *result) {
   return WrapExceptions(
       [v]() -> size_t {
@@ -2362,7 +2373,7 @@ mgp_error mgp_vertex_get_in_degree(struct mgp_vertex *v, size_t *result) {
           auto *vg = std::get<memgraph::query::VirtualGraphDbAccessor *>(v->graph->CheckedImpl())->getGraph();
           return vg->InEdges(v->GetVirtualNode().Gid()).size();
         }
-        auto maybe_in_degree = v->VisitReal([v](const auto &impl) { return impl.InDegree(v->graph->view); });
+        auto maybe_in_degree = ReadVertex(v, [](const auto &impl, auto view) { return impl.InDegree(view); });
         if (!maybe_in_degree) ThrowOnReadError(maybe_in_degree.error(), "get the degree of", ObjectKind::Vertex);
         return *maybe_in_degree;
       },
@@ -2376,7 +2387,7 @@ mgp_error mgp_vertex_get_out_degree(struct mgp_vertex *v, size_t *result) {
           auto *vg = std::get<memgraph::query::VirtualGraphDbAccessor *>(v->graph->CheckedImpl())->getGraph();
           return vg->OutEdges(v->GetVirtualNode().Gid()).size();
         }
-        auto maybe_out_degree = v->VisitReal([v](const auto &impl) { return impl.OutDegree(v->graph->view); });
+        auto maybe_out_degree = ReadVertex(v, [](const auto &impl, auto view) { return impl.OutDegree(view); });
         if (!maybe_out_degree) ThrowOnReadError(maybe_out_degree.error(), "get the degree of", ObjectKind::Vertex);
         return *maybe_out_degree;
       },
@@ -2806,7 +2817,7 @@ mgp_error mgp_vertex_labels_count(mgp_vertex *v, size_t *result) {
         if (v->IsVirtual()) {
           return v->GetVirtualNode().Labels().size();
         }
-        const auto maybe_labels = v->VisitReal([v](const auto &impl) { return impl.Labels(v->graph->view); });
+        const auto maybe_labels = ReadVertex(v, [](const auto &impl, auto view) { return impl.Labels(view); });
         if (!maybe_labels) ThrowOnReadError(maybe_labels.error(), "get the labels of", ObjectKind::Vertex);
         return maybe_labels->size();
       },
@@ -2823,7 +2834,7 @@ mgp_error mgp_vertex_label_at(mgp_vertex *v, size_t i, mgp_label *result) {
           }
           return labels[i].c_str();
         }
-        auto maybe_labels = v->VisitReal([v](const auto &impl) { return impl.Labels(v->graph->view); });
+        auto maybe_labels = ReadVertex(v, [](const auto &impl, auto view) { return impl.Labels(view); });
         if (!maybe_labels) ThrowOnReadError(maybe_labels.error(), "get a label of", ObjectKind::Vertex);
         if (i >= maybe_labels->size()) {
           throw std::out_of_range("Label cannot be retrieved, because index exceeds the number of labels!");
@@ -2854,7 +2865,7 @@ mgp_error mgp_vertex_has_label_named(mgp_vertex *v, const char *name, int *resul
         label = std::visit([name](auto *impl) { return impl->NameToLabel(name); }, v->graph->CheckedImpl());
 
         auto maybe_has_label =
-            v->VisitReal([v, label](const auto &impl) { return impl.HasLabel(v->graph->view, label); });
+            ReadVertex(v, [label](const auto &impl, auto view) { return impl.HasLabel(view, label); });
         if (!maybe_has_label)
           ThrowOnReadError(maybe_has_label.error(), "check the existence of a label on", ObjectKind::Vertex);
         return *maybe_has_label ? 1 : 0;
@@ -2876,7 +2887,7 @@ mgp_error mgp_vertex_get_property(mgp_vertex *v, const char *name, mgp_memory *m
           auto prop = v->GetVirtualNode().GetProperty(key);
           return NewRawMgpObject<mgp_value>(memory, std::move(prop), GetNameIdMapper(v->graph));
         }
-        auto maybe_prop = v->VisitReal([v, key](const auto &impl) { return impl.GetProperty(v->graph->view, key); });
+        auto maybe_prop = ReadVertex(v, [key](const auto &impl, auto view) { return impl.GetProperty(view, key); });
         if (!maybe_prop) ThrowOnReadError(maybe_prop.error(), "get a property of", ObjectKind::Vertex);
         return NewRawMgpObject<mgp_value>(memory, std::move(*maybe_prop), GetNameIdMapper(v->graph));
       },
@@ -2893,7 +2904,7 @@ mgp_error mgp_vertex_iter_properties(mgp_vertex *v, mgp_memory *memory, mgp_prop
         if (v->IsVirtual()) {
           return NewRawMgpObject<mgp_properties_iterator>(memory, v->graph, v->GetVirtualNode().Properties());
         }
-        auto maybe_props = v->VisitReal([v](const auto &impl) { return impl.Properties(v->graph->view); });
+        auto maybe_props = ReadVertex(v, [](const auto &impl, auto view) { return impl.Properties(view); });
         if (!maybe_props) ThrowOnReadError(maybe_props.error(), "get the properties of", ObjectKind::Vertex);
         return NewRawMgpObject<mgp_properties_iterator>(memory, v->graph, std::move(*maybe_props));
       },
@@ -2943,11 +2954,11 @@ mgp_edges_iterator *MakeEdgesIterator(mgp_vertex *v, mgp_memory *memory) {
     return it.release();
   }
 
-  auto maybe_edges = v->VisitReal([v](auto &impl) {
+  auto maybe_edges = ReadVertex(v, [](auto &impl, auto view) {
     if constexpr (ForIn) {
-      return impl.InEdges(v->graph->view);
+      return impl.InEdges(view);
     } else {
-      return impl.OutEdges(v->graph->view);
+      return impl.OutEdges(view);
     }
   });
   if (!maybe_edges) {
@@ -3135,7 +3146,8 @@ mgp_error mgp_edge_get_property(mgp_edge *e, const char *name, mgp_memory *memor
             memgraph::utils::Overloaded{
                 [&](const memgraph::query::EdgeAccessor &ea) {
                   auto view = e->from.graph->view;
-                  auto maybe_prop = ea.GetProperty(view, key);
+                  auto maybe_prop = memgraph::query::ReadSeeingCreated(
+                      view, [&](memgraph::storage::View at) { return ea.GetProperty(at, key); });
                   if (!maybe_prop) ThrowOnReadError(maybe_prop.error(), "get a property of", ObjectKind::Edge);
                   return NewRawMgpObject<mgp_value>(memory, std::move(*maybe_prop), GetNameIdMapper(e->from.graph));
                 },
@@ -3285,7 +3297,8 @@ mgp_error mgp_edge_iter_properties(mgp_edge *e, mgp_memory *memory, mgp_properti
         return std::visit(memgraph::utils::Overloaded{
                               [&](const memgraph::query::EdgeAccessor &ea) {
                                 auto view = e->from.graph->view;
-                                auto maybe_props = ea.Properties(view);
+                                auto maybe_props = memgraph::query::ReadSeeingCreated(
+                                    view, [&](memgraph::storage::View at) { return ea.Properties(at); });
                                 if (!maybe_props)
                                   ThrowOnReadError(maybe_props.error(), "get the properties of", ObjectKind::Edge);
                                 return NewRawMgpObject<mgp_properties_iterator>(

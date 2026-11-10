@@ -142,6 +142,24 @@ TYPED_TEST(FineGrainedAuthCheckerFixture, GrantLabel) {
       auth_checker.Has(this->v1, memgraph::storage::View::OLD, memgraph::query::AuthQuery::FineGrainedPrivilege::READ));
 }
 
+// A vertex this command created is not there at View::OLD; the check reads its labels at View::NEW, as a property
+// lookup does.
+TYPED_TEST(FineGrainedAuthCheckerFixture, ChecksAVertexTheCommandCreatedAtOld) {
+  memgraph::auth::User user{"test"};
+  user.fine_grained_access_handler().label_permissions().Grant({"l1"}, memgraph::auth::kAllLabelPermissions);
+  memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba};
+
+  auto granted = this->dba.InsertVertex();
+  ASSERT_TRUE(granted.AddLabel(this->dba.NameToLabel("l1")).has_value());
+  auto denied = this->dba.InsertVertex();
+  ASSERT_TRUE(denied.AddLabel(this->dba.NameToLabel("l3")).has_value());
+
+  EXPECT_TRUE(
+      auth_checker.Has(granted, memgraph::storage::View::OLD, memgraph::query::AuthQuery::FineGrainedPrivilege::READ));
+  EXPECT_FALSE(
+      auth_checker.Has(denied, memgraph::storage::View::OLD, memgraph::query::AuthQuery::FineGrainedPrivilege::READ));
+}
+
 TYPED_TEST(FineGrainedAuthCheckerFixture, DenyLabel) {
   memgraph::auth::User user{"test"};
   user.fine_grained_access_handler().label_permissions().Deny({"l3"}, memgraph::auth::kAllLabelPermissions);

@@ -2337,47 +2337,15 @@ auto BuiltinFunctions() -> boost::unordered_flat_map<std::string, func_info> con
   return instance;
 }
 
-namespace {
-
-/// Whether a value holds a vertex or an edge that View::OLD cannot see: one this command created.
-bool HoldsUnseenRecord(const TypedValue &value) {
-  switch (value.type()) {
-    case TypedValue::Type::Vertex:
-      return !value.UnsafeValueVertex().IsVisible(storage::View::OLD);
-    case TypedValue::Type::Edge:
-      return !value.UnsafeValueEdge().IsVisible(storage::View::OLD);
-    case TypedValue::Type::Path:
-      return std::ranges::any_of(value.ValuePath().vertices(),
-                                 [](const auto &vertex) { return !vertex.IsVisible(storage::View::OLD); }) ||
-             std::ranges::any_of(value.ValuePath().edges(),
-                                 [](const auto &edge) { return !edge.IsVisible(storage::View::OLD); });
-    case TypedValue::Type::List:
-      return std::ranges::any_of(value.UnsafeValueList(), HoldsUnseenRecord);
-    case TypedValue::Type::Map:
-      return std::ranges::any_of(value.UnsafeValueMap(),
-                                 [](const auto &entry) { return HoldsUnseenRecord(entry.second); });
-    default:
-      return false;
-  }
-}
-
-}  // namespace
-
 auto UserFunction(const mgp_func &func, const std::string &fully_qualified_name) -> func_impl {
   return [func, fully_qualified_name](const TypedValue *args, int64_t nargs, const FunctionContext &ctx) -> TypedValue {
     procedure::ValidateArguments(std::span(args, args + nargs), func, fully_qualified_name);
 
-    // A module reads its arguments through the graph's view; one this command created is there only at View::NEW,
-    // as for a property lookup.
-    auto view = ctx.view;
-    if (view == storage::View::OLD && std::ranges::any_of(std::span(args, args + nargs), HoldsUnseenRecord)) {
-      view = storage::View::NEW;
-    }
-    auto graph = mgp_graph::NonWritableGraph(*ctx.db_accessor, view);
+    auto graph = mgp_graph::NonWritableGraph(*ctx.db_accessor, ctx.view);
     auto function_argument_list = mgp_list(ctx.memory);
     procedure::ConstructArguments(std::span(args, args + nargs), func, function_argument_list, graph);
 
-    auto functx = mgp_func_context{ctx.db_accessor, view};
+    auto functx = mgp_func_context{ctx.db_accessor, ctx.view};
     auto maybe_res = mgp_func_result{};
     auto memory = mgp_memory{ctx.memory};
     {
