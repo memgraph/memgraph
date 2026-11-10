@@ -834,6 +834,15 @@ TEST_F(ResourceLockTest, ReadOnlyLatencyIndependentOfNewWriterCount) {
   RecordProperty("ro_latency_small_burst_us", std::to_string(latency_small_burst.count()));
   RecordProperty("ro_latency_large_burst_us", std::to_string(latency_large_burst.count()));
 
+  // A 50ms budget is smaller than the scheduling noise an ASan build sees on a loaded machine,
+  // and widening it far enough to be safe there would stop it catching the regression it exists
+  // for. The late_before_ro check above has no latency budget and still runs everywhere.
+#ifdef __has_feature
+#if __has_feature(address_sanitizer)
+  GTEST_SKIP() << "READ_ONLY latency budget is below ASan scheduling noise";
+#endif
+#endif
+
   // The large burst queues far more new writers behind the READ_ONLY request; if priority is
   // honoured, that should barely move the READ_ONLY latency (bounded by in-flight-writer drain
   // time), not scale with the queue length.
@@ -1166,6 +1175,20 @@ TEST_F(ResourceLockTest, DowngradedHoldStillFreesTheLockForAWaitingUnique) {
   check(SharedResourceLockGuard::READ_ONLY);
 }
 
+namespace {
+// With a READ held, a refused READ can only be the pending-UNIQUE gate. Returns false if the UNIQUE
+// finishes first, so its gate was never observed closed.
+bool AwaitUniqueGate(ResourceLock &lock, std::future<bool> const &timed_unique) {
+  using namespace std::chrono_literals;
+  while (lock.try_lock_shared<ResourceLock::LockReq::READ>()) {
+    lock.unlock_shared<ResourceLock::LockReq::READ>();
+    if (timed_unique.wait_for(0s) == std::future_status::ready) return false;
+    std::this_thread::yield();
+  }
+  return true;
+}
+}  // namespace
+
 // A timed UNIQUE request gates new shared acquisitions for as long as it is waiting, exactly as the
 // untimed one does. This is the storage access-timeout path: acquisitions that wait out a timeout
 // are routine, so the registration has to behave the same as on the path that waits forever.
@@ -1178,8 +1201,7 @@ TEST_F(ResourceLockTest, TimedUniqueGatesNewSharedAcquisitionsWhilePending) {
 
   auto timed_unique = std::async(std::launch::async, [&] { return lock.try_lock_for(1s); });
 
-  // Let it register as pending before probing.
-  std::this_thread::sleep_for(50ms);
+  ASSERT_TRUE(AwaitUniqueGate(lock, timed_unique)) << "the timed UNIQUE's gate was never observed closed";
   EXPECT_FALSE(lock.try_lock_shared<ResourceLock::LockReq::READ>());
   EXPECT_FALSE(lock.try_lock_shared<ResourceLock::LockReq::WRITE>());
   EXPECT_FALSE(lock.try_lock_shared<ResourceLock::LockReq::READ_ONLY>());
@@ -1197,10 +1219,12 @@ TEST_F(ResourceLockTest, TimedUniqueTimeoutWakesSharedAcquirerItGated) {
 
   auto held_read = SharedResourceLockGuard(lock, SharedResourceLockGuard::READ);  // keeps state SHARED
 
-  auto timed_unique = std::async(std::launch::async, [&] { return lock.try_lock_for(200ms); });
+  // The wake-up on timeout is what this test is about, so the timeout is long enough that the reader
+  // below parks well before it fires under any normal scheduling.
+  auto timed_unique = std::async(std::launch::async, [&] { return lock.try_lock_for(2s); });
 
-  // Let the timed UNIQUE register before the reader parks on its gate.
-  std::this_thread::sleep_for(50ms);
+  // The reader below must park on the gate, so the gate has to be closed before it starts.
+  ASSERT_TRUE(AwaitUniqueGate(lock, timed_unique)) << "the timed UNIQUE's gate was never observed closed";
 
   std::atomic<bool> reader_acquired{false};
   auto reader = std::async(std::launch::async, [&] {
@@ -1420,13 +1444,17 @@ TEST_F(ResourceLockTest, ConcurrentMutualExclusionInvariantsFuzzWithPendingScope
 // UNIQUE waiter of either kind the interleaving cannot arise and the test asserts nothing.
 TEST_F(ResourceLockTest, PendingUniqueIsWokenWhenSharedAcquirersAreAlsoParked) {
   using namespace std::chrono_literals;
-  constexpr auto kUniqueTimeout = 500ms;
+  // A missed wake leaves the waiter asleep for its whole timeout, and the timed-out wait can still
+  // succeed on its final check because everyone is asleep and the lock is free. So an attempt that
+  // lasts the whole timeout is a missed wake whatever it returns; the timeout is well above any
+  // scheduling delay, so a starved thread is not mistaken for one.
+  constexpr auto kUniqueTimeout = 30s;
   constexpr auto kDuration = 2s;
   constexpr int kSharedCyclers = 4;
   constexpr int kUniqueWaiters = 4;
 
   std::atomic<bool> stop{false};
-  std::atomic<int> unique_timeouts{0};
+  std::atomic<int> full_timeout_waits{0};
   std::atomic<int> unique_acquisitions{0};
 
   std::vector<std::jthread> threads;
@@ -1448,11 +1476,14 @@ TEST_F(ResourceLockTest, PendingUniqueIsWokenWhenSharedAcquirersAreAlsoParked) {
   for (int i = 0; i < kUniqueWaiters; ++i) {
     threads.emplace_back([&] {
       while (!stop.load(std::memory_order_relaxed)) {
-        if (lock.try_lock_for(kUniqueTimeout)) {
+        auto const start = std::chrono::steady_clock::now();
+        auto const acquired = lock.try_lock_for(kUniqueTimeout);
+        if (acquired) {
           unique_acquisitions.fetch_add(1, std::memory_order_relaxed);
           lock.unlock();
-        } else {
-          unique_timeouts.fetch_add(1, std::memory_order_relaxed);
+        }
+        if (!acquired || std::chrono::steady_clock::now() - start >= kUniqueTimeout) {
+          full_timeout_waits.fetch_add(1, std::memory_order_relaxed);
         }
       }
     });
@@ -1463,6 +1494,6 @@ TEST_F(ResourceLockTest, PendingUniqueIsWokenWhenSharedAcquirersAreAlsoParked) {
   threads.clear();
 
   EXPECT_GT(unique_acquisitions.load(), 0) << "the UNIQUE waiter never acquired; the test proved nothing";
-  EXPECT_EQ(unique_timeouts.load(), 0) << "a pending UNIQUE waiter was not woken within " << kUniqueTimeout.count()
-                                       << "ms while " << kSharedCyclers << " shared acquirers were parked";
+  EXPECT_EQ(full_timeout_waits.load(), 0) << "a pending UNIQUE waiter was not woken within " << kUniqueTimeout.count()
+                                          << "s while " << kSharedCyclers << " shared acquirers were parked";
 }
