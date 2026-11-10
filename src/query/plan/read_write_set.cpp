@@ -93,18 +93,20 @@ class ReadWriteCollector final : public HierarchicalTreeVisitor {
   }
 
   bool PreVisit(Function &function) override {
-    // It reads what the planner cannot name: every label, key or edge of an entity.
-    if (function.IsBuiltin() && FunctionReadsGraph(function.function_name_)) result.reads.everything = true;
+    // It reads what the planner cannot name: every label, key or edge of an entity. A module function may read
+    // anything.
+    if (FunctionReadsGraph(function.function_name_)) result.reads.everything = true;
     return true;
   }
 
   bool PreVisit(NodeAtom &node) override {
     auto const &symbol = symbol_table_.at(*node.identifier_);
     result.reads.symbols.insert(symbol);
+    // Only a node the pattern has to find reads which nodes exist, and only when an unlabelled node can match.
     if (node.label_term_) {
       ReadLabelTerm(*node.label_term_);
+      if (!bound_.contains(symbol) && !IsPositive(*node.label_term_)) result.reads.nodes = true;
     } else if (!bound_.contains(symbol)) {
-      // Only a node the pattern has to find reads which nodes exist.
       result.reads.nodes = true;
     }
     ReadPropertyKeys(node.properties_);
@@ -180,8 +182,9 @@ class ReadWriteCollector final : public HierarchicalTreeVisitor {
 
   bool PreVisit(SetProperties &set) override {
     result.writes.any_property = true;
-    if (auto *ident = utils::Downcast<Identifier>(set.expression_); ident && ReadsGraph(ident)) {
-      // `SET n = m` copies every property of an entity.
+    // `SET n = m` copies every property of an entity; any value but a map literal or a parameter may be one.
+    if (!utils::Downcast<MapLiteral>(set.expression_) && !utils::Downcast<ParameterLookup>(set.expression_) &&
+        ReadsGraph(set.expression_)) {
       result.reads.any_property = true;
     }
     set.expression_->Accept(*this);
@@ -217,6 +220,24 @@ class ReadWriteCollector final : public HierarchicalTreeVisitor {
     if (non_graph_.contains(symbol)) return false;
     auto const type = symbol.type();
     return type == Symbol::Type::ANY || type == Symbol::Type::VERTEX || type == Symbol::Type::EDGE;
+  }
+
+  /// Whether every node the term matches has a label, so a created node can match it only through a label write.
+  static bool IsPositive(const LabelTerm &term) {
+    return std::visit(
+        [](const auto &node) {
+          using T = std::decay_t<decltype(node)>;
+          if constexpr (std::is_same_v<T, LabelTerm::Not>) {
+            return false;
+          } else if constexpr (std::is_same_v<T, LabelTerm::And>) {
+            return std::ranges::any_of(node.operands, IsPositive);
+          } else if constexpr (std::is_same_v<T, LabelTerm::Or>) {
+            return std::ranges::all_of(node.operands, IsPositive);
+          } else {
+            return true;
+          }
+        },
+        term.node);
   }
 
   void ReadLabelTerm(const LabelTerm &term) {
