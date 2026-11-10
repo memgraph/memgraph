@@ -1027,14 +1027,38 @@ TEST_F(WriteVisibilityPlan, EveryReaderOfAWritingCallBodyReadsNew) {
   }
 }
 
-// An EXISTS branch planned after a write reads View::NEW in its projections too, not only in its MATCH.
-TEST_F(WriteVisibilityPlan, AnExistsBranchAfterAWriteProjectsAtViewNew) {
-  auto &plan = Plan(
-      "MATCH (a:A) SET a.x = 1, a.c = size([(a)-->(b) WHERE EXISTS { MATCH (b) WITH b.x AS bx WHERE bx = 1 RETURN 1 } "
-      "| b])");
-  auto const produces = Collect<Produce>(plan);
-  ASSERT_FALSE(produces.empty());
-  for (auto const *produce : produces) EXPECT_EQ(produce->view_, View::NEW);
+// An EXISTS branch planned after a write, here inside a SET's fold, reads View::NEW in every operator, not only in its
+// MATCH; the root RETURN still reads View::OLD.
+TEST_F(WriteVisibilityPlan, AnExistsBranchAfterAWriteReadsNewThroughout) {
+  for (auto const *body : {
+           "MATCH (b) WITH b.x AS bx WHERE bx = 1 RETURN 1",
+           "MATCH (b) WITH b WHERE b.x = 1 RETURN 1",
+           "MATCH (b) WITH b ORDER BY b.x LIMIT 1 RETURN b.x AS bx",
+           "MATCH (b) UNWIND [b.x] AS u WITH u WHERE u = 1 RETURN 1",
+       }) {
+    auto &plan = Plan(fmt::format(
+        "MATCH (a:A) SET a.x = 1, a.c = size([(a)-->(b) WHERE EXISTS {{ {} }} | b]) RETURN a.c AS c", body));
+    auto *root = dynamic_cast<Produce *>(&plan);
+    ASSERT_NE(root, nullptr) << body;
+    EXPECT_EQ(root->view_, View::OLD) << body;
+    std::map<std::string, int> counts;
+    std::vector<std::string> old_readers;
+    auto check = [&]<class TOp>(TOp *) {
+      for (auto *fold : Collect<RollUpApply>(plan)) {
+        for (auto *op : Collect<TOp>(*fold->list_collection_branch_)) {
+          std::string const name{TOp::kType.name};
+          ++counts[name];
+          if (op->view_ != View::NEW) old_readers.push_back(name);
+        }
+      }
+    };
+    check(static_cast<Produce *>(nullptr));
+    check(static_cast<Filter *>(nullptr));
+    check(static_cast<OrderBy *>(nullptr));
+    check(static_cast<memgraph::query::plan::Unwind *>(nullptr));
+    EXPECT_GT(counts["Produce"], 0) << body;
+    EXPECT_TRUE(old_readers.empty()) << body << ": " << fmt::format("{}", fmt::join(old_readers, ", "));
+  }
 }
 
 // ---------------------------------------------------------------- read and write sets of single arms

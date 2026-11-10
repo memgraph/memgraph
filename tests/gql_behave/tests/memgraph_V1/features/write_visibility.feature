@@ -2582,9 +2582,25 @@ Feature: Write visibility inside one query
             """
         When executing query:
             """
-            MATCH (a:WvE) WITH a ORDER BY a.id SET a.x = 1, a.c = size([(a)-->(b) WHERE EXISTS { MATCH (b) WITH b.x AS bx WHERE bx = 1 RETURN 1 } | b]), a.d = size([(a)-->(b) WHERE EXISTS { MATCH (b) WHERE b.x = 1 } | b]) RETURN a.id AS id, a.c AS c, a.d AS d
+            MATCH (a:WvE) WITH a ORDER BY a.id SET a.x = 1, a.c = size([(a)-->(b) WHERE EXISTS { MATCH (b) WITH b.x AS bx WHERE bx = 1 RETURN 1 } | b]), a.d = size([(a)-->(b) WHERE EXISTS { MATCH (b) WHERE b.x = 1 } | b]), a.e = size([(a)-->(b) WHERE EXISTS { MATCH (b) WITH b WHERE b.x = 1 RETURN 1 } | b]) RETURN a.id AS id, a.c AS c, a.d AS d, a.e AS e
             """
         Then the result should be:
-            | id | c | d |
+            | id | c | d | e |
+            | 1  | 0 | 0 | 0 |
+            | 2  | 1 | 1 | 1 |
+
+    Scenario: An ORDER BY in an EXISTS in a SET sorts on earlier rows' writes as a projected key does
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (t1:WvO {id: 1, x: 0}), (s:WvO {id: 2, x: 0}), (t2:WvO {id: 3, x: 0}), (s)-[:R]->(t1), (s)-[:R]->(t2), (s)-[:S]->(s)
+            """
+        When executing query:
+            """
+            MATCH (a:WvO) WITH a ORDER BY a.id SET a.x = 1, a.h = size([(a)-[:S]->(b) WHERE EXISTS { MATCH (b)-[:R]->(c) WITH c ORDER BY c.x DESC, c.id DESC LIMIT 1 WITH c.id AS cid WHERE cid = 1 RETURN 1 } | b]), a.k = size([(a)-[:S]->(b) WHERE EXISTS { MATCH (b)-[:R]->(c) WITH c, c.x AS cx ORDER BY cx DESC, c.id DESC LIMIT 1 WITH c.id AS cid WHERE cid = 1 RETURN 1 } | b]) RETURN a.id AS id, a.h AS h, a.k AS k
+            """
+        Then the result should be:
+            | id | h | k |
             | 1  | 0 | 0 |
             | 2  | 1 | 1 |
+            | 3  | 0 | 0 |
