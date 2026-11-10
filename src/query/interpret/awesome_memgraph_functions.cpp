@@ -35,6 +35,7 @@
 #include "query/procedure/mg_procedure_impl.hpp"
 #include "query/procedure/module.hpp"
 #include "query/query_user.hpp"
+#include "query/read_created.hpp"
 #include "query/string_helpers.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/point_functions.hpp"
@@ -465,8 +466,10 @@ TypedValue Properties(const TypedValue *args, int64_t nargs, const FunctionConte
   auto get_properties = [&](const auto &record_accessor, auto const &is_allowed) {
     TypedValue::TMap properties(ctx.memory);
     // With lazy refs on, embeddings stay lazy VectorRefs: a retained map costs O(references), not O(N*dim) floats.
-    auto maybe_props =
-        ctx.lazy_vector_refs ? record_accessor.PropertiesCompact(ctx.view) : record_accessor.Properties(ctx.view);
+    auto view = ctx.view;
+    auto maybe_props = ReadSeeingCreated(view, [&](storage::View at) {
+      return ctx.lazy_vector_refs ? record_accessor.PropertiesCompact(at) : record_accessor.Properties(at);
+    });
     if (!maybe_props) {
       switch (maybe_props.error()) {
         case storage::Error::DELETED_OBJECT:
@@ -484,7 +487,7 @@ TypedValue Properties(const TypedValue *args, int64_t nargs, const FunctionConte
       if (is_allowed(property.first)) {
         if (ctx.lazy_vector_refs && property.second.IsVectorIndexId()) {
           properties.emplace(std::move(key),
-                             TypedValue(VectorRefValue{record_accessor.impl_, property.first, ctx.view}, ctx.memory));
+                             TypedValue(VectorRefValue{record_accessor.impl_, property.first, view}, ctx.memory));
         } else {
           auto typed_value =
               TypedValue(property.second, ctx.db_accessor->GetStorageAccessor()->GetNameIdMapper(), ctx.memory);
@@ -521,7 +524,8 @@ TypedValue Properties(const TypedValue *args, int64_t nargs, const FunctionConte
   if (value.IsVertex()) {
     auto const &vertex = value.ValueVertex();
     if (!checker) return get_properties(vertex, allow_all_properties);
-    auto maybe_labels = vertex.Labels(ctx.view);
+    auto view = ctx.view;
+    auto maybe_labels = ReadSeeingCreated(view, [&](storage::View at) { return vertex.Labels(at); });
     if (!maybe_labels) {
       ThrowVertexLabelsReadFailure(maybe_labels.error());
     }
@@ -573,15 +577,29 @@ TypedValue PropertySize(const TypedValue *args, int64_t nargs, const FunctionCon
     return TypedValue(0, ctx.memory);
   }
 
-  uint64_t property_size = 0;
-  const auto &graph_entity = args[0];
-  if (graph_entity.IsVertex()) {
-    property_size = graph_entity.ValueVertex().GetPropertySize(*maybe_property_id, ctx.view).value();
-  } else if (graph_entity.IsEdge()) {
-    property_size = graph_entity.ValueEdge().GetPropertySize(*maybe_property_id, ctx.view).value();
-  }
+  auto const size_of = [&](const auto &record) -> int64_t {
+    auto view = ctx.view;
+    auto size =
+        ReadSeeingCreated(view, [&](storage::View at) { return record.GetPropertySize(*maybe_property_id, at); });
+    if (!size) {
+      switch (size.error()) {
+        case storage::Error::DELETED_OBJECT:
+          throw QueryRuntimeException("Trying to get a property size from a deleted object.");
+        case storage::Error::NONEXISTENT_OBJECT:
+          throw QueryRuntimeException("Trying to get a property size from an object that doesn't exist.");
+        case storage::Error::SERIALIZATION_ERROR:
+        case storage::Error::VERTEX_HAS_EDGES:
+        case storage::Error::PROPERTIES_DISABLED:
+          throw QueryRuntimeException("Unexpected error when getting a property size.");
+      }
+    }
+    return static_cast<int64_t>(*size);
+  };
 
-  return TypedValue(static_cast<int64_t>(property_size), ctx.memory);
+  const auto &graph_entity = args[0];
+  if (graph_entity.IsVertex()) return TypedValue(size_of(graph_entity.ValueVertex()), ctx.memory);
+  if (graph_entity.IsEdge()) return TypedValue(size_of(graph_entity.ValueEdge()), ctx.memory);
+  return TypedValue(0, ctx.memory);
 }
 
 TypedValue StartNode(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
@@ -650,8 +668,10 @@ TypedValue Degree(const TypedValue *args, int64_t nargs, const FunctionContext &
   FType<Or<Null, Vertex>>("degree", args, nargs);
   if (args[0].IsNull()) return TypedValue(ctx.memory);
   const auto &vertex = args[0].ValueVertex();
-  size_t out_degree = UnwrapDegreeResult(vertex.OutDegree(ctx.view));
-  size_t in_degree = UnwrapDegreeResult(vertex.InDegree(ctx.view));
+  auto view = ctx.view;
+  size_t out_degree =
+      UnwrapDegreeResult(ReadSeeingCreated(view, [&](storage::View at) { return vertex.OutDegree(at); }));
+  size_t in_degree = UnwrapDegreeResult(vertex.InDegree(view));
   return TypedValue(static_cast<int64_t>(out_degree + in_degree), ctx.memory);
 }
 
@@ -659,7 +679,8 @@ TypedValue InDegree(const TypedValue *args, int64_t nargs, const FunctionContext
   FType<Or<Null, Vertex>>("inDegree", args, nargs);
   if (args[0].IsNull()) return TypedValue(ctx.memory);
   const auto &vertex = args[0].ValueVertex();
-  size_t in_degree = UnwrapDegreeResult(vertex.InDegree(ctx.view));
+  auto view = ctx.view;
+  size_t in_degree = UnwrapDegreeResult(ReadSeeingCreated(view, [&](storage::View at) { return vertex.InDegree(at); }));
   return TypedValue(static_cast<int64_t>(in_degree), ctx.memory);
 }
 
@@ -667,7 +688,9 @@ TypedValue OutDegree(const TypedValue *args, int64_t nargs, const FunctionContex
   FType<Or<Null, Vertex>>("outDegree", args, nargs);
   if (args[0].IsNull()) return TypedValue(ctx.memory);
   const auto &vertex = args[0].ValueVertex();
-  size_t out_degree = UnwrapDegreeResult(vertex.OutDegree(ctx.view));
+  auto view = ctx.view;
+  size_t out_degree =
+      UnwrapDegreeResult(ReadSeeingCreated(view, [&](storage::View at) { return vertex.OutDegree(at); }));
   return TypedValue(static_cast<int64_t>(out_degree), ctx.memory);
 }
 
@@ -947,7 +970,8 @@ TypedValue Keys(const TypedValue *args, int64_t nargs, const FunctionContext &ct
   auto *dba = ctx.db_accessor;
   auto get_keys = [&](const auto &record_accessor, auto const &is_allowed) {
     TypedValue::TVector keys(ctx.memory);
-    auto maybe_props = record_accessor.Properties(ctx.view);
+    auto view = ctx.view;
+    auto maybe_props = ReadSeeingCreated(view, [&](storage::View at) { return record_accessor.Properties(at); });
     if (!maybe_props) {
       switch (maybe_props.error()) {
         case storage::Error::DELETED_OBJECT:
@@ -974,7 +998,8 @@ TypedValue Keys(const TypedValue *args, int64_t nargs, const FunctionContext &ct
   if (value.IsVertex()) {
     auto const &vertex = value.ValueVertex();
     if (!checker) return get_keys(vertex, allow_all_properties);
-    auto maybe_labels = vertex.Labels(ctx.view);
+    auto view = ctx.view;
+    auto maybe_labels = ReadSeeingCreated(view, [&](storage::View at) { return vertex.Labels(at); });
     if (!maybe_labels) {
       ThrowVertexLabelsReadFailure(maybe_labels.error());
     }
@@ -1018,8 +1043,10 @@ TypedValue Values(const TypedValue *args, int64_t nargs, const FunctionContext &
   auto get_values = [&](const auto &record_accessor, auto const &is_allowed) {
     TypedValue::TVector values(ctx.memory);
     // Like properties(n): with lazy refs on, embeddings stay VectorRefs.
-    auto maybe_props =
-        ctx.lazy_vector_refs ? record_accessor.PropertiesCompact(ctx.view) : record_accessor.Properties(ctx.view);
+    auto view = ctx.view;
+    auto maybe_props = ReadSeeingCreated(view, [&](storage::View at) {
+      return ctx.lazy_vector_refs ? record_accessor.PropertiesCompact(at) : record_accessor.Properties(at);
+    });
     if (!maybe_props) {
       switch (maybe_props.error()) {
         case storage::Error::DELETED_OBJECT:
@@ -1035,7 +1062,7 @@ TypedValue Values(const TypedValue *args, int64_t nargs, const FunctionContext &
     for (const auto &[key, value] : *maybe_props) {
       if (is_allowed(key)) {
         if (ctx.lazy_vector_refs && value.IsVectorIndexId()) {
-          values.emplace_back(VectorRefValue{record_accessor.impl_, key, ctx.view});
+          values.emplace_back(VectorRefValue{record_accessor.impl_, key, view});
         } else {
           values.emplace_back(TypedValue(value, ctx.db_accessor->GetStorageAccessor()->GetNameIdMapper(), ctx.memory));
         }
@@ -1053,7 +1080,8 @@ TypedValue Values(const TypedValue *args, int64_t nargs, const FunctionContext &
   if (value.IsVertex()) {
     auto const &vertex = value.ValueVertex();
     if (!checker) return get_values(vertex, allow_all_properties);
-    auto maybe_labels = vertex.Labels(ctx.view);
+    auto view = ctx.view;
+    auto maybe_labels = ReadSeeingCreated(view, [&](storage::View at) { return vertex.Labels(at); });
     if (!maybe_labels) {
       ThrowVertexLabelsReadFailure(maybe_labels.error());
     }
@@ -1108,7 +1136,9 @@ TypedValue Labels(const TypedValue *args, int64_t nargs, const FunctionContext &
     return TypedValue(std::move(labels));
   }
   TypedValue::TVector labels(ctx.memory);
-  auto maybe_labels = args[0].ValueVertex().Labels(ctx.view);
+  auto view = ctx.view;
+  auto const &vertex = args[0].ValueVertex();
+  auto maybe_labels = ReadSeeingCreated(view, [&](storage::View at) { return vertex.Labels(at); });
   if (!maybe_labels) {
     ThrowVertexLabelsReadFailure(maybe_labels.error());
   }
@@ -2307,15 +2337,47 @@ auto BuiltinFunctions() -> boost::unordered_flat_map<std::string, func_info> con
   return instance;
 }
 
+namespace {
+
+/// Whether a value holds a vertex or an edge that View::OLD cannot see: one this command created.
+bool HoldsUnseenRecord(const TypedValue &value) {
+  switch (value.type()) {
+    case TypedValue::Type::Vertex:
+      return !value.UnsafeValueVertex().IsVisible(storage::View::OLD);
+    case TypedValue::Type::Edge:
+      return !value.UnsafeValueEdge().IsVisible(storage::View::OLD);
+    case TypedValue::Type::Path:
+      return std::ranges::any_of(value.ValuePath().vertices(),
+                                 [](const auto &vertex) { return !vertex.IsVisible(storage::View::OLD); }) ||
+             std::ranges::any_of(value.ValuePath().edges(),
+                                 [](const auto &edge) { return !edge.IsVisible(storage::View::OLD); });
+    case TypedValue::Type::List:
+      return std::ranges::any_of(value.UnsafeValueList(), HoldsUnseenRecord);
+    case TypedValue::Type::Map:
+      return std::ranges::any_of(value.UnsafeValueMap(),
+                                 [](const auto &entry) { return HoldsUnseenRecord(entry.second); });
+    default:
+      return false;
+  }
+}
+
+}  // namespace
+
 auto UserFunction(const mgp_func &func, const std::string &fully_qualified_name) -> func_impl {
   return [func, fully_qualified_name](const TypedValue *args, int64_t nargs, const FunctionContext &ctx) -> TypedValue {
     procedure::ValidateArguments(std::span(args, args + nargs), func, fully_qualified_name);
 
-    auto graph = mgp_graph::NonWritableGraph(*ctx.db_accessor, ctx.view);
+    // A module reads its arguments through the graph's view; one this command created is there only at View::NEW,
+    // as for a property lookup.
+    auto view = ctx.view;
+    if (view == storage::View::OLD && std::ranges::any_of(std::span(args, args + nargs), HoldsUnseenRecord)) {
+      view = storage::View::NEW;
+    }
+    auto graph = mgp_graph::NonWritableGraph(*ctx.db_accessor, view);
     auto function_argument_list = mgp_list(ctx.memory);
     procedure::ConstructArguments(std::span(args, args + nargs), func, function_argument_list, graph);
 
-    auto functx = mgp_func_context{ctx.db_accessor, ctx.view};
+    auto functx = mgp_func_context{ctx.db_accessor, view};
     auto maybe_res = mgp_func_result{};
     auto memory = mgp_memory{ctx.memory};
     {

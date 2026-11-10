@@ -1268,16 +1268,9 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     RequireAccessor("Reading a property");
     auto prop_id = dba_->NameToProperty(name);
     if (!IsPropertyAllowed(record_accessor, prop_id)) return storage::PropertyValue{};
-    auto maybe_prop = ReadProperty<kCompact>(record_accessor, view_, prop_id);
-    if (maybe_prop == std::unexpected{storage::Error::NONEXISTENT_OBJECT}) {
-      // This is a very nasty and temporary hack in order to make MERGE work.
-      // The old storage had the following logic when returning an `OLD` view:
-      // `return old ? old : new`. That means that if the `OLD` view didn't
-      // exist, it returned the NEW view. With this hack we simulate that
-      // behavior.
-      // TODO (mferencevic, teon.banek): Remove once MERGE is reimplemented.
-      maybe_prop = ReadProperty<kCompact>(record_accessor, view_, prop_id);
-    }
+    auto view = view_;
+    auto maybe_prop =
+        ReadSeeingCreated(view, [&](storage::View at) { return ReadProperty<kCompact>(record_accessor, at, prop_id); });
     if (!maybe_prop) ThrowPropertyReadError(maybe_prop.error());
     return *maybe_prop;
   }
