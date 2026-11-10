@@ -31,15 +31,19 @@ if [[ ! -f "$WAIT_SCRIPT" ]]; then
 fi
 
 CONTAINER_NAME="memgraph-bolt-smoke-$$"
-TELEMETRY_OFF_CONF="$(mktemp)"
-echo "--telemetry-enabled=false" > "$TELEMETRY_OFF_CONF"
-chmod 644 "$TELEMETRY_OFF_CONF"
+TELEMETRY_OFF_CONF=""
 
 cleanup() {
   docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
-  rm -f "$TELEMETRY_OFF_CONF"
+  if [[ -n "$TELEMETRY_OFF_CONF" ]]; then
+    rm -f "$TELEMETRY_OFF_CONF"
+  fi
 }
 trap cleanup EXIT INT TERM
+
+TELEMETRY_OFF_CONF="$(mktemp)"
+echo "--telemetry-enabled=false" > "$TELEMETRY_OFF_CONF"
+chmod 644 "$TELEMETRY_OFF_CONF"
 
 echo "Starting container $CONTAINER_NAME from $IMAGE (no arguments), allowing up to ${MAX_READY_ATTEMPTS} attempts ~1s apart for Bolt..."
 docker run -d --name "$CONTAINER_NAME" \
@@ -67,6 +71,15 @@ if ! docker exec "$CONTAINER_NAME" bash /tmp/wait_for_memgraph_bolt.sh 127.0.0.1
   echo "--- container logs ---" >&2
   docker logs "$CONTAINER_NAME" 2>&1 || true
   echo "----------------------" >&2
+  exit 1
+fi
+
+# gflags silently ignores bad lines in a flag file, so confirm the setting
+# actually took effect instead of trusting the file.
+config_csv="$(echo 'SHOW CONFIG;' | docker exec -i "$CONTAINER_NAME" mgconsole --output-format=csv 2>/dev/null || true)"
+telemetry_enabled="$(awk -F',' 'tolower($1) ~ /"telemetry_enabled"/ { gsub(/"/, "", $3); print $3 }' <<<"$config_csv")"
+if [[ "$telemetry_enabled" != "false" ]]; then
+  echo "Smoke test FAILED for $IMAGE: expected telemetry_enabled=false, got '${telemetry_enabled:-<missing>}'." >&2
   exit 1
 fi
 
