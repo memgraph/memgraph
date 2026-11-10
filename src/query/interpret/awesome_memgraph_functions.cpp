@@ -2208,7 +2208,7 @@ auto BuiltinFunctions() -> boost::unordered_flat_map<std::string, func_info> con
       {"RANDOMUUID", func_info{.func_ = RandomUuid, .is_pure_ = false}},
       {"SIZE", func_info{.func_ = Size, .is_pure_ = true}},
       {"LENGTH", func_info{.func_ = Size, .is_pure_ = true}},
-      {"PROPERTYSIZE", func_info{.func_ = PropertySize, .is_pure_ = true}},
+      {"PROPERTYSIZE", func_info{.func_ = PropertySize, .is_pure_ = true, .reads_graph_ = true}},
       {"STARTNODE", func_info{.func_ = StartNode, .is_pure_ = true}},
       {"TIMESTAMP", func_info{.func_ = Timestamp, .is_pure_ = false}},
       {"TOBOOLEAN", func_info{.func_ = ToBoolean, .is_pure_ = true}},
@@ -2232,7 +2232,7 @@ auto BuiltinFunctions() -> boost::unordered_flat_map<std::string, func_info> con
       {"TAIL", func_info{.func_ = Tail, .is_pure_ = true}},
       {"TOSET", func_info{.func_ = ToSet, .is_pure_ = true}},
       {"UNIFORMSAMPLE", func_info{.func_ = UniformSample, .is_pure_ = false}},
-      {"VALUES", func_info{.func_ = Values, .is_pure_ = true}},
+      {"VALUES", func_info{.func_ = Values, .is_pure_ = true, .reads_graph_ = true}},
 
       // Mathematical functions - numeric
       {"ABS", func_info{.func_ = Abs, .is_pure_ = true}},
