@@ -382,7 +382,9 @@ class CachePropertiesRewriter final : public HierarchicalLogicalOperatorVisitor 
       cacher.Run(ProducePropertyLookupCacher::Phase::RETUNE, named_expression);
     }
 
-    op.set_input(std::make_shared<CacheProperties>(input, std::move(groups)));
+    auto cache = std::make_shared<CacheProperties>(input, std::move(groups));
+    cache->view_ = op.view_;
+    op.set_input(std::move(cache));
     return true;
   }
 

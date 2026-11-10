@@ -1793,7 +1793,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     }
     if (prop_filter.type_ == PropertyFilter::Type::IN) {
       auto *membership_list = utils::Downcast<ListLiteral>(prop_filter.value_);
-      auto unwound = UnwindMembershipList(*symbol_table_, ast_storage_, input, prop_filter.value_);
+      auto unwound = UnwindMembershipList(*symbol_table_, ast_storage_, input, prop_filter.value_, view);
       return ScanByIndexResult{
           std::make_shared<ScanAllByVertexProperty>(std::move(unwound.op),
                                                     node_symbol,
@@ -1877,7 +1877,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     // Unwind(toSet(coalesce(list_expr, []))) onto `input` and return the
     // anonymous identifier bound to each unwound element for the caller's scan.
     auto unwind_membership_list = [&](Expression *list_expr) -> Identifier * {
-      auto unwound = UnwindMembershipList(*symbol_table_, ast_storage_, input, list_expr);
+      auto unwound = UnwindMembershipList(*symbol_table_, ast_storage_, input, list_expr, view);
       input = std::move(unwound.op);
       return unwound.element;
     };

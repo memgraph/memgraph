@@ -768,8 +768,8 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
     ExpressionRange range;
   };
 
-  auto MakeExpressionRange(PropertyFilter const &prop_filter, std::shared_ptr<LogicalOperator> const &input)
-      -> ExpressionRangeResult {
+  auto MakeExpressionRange(PropertyFilter const &prop_filter, std::shared_ptr<LogicalOperator> const &input,
+                           storage::View view) -> ExpressionRangeResult {
     if (prop_filter.lower_bound_ || prop_filter.upper_bound_) {
       return {input, ExpressionRange::Range(prop_filter.lower_bound_, prop_filter.upper_bound_)};
     }
@@ -784,7 +784,7 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
         return {input, ExpressionRange::EndsWith(prop_filter.value_)};
       case PropertyFilter::Type::IN: {
         auto *membership_list = utils::Downcast<ListLiteral>(prop_filter.value_);
-        auto unwound = UnwindMembershipList(*symbol_table_, ast_storage_, input, prop_filter.value_);
+        auto unwound = UnwindMembershipList(*symbol_table_, ast_storage_, input, prop_filter.value_, view);
         return {std::move(unwound.op), ExpressionRange::In(unwound.element, membership_list)};
       }
       case PropertyFilter::Type::IS_NOT_NULL:
@@ -1070,7 +1070,7 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
       filter_exprs_for_removal_.insert(filter.expression);
       filters_.EraseFilter(filter);
       if (filter.id_filter->type_ == IdFilter::Type::IN) {
-        auto unwound = UnwindMembershipList(*symbol_table_, ast_storage_, input, value);
+        auto unwound = UnwindMembershipList(*symbol_table_, ast_storage_, input, value, view);
         return std::make_unique<ScanAllByEdgeId>(std::move(unwound.op),
                                                  common.edge_symbol,
                                                  common.node1_symbol,
@@ -1117,7 +1117,7 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
         filters_.EraseLabelFilter(common.edge_symbol, found_index->edge_type_from_filter.value(), &removed_expressions);
         filter_exprs_for_removal_.insert(removed_expressions.begin(), removed_expressions.end());
       }
-      auto [scan_input, range] = MakeExpressionRange(prop_filter, input);
+      auto [scan_input, range] = MakeExpressionRange(prop_filter, input, view);
       return std::make_unique<ScanAllByEdgeTypeProperty>(scan_input,
                                                          common.edge_symbol,
                                                          common.node1_symbol,
@@ -1171,7 +1171,7 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
         filter_exprs_for_removal_.insert(found_property_index->filter.expression);
       }
       filters_.EraseFilter(found_property_index->filter);
-      auto [scan_input, range] = MakeExpressionRange(prop_filter, input);
+      auto [scan_input, range] = MakeExpressionRange(prop_filter, input, view);
       return std::make_shared<ScanAllByEdgeProperty>(scan_input,
                                                      common.edge_symbol,
                                                      common.node1_symbol,

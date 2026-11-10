@@ -47,6 +47,7 @@ class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(Filter &op) override {
     prev_ops_.push_back(&op);
+    filter_views_.push_back(op.view_);
     filters_.AddOperatorFilters(op.expression_, *symbol_table_, *ast_storage_);
     return true;
   }
@@ -56,6 +57,7 @@ class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
   // free the memory.
   bool PostVisit(Filter &op) override {
     prev_ops_.pop_back();
+    filter_views_.pop_back();
 
     ExpressionRemovalResult removal = RemoveExpressions(op.expression_, filter_exprs_for_removal_, ast_storage_);
     op.expression_ = removal.trimmed_expression;
@@ -675,6 +677,8 @@ class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
   // lookup operations (by index, node ID, ...).
   Filters filters_;
   FilterFence fence_;
+  /// The views of the Filters above the operator being visited, innermost last.
+  std::vector<storage::View> filter_views_;
   // Expressions which no longer need a plain Filter operator.
   std::unordered_set<Expression *> filter_exprs_for_removal_;
   std::vector<LogicalOperator *> prev_ops_;
@@ -781,7 +785,10 @@ class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
         std::swap(join_condition->expression1_, join_condition->expression2_);
       }
 
-      return std::make_unique<HashJoin>(left_op, left_symbols, right_op, right_symbols, join_condition);
+      auto hash_join = std::make_unique<HashJoin>(left_op, left_symbols, right_op, right_symbols, join_condition);
+      // The join condition comes from a Filter above; one scope's Filters share a view.
+      if (!filter_views_.empty()) hash_join->view_ = filter_views_.back();
+      return hash_join;
     }
 
     return nullptr;
