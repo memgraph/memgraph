@@ -347,8 +347,6 @@ Database::Database(storage::Config config)
   // Never reuse the number of a branch directory that is still on disk.
   branch_plan.ledger.next_number =
       std::max(branch_plan.ledger.next_number, NextFreeBranchNumber(branch_ledger_file.parent_path()));
-  // Runtime fork pins of the restored branches, parallel to branch_plan.ledger.branches.
-  std::vector<uint64_t> branch_pins;
 #endif
 
   if (config.salient.storage_mode == memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL || config.force_on_disk ||
@@ -387,7 +385,8 @@ Database::Database(storage::Config config)
       for (const auto &branch : branch_plan.ledger.branches) fork_ts.push_back(branch.info.fork_ts);
       auto tail = recovered.TakeRecoveryTail().value_or(storage::durability::RecoveryTail{});
       if (auto pins = ReplayHistoryTail(recovered, tail, fork_ts)) {
-        branch_pins = std::move(*pins);
+        // The ledger keeps recorded_fork_ts; the store runs on the pins taken on the rebuilt history.
+        for (size_t i = 0; i < pins->size(); ++i) branch_plan.ledger.branches[i].info.fork_ts = (*pins)[i];
       } else {
         failure = std::move(pins.error());
       }
@@ -422,19 +421,19 @@ Database::Database(storage::Config config)
       (versioning_enabled || !branch_plan.ledger.branches.empty())) {
     auto *in_memory_storage = static_cast<storage::InMemoryStorage *>(storage_.get());
     version_store_ = std::make_unique<versioning::VersionStore>(
-        [in_memory_storage] { return in_memory_storage->RegisterBranchForkPin(); },
+        [in_memory_storage] { return versioning::ForkPoint{.fork_ts = in_memory_storage->RegisterBranchForkPin()}; },
         [in_memory_storage](uint64_t fork_ts) { in_memory_storage->ReleaseForkPin(fork_ts); });
     version_store_->SetRetentionFloorCallback(
         [in_memory_storage](std::optional<uint64_t> floor) { in_memory_storage->SetRetentionFloor(floor); });
     version_store_->AttachLedger(branch_ledger_file);
 
     if (branch_plan.bound) {
-      version_store_->Restore(branch_plan.ledger, branch_pins);
+      version_store_->Restore(branch_plan.ledger);
       spdlog::info("Graph Versioning: restored branches [{}].", BranchNames(branch_plan.ledger));
     } else if (branch_plan.hidden) {
       version_store_->RestoreHidden(branch_plan.ledger);
     } else {
-      version_store_->Restore(branch_plan.ledger, {});
+      version_store_->Restore(branch_plan.ledger);
     }
   }
 #endif
