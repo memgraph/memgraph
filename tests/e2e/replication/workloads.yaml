@@ -144,6 +144,10 @@ workloads:
     binary: "tests/e2e/pytest_runner.sh"
     args: ["replication/show_while_creating_invalid_state.py"]
 
+  - name: "Show replicas without a licence"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["replication/show_replicas_without_licence.py"]
+
   - name: "Replicate Enum"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["replication/replicate_enum.py"]
