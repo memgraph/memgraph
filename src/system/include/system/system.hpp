@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include "system/main_write_gate.hpp"
 #include "system/state.hpp"
 #include "system/transaction.hpp"
 
@@ -44,10 +45,13 @@ struct System {
 
   auto CreateSystemStateAccess() -> ReplicaHandlerAccessToState { return ReplicaHandlerAccessToState{state_}; }
 
+  auto MainWrites() -> MainWriteGate & { return main_writes_; }
+
  private:
   State state_;
   std::timed_mutex mtx_{};
   std::uint64_t timestamp_{0};
+  MainWriteGate main_writes_;
 };
 
 }  // namespace memgraph::system
