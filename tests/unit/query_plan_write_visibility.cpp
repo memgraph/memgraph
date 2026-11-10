@@ -25,6 +25,7 @@
 #include "query/frontend/opencypher/parser.hpp"
 #include "query/frontend/semantic/rw_checker.hpp"
 #include "query/frontend/semantic/symbol_generator.hpp"
+#include "query/interpret/awesome_memgraph_functions.hpp"
 #include "query/parameters.hpp"
 #include "query/plan/operator.hpp"
 #include "query/plan/planner.hpp"
@@ -659,6 +660,103 @@ constexpr std::string_view kCaseQueries[] = {
     R"cypher(MATCH (n:WvA4) CALL (n) { CREATE (n)-[:R]->(a:WvQ4)-[:R]->(:WvQ4) WITH a RETURN [(a)-[*2..]->(x) | 1] AS r } RETURN r)cypher",
     R"cypher(CREATE (a:WvL {v: 1}), (b:WvL {w: a.v}) RETURN b.w AS w)cypher",
 };
+
+// ---------------------------------------------------------------- reads the collector must not miss
+
+TEST_F(WriteVisibilityPlan, ValuesAndPropertySizeReadEverything) {
+  EXPECT_TRUE(Access("MATCH (n) RETURN values(n) AS v").reads.everything);
+  EXPECT_TRUE(Access("MATCH (n) RETURN propertySize(n, 'x') AS s").reads.everything);
+  EXPECT_FALSE(Access("MATCH (n) RETURN toUpper(n.x) AS s").reads.everything);
+}
+
+TEST_F(WriteVisibilityPlan, ComputedEntityValueReadsAnyKey) {
+  EXPECT_TRUE(Access("MATCH (a), (b) SET a = coalesce(b, a)").reads.any_property);
+  EXPECT_TRUE(Access("MATCH (a), (b) SET a += head([b])").reads.any_property);
+  EXPECT_FALSE(Access("MATCH (a) SET a = {x: 1}").reads.any_property);
+  EXPECT_FALSE(Access("MATCH (a) SET a += $m").reads.any_property);
+}
+
+TEST_F(WriteVisibilityPlan, LabelNegationReadsNodeExistence) {
+  EXPECT_TRUE(Access("MATCH (n:!L) RETURN n").reads.nodes);
+  EXPECT_TRUE(Access("MATCH (n:L|!M) RETURN n").reads.nodes);
+  EXPECT_FALSE(Access("MATCH (n:L|M) RETURN n").reads.nodes);
+}
+
+TEST_F(WriteVisibilityPlan, BarrierBeforeValuesThatReadsAnEarlierSet) {
+  EXPECT_EQ(Chain(Plan("MATCH (n) SET n.x = 10 CREATE ({v: values(n)})")),
+            (Names{"EmptyResult", "CreateNode", "Accumulate+", "SetProperty", "ScanAll", "Once"}));
+}
+
+TEST_F(WriteVisibilityPlan, DrainBetweenAComputedEntitySetAndALaterWrite) {
+  EXPECT_EQ(Chain(Plan("MATCH (a), (b) SET a = coalesce(b, a) SET b.x = 0")),
+            (Names{"EmptyResult", "SetProperty", "Accumulate+", "SetProperties", "Cartesian"}));
+}
+
+// A read of an entity this command created goes through the evaluator's View::NEW fallback, so it is a View::NEW
+// read: a later write of what it read gets a drain, and a read of a key nothing later writes gets none.
+TEST_F(WriteVisibilityPlan, DrainBetweenAReadOfAMergedNodeAndALaterWriteOfTheKey) {
+  EXPECT_EQ(Chain(Plan("UNWIND [1, 2] AS i MERGE (a:A {id: 1}) CREATE (c:C {v: a.x}) SET a.x = i")),
+            (Names{"EmptyResult", "SetProperty", "Accumulate+", "CreateNode", "Merge", "Unwind", "Once"}));
+  EXPECT_EQ(Chain(Plan("UNWIND [1, 2] AS i MERGE (a:A {id: 1}) CREATE (c:C {v: a.x}) SET a.y = i")),
+            (Names{"EmptyResult", "SetProperty", "CreateNode", "Merge", "Unwind", "Once"}));
+  EXPECT_EQ(Chain(Plan("CREATE (a {x: 1}) CREATE (b {v: a.x})")),
+            (Names{"EmptyResult", "CreateNode", "CreateNode", "Once"}));
+}
+
+TEST_F(WriteVisibilityPlan, DrainBetweenADeleteThatReadsAndALaterWriteOfTheKey) {
+  EXPECT_EQ(Chain(Plan("MATCH (a), (b) DETACH DELETE (CASE WHEN b.x = 1 THEN a ELSE null END) SET b.x = 1")),
+            (Names{"EmptyResult", "SetProperty", "Accumulate+", "Delete", "Cartesian"}));
+  EXPECT_EQ(Chain(Plan("MATCH (a), (b) DETACH DELETE (CASE WHEN b.x = 1 THEN a ELSE null END) SET b.y = 1")),
+            (Names{"EmptyResult", "SetProperty", "Delete", "Cartesian"}));
+}
+
+// ---------------------------------------------------------------- every operator of a clause reads its view
+
+TEST_F(WriteVisibilityPlan, RootPatternComprehensionReadsOld) {
+  auto &plan = Plan("MATCH (a), (c) WITH a, c, [(a)-[:R]->(m) | m.x] AS v SET c.x = 0 RETURN v");
+  for (auto view : Views<Produce>(plan)) EXPECT_EQ(view, View::OLD);
+}
+
+TEST_F(WriteVisibilityPlan, MergeMatchFilterReadsNew) {
+  auto &plan = Plan("UNWIND [1, 2] AS i MERGE (n:L {k: 1}) ON MATCH SET n.k = 5");
+  auto views = Views<Filter>(plan);
+  ASSERT_FALSE(views.empty());
+  for (auto view : views) EXPECT_EQ(view, View::NEW);
+}
+
+TEST_F(WriteVisibilityPlan, RewrittenHashJoinInAWritingBodyReadsNew) {
+  auto &plan = Plan(
+      "CALL () { MATCH (a:A) SET a.k = 2 WITH * MATCH (x:A), (b:B) WHERE x.k = b.k RETURN count(*) AS c } "
+      "RETURN c");
+  EXPECT_EQ(Views<HashJoin>(plan), (std::vector{View::NEW}));
+}
+
+TEST_F(WriteVisibilityPlan, RewrittenMembershipUnwindInAWritingBodyReadsNew) {
+  LabelPropertyIndex("L", "k");
+  auto &plan = Plan(
+      "CALL () { MATCH (a:A) SET a.l = [2] WITH * MATCH (x:L) WHERE x.k IN a.l RETURN count(*) AS c } "
+      "RETURN c");
+  ASSERT_EQ(Collect<ScanAllByLabelProperties>(plan).size(), 1);
+  auto views = Views<memgraph::query::plan::Unwind>(plan);
+  ASSERT_FALSE(views.empty());
+  for (auto view : views) EXPECT_EQ(view, View::NEW);
+}
+
+TEST_F(WriteVisibilityPlan, PropertyCacheReadsTheProjectionsView) {
+  auto &plan = Plan("MATCH (a), (b) WITH a, b, b.x AS bx, b.y AS by SET b.x = 0 RETURN bx");
+  EXPECT_EQ(Views<CacheProperties>(plan), (std::vector{View::OLD}));
+  ExpectCloneKeepsView<CacheProperties>(plan, storage_);
+}
+
+TEST_F(WriteVisibilityPlan, FunctionTableMarksTheGraphReadingFunctions) {
+  for (auto name : {"labels", "keys", "properties", "values", "propertySize", "degree", "inDegree", "outDegree"}) {
+    EXPECT_TRUE(FunctionReadsGraph(name)) << name;
+  }
+  EXPECT_FALSE(FunctionReadsGraph("toUpper"));
+  EXPECT_FALSE(FunctionReadsGraph("id"));
+  // Not built in, so a module function, which may read anything.
+  EXPECT_TRUE(FunctionReadsGraph("module.function"));
+}
 
 // The new write facts agree with the coarse ones the planner and the interpreter use today.
 TEST_F(WriteVisibilityPlan, WritesAgreeWithRwCheckerAndQueryParts) {

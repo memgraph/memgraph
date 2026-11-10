@@ -2307,3 +2307,226 @@ Feature: Write visibility inside one query
         Then the result should be:
         | w |
         | 1 |
+
+    Scenario: A CREATE map reads every property through values() after a SET
+        # Pre-flight: new
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:WvVal {x: 1})
+            """
+        When executing query:
+            """
+            MATCH (n:WvVal) SET n.x = 10 CREATE (c:WvValC {v: values(n)}) RETURN c.v AS v
+            """
+        Then the result should be:
+            | v    |
+            | [10] |
+
+    Scenario: A SET from a computed entity value does not see a later SET for earlier rows
+        # Pre-flight: new
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:WvCoA {id: 1}), (:WvCoA {id: 2}), (:WvCoB {x: 5})
+            """
+        When executing query:
+            """
+            MATCH (a:WvCoA), (b:WvCoB) WITH a, b ORDER BY a.id SET a = coalesce(b, a) SET b.x = 0 RETURN a.x AS x ORDER BY x
+            """
+        Then the result should be, in order:
+            | x |
+            | 5 |
+            | 5 |
+
+    Scenario: A label negation in a read-only CALL body sees a node the outer query created
+        # Pre-flight: new
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:WvNegM)
+            """
+        When executing query:
+            """
+            MATCH (m:WvNegM) CREATE ({x: 1}) CALL () { MATCH (n:!WvNegL) RETURN count(n) AS c } RETURN c
+            """
+        Then the result should be:
+            | c |
+            | 2 |
+
+    Scenario: A CREATE map does not see a later SET of a node an earlier row merged
+        # Pre-flight: new
+        Given an empty graph
+        When executing query:
+            """
+            UNWIND [1, 2] AS i MERGE (a:WvFr {id: 1}) CREATE (c:WvFrC {i: i, v: a.x}) SET a.x = i WITH count(*) AS n MATCH (c:WvFrC) RETURN c.i AS i, c.v AS v ORDER BY i
+            """
+        Then the result should be, in order:
+            | i | v    |
+            | 1 | null |
+            | 2 | null |
+
+    Scenario: A comprehension in a CREATE map does not see the relationships the same CREATE made for earlier rows
+        # Pre-flight: new
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:WvCs)
+            """
+        When executing query:
+            """
+            UNWIND [1, 2, 3] AS i MATCH (s:WvCs) CREATE (s)-[:T]->(c:WvCc {i: i, d: size([(s)-[:T]->(x) | x])}) RETURN c.i AS i, c.d AS d ORDER BY i
+            """
+        Then the result should be, in order:
+            | i | d |
+            | 1 | 0 |
+            | 2 | 0 |
+            | 3 | 0 |
+
+    Scenario: A batched CREATE comprehension does not see the relationships the same CREATE made for earlier rows
+        # Pre-flight: new
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:WvCs)
+            """
+        # The batched write is a setup step, so the parallel pass leaves it unprefixed: USING PARALLEL EXECUTION
+        # with PERIODIC COMMIT aborts the server on master too.
+        And having executed:
+            """
+            USING PERIODIC COMMIT 100 UNWIND [1, 2] AS i MATCH (s:WvCs) CREATE (s)-[:T]->(c:WvCc {i: i, d: size([(s)-[:T]->(x) | x])})
+            """
+        When executing query:
+            """
+            MATCH (c:WvCc) RETURN c.i AS i, c.d AS d ORDER BY i
+            """
+        Then the result should be, in order:
+            | i | d |
+            | 1 | 0 |
+            | 2 | 0 |
+
+    Scenario: A DELETE expression does not see a later SET for earlier rows
+        # Pre-flight: new
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:WvDelA {id: 1}), (:WvDelA {id: 2}), (:WvDelB {x: 0})
+            """
+        When executing query:
+            """
+            MATCH (a:WvDelA), (b:WvDelB) WITH a, b ORDER BY a.id DETACH DELETE (CASE WHEN b.x = 1 THEN a ELSE null END) SET b.x = 1 WITH count(*) AS c MATCH (a:WvDelA) RETURN count(a) AS n
+            """
+        Then the result should be, in order:
+            | n |
+            | 2 |
+
+    Scenario: A pattern comprehension in a WITH does not see a later SET for earlier rows
+        # Pre-flight: new
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (a1:WvPcA {id: 1}), (a2:WvPcA {id: 2}), (c:WvPcC {x: 5}), (a1)-[:R]->(c), (a2)-[:R]->(c)
+            """
+        When executing query:
+            """
+            MATCH (a:WvPcA), (c:WvPcC) WITH a, c ORDER BY a.id WITH a, c, [(a)-[:R]->(m) | m.x] AS v SET c.x = 0 RETURN a.id AS id, v ORDER BY id
+            """
+        Then the result should be, in order:
+            | id | v   |
+            | 1  | [5] |
+            | 2  | [5] |
+
+    Scenario: MERGE ON MATCH SET of the matched key makes a later row create
+        # Pre-flight: new
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:WvMm {k: 1})
+            """
+        When executing query:
+            """
+            UNWIND [1, 2] AS i MERGE (n:WvMm {k: 1}) ON MATCH SET n.k = 5 WITH count(*) AS c MATCH (n:WvMm) RETURN n.k AS k ORDER BY k
+            """
+        Then the result should be, in order:
+            | k |
+            | 1 |
+            | 5 |
+
+    Scenario: MERGE ON MATCH SET of the matched key makes a later row create (indexes :WvMm(k))
+        # Pre-flight: new
+        Given an empty graph
+        And with new index :WvMm(k)
+        And having executed:
+            """
+            CREATE (:WvMm {k: 1})
+            """
+        When executing query:
+            """
+            UNWIND [1, 2] AS i MERGE (n:WvMm {k: 1}) ON MATCH SET n.k = 5 WITH count(*) AS c MATCH (n:WvMm) RETURN n.k AS k ORDER BY k
+            """
+        Then the result should be, in order:
+            | k |
+            | 1 |
+            | 5 |
+
+    Scenario: A hash join in a writing CALL body sees the body's earlier SET
+        # Pre-flight: new
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:WvHjA {k: 1}), (:WvHjB {k: 2})
+            """
+        When executing query:
+            """
+            CALL () { MATCH (a:WvHjA) SET a.k = 2 WITH * MATCH (x:WvHjA), (b:WvHjB) WHERE x.k = b.k RETURN count(*) AS c } RETURN c
+            """
+        Then the result should be:
+            | c |
+            | 1 |
+
+    Scenario: A hash join in a writing CALL body sees the body's writes for earlier outer rows
+        # Pre-flight: new
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:WvHjA {k: 1}), (:WvHjB {k: 1})
+            """
+        When executing query:
+            """
+            UNWIND [1, 2] AS i CALL (i) { MATCH (a:WvHjA), (b:WvHjB) WHERE a.k = b.k SET a.k = a.k + 1 RETURN count(*) AS c } RETURN i, c ORDER BY i
+            """
+        Then the result should be, in order:
+            | i | c |
+            | 1 | 1 |
+            | 2 | 0 |
+
+    Scenario: An IN-list index seek in a writing CALL body sees the body's earlier SET (indexes :WvInL(k))
+        # Pre-flight: new
+        Given an empty graph
+        And with new index :WvInL(k)
+        And having executed:
+            """
+            CREATE (:WvInA {l: [1]}), (:WvInL {k: 2})
+            """
+        When executing query:
+            """
+            CALL () { MATCH (a:WvInA) SET a.l = [2] WITH * MATCH (x:WvInL) WHERE x.k IN a.l RETURN count(*) AS c } RETURN c
+            """
+        Then the result should be:
+            | c |
+            | 1 |
+
+    Scenario: Two cached properties in a WITH do not see a later SET for earlier rows
+        # Pre-flight: new
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:WvCpA {id: 1}), (:WvCpA {id: 2}), (:WvCpX {x: 5, y: 1})
+            """
+        When executing query:
+            """
+            MATCH (a:WvCpA), (b:WvCpX) WITH a, b, b.x AS bx, b.y AS by SET b.x = 0 RETURN min(bx) AS lo, max(bx) AS hi
+            """
+        Then the result should be:
+            | lo | hi |
+            | 5  | 5  |
