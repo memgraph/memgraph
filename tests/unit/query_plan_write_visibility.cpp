@@ -982,6 +982,7 @@ TEST_F(WriteVisibilityPlan, EveryReaderOfAWritingCallBodyReadsNew) {
            "MATCH (a:P), (b:K) WHERE a.x = b.y RETURN a.x AS v",
            "MATCH (n:P)-[:R]->(m) RETURN m.x AS v",
            "MATCH (n:P)-[*1..2]->(m) RETURN count(m) AS v",
+           "MATCH (n:P) WITH n MATCH (n)-[*1..2]->(m:L) RETURN count(m) AS v",
            "MATCH (n:P) WITH n ORDER BY n.x RETURN n.x AS v",
            "MATCH (n:P) RETURN n.x + n.y + n.z AS v",
            "CALL mg.procedures() YIELD name RETURN name AS v",

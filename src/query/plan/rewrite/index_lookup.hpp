@@ -403,7 +403,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     if (expand.common_.existing_node) {
       return true;
     }
-    ScanAll dst_scan(expand.input(), expand.common_.node_symbol, storage::View::OLD);
+    ScanAll dst_scan(expand.input(), expand.common_.node_symbol, expand.view_);
 
     if (expand.type_ == EdgeAtom::Type::BREADTH_FIRST) {
       // When accumulated path is used, we cannot use ST shortest path algorithm.
