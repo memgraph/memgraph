@@ -10,15 +10,22 @@
 // licenses/APL.txt.
 
 #include <gtest/gtest.h>
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
+#include <filesystem>
 #include <mutex>
 #include <thread>
+#include <vector>
 
 #include "metrics/prometheus_metrics.hpp"
 #include "storage/v2/config.hpp"
 #include "storage/v2/database_protector.hpp"
+#include "storage/v2/durability/paths.hpp"
+#include "storage/v2/durability/serialization.hpp"
+#include "storage/v2/durability/version.hpp"
+#include "storage/v2/durability/wal.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/ttl.hpp"
@@ -519,6 +526,81 @@ size_t CountAllVertices(InMemoryStorage *storage) {
   return count;
 }
 
+// Decode the last committed transaction that carries a TTL operation from the storage's WAL files,
+// returning its deltas in write order (transaction markers excluded). The storage must be destroyed
+// first so its WAL is finalized.
+std::vector<memgraph::storage::durability::WalDeltaData> ReadLastTtlWalTransaction(
+    const std::filesystem::path &storage_directory) {
+  using namespace memgraph::storage::durability;
+
+  std::vector<std::filesystem::path> wal_files;
+  std::error_code ec;
+  for (const auto &entry : std::filesystem::directory_iterator(storage_directory / std::string{kWalDirectory}, ec)) {
+    if (entry.is_regular_file()) wal_files.push_back(entry.path());
+  }
+  std::sort(wal_files.begin(), wal_files.end());
+
+  std::vector<WalDeltaData> last_ttl_txn;
+  std::vector<WalDeltaData> current;
+  for (const auto &path : wal_files) {
+    auto info = ReadWalInfo(path);
+    Decoder wal;
+    wal.Initialize(path, kWalMagic);
+    wal.SetPosition(info.offset_deltas);
+    for (uint64_t i = 0; i < info.num_deltas; ++i) {
+      (void)ReadWalDeltaHeader(&wal);
+      auto delta = ReadWalDeltaData(&wal);
+      if (std::holds_alternative<WalTransactionStart>(delta.data_)) {
+        current.clear();
+      } else if (std::holds_alternative<WalTransactionEnd>(delta.data_)) {
+        if (std::any_of(current.begin(), current.end(), [](const WalDeltaData &d) {
+              return std::holds_alternative<WalTtlOperation>(d.data_);
+            })) {
+          last_ttl_txn = current;
+        }
+        current.clear();
+      } else {
+        current.push_back(std::move(delta));
+      }
+    }
+  }
+  return last_ttl_txn;
+}
+
+// Parks the TTL worker inside make_database_protector(), so a Disable() that has already requested a
+// stop is deterministically in flight (joined-but-not-returned) until the test releases the factory.
+struct BlockingProtectorFactory {
+  std::mutex mutex;
+  std::condition_variable cv;
+  std::atomic<bool> reached{false};
+  std::atomic<bool> release{false};
+
+  std::unique_ptr<memgraph::storage::DatabaseProtector> operator()() {
+    if (!reached.exchange(true)) {
+      {
+        std::lock_guard lock{mutex};
+      }
+      cv.notify_all();
+    }
+    std::unique_lock lock{mutex};
+    cv.wait(lock, [this] { return release.load(); });
+    return std::make_unique<TestProtector>();
+  }
+
+  bool WaitReached(std::chrono::milliseconds timeout) {
+    std::unique_lock lock{mutex};
+    return cv.wait_for(lock, timeout, [this] { return reached.load(); });
+  }
+
+  void Release() {
+    {
+      std::lock_guard lock{mutex};
+      release.store(true);
+    }
+    cv.notify_all();
+  }
+};
+
 }  // namespace
 
 // A TTL stop/join must complete while the caller keeps a storage UNIQUE accessor live: first the raw
@@ -527,7 +609,12 @@ size_t CountAllVertices(InMemoryStorage *storage) {
 // UNIQUE the caller holds. Post-fix the batch acquisition is bounded and the top-of-batch stop check
 // makes the worker retire at the batch boundary without ever touching the UNIQUE lock again.
 TEST_F(DatabaseProtectorTest, TTLWorkerRetiresWhileUniqueHeld) {
-  auto *storage = new InMemoryStorage(config_);
+  // A WAL is enabled so the DISABLE deltas' append order can be read back after the join (A2). The
+  // storage is a bare InMemoryStorage, as the rest of this fixture's tests use.
+  auto durability_config = config_;
+  durability_config.durability.snapshot_wal_mode =
+      memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL;
+  auto *storage = new InMemoryStorage(durability_config);
   auto *ttl = TtlOf(storage);
 
   CreateTtlIndex(storage);
@@ -590,10 +677,11 @@ TEST_F(DatabaseProtectorTest, TTLWorkerRetiresWhileUniqueHeld) {
   std::atomic<bool> held{false};
   std::atomic<bool> go{false};
   std::atomic<bool> done{false};
+  std::atomic<bool> committed{false};
 
   // The same thread both holds the UNIQUE and calls DisableTtl, so the lock is acquired and released on
   // one thread; the worker is parked in its batch Access(WRITE) by the time `go` is set.
-  std::thread disabler([storage, &held, &go, &done] {
+  std::thread disabler([storage, &held, &go, &done, &committed] {
     auto acc = storage->UniqueAccess();
     held.store(true, std::memory_order_release);
     while (!go.load(std::memory_order_acquire)) {
@@ -601,6 +689,9 @@ TEST_F(DatabaseProtectorTest, TTLWorkerRetiresWhileUniqueHeld) {
     }
     acc->DisableTtl();
     acc->DisableTtl(memgraph::storage::TTLReplicationArgs{.is_main = false});
+    // Commit in the same transaction so the deltas' append order is the order the WAL records.
+    committed.store(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value(),
+                    std::memory_order_release);
     done.store(true, std::memory_order_release);
   });
 
@@ -626,7 +717,27 @@ TEST_F(DatabaseProtectorTest, TTLWorkerRetiresWhileUniqueHeld) {
 
   disabler.join();
   EXPECT_FALSE(ttl->Enabled()) << "DisableTtl() must leave TTL disabled";
-  delete storage;
+  EXPECT_TRUE(committed.load(std::memory_order_acquire))
+      << "the replica DISABLE transaction must commit, otherwise its delta never reaches the WAL";
+  delete storage;  // finalizes the WAL
+
+  // A2: both DisableTtl forms append their md_delta after their join, and the WAL records the same
+  // order. The main form drops the TTL index first, so the transaction must be
+  // [label-properties-index drop, main DISABLE, replica DISABLE], replica last.
+  const auto ttl_txn = ReadLastTtlWalTransaction(durability_config.durability.storage_directory);
+  ASSERT_EQ(ttl_txn.size(), 3u)
+      << "expected the committed DisableTtl transaction to carry exactly [index drop, main DISABLE, "
+         "replica DISABLE]";
+  EXPECT_NE(std::get_if<memgraph::storage::durability::WalLabelPropertyIndexDrop>(&ttl_txn[0].data_), nullptr)
+      << "the index drop happens before ttl.Disable(), so it must be the first WAL delta of the transaction";
+  const auto is_disable = [](const memgraph::storage::durability::WalDeltaData &delta) {
+    const auto *op = std::get_if<memgraph::storage::durability::WalTtlOperation>(&delta.data_);
+    return op != nullptr && op->operation_type == memgraph::storage::durability::TtlOperationType::DISABLE;
+  };
+  EXPECT_TRUE(is_disable(ttl_txn[1]))
+      << "the main DISABLE delta must be appended after its join and keep its place in WAL order";
+  EXPECT_TRUE(is_disable(ttl_txn[2]))
+      << "the replica (is_main=false) DISABLE delta must stay appended after its join, last in WAL order";
 }
 
 // Guard: the TTL lifecycle API must stay live under concurrent stop/start and still reap afterwards.
@@ -703,6 +814,68 @@ TEST_F(DatabaseProtectorTest, TtlConcurrentStopStartLifecycle) {
 
   ttl->Disable();
   delete storage;
+
+  // A3 (red): a stop/join that is in flight must exclude every other lifecycle mutation. The worker is
+  // parked inside make_database_protector(), so Disable() has requested the stop and is joining but
+  // cannot return. Pre-fix Enable() is a bare bool write and completes during that window; post-fix it
+  // waits on the serialization lock until the join is done.
+  BlockingProtectorFactory factory;
+  // Auto index creation off so the only make_database_protector() caller is the TTL worker itself;
+  // otherwise the fixture's async indexer parks in the factory and masks whether the join is in flight.
+  auto blocking_config = config_;
+  blocking_config.salient.items.enable_label_index_auto_creation = false;
+  auto *storage2 = new InMemoryStorage(blocking_config,
+                                       std::nullopt,
+                                       std::make_unique<memgraph::storage::PlanInvalidatorDefault>(),
+                                       memgraph::metrics::DatabaseMetricHandles{},
+                                       [&factory] { return factory(); });
+  auto *ttl2 = TtlOf(storage2);
+  CreateTtlIndex(storage2);
+  CreateExpiredTtlVertices(storage2, 1);
+  ttl2->Enable();
+  ttl2->Configure(false);
+  ttl2->SetInterval(std::chrono::milliseconds(50));
+  ttl2->Resume();
+  ASSERT_TRUE(factory.WaitReached(std::chrono::seconds(5)))
+      << "TTL worker never reached make_database_protector(); cannot hold a stop in flight";
+
+  std::atomic<bool> disable_returned{false};
+  std::thread inflight_stopper([ttl2, &disable_returned] {
+    ttl2->Disable();
+    disable_returned.store(true, std::memory_order_release);
+  });
+  // Let Disable() get past taking the lifecycle lock and into Scheduler::Stop().
+  std::this_thread::sleep_for(std::chrono::milliseconds(300));
+
+  std::atomic<bool> enable_returned{false};
+  std::thread concurrent_enabler([ttl2, &enable_returned] {
+    ttl2->Enable();
+    enable_returned.store(true, std::memory_order_release);
+  });
+  std::this_thread::sleep_for(std::chrono::milliseconds(300));
+
+  EXPECT_FALSE(disable_returned.load(std::memory_order_acquire))
+      << "setup check: the parked worker should keep the stop/join in flight";
+  EXPECT_FALSE(enable_returned.load(std::memory_order_acquire))
+      << "TTL::Enable() completed while a stop/join was in flight: the lifecycle is not serialized, so a "
+         "new generation can start over a worker that is still being joined";
+
+  factory.Release();
+  const auto release_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+  while ((!disable_returned.load(std::memory_order_acquire) || !enable_returned.load(std::memory_order_acquire)) &&
+         std::chrono::steady_clock::now() < release_deadline) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+  if (disable_returned.load(std::memory_order_acquire) && enable_returned.load(std::memory_order_acquire)) {
+    inflight_stopper.join();
+    concurrent_enabler.join();
+    ttl2->Disable();
+    delete storage2;
+  } else {
+    inflight_stopper.detach();
+    concurrent_enabler.detach();
+    ADD_FAILURE() << "stop/join and the queued lifecycle mutation did not complete after the protector was released";
+  }
 }
 #endif  // MG_ENTERPRISE
 
