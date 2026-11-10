@@ -1,0 +1,1 @@
+Benchmark control for #5339, not built into memgraph.
