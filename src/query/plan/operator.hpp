@@ -1385,6 +1385,8 @@ class CacheProperties : public memgraph::query::plan::LogicalOperator {
 
   std::shared_ptr<memgraph::query::plan::LogicalOperator> input_;
   std::vector<CachedPropertyGroup> groups_;
+  /// The view of the projection whose lookups it replaces.
+  storage::View view_{storage::View::NEW};
 
   std::string ToString(const DbAccessor *dba) const override;
 
