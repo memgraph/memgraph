@@ -22,6 +22,8 @@
 #include <utility>
 #include <vector>
 
+#include <fmt/format.h>
+
 #include "auth_query_handler_fixture.hpp"
 #include "auth_test_utils.hpp"
 #include "communication/bolt/v1/value.hpp"
@@ -651,27 +653,63 @@ void AddBatchedProbe(ProbeModule &module, const char *name, BatchedProbe *probe)
   module.procedures.emplace(name, std::move(proc));
 }
 
-// A module function `getx(v)` that returns property `x` of the vertex it gets.
-void AddGetX(ProbeModule &module) {
-  auto callback = [](mgp_list *args, mgp_func_context * /*ctx*/, mgp_func_result *result, mgp_memory *memory) {
-    mgp_value *arg{nullptr};
-    mgp_vertex *vertex{nullptr};
-    mgp_value *x{nullptr};
-    if (mgp_list_at(args, 0, &arg) != mgp_error::MGP_ERROR_NO_ERROR ||
-        mgp_value_get_vertex(arg, &vertex) != mgp_error::MGP_ERROR_NO_ERROR ||
-        mgp_vertex_get_property(vertex, "x", memory, &x) != mgp_error::MGP_ERROR_NO_ERROR) {
-      MG_ASSERT(mgp_func_result_set_error_msg(result, "getx could not read x", memory) ==
-                mgp_error::MGP_ERROR_NO_ERROR);
-      return;
-    }
-    MG_ASSERT(mgp_func_result_set_value(result, x, memory) == mgp_error::MGP_ERROR_NO_ERROR);
-    mgp_value_destroy(x);
-  };
-  mgp_func func("getx", +callback, memgraph::utils::NewDeleteResource());
+// Probe module functions that read through the module API:
+// - `getx(v)`: property `x` of the vertex `v`;
+// - `startx(es)`: property `x` of the start node of the first edge in the list `es`.
+mgp_vertex *LastVertexArg(mgp_list *args) {
+  size_t size{0};
+  mgp_value *arg{nullptr};
+  mgp_vertex *vertex{nullptr};
+  if (mgp_list_size(args, &size) != mgp_error::MGP_ERROR_NO_ERROR || size == 0 ||
+      mgp_list_at(args, size - 1, &arg) != mgp_error::MGP_ERROR_NO_ERROR ||
+      mgp_value_get_vertex(arg, &vertex) != mgp_error::MGP_ERROR_NO_ERROR) {
+    return nullptr;
+  }
+  return vertex;
+}
+
+mgp_vertex *FirstEdgeStart(mgp_list *args) {
+  mgp_value *arg{nullptr};
+  mgp_list *edges{nullptr};
+  mgp_value *first{nullptr};
+  mgp_edge *edge{nullptr};
+  mgp_vertex *from{nullptr};
+  if (mgp_list_at(args, 0, &arg) != mgp_error::MGP_ERROR_NO_ERROR ||
+      mgp_value_get_list(arg, &edges) != mgp_error::MGP_ERROR_NO_ERROR ||
+      mgp_list_at(edges, 0, &first) != mgp_error::MGP_ERROR_NO_ERROR ||
+      mgp_value_get_edge(first, &edge) != mgp_error::MGP_ERROR_NO_ERROR ||
+      mgp_edge_get_from(edge, &from) != mgp_error::MGP_ERROR_NO_ERROR) {
+    return nullptr;
+  }
+  return from;
+}
+
+template <mgp_vertex *(*TVertex)(mgp_list *)>
+void ReturnX(mgp_list *args, mgp_func_context * /*ctx*/, mgp_func_result *result, mgp_memory *memory) {
+  mgp_vertex *vertex = TVertex(args);
+  mgp_value *x{nullptr};
+  if (!vertex || mgp_vertex_get_property(vertex, "x", memory, &x) != mgp_error::MGP_ERROR_NO_ERROR) {
+    MG_ASSERT(mgp_func_result_set_error_msg(result, "could not read x", memory) == mgp_error::MGP_ERROR_NO_ERROR);
+    return;
+  }
+  MG_ASSERT(mgp_func_result_set_value(result, x, memory) == mgp_error::MGP_ERROR_NO_ERROR);
+  mgp_value_destroy(x);
+}
+
+void AddFunction(ProbeModule &module, const char *name, mgp_func_cb callback, int arity) {
+  mgp_func func(name, callback, memgraph::utils::NewDeleteResource());
   mgp_type *any_type{nullptr};
   MG_ASSERT(mgp_type_any(&any_type) == mgp_error::MGP_ERROR_NO_ERROR);
-  MG_ASSERT(mgp_func_add_arg(&func, "v", any_type) == mgp_error::MGP_ERROR_NO_ERROR);
-  module.functions.emplace("getx", std::move(func));
+  for (int i = 0; i != arity; ++i) {
+    auto const arg = fmt::format("a{}", i);
+    MG_ASSERT(mgp_func_add_arg(&func, arg.c_str(), any_type) == mgp_error::MGP_ERROR_NO_ERROR);
+  }
+  module.functions.emplace(name, std::move(func));
+}
+
+void AddProbeFunctions(ProbeModule &module) {
+  AddFunction(module, "getx", ReturnX<LastVertexArg>, 1);
+  AddFunction(module, "startx", ReturnX<FirstEdgeStart>, 1);
 }
 
 }  // namespace
@@ -695,9 +733,9 @@ class ProcedureTeardownTest : public InterpreterTest<memgraph::storage::InMemory
     ASSERT_TRUE(procedure::gModuleRegistry.RegisterModule("probe_module", std::move(module)));
   }
 
-  void RegisterGetX() {
+  void RegisterProbeFunctions() {
     auto module = std::make_unique<ProbeModule>();
-    AddGetX(*module);
+    AddProbeFunctions(*module);
     const std::unique_lock registry_lock{procedure::gModuleRegistry.lock_};
     ASSERT_TRUE(procedure::gModuleRegistry.RegisterModule("probe_fn", std::move(module)));
   }
@@ -813,7 +851,7 @@ class ModuleFunctionTest : public ProcedureTeardownTest {
 // A CREATE map reads View::OLD, where a node the same CREATE made does not exist yet: the read falls back to
 // View::NEW, as a property lookup does.
 TEST_F(ModuleFunctionTest, ReadsANodeTheSameCreateMade) {
-  RegisterGetX();
+  RegisterProbeFunctions();
   auto stream = Interpret("CREATE (a {x: 5}), (b {v: probe_fn.getx(a)}) RETURN b.v AS v");
   ASSERT_EQ(stream.GetResults().size(), 1U);
   EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 5);
@@ -821,12 +859,34 @@ TEST_F(ModuleFunctionTest, ReadsANodeTheSameCreateMade) {
 
 // A C module function reaches the graph only through its arguments.
 TEST_F(ModuleFunctionTest, ReadsTheGraphOnlyThroughAnArgumentThatMayHoldAnEntity) {
-  RegisterGetX();
+  RegisterProbeFunctions();
   EXPECT_FALSE(PlanHasAccumulate("UNWIND [1, 2] AS i MERGE (n:L {id: i}) SET n.s = probe_fn.getx('x')"));
   EXPECT_FALSE(PlanHasAccumulate("UNWIND [1, 2] AS i MERGE (n:L {id: i}) SET n.s = probe_fn.getx([$p, {k: 1}])"));
   EXPECT_FALSE(PlanHasAccumulate("UNWIND [1, 2] AS i MERGE (n:L {id: i}) SET n.s = probe_fn.getx(n.x)"));
   EXPECT_TRUE(PlanHasAccumulate("UNWIND [1, 2] AS i MERGE (n:L {id: i}) SET n.s = probe_fn.getx(n)"));
   EXPECT_TRUE(PlanHasAccumulate("UNWIND [1, 2] AS i MERGE (n:L {id: i}) SET n.s = probe_fn.getx([n])"));
+  EXPECT_TRUE(
+      PlanHasAccumulate("MATCH p = (a)-[r*1]->(b) UNWIND [1, 2] AS i SET a.x = i CREATE (:M {v: probe_fn.getx(r)})"));
+  EXPECT_TRUE(
+      PlanHasAccumulate("MATCH p = (a)-->(b) UNWIND [1, 2] AS i SET a.x = i CREATE (:M {v: probe_fn.getx(p)})"));
+  EXPECT_FALSE(PlanHasAccumulate(
+      "LOAD CSV FROM '/x.csv' WITH HEADER AS row MERGE (n:L {id: row.id}) SET n.s = probe_fn.getx(row.json)"));
+  EXPECT_FALSE(PlanHasAccumulate(
+      "LOAD CSV FROM '/x.csv' WITH HEADER AS row MERGE (n:L {id: row.id}) SET n.s = probe_fn.getx(row['json'])"));
+}
+
+// A module function over a variable-length edge list sees an earlier clause's write for every row.
+TEST_F(ModuleFunctionTest, ReadsThroughAnEdgeListAfterAnEarlierWrite) {
+  RegisterProbeFunctions();
+  Interpret("CREATE (:A)-[:R]->(:B)");
+  auto stream = Interpret(
+      "MATCH (a:A)-[r*1]->(b) UNWIND [1, 2] AS i SET a.x = i CREATE (m:M {i: i, v: probe_fn.startx(r)}) "
+      "RETURN m.v AS v ORDER BY m.i");
+  ASSERT_EQ(stream.GetResults().size(), 2U);
+  for (const auto &row : stream.GetResults()) {
+    ASSERT_EQ(row[0].type(), memgraph::communication::bolt::Value::Type::Int);
+    EXPECT_EQ(row[0].ValueInt(), 2);
+  }
 }
 
 // Column headers from the accessor-free path must be byte-identical to the normal path's (clients

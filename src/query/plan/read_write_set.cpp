@@ -46,10 +46,10 @@ class ReadWriteCollector final : public HierarchicalTreeVisitor {
   using HierarchicalTreeVisitor::Visit;
 
   bool Visit(Identifier &ident) override {
-    // An identifier the symbol generator left unmapped names no variable. A path holds entities too.
+    // An identifier the symbol generator left unmapped names no variable.
     if (ident.symbol_pos_ < 0) return true;
     auto const &symbol = symbol_table_.at(ident);
-    if (ReadsGraph(&ident) || symbol.type() == Symbol::Type::PATH) result.reads.referenced.insert(symbol);
+    if (MayHoldEntity(symbol)) result.reads.referenced.insert(symbol);
     return true;
   }
 
@@ -242,16 +242,25 @@ class ReadWriteCollector final : public HierarchicalTreeVisitor {
       return std::ranges::any_of(map->elements_, [this](const auto &entry) { return MayHoldEntity(entry.second); });
     }
     if (auto *lookup = utils::Downcast<PropertyLookup>(value)) {
-      // A property of a node or an edge is never an entity; a map's may be.
+      // A property of a node or an edge is never an entity; a map's may be, unless the map is a LOAD CSV row.
       auto *object = utils::Downcast<Identifier>(lookup->expression_);
       if (!object) return true;
-      auto const type = symbol_table_.at(*object).type();
-      return type != Symbol::Type::VERTEX && type != Symbol::Type::EDGE;
+      auto const &symbol = symbol_table_.at(*object);
+      return !non_graph_.contains(symbol) && symbol.type() != Symbol::Type::VERTEX &&
+             symbol.type() != Symbol::Type::EDGE;
     }
-    if (auto *ident = utils::Downcast<Identifier>(value)) {
-      return ReadsGraph(ident) || symbol_table_.at(*ident).type() == Symbol::Type::PATH;
+    if (auto *subscript = utils::Downcast<SubscriptOperator>(value)) {
+      // A LOAD CSV row holds strings only.
+      auto *object = utils::Downcast<Identifier>(subscript->expression1_);
+      return !object || !non_graph_.contains(symbol_table_.at(*object));
     }
+    if (auto *ident = utils::Downcast<Identifier>(value)) return MayHoldEntity(symbol_table_.at(*ident));
     return true;
+  }
+
+  /// Whether a variable may be, or hold, a node, an edge, a path or an edge list.
+  bool MayHoldEntity(const Symbol &symbol) const {
+    return !non_graph_.contains(symbol) && symbol.type() != Symbol::Type::NUMBER;
   }
 
   /// Whether every node the term matches has a label, so a created node can match it only through a label write.
