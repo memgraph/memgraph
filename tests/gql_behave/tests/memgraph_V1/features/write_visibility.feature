@@ -2583,11 +2583,11 @@ Feature: Write visibility inside one query
         Given an empty graph
         When executing query:
             """
-            CREATE (a:WvFa {x: 1})-[:R]->(c:WvFc {d: degree(a), i: inDegree(a), o: outDegree(a), s: propertySize(a, 'x') > 0}) RETURN c.d AS d, c.i AS i, c.o AS o, c.s AS s
+            CREATE (a:WvFa {x: 1})-[:R]->(b:WvFb), (c:WvFc {d: degree(a), o: outDegree(a), i: inDegree(b), s: propertySize(a, 'x') > 0}) RETURN c.d AS d, c.o AS o, c.i AS i, c.s AS s
             """
         Then the result should be:
-            | d | i | o | s    |
-            | 0 | 0 | 0 | true |
+            | d | o | i | s    |
+            | 1 | 1 | 1 | true |
 
     Scenario: A CREATE map read through a path does not see a later SET of a node an earlier row merged
         Given an empty graph
