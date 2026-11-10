@@ -8854,7 +8854,7 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
       return PreparedQuery{
           .header = {"STATUS"},
           .privileges = std::move(parsed_query.required_privileges),
-          .query_handler = [db_name = query->db_name_, db_handler, interpreter = &interpreter, interpreter_context](
+          .query_handler = [db_name = query->db_name_, db_handler, interpreter = &interpreter](
                                AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
             if (!interpreter->system_transaction_) {
               throw QueryException("Expected to be in a system transaction");
@@ -8879,10 +8879,6 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
               }
             } else {
               res = "Successfully created database " + db_name;
-              db_handler->Get(db_name)->storage()->ttl_.SetUserCheck([interpreter_context]() {
-                const auto locked_repl_state = interpreter_context->repl_state->ReadLock();
-                return locked_repl_state->IsMainWriteable();
-              });
             }
             status.emplace_back(std::vector<TypedValue>{TypedValue(res)});
             auto pull_plan = std::make_shared<PullPlanVector>(std::move(status));

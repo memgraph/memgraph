@@ -1172,7 +1172,7 @@ class DbmsHandler {
   std::unique_ptr<kvstore::KVStore> durability_;      //!< list of active dbs (pointer so we can postpone its creation)
   std::unique_ptr<TenantProfiles> tenant_profiles_;   //!< per-DB resource profiles (created after durability_)
   std::function<void(DatabaseAccess)> on_resume_;     //!< pre-publish resume arm (triggers/streams); empty default
-  std::function<void(DatabaseAccess)> on_published_;  //!< post-publish resume arm (TTL); empty default
+  std::function<void(DatabaseAccess)> on_published_;  //!< post-publish create/resume arm (TTL); empty default
   std::function<void(DatabaseAccess)> on_suspend_;    //!< pre-teardown suspend arm (stop streams); empty default
   std::function<void(DatabaseAccess)>
       restore_streams_;  //!< streams-only restore (undo a stopped suspend); empty default

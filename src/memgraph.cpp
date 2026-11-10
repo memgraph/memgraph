@@ -1175,8 +1175,8 @@ int main(int argc, char **argv) {
   //  - restore_streams_: undo that stop if a suspend does not commit (preserving each stream's run/stop state);
   //  - on_resume_: after a COLD tenant's storage is rebuilt, re-arm its triggers AND streams from durable
   //    metadata (BuildDetached does not auto-arm either). Triggers must come first (streams use modules).
-  //  - on_published_: once the resumed tenant is published, let TTL run (it commits, so it must not run
-  //    on an unpublished tenant).
+  //  - on_published_: once a created or resumed tenant is published, let TTL run on MAIN (it commits, so it
+  //    must not run on an unpublished tenant).
   if (dbms_handler.has_value()) {
     auto *dh = &*dbms_handler;
     auto *ic = &interpreter_context_;
