@@ -9,7 +9,7 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
-# MAIN keeps replicating every database without a valid licence, so SHOW REPLICAS reports every database.
+# MAIN keeps replicating without a valid licence, so SHOW REPLICAS reports the system and every database.
 # MAIN is licensed through settings only, so a mismatched organization name makes it unlicensed.
 
 import os
@@ -77,7 +77,8 @@ def test_show_replicas_lists_tenants_without_licence(request):
     execute_and_fetch_all(main_cursor, f"SET DATABASE SETTING 'organization.name' TO '{ORGANIZATION_NAME}-invalid';")
     assert not dict(execute_and_fetch_all(main_cursor, "SHOW LICENSE INFO;"))["is_valid"]
 
-    data_info = execute_and_fetch_all(main_cursor, "SHOW REPLICAS;")[0][4]
+    _, _, _, system_info, data_info = execute_and_fetch_all(main_cursor, "SHOW REPLICAS;")[0]
+    assert system_info is not None
     assert set(data_info) == {"memgraph", "tenant"}
 
 
