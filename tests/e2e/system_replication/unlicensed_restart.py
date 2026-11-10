@@ -81,9 +81,9 @@ def set_organization_name(main_cursor, organization_name):
     execute_and_fetch_all(main_cursor, f"SET DATABASE SETTING 'organization.name' TO '{organization_name}';")
 
 
-def tenant_nodes(port):
+def node_count(port, database):
     db_cursor = cursor(port)
-    execute_and_fetch_all(db_cursor, "USE DATABASE tenant;")
+    execute_and_fetch_all(db_cursor, f"USE DATABASE {database};")
     return execute_and_fetch_all(db_cursor, "MATCH (n) RETURN count(n);")[0][0]
 
 
@@ -102,7 +102,7 @@ def test_tenant_replicated_after_unlicensed_restart(request):
         "UNWIND range(1, 10) AS i CREATE ();",
     ]:
         execute_and_fetch_all(main_cursor, query)
-    mg_sleep_and_assert(10, partial(tenant_nodes, 7688))
+    mg_sleep_and_assert(10, partial(node_count, 7688, "tenant"))
 
     set_organization_name(main_cursor, f"{ORGANIZATION_NAME}-invalid")
     interactive_mg_runner.stop(description, "main")
@@ -113,7 +113,11 @@ def test_tenant_replicated_after_unlicensed_restart(request):
 
     execute_and_fetch_all(main_cursor, "USE DATABASE tenant;")
     execute_and_fetch_all(main_cursor, "CREATE ();")
-    mg_sleep_and_assert(11, partial(tenant_nodes, 7688))
+    mg_sleep_and_assert(11, partial(node_count, 7688, "tenant"))
+
+    execute_and_fetch_all(main_cursor, "USE DATABASE memgraph;")
+    execute_and_fetch_all(main_cursor, "CREATE ();")
+    mg_sleep_and_assert(1, partial(node_count, 7688, "memgraph"))
 
 
 if __name__ == "__main__":
