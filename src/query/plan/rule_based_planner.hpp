@@ -827,10 +827,10 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
 
   bool BarriersOn() const { return read_scope_ == ReadScope::kRoot || read_scope_ == ReadScope::kWritingTree; }
 
-  /// A clause that must see its own earlier rows, so it reads View::NEW: a SET/REMOVE right-hand side, MERGE and
-  /// FOREACH.
+  /// A clause that must see its own earlier rows, so it reads View::NEW: a SET/REMOVE right-hand side, MERGE,
+  /// FOREACH and DELETE.
   static bool ReadsNewView(const Clause &clause) {
-    return utils::IsSubtype(clause, query::SetProperty::kType) ||
+    return utils::IsSubtype(clause, query::Delete::kType) || utils::IsSubtype(clause, query::SetProperty::kType) ||
            utils::IsSubtype(clause, query::SetProperties::kType) || utils::IsSubtype(clause, query::SetLabels::kType) ||
            utils::IsSubtype(clause, query::RemoveProperty::kType) ||
            utils::IsSubtype(clause, query::RemoveLabels::kType) || utils::IsSubtype(clause, query::Merge::kType) ||
