@@ -17,16 +17,13 @@
 #include "utils/terminate_handler.hpp"
 
 namespace {
-[[noreturn]] void FatalAs(bool const is_init) {
+[[noreturn]] void FatalAs() {
   std::cerr << "fatal-message";
-  memgraph::utils::AbortProcess(is_init);
+  memgraph::utils::AbortProcess();
 }
 }  // namespace
 
-TEST(TerminateHandler, InitExitsWithAbortStatusAndKeepsMessage) {
-  EXPECT_EXIT(FatalAs(true), ::testing::ExitedWithCode(134), "fatal-message");
-}
-
-TEST(TerminateHandler, NonInitStillAbortsWithSignal) {
-  EXPECT_EXIT(FatalAs(false), ::testing::KilledBySignal(SIGABRT), "fatal-message");
+// The PID-1 exit path is not unit-testable (a gtest death-test child is never PID 1).
+TEST(TerminateHandler, AbortsAfterFlushingMessage) {
+  EXPECT_EXIT(FatalAs(), ::testing::KilledBySignal(SIGABRT), "fatal-message");
 }
