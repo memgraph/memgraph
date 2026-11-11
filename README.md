@@ -98,7 +98,7 @@ Memgraph Lab:
 
 ```bash
 # Linux/macOS
-curl -sSL https://install.memgraph.com | bash
+curl -sSf "https://install.memgraph.com" | sh
 ```
 
 ```powershell
