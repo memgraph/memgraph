@@ -612,6 +612,30 @@ def _split_tenants(tenant_names: list[str]) -> tuple[list[str], list[str]]:
     return ballast, churn
 
 
+def _memory_snapshot(endpoint: str, username: str, password: str, tenant_names: list[str]) -> str:
+    """One line, because CI prints only the tail of the runner log on failure."""
+    drv = make_driver(endpoint, username, password)
+    try:
+        with drv.session() as sess:
+
+            def info(suffix: str = "") -> dict:
+                return {r["storage info"]: r["value"] for r in run_query(sess, f"SHOW STORAGE INFO{suffix}")}
+
+            inst = info()
+            parts = [f"tracked={inst['memory_tracked']} res={inst['memory_res']}"]
+            for db in ["memgraph", *tenant_names]:
+                d = info(f" ON DATABASE {db}")
+                parts.append(
+                    f"{db}:{d['state']} tenant={d['tenant_memory_tracked']} "
+                    f"query={d['query_memory_tracked']} deltas={d['unreleased_delta_objects']}"
+                )
+            return "; ".join(parts)
+    except Exception as exc:
+        return f"memory snapshot failed: {exc}"
+    finally:
+        drv.close()
+
+
 # ---------------------------------------------------------------------------
 # Main orchestration
 # ---------------------------------------------------------------------------
@@ -827,11 +851,16 @@ def main() -> None:
     print("  freeing memory: suspended all tenants before one-at-a-time verification", flush=True)
     for tname in tenant_names:
         suspend_tenant(endpoint, username, password, tname)
+    print(f"  memory at phase 5 start: {_memory_snapshot(endpoint, username, password, tenant_names)}", flush=True)
 
     mismatches = []
     for tname in tenant_names:
         role_tag = "ballast" if tname in ballast_tenants else "churn"
         print(f"  verifying {tname} ({role_tag})...", flush=True)
+        print(
+            f"  memory before resume {tname}: {_memory_snapshot(endpoint, username, password, tenant_names)}",
+            flush=True,
+        )
         try:
             # Resume with bounded retry (tolerates transient / OOM by retrying).
             # Each tenant gets nearly the full memory budget because all others
@@ -850,17 +879,19 @@ def main() -> None:
                     if is_transient(exc):
                         time.sleep(RETRY_SLEEP)
                         continue
-                    mismatches.append((tname, -1, expected[tname], f"resume failed: {exc}"))
                     reported = True
                     break
 
             if not resumed:
                 # Exhausting the retries leaves this tenant unverified, which the summary has to
                 # report as a failure rather than pass over.
-                if not reported:
-                    mismatches.append(
-                        (tname, -1, expected[tname], f"resume did not succeed within {MAX_RETRIES} retries: {last_exc}")
-                    )
+                reason = (
+                    f"resume failed: {last_exc}"
+                    if reported
+                    else f"resume did not succeed within {MAX_RETRIES} retries: {last_exc}"
+                )
+                memory = _memory_snapshot(endpoint, username, password, tenant_names)
+                mismatches.append((tname, -1, expected[tname], f"{reason}; memory after failure: {memory}"))
                 continue
 
             try:
