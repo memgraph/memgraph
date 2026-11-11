@@ -1923,6 +1923,34 @@ TEST_F(ReplicationTest, RecoveryStepsAfterPeriodicSnapshot) {
   }
 }
 
+// With no finalized WAL, a replica inside the current WAL's range needs only that WAL, even when a periodic
+// snapshot is newer than the replica.
+TEST_F(ReplicationTest, RecoveryStepsWithOnlyCurrentWal) {
+  MinMemgraph main(main_conf);
+  auto *in_mem = static_cast<InMemoryStorage *>(main.db.storage());
+
+  memgraph::utils::FileRetainer file_retainer;
+  auto file_locker = file_retainer.AddLocker();
+
+  auto create_vertex_and_commit = [&]() {
+    const memgraph::memory::DbArenaScope arena_scope{&main.db.Arena()};
+    auto acc = in_mem->Access(memgraph::storage::WRITE);
+    acc->CreateVertex();
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  };
+
+  create_vertex_and_commit();
+  auto const replica_commit = in_mem->repl_storage_state_.commit_ts_info_.load().ldt_;
+  create_vertex_and_commit();
+  ASSERT_TRUE(in_mem->CreateSnapshot().has_value());
+
+  const memgraph::memory::DbArenaScope arena_scope{&main.db.Arena()};
+  auto const steps = GetRecoverySteps(replica_commit, &file_locker, in_mem);
+  ASSERT_TRUE(steps.has_value());
+  ASSERT_EQ(steps->size(), 1);
+  EXPECT_TRUE(std::holds_alternative<memgraph::storage::RecoveryCurrentWal>(steps->front()));
+}
+
 // Analytical writes are never appended to the WAL, so a storage that replicates must not be allowed to
 // enter analytical mode; registration in the other order must be refused too.
 TEST_F(ReplicationTest, AnalyticalModeAndReplicationAreMutuallyExclusive) {
