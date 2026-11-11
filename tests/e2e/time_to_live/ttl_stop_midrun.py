@@ -296,8 +296,6 @@ def test_storage_mode_midrun_and_sessions():
     count_at_start = _wait_until_ttl_deleting(database, NODES)
     assert count_at_start is not None, "TTL did not start deleting expired vertices within 15s"
 
-    answered = False
-    status = "err"
     for attempt in range(1, PROBE_ATTEMPTS + 1):
         status, detail = fresh_query(database, "STORAGE MODE ON_DISK_TRANSACTIONAL", STORAGE_MODE_TIMEOUT)
         assert status != "timeout", (
@@ -305,13 +303,10 @@ def test_storage_mode_midrun_and_sessions():
             f"multi-batch TTL run was in flight (count at issue {count_at_start}): {detail}"
         )
         if status == "ok":
-            answered = True
             break
         # A clear refusal (database contains data) is an answer; retry like the report because the
         # hang needs the exclusive region to start at a TTL batch boundary.
         time.sleep(0.2)
-
-    assert answered or status == "err", "STORAGE MODE neither succeeded nor refused clearly during the TTL run"
 
     session_status, session_detail = fresh_query(database, "MATCH (n) RETURN count(n)", MATCH_TIMEOUT)
     assert session_status == "ok", (

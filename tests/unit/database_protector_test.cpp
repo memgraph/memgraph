@@ -15,6 +15,7 @@
 #include <chrono>
 #include <condition_variable>
 #include <filesystem>
+#include <future>
 #include <mutex>
 #include <thread>
 #include <vector>
@@ -824,6 +825,120 @@ TEST_F(DatabaseProtectorTest, TtlConcurrentStopStartLifecycle) {
     concurrent_enabler.detach();
     ADD_FAILURE() << "stop/join and the queued lifecycle mutation did not complete after the protector was released";
   }
+}
+
+// Role changes (Pause/Resume) hold the repl_state lock and must not wait on a Disable() that is joining a
+// worker which itself waits on that lock through the user check.
+TEST_F(DatabaseProtectorTest, RoleChangePauseResumeDoNotWaitOnJoin) {
+  auto *storage = new InMemoryStorage(config_);
+  auto *ttl = TtlOf(storage);
+  CreateTtlIndex(storage);
+
+  std::mutex m;
+  std::condition_variable cv;
+  bool reached = false;
+  bool release = false;
+  ttl->SetUserCheck([&] {
+    std::unique_lock lock{m};
+    reached = true;
+    cv.notify_all();
+    cv.wait(lock, [&] { return release; });
+    return true;
+  });
+  const auto release_worker = [&] {
+    {
+      std::lock_guard lock{m};
+      release = true;
+    }
+    cv.notify_all();
+  };
+
+  ttl->Enable();
+  ttl->Configure(false);
+  ttl->SetInterval(std::chrono::milliseconds(50));
+  ttl->Resume();
+  {
+    std::unique_lock lock{m};
+    ASSERT_TRUE(cv.wait_for(lock, std::chrono::seconds(5), [&] { return reached; }))
+        << "TTL worker never reached the user check";
+  }
+
+  auto disable = std::async(std::launch::async, [ttl] { ttl->Disable(); });
+  // Let Disable() take the lifecycle lock and block in the join on the parked worker.
+  std::this_thread::sleep_for(std::chrono::milliseconds(300));
+  EXPECT_NE(disable.wait_for(std::chrono::milliseconds(0)), std::future_status::ready)
+      << "setup check: the parked worker should keep Disable() joining";
+
+  auto pause = std::async(std::launch::async, [ttl] { ttl->Pause(); });
+  const bool pause_done = pause.wait_for(std::chrono::seconds(2)) == std::future_status::ready;
+  auto resume = std::async(std::launch::async, [ttl] { ttl->Resume(); });
+  const bool resume_done = resume.wait_for(std::chrono::seconds(2)) == std::future_status::ready;
+  EXPECT_TRUE(pause_done) << "Pause() waited on a Disable() that was joining the worker";
+  EXPECT_TRUE(resume_done) << "Resume() waited on a Disable() that was joining the worker";
+
+  release_worker();
+  EXPECT_EQ(disable.wait_for(std::chrono::seconds(5)), std::future_status::ready)
+      << "Disable() did not return once the worker was released";
+  // std::async futures join on destruction, so the released worker lets every thread finish before delete.
+  pause.wait();
+  resume.wait();
+  disable.wait();
+  delete storage;
+}
+
+// While a storage mode switch owns the stopped worker, nothing may start a new TTL generation.
+TEST_F(DatabaseProtectorTest, SuspendWorkerRefusesNewGeneration) {
+  auto *storage = new InMemoryStorage(config_);
+  auto *ttl = TtlOf(storage);
+  CreateTtlIndex(storage);
+
+  ttl->Enable();
+  ttl->Configure(false);
+  ttl->SetInterval(std::chrono::hours(1));
+  ASSERT_TRUE(ttl->Running());
+
+  const auto state = ttl->SuspendWorker();
+  EXPECT_TRUE(state.running);
+  EXPECT_FALSE(ttl->Running());
+  EXPECT_THROW(ttl->Configure(false), memgraph::storage::ttl::TtlException);
+  EXPECT_THROW(ttl->Enable(), memgraph::storage::ttl::TtlException);
+  EXPECT_FALSE(ttl->Running());
+
+  ttl->RestoreWorker(state);
+  EXPECT_TRUE(ttl->Running());
+
+  ttl->Disable();
+  delete storage;
+}
+
+// Pause()/Resume() issued while the worker is suspended (role change) must survive RestoreWorker().
+TEST_F(DatabaseProtectorTest, RestoreWorkerAppliesRoleChangeDuringSuspension) {
+  auto *storage = new InMemoryStorage(config_);
+  auto *ttl = TtlOf(storage);
+  CreateTtlIndex(storage);
+
+  ttl->Enable();
+  ttl->Configure(false);
+  ttl->SetInterval(std::chrono::hours(1));
+
+  // Running and unpaused, then demoted to replica during the window.
+  ttl->Resume();
+  ASSERT_FALSE(ttl->Paused());
+  auto state = ttl->SuspendWorker();
+  ttl->Pause();
+  ttl->RestoreWorker(state);
+  EXPECT_TRUE(ttl->Running());
+  EXPECT_TRUE(ttl->Paused());
+
+  // Paused, then promoted to main during the window.
+  state = ttl->SuspendWorker();
+  ttl->Resume();
+  ttl->RestoreWorker(state);
+  EXPECT_TRUE(ttl->Running());
+  EXPECT_FALSE(ttl->Paused());
+
+  ttl->Disable();
+  delete storage;
 }
 #endif  // MG_ENTERPRISE
 
