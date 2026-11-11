@@ -38,10 +38,6 @@ struct VertexInfoCache::EdgeKey {
 
   friend bool operator==(EdgeKey const &, EdgeKey const &) = default;
 
-  friend bool operator==(EdgeKey const &lhs, std::tuple<Vertex const *, EdgeTypeId> const &rhs) {
-    return lhs.src_vertex_ == std::get<0>(rhs) && std::ranges::contains(lhs.edge_types_, std::get<1>(rhs));
-  }
-
   template <typename H>
   friend H AbslHashValue(H h, EdgeKey const &key) {
     return H::combine(std::move(h), key.src_vertex_, key.dst_vertex_, key.edge_types_);
