@@ -19,13 +19,14 @@ from common import memgraph
 def test_datetime_with_timezone_only(memgraph):
     """Specifying a map with only a timezone populates the numeric datetime
     members with the current time"""
+    # A zone without daylight saving: Bolt 4 sends a local time, which the client cannot place in a repeated hour.
     now_before = datetime.datetime.now(datetime.timezone.utc)
-    result = next(memgraph.execute_and_fetch("RETURN datetime({timezone: 'Europe/Brussels'}) AS dt"))
+    result = next(memgraph.execute_and_fetch("RETURN datetime({timezone: 'Asia/Tokyo'}) AS dt"))
     now_after = datetime.datetime.now(datetime.timezone.utc)
 
     dt = result["dt"]
     assert dt is not None
-    assert str(dt.tzinfo) == "Europe/Brussels"
+    assert str(dt.tzinfo) == "Asia/Tokyo"
 
     # check the computed time is in the range of expected times
     dt_utc = dt.astimezone(datetime.timezone.utc)
