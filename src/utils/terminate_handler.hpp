@@ -30,11 +30,12 @@ inline constexpr int kAbortExitStatus = 128 + SIGABRT;
 
 /// Abort the process. As PID 1 of a PID namespace (a container entrypoint) the kernel discards the SIGABRT that
 /// std::abort() raises against itself, and glibc then falls through to a trap instruction, so the process dies with
-/// an arch-dependent SIGTRAP (status 133 on aarch64) instead of SIGABRT. Exit with the SIGABRT status directly there.
-[[noreturn]] inline void AbortProcess(bool const is_init) noexcept {
+/// an arch-dependent fatal signal (SIGTRAP, status 133, on aarch64; SIGSEGV, status 139, on x86-64) instead of
+/// SIGABRT. Exit with the SIGABRT status directly there.
+[[noreturn]] inline void AbortProcess() noexcept {
   std::cerr.flush();
   std::fflush(nullptr);
-  if (is_init) {
+  if (::getpid() == 1) {
     ::_exit(kAbortExitStatus);
   }
   std::abort();
@@ -60,7 +61,7 @@ inline void TerminateHandler(std::ostream &stream) noexcept {
     }
   }
   stream.flush();
-  AbortProcess(::getpid() == 1);
+  AbortProcess();
 }
 
 inline void TerminateHandler() noexcept { TerminateHandler(std::cerr); }
