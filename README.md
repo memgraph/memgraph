@@ -209,16 +209,16 @@ and bring incredible improvements to life. If you're passionate about databases
 and open source, here's your chance to make a difference!
 
 ### Compile from Source
-Learn how to download, compile and run Memgraph from source with the [Quick
-Start](https://memgraph.notion.site/Quick-Start-82a99a85e62a4e3d89f6a9fb6d35626d)
+Learn how to download, compile and run Memgraph from source with the [Build
+Memgraph from
+source](https://memgraph.com/docs/getting-started/build-memgraph-from-source)
 guide.
 
 ### Explore Memgraph Internals
 Interested in the nuts and bolts of Memgraph? Our [internals
 documentation](https://memgraph.notion.site/Memgraph-Internals-12b69132d67a417898972927d6870bd2)
-is where you can uncover the inner workings of Memgraph's architecture, learn
-how to build the project from scratch, and discover the secrets of effective
-contributions. Dive deep into the database!
+is where you can uncover the inner workings of Memgraph's architecture and
+discover the secrets of effective contributions. Dive deep into the database!
 
 ### Dive into the Contributing Guide
 Ready to jump into the action? Explore our [contributing
