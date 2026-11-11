@@ -613,6 +613,45 @@ def _split_tenants(tenant_names: list[str]) -> tuple[list[str], list[str]]:
 
 
 # ---------------------------------------------------------------------------
+# Memory snapshot
+# ---------------------------------------------------------------------------
+
+
+def _memory_snapshot(endpoint: str, username: str, password: str, tenant_names: list[str]) -> str:
+    """
+    Return instance memory and each database's usage as one line, because the
+    parallel stress runner prints only the tail of the runner log on failure.
+
+    A COLD database holds no live memory and reports only as-of-suspend stats,
+    so it is shown by its state alone. If a query fails, the line keeps what
+    was collected before it and ends with the error.
+    """
+    parts = []
+    drv = make_driver(endpoint, username, password)
+    try:
+        with drv.session() as sess:
+
+            def info(suffix: str = "") -> dict:
+                return {r["storage info"]: r["value"] for r in run_query(sess, f"SHOW STORAGE INFO{suffix}")}
+
+            inst = info()
+            parts.append(f"tracked={inst['memory_tracked']} res={inst['memory_res']}")
+            for db in ["memgraph", *tenant_names]:
+                d = info(f" ON DATABASE {db}")
+                parts.append(
+                    f"{db}:COLD"
+                    if d["state"] == "COLD"
+                    else f"{db}:{d['state']} tenant={d['tenant_memory_tracked']} "
+                    f"query={d['query_memory_tracked']} deltas={d['unreleased_delta_objects']}"
+                )
+    except Exception as exc:
+        parts.append(f"snapshot failed: {exc}")
+    finally:
+        drv.close()
+    return "; ".join(parts)
+
+
+# ---------------------------------------------------------------------------
 # Main orchestration
 # ---------------------------------------------------------------------------
 
@@ -832,6 +871,10 @@ def main() -> None:
     for tname in tenant_names:
         role_tag = "ballast" if tname in ballast_tenants else "churn"
         print(f"  verifying {tname} ({role_tag})...", flush=True)
+        print(
+            f"  memory before resume {tname}: {_memory_snapshot(endpoint, username, password, tenant_names)}",
+            flush=True,
+        )
         try:
             # Resume with bounded retry (tolerates transient / OOM by retrying).
             # Each tenant gets nearly the full memory budget because all others
@@ -850,17 +893,19 @@ def main() -> None:
                     if is_transient(exc):
                         time.sleep(RETRY_SLEEP)
                         continue
-                    mismatches.append((tname, -1, expected[tname], f"resume failed: {exc}"))
                     reported = True
                     break
 
             if not resumed:
-                # Exhausting the retries leaves this tenant unverified, which the summary has to
-                # report as a failure rather than pass over.
-                if not reported:
-                    mismatches.append(
-                        (tname, -1, expected[tname], f"resume did not succeed within {MAX_RETRIES} retries: {last_exc}")
-                    )
+                # A failed resume leaves this tenant unverified, which the summary has to report
+                # as a failure rather than pass over.
+                reason = (
+                    f"resume failed: {last_exc}"
+                    if reported
+                    else f"resume did not succeed within {MAX_RETRIES} retries: {last_exc}"
+                )
+                memory = _memory_snapshot(endpoint, username, password, tenant_names)
+                mismatches.append((tname, -1, expected[tname], f"{reason}; memory after failure: {memory}"))
                 continue
 
             try:
