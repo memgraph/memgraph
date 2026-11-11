@@ -139,6 +139,8 @@ You can find the binaries and Docker images on the [Download
 Hub](https://memgraph.com/download) and the installation instructions in the
 [official documentation](https://memgraph.com/docs/memgraph/installation).
 
+For opt-in JSON application logs, see [logging output](config/README.md).
+
 
 ## :rocket: Daily Builds
 Stay on the cutting edge with the latest features and improvements by using

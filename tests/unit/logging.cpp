@@ -12,22 +12,29 @@
 #include "flags/logging.hpp"
 #include "utils/exit_codes.hpp"
 #include "utils/session_context.hpp"
+#include "utils/structured_logging.hpp"
 
 #include <gflags/gflags.h>
 #include <gtest/gtest.h>
 #include <spdlog/sinks/base_sink.h>
+#include <spdlog/sinks/ostream_sink.h>
 #include <unistd.h>
+#include <nlohmann/json.hpp>
 
 #include <algorithm>
 #include <chrono>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <mutex>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <vector>
 
 DECLARE_string(log_file);
+DECLARE_string(log_format);
+DECLARE_string(logger_type);
 DECLARE_uint64(log_retention_days);
 
 // Counter-incrementing fmt formatter — proves the lazy-format contract.
@@ -177,6 +184,129 @@ TEST(InitializeLoggerDeathTest, UnwritableLogFileExitsCleanlyWithActionableMessa
   fs::permissions(dir, fs::perms::owner_all);
   fs::remove_all(dir);
 }
+
+TEST(LogFormatFlag, DefaultsToTextAndRejectsUnsupportedFormats) {
+  gflags::FlagSaver saved_flags;
+  gflags::CommandLineFlagInfo info;
+  ASSERT_TRUE(gflags::GetCommandLineFlagInfo("log_format", &info));
+  EXPECT_EQ(info.default_value, "text");
+  EXPECT_FALSE(gflags::SetCommandLineOption("log_format", "json").empty());
+  EXPECT_EQ(FLAGS_log_format, "json");
+  EXPECT_FALSE(gflags::SetCommandLineOption("log_format", "text").empty());
+
+  testing::internal::CaptureStderr();
+  EXPECT_TRUE(gflags::SetCommandLineOption("log_format", "xml").empty());
+  EXPECT_TRUE(gflags::SetCommandLineOption("log_format", "").empty());
+  const auto error = testing::internal::GetCapturedStderr();
+  EXPECT_NE(error.find("to be 'text' or 'json'"), std::string::npos);
+  EXPECT_EQ(FLAGS_log_format, "text");
+}
+
+class LoggerFormatTest : public ::testing::TestWithParam<const char *> {
+ protected:
+  void SetUp() override {
+    previous_logger_ = spdlog::default_logger();
+    previous_stderr_sink_ = memgraph::flags::stderr_sink();
+    memgraph::flags::stderr_sink() = std::make_shared<spdlog::sinks::stderr_color_sink_st>();
+    test_dir_ = fs::temp_directory_path() / ("mg_logger_format_test_" + std::to_string(::getpid()));
+    fs::create_directories(test_dir_);
+    FLAGS_log_file = (test_dir_ / "memgraph.log").string();
+    FLAGS_log_format = "text";
+    FLAGS_logger_type = GetParam();
+  }
+
+  void TearDown() override {
+    StopLogger();
+    memgraph::flags::stderr_sink() = previous_stderr_sink_;
+    fs::remove_all(test_dir_);
+  }
+
+  void StartLogger() {
+    memgraph::flags::InitializeLogger();
+    memgraph::flags::TurnOnStdErr();
+  }
+
+  void StopLogger() {
+    // shutdown drains the async queue before files and captured stderr are read.
+    spdlog::shutdown();
+    spdlog::set_default_logger(previous_logger_);
+  }
+
+  std::string ReadLog() const {
+    std::string contents;
+    for (const auto &entry : fs::directory_iterator(test_dir_)) {
+      std::ifstream input(entry.path());
+      contents.append(std::istreambuf_iterator<char>{input}, std::istreambuf_iterator<char>{});
+    }
+    return contents;
+  }
+
+  gflags::FlagSaver saved_flags_;
+  std::shared_ptr<spdlog::logger> previous_logger_;
+  spdlog::sink_ptr previous_stderr_sink_;
+  fs::path test_dir_;
+};
+
+TEST_P(LoggerFormatTest, DefaultTextOutputIsPreserved) {
+  StartLogger();
+  testing::internal::CaptureStderr();
+  spdlog::warn("text compatibility marker");
+  StopLogger();
+  const auto stderr_output = testing::internal::GetCapturedStderr();
+  const auto file_output = ReadLog();
+  EXPECT_EQ(stderr_output, file_output);
+  EXPECT_NE(file_output.find("[memgraph_log] [warning] text compatibility marker\n"), std::string::npos);
+}
+
+TEST_P(LoggerFormatTest, JsonIsAppliedToFileAndStderr) {
+  FLAGS_log_format = "json";
+  StartLogger();
+  testing::internal::CaptureStderr();
+  const std::string message = "quoted \"message\"\nsecond line\\path";
+  spdlog::warn("{}", message);
+  StopLogger();
+  const auto stderr_output = testing::internal::GetCapturedStderr();
+  const auto file_output = ReadLog();
+  EXPECT_EQ(stderr_output, file_output);
+  EXPECT_EQ(std::count(file_output.begin(), file_output.end(), '\n'), 1);
+  const auto record = nlohmann::json::parse(file_output);
+  EXPECT_EQ(record.at("message"), message);
+  EXPECT_EQ(record.at("level"), "warning");
+  EXPECT_EQ(record.at("logger"), "memgraph_log");
+}
+
+TEST_P(LoggerFormatTest, AddedSinksKeepTheirFormatterAndOriginalPayload) {
+  FLAGS_log_format = "json";
+  StartLogger();
+  memgraph::flags::TurnOffStdErr();
+  std::ostringstream stream;
+  auto sink = std::make_shared<spdlog::sinks::ostream_sink_mt>(stream);
+  sink->set_pattern("%v");
+  memgraph::flags::AddLoggerSink(sink);
+  spdlog::warn("unchanged payload");
+  StopLogger();
+  EXPECT_EQ(stream.str(), "unchanged payload\n");
+  EXPECT_EQ(nlohmann::json::parse(ReadLog()).at("message"), "unchanged payload");
+}
+
+TEST_P(LoggerFormatTest, StructuredEventsReachAddedSinksWithoutTheirTransportEnvelope) {
+  FLAGS_log_format = "json";
+  StartLogger();
+  memgraph::flags::TurnOffStdErr();
+  std::ostringstream stream;
+  auto sink = std::make_shared<spdlog::sinks::ostream_sink_mt>(stream);
+  sink->set_pattern("%v");
+  memgraph::flags::AddLoggerSink(sink);
+  memgraph::logging::LogEvent(
+      spdlog::level::warn, "query.failed", "original diagnostic", {{"session.id", "session-1"}});
+  StopLogger();
+  EXPECT_EQ(stream.str(), "original diagnostic\n");
+  const auto record = nlohmann::json::parse(ReadLog());
+  EXPECT_EQ(record.at("event").at("name"), "query.failed");
+  EXPECT_EQ(record.at("attributes").at("session.id"), "session-1");
+}
+
+INSTANTIATE_TEST_SUITE_P(LoggerTypes, LoggerFormatTest, ::testing::Values("sync", "async"));
 
 using memgraph::logging::EmitSessionTraceEvent;
 using memgraph::logging::ScopedSessionLog;
