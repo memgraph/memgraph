@@ -19,16 +19,35 @@
 #include "kvstore/kvstore.hpp"
 #include "kvstore/rocksdb_options.hpp"
 #include "utils/file.hpp"
+#include "utils/memory_tracker.hpp"
 
 namespace memgraph::kvstore {
 
+namespace {
+// RocksDB is not exception-safe, so the memory limit must never throw from an allocation inside it.
+using OomBlocker = utils::MemoryTracker::OutOfMemoryExceptionBlocker;
+
+// RocksDB destructors release internal state, which can allocate.
+template <typename T>
+struct BlockingDeleter {
+  void operator()(T *ptr) const {
+    const OomBlocker oom_blocker;
+    delete ptr;
+  }
+};
+
+using DbPtr = std::unique_ptr<rocksdb::DB, BlockingDeleter<rocksdb::DB>>;
+using IteratorPtr = std::unique_ptr<rocksdb::Iterator, BlockingDeleter<rocksdb::Iterator>>;
+}  // namespace
+
 struct KVStore::impl {
   std::filesystem::path storage;
-  std::unique_ptr<rocksdb::DB> db;
+  DbPtr db;
   rocksdb::Options options;
 };
 
 KVStore::KVStore(std::filesystem::path storage) : pimpl_(std::make_unique<impl>()) {
+  const OomBlocker oom_blocker;
   pimpl_->storage = std::move(storage);
   if (!utils::EnsureDir(pimpl_->storage))
     throw KVStoreError("Folder for the key-value store " + pimpl_->storage.string() + " couldn't be initialized!");
@@ -43,6 +62,7 @@ KVStore::KVStore(std::filesystem::path storage) : pimpl_(std::make_unique<impl>(
 }
 
 KVStore::~KVStore() {
+  const OomBlocker oom_blocker;
   if (pimpl_ == nullptr) return;
   (void)pimpl_->db->SyncWAL();
   (void)pimpl_->db->Close();
@@ -56,11 +76,13 @@ KVStore &KVStore::operator=(KVStore &&other) {
 }
 
 bool KVStore::Put(std::string_view key, std::string_view value) {
+  const OomBlocker oom_blocker;
   auto s = pimpl_->db->Put(rocksdb::WriteOptions(), key, value);
   return s.ok();
 }
 
 bool KVStore::PutMultiple(const std::map<std::string, std::string> &items) {
+  const OomBlocker oom_blocker;
   rocksdb::WriteBatch batch;
   for (const auto &item : items) {
     batch.Put(item.first, item.second);
@@ -70,6 +92,7 @@ bool KVStore::PutMultiple(const std::map<std::string, std::string> &items) {
 }
 
 std::optional<std::string> KVStore::Get(std::string_view key) const noexcept {
+  const OomBlocker oom_blocker;
   std::string value;
   auto s = pimpl_->db->Get(rocksdb::ReadOptions(), key, &value);
   if (!s.ok()) return std::nullopt;
@@ -77,11 +100,13 @@ std::optional<std::string> KVStore::Get(std::string_view key) const noexcept {
 }
 
 bool KVStore::Delete(std::string_view key) {
+  const OomBlocker oom_blocker;
   auto s = pimpl_->db->Delete(rocksdb::WriteOptions(), key);
   return s.ok();
 }
 
 bool KVStore::DeleteMultiple(const std::vector<std::string> &keys) {
+  const OomBlocker oom_blocker;
   rocksdb::WriteBatch batch;
   for (const auto &key : keys) {
     batch.Delete(key);
@@ -91,8 +116,9 @@ bool KVStore::DeleteMultiple(const std::vector<std::string> &keys) {
 }
 
 bool KVStore::DeletePrefix(const std::string &prefix) {
+  const OomBlocker oom_blocker;
   rocksdb::WriteBatch batch;
-  std::unique_ptr<rocksdb::Iterator> iter(pimpl_->db->NewIterator(rocksdb::ReadOptions()));
+  const IteratorPtr iter(pimpl_->db->NewIterator(rocksdb::ReadOptions()));
   for (iter->Seek(prefix); iter->Valid() && iter->key().starts_with(prefix); iter->Next()) {
     batch.Delete(iter->key());
   }
@@ -101,6 +127,7 @@ bool KVStore::DeletePrefix(const std::string &prefix) {
 }
 
 bool KVStore::SyncWal() {
+  const OomBlocker oom_blocker;
   if (!pimpl_) {
     return true;
   }
@@ -109,6 +136,7 @@ bool KVStore::SyncWal() {
 
 bool KVStore::PutAndDeleteMultiple(const std::map<std::string, std::string> &items,
                                    const std::vector<std::string> &keys) {
+  const OomBlocker oom_blocker;
   rocksdb::WriteBatch batch;
   for (const auto &item : items) {
     batch.Put(item.first, item.second);
@@ -125,15 +153,16 @@ bool KVStore::PutAndDeleteMultiple(const std::map<std::string, std::string> &ite
 struct KVStore::iterator::impl {
   const KVStore *kvstore;
   std::string prefix;
-  std::unique_ptr<rocksdb::Iterator> it;
+  IteratorPtr it;
   std::pair<std::string, std::string> disk_prop;
 };
 
 KVStore::iterator::iterator(const KVStore *kvstore, const std::string &prefix, bool at_end)
     : pimpl_(std::make_unique<impl>()) {
+  const OomBlocker oom_blocker;
   pimpl_->kvstore = kvstore;
   pimpl_->prefix = prefix;
-  pimpl_->it = std::unique_ptr<rocksdb::Iterator>(pimpl_->kvstore->pimpl_->db->NewIterator(rocksdb::ReadOptions()));
+  pimpl_->it = IteratorPtr(pimpl_->kvstore->pimpl_->db->NewIterator(rocksdb::ReadOptions()));
   pimpl_->it->Seek(pimpl_->prefix);
   if (!pimpl_->it->Valid() || !pimpl_->it->key().starts_with(pimpl_->prefix) || at_end) pimpl_->it = nullptr;
 }
@@ -148,6 +177,7 @@ KVStore::iterator &KVStore::iterator::operator=(KVStore::iterator &&other) {
 }
 
 KVStore::iterator &KVStore::iterator::operator++() {
+  const OomBlocker oom_blocker;
   pimpl_->it->Next();
   if (!pimpl_->it->Valid() || !pimpl_->it->key().starts_with(pimpl_->prefix)) pimpl_->it = nullptr;
   return *this;
@@ -180,6 +210,7 @@ size_t KVStore::Size(const std::string &prefix) const {
 }
 
 bool KVStore::CompactRange(const std::string &begin_prefix, const std::string &end_prefix) {
+  const OomBlocker oom_blocker;
   rocksdb::CompactRangeOptions options;
   rocksdb::Slice begin(begin_prefix);
   rocksdb::Slice end(end_prefix);
