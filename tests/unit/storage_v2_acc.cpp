@@ -74,8 +74,8 @@ void ExpectAccessTimeout(Fn acquire, const char *what, std::unique_ptr<memgraph:
   const bool blocked = outcome.load() == Outcome::kBlocked;
   if (blocked) {
     ADD_FAILURE() << what
-                  << " did not throw within 2s: DiskStorage ignores the caller's timeout instead of forwarding "
-                     "it to AcquireGuardOrThrow";
+                  << " did not throw within 2s: DiskStorage ignores the caller's timeout "
+                     "(disk/storage.cpp:2564,2574,2584) instead of forwarding it to AcquireGuardOrThrow";
     holder.reset();
   }
   worker.join();
@@ -180,8 +180,8 @@ TEST(StorageV2Acc, RW) {
   }
 }
 
-/// DiskStorage must forward the caller's timeout into AcquireGuardOrThrow; without the fix all three
-/// access methods discard it, so a bounded acquisition silently blocks.
+/// DiskStorage must forward the caller's timeout into AcquireGuardOrThrow. Pre-fix all three access
+/// methods discard it (disk/storage.cpp:2564,2574,2584), so a bounded acquisition silently blocks.
 TEST(StorageV2AccDisk, Timeouts) {
   memgraph::storage::Config config{};
   const auto dir = MakeDiskConfig(config);

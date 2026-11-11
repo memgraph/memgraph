@@ -46,7 +46,7 @@ STORAGE_MODE_TIMEOUT = 15.0
 MATCH_TIMEOUT = 10.0
 PROBE_ATTEMPTS = 60
 
-# Set when a probe hits its deadline; the instance is then wedged in the TTL stop/join deadlock and cannot
+# Set when a probe hits its deadline; the instance is then wedged in the bug's deadlock and cannot
 # finish the SIGTERM shutdown the harness sends, so the test kills it instead of hanging teardown.
 # An environment variable rather than a module global: pytest imports this file as a test module
 # while ``__main__`` runs the same file, and only process-wide state is shared by both copies.
@@ -142,7 +142,7 @@ def _project_root():
 def _kill_wedged_server():
     """SIGKILL the instance this workload started, if a probe timed out on it.
 
-    The regression leaves the storage-ttl worker and the stop/join thread deadlocked, so the harness's
+    The bug leaves the storage-ttl worker and the stop/join thread deadlocked, so the harness's
     SIGTERM never completes and teardown would block; killing the wedged process lets the runner
     report the assertion failure instead.
     """
@@ -307,8 +307,8 @@ def test_storage_mode_midrun_and_sessions():
         if status == "ok":
             answered = True
             break
-        # A clear refusal (database contains data) is an answer; retry because the hang needs the
-        # exclusive region to start at a TTL batch boundary.
+        # A clear refusal (database contains data) is an answer; retry like the report because the
+        # hang needs the exclusive region to start at a TTL batch boundary.
         time.sleep(0.2)
 
     assert answered or status == "err", "STORAGE MODE neither succeeded nor refused clearly during the TTL run"
@@ -321,7 +321,7 @@ def test_storage_mode_midrun_and_sessions():
 
 
 if __name__ == "__main__":
-    # -x: a red test leaves the server deadlocked, so the remaining scenarios must not run
+    # -x: a red test leaves the server deadlocked by the bug, so the remaining scenarios must not run
     # against it and hang the workload; each scenario needs its own live instance, and on a green run
     # all of them run.
     rc = pytest.main([__file__, "-rA", "-x"])

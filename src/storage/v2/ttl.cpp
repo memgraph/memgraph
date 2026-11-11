@@ -166,6 +166,7 @@ void TTL::SetInterval_(std::optional<std::chrono::microseconds> period,
   // Update the info_ with the new period and start_time
   info_.period = actual_period;
   info_.start_time = start_time;
+  schedule_epoch_ = start_time ? *start_time : std::chrono::system_clock::now();
 
   // TTL's schedule is set after the worker thread is already running (Configure() starts it first),
   // so without waking it here the worker could stay parked and TTL would silently never fire.
@@ -174,23 +175,34 @@ void TTL::SetInterval_(std::optional<std::chrono::microseconds> period,
 
 void TTL::Configure(bool should_run_edge_ttl) {
   const std::scoped_lock lock{lifecycle_mutex_};
+  const std::scoped_lock pause_lock{pause_mutex_};
   Configure_(should_run_edge_ttl);
+  paused_ = true;
 }
 
 void TTL::RestoreWorker(const WorkerState &state) {
   const std::scoped_lock lock{lifecycle_mutex_};
+  suspended_ = false;
   // Nothing was running, TTL was disabled meanwhile, or a new generation already started: leave it alone.
   if (!state.running || !state.enabled || !enabled_ || ttl_.IsRunning()) return;
+  // Serialize with role changes for the whole restore: their Pause()/Resume() updates are what we apply.
+  const std::scoped_lock pause_lock{pause_mutex_};
+  const bool resume = !paused_;
   stop_requested_.store(false, std::memory_order_relaxed);
   info_ = state.info;
   Configure_(info_.should_run_edge_ttl);
-  SetInterval_(info_.period, info_.start_time);
-  if (!state.paused) ttl_.Resume();
+  paused_ = true;
+  ttl_.SetInterval(info_.period.value_or(std::chrono::days(1)), schedule_epoch_);
+  if (resume) {
+    paused_ = false;
+    ttl_.Resume();
+  }
 }
 
 TTL::WorkerState TTL::SuspendWorker() {
   const std::scoped_lock lock{lifecycle_mutex_};
-  WorkerState state{.enabled = enabled_, .running = ttl_.IsRunning(), .paused = ttl_.IsPaused(), .info = info_};
+  suspended_ = true;
+  const WorkerState state{.enabled = enabled_, .running = ttl_.IsRunning(), .info = info_};
   stop_requested_.store(true, std::memory_order_relaxed);
   ttl_.Stop();
   return state;
@@ -199,6 +211,9 @@ TTL::WorkerState TTL::SuspendWorker() {
 void TTL::Configure_(bool should_run_edge_ttl) {
   if (!enabled_) {
     throw TtlException("TTL not enabled!");
+  }
+  if (suspended_) {
+    throw TtlException("TTL is suspended by a storage mode switch");
   }
   if (ttl_.IsRunning()) {
     throw TtlException("TTL already running!");

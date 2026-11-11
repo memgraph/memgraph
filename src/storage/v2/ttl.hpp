@@ -158,7 +158,6 @@ class TTL final {
   struct WorkerState {
     bool enabled{false};
     bool running{false};
-    bool paused{false};
     TtlInfo info{};
   };
 
@@ -214,6 +213,7 @@ class TTL final {
    */
   void Enable() {
     std::lock_guard lock{lifecycle_mutex_};
+    if (suspended_) throw TtlException("TTL is suspended by a storage mode switch");
     enabled_ = true;
   }
 
@@ -227,8 +227,8 @@ class TTL final {
   }
 
   bool Paused() const {
-    std::lock_guard lock{lifecycle_mutex_};
-    return ttl_.IsPaused();
+    std::lock_guard lock{pause_mutex_};
+    return paused_;
   }
 
   /**
@@ -248,8 +248,10 @@ class TTL final {
    * @brief TTL's background job should be paused in case instance becomes a REPLICA.
    *
    */
+  /// Role changes hold the repl_state write lock, so these must not wait on lifecycle_mutex_ (held across a join).
   void Pause() {
-    std::lock_guard lock{lifecycle_mutex_};
+    std::lock_guard lock{pause_mutex_};
+    paused_ = true;
     ttl_.Pause();
   }
 
@@ -258,7 +260,8 @@ class TTL final {
    *
    */
   void Resume() {
-    std::lock_guard lock{lifecycle_mutex_};
+    std::lock_guard lock{pause_mutex_};
+    paused_ = false;
     ttl_.Resume();
   }
 
@@ -276,7 +279,6 @@ class TTL final {
   void SetUserCheck(std::function<bool()> check_fn) { user_check_.Update(std::move(check_fn)); }
 
  private:
-  /// Unlocked counterparts: the public API takes lifecycle_mutex_ once; the joined job body takes none.
   void Configure_(bool should_run_edge_ttl);
   void SetInterval_(std::optional<std::chrono::microseconds> period,
                     std::optional<std::chrono::system_clock::time_point> start_time);
@@ -284,7 +286,11 @@ class TTL final {
   bool StopRequested() const noexcept { return stop_requested_.load(std::memory_order_relaxed); }
 
   mutable std::mutex lifecycle_mutex_;       //!< serializes the TTL interface state
+  mutable std::mutex pause_mutex_;  //!< guards paused_ without lifecycle_mutex_ (role changes must not wait on a join)
   std::atomic<bool> stop_requested_{false};  //!< polled by the job body at each batch boundary
+  bool paused_{false};                       //!< role-change pause state, applied by RestoreWorker()
+  bool suspended_{false};                    //!< a storage mode switch owns the stopped worker
+  std::optional<std::chrono::system_clock::time_point> schedule_epoch_{};  //!< phase of the run interval
   utils::Scheduler ttl_;  //!< background thread
   TtlInfo info_{};        //!< configuration
   bool enabled_{false};   //!< feature enabler
