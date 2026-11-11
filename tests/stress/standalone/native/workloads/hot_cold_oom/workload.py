@@ -612,8 +612,21 @@ def _split_tenants(tenant_names: list[str]) -> tuple[list[str], list[str]]:
     return ballast, churn
 
 
+# ---------------------------------------------------------------------------
+# Memory snapshot
+# ---------------------------------------------------------------------------
+
+
 def _memory_snapshot(endpoint: str, username: str, password: str, tenant_names: list[str]) -> str:
-    """One line, because CI prints only the tail of the runner log on failure."""
+    """
+    Return instance memory and each database's usage as one line, because the
+    parallel stress runner prints only the tail of the runner log on failure.
+
+    A COLD database holds no live memory and reports only as-of-suspend stats,
+    so it is shown by its state alone. If a query fails, the line keeps what
+    was collected before it and ends with the error.
+    """
+    parts = []
     drv = make_driver(endpoint, username, password)
     try:
         with drv.session() as sess:
@@ -622,18 +635,20 @@ def _memory_snapshot(endpoint: str, username: str, password: str, tenant_names: 
                 return {r["storage info"]: r["value"] for r in run_query(sess, f"SHOW STORAGE INFO{suffix}")}
 
             inst = info()
-            parts = [f"tracked={inst['memory_tracked']} res={inst['memory_res']}"]
+            parts.append(f"tracked={inst['memory_tracked']} res={inst['memory_res']}")
             for db in ["memgraph", *tenant_names]:
                 d = info(f" ON DATABASE {db}")
                 parts.append(
-                    f"{db}:{d['state']} tenant={d['tenant_memory_tracked']} "
+                    f"{db}:COLD"
+                    if d["state"] == "COLD"
+                    else f"{db}:{d['state']} tenant={d['tenant_memory_tracked']} "
                     f"query={d['query_memory_tracked']} deltas={d['unreleased_delta_objects']}"
                 )
-            return "; ".join(parts)
     except Exception as exc:
-        return f"memory snapshot failed: {exc}"
+        parts.append(f"snapshot failed: {exc}")
     finally:
         drv.close()
+    return "; ".join(parts)
 
 
 # ---------------------------------------------------------------------------
@@ -851,7 +866,6 @@ def main() -> None:
     print("  freeing memory: suspended all tenants before one-at-a-time verification", flush=True)
     for tname in tenant_names:
         suspend_tenant(endpoint, username, password, tname)
-    print(f"  memory at phase 5 start: {_memory_snapshot(endpoint, username, password, tenant_names)}", flush=True)
 
     mismatches = []
     for tname in tenant_names:
@@ -883,8 +897,8 @@ def main() -> None:
                     break
 
             if not resumed:
-                # Exhausting the retries leaves this tenant unverified, which the summary has to
-                # report as a failure rather than pass over.
+                # A failed resume leaves this tenant unverified, which the summary has to report
+                # as a failure rather than pass over.
                 reason = (
                     f"resume failed: {last_exc}"
                     if reported
