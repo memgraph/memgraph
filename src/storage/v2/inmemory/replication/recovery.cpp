@@ -197,9 +197,14 @@ std::optional<std::vector<RecoveryStep>> GetRecoverySteps(uint64_t replica_commi
     }
 
   } else if (latest_snapshot && latest_snapshot->durable_timestamp > replica_commit) {
-    // There is some data we need in the snapshot
+    // The current WAL replaces the snapshot when it reaches back to the replica's next commit and holds the
+    // snapshot's data
+    auto const current_wal_suffices =
+        current_wal_from_timestamp && *current_wal_from_timestamp <= replica_commit + 1 &&
+        SnapshotTsCoveredByAnyWal(
+            {}, current_wal_from_timestamp, current_wal_timestamp, latest_snapshot->durable_timestamp);
     // If we failed to add snapshot, recovery cannot be done successfully
-    if (!add_snapshot()) return std::nullopt;
+    if (!current_wal_suffices && !add_snapshot()) return std::nullopt;
   }
 
   // If we have a current wal file we need to use it
