@@ -285,7 +285,7 @@ class TTL final {
 
   bool StopRequested() const noexcept { return stop_requested_.load(std::memory_order_relaxed); }
 
-  mutable std::mutex lifecycle_mutex_;       //!< serializes the TTL interface state
+  mutable std::mutex lifecycle_mutex_;  //!< serializes the TTL interface state
   mutable std::mutex pause_mutex_;  //!< guards paused_ without lifecycle_mutex_ (role changes must not wait on a join)
   std::atomic<bool> stop_requested_{false};  //!< polled by the job body at each batch boundary
   bool paused_{false};                       //!< role-change pause state, applied by RestoreWorker()
