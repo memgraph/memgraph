@@ -51,7 +51,8 @@ struct TrackedChanges {
       if (my_set.empty()) {
         my_set.swap(other_set);
       } else {
-        my_set.merge(other_set);
+        // Not merge(): a throwing insert inside merge drops the element from both sets.
+        my_set.insert(other_set.begin(), other_set.end());
         other_set.clear();
       }
     }
