@@ -13,6 +13,7 @@
 
 import os
 import sys
+import time
 import urllib.error
 import urllib.request
 from unittest.mock import patch
@@ -44,11 +45,18 @@ def cleanup_after_test():
 
 
 def scrape():
-    try:
-        with urllib.request.urlopen("http://localhost:9091/metrics", timeout=5) as response:
-            return response.status, response.read().decode()
-    except urllib.error.HTTPError as error:
-        return error.code, error.read().decode()
+    # The metrics server starts listening after Bolt, so retry until it accepts connections.
+    deadline = time.monotonic() + 10
+    while True:
+        try:
+            with urllib.request.urlopen("http://localhost:9091/metrics", timeout=5) as response:
+                return response.status, response.read().decode()
+        except urllib.error.HTTPError as error:
+            return error.code, error.read().decode()
+        except urllib.error.URLError:
+            if time.monotonic() > deadline:
+                raise
+            time.sleep(0.1)
 
 
 @pytest.mark.parametrize("metrics_format", ["OpenMetrics", "JSON"])
