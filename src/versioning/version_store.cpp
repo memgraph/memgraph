@@ -208,12 +208,17 @@ std::expected<DropResult, std::string> VersionStore::DropBranchImpl(std::string_
   std::unique_lock ledger_guard{ledger_mutex_};
 
   LedgerContents next;
+  // A hidden branch has no session, pin or core: only its ledger entry and directory go.
+  std::optional<uint64_t> hidden_number;
   {
     const std::scoped_lock guard{lock_};
     if (ledger_unreadable_) return std::unexpected(*ledger_unreadable_);
     auto it = branches_.find(name);
-    if (it == branches_.end()) return DropResult::kNotFound;
-    if (!force) {
+    if (it == branches_.end()) {
+      const auto hidden = std::ranges::find(hidden_, name, &LedgerBranch::name);
+      if (hidden == hidden_.end()) return DropResult::kNotFound;
+      hidden_number = hidden->info.number;
+    } else if (!force) {
       const auto number = it->second.number;
       const auto attached = checked_out_.find(number);
       const size_t own = own_checkout == number ? 1 : 0;
@@ -221,12 +226,14 @@ std::expected<DropResult, std::string> VersionStore::DropBranchImpl(std::string_
     }
     next = SnapshotLocked();
     std::erase_if(next.branches, [&](const LedgerBranch &b) { return b.name == name; });
-    dropping_.emplace(name);
+    if (!hidden_number) dropping_.emplace(name);
   }
 
   if (auto written = WriteLedger(next); !written) {
-    const std::scoped_lock guard{lock_};
-    dropping_.erase(dropping_.find(name));
+    if (!hidden_number) {
+      const std::scoped_lock guard{lock_};
+      dropping_.erase(dropping_.find(name));
+    }
     return std::unexpected(std::move(written.error()));
   }
 
@@ -234,16 +241,22 @@ std::expected<DropResult, std::string> VersionStore::DropBranchImpl(std::string_
   uint64_t fork_ts = 0;
   {
     const std::scoped_lock guard{lock_};
-    auto it = branches_.find(name);
-    fork_ts = it->second.fork_ts;
-    RetireCoreLocked(it->second.number, retired);
-    branches_.erase(it);
-    dropping_.erase(dropping_.find(name));
+    if (hidden_number) {
+      std::erase_if(hidden_, [&](const LedgerBranch &b) { return b.name == name; });
+      retired.cores.emplace_back(*hidden_number, CoreSlot{});
+      memgraph::metrics::Metrics().global.versioning_branches_dropped->Increment();
+    } else {
+      auto it = branches_.find(name);
+      fork_ts = it->second.fork_ts;
+      RetireCoreLocked(it->second.number, retired);
+      branches_.erase(it);
+      dropping_.erase(dropping_.find(name));
 
-    memgraph::metrics::Metrics().global.versioning_branches_dropped->Increment();
-    memgraph::metrics::Metrics().global.versioning_active_branches->Decrement();
+      memgraph::metrics::Metrics().global.versioning_branches_dropped->Increment();
+      memgraph::metrics::Metrics().global.versioning_active_branches->Decrement();
+    }
   }
-  release_pin_(fork_ts);
+  if (!hidden_number) release_pin_(fork_ts);
   PublishRetentionFloor();
   ledger_guard.unlock();
   Finish(std::move(retired));
@@ -404,6 +417,16 @@ std::vector<std::pair<std::string, BranchInfo>> VersionStore::List() const {
   {
     const std::scoped_lock guard{lock_};
     result.assign(branches_.begin(), branches_.end());
+  }
+  std::ranges::sort(result, std::less{}, [](const auto &kv) { return kv.second.number; });
+  return result;
+}
+
+std::vector<std::pair<std::string, BranchInfo>> VersionStore::ListHidden() const {
+  std::vector<std::pair<std::string, BranchInfo>> result;
+  {
+    const std::scoped_lock guard{lock_};
+    for (const auto &branch : hidden_) result.emplace_back(branch.name, branch.info);
   }
   std::ranges::sort(result, std::less{}, [](const auto &kv) { return kv.second.number; });
   return result;

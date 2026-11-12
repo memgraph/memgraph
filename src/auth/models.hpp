@@ -88,7 +88,8 @@ enum class Permission : uint64_t {
   COORDINATOR_READ       = 1ULL << 32ULL,
   COORDINATOR_WRITE      = 1ULL << 33ULL,
   // Not part of kPermissionsAll (see kBranchPermissions).
-  BRANCH_USE             = 1ULL << 34ULL
+  BRANCH_USE             = 1ULL << 34ULL,
+  BRANCH_EDIT            = 1ULL << 35ULL
 };
 // clang-format on
 
@@ -131,7 +132,7 @@ inline constexpr std::array kPermissionsAll = {
 #ifdef MG_ENTERPRISE
 // Granted by all-privileges paths only while versioning is enabled (GrantBranchPermissionsIfEnabled); stored
 // grants and denies are kept either way.
-inline constexpr std::array kBranchPermissions = {Permission::BRANCH_USE};
+inline constexpr std::array kBranchPermissions = {Permission::BRANCH_USE, Permission::BRANCH_EDIT};
 #endif
 
 // Coordinator privilege model. Coordinators enforce exactly two privileges, COORDINATOR_READ and COORDINATOR_WRITE,

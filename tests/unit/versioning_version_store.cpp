@@ -873,6 +873,38 @@ TEST_F(VersionStoreLedgerTest, FreezeAndDropAllDropsHiddenBranchesAndTheirDirect
   EXPECT_FALSE(floors.back().has_value());
 }
 
+// Hidden branches are leftovers from while versioning is off; dropping them must still free directory and floor.
+TEST_F(VersionStoreLedgerTest, HiddenBranchesCanBeDropped) {
+  auto store = MakeLedgerStore();
+  const auto root = file_.parent_path();
+  std::filesystem::create_directories(root / "2");
+  std::filesystem::create_directories(root / "4");
+  store->RestoreHidden(HiddenContents());
+  std::vector<std::optional<uint64_t>> floors;
+  store->SetRetentionFloorCallback([&](std::optional<uint64_t> floor) { floors.push_back(floor); });
+
+  EXPECT_EQ(store->DropBranch("nope"), DropResult::kNotFound);
+  EXPECT_EQ(store->DropBranch("h4"), DropResult::kDropped);
+  EXPECT_FALSE(std::filesystem::exists(root / "4"));
+  EXPECT_TRUE(std::filesystem::exists(root / "2"));
+  ASSERT_FALSE(floors.empty());
+  EXPECT_EQ(floors.back(), 39u) << "the floor follows the oldest branch left";
+  {
+    auto read = memgraph::versioning::BranchLedger{file_}.Read();
+    ASSERT_TRUE(read.has_value() && read->has_value());
+    ASSERT_EQ((*read)->branches.size(), 1U);
+    EXPECT_EQ((*read)->branches[0].name, "h2");
+    EXPECT_EQ((*read)->next_number, 5u) << "numbers are never reused";
+  }
+  EXPECT_FALSE(store->Empty());
+
+  EXPECT_EQ(store->ForceDropBranch("h2"), DropResult::kDropped);
+  EXPECT_TRUE(store->Empty());
+  EXPECT_FALSE(floors.back().has_value());
+  EXPECT_FALSE(std::filesystem::exists(root / "2"));
+  EXPECT_TRUE(store->CreateBranch("h4").has_value()) << "a dropped hidden branch gives its name back";
+}
+
 namespace {
 // Runs `probe` on another thread and reports whether it finished within a bound, without blocking the caller past it:
 // the thread is joined later by Join(), so a probe stuck behind a lock the caller holds cannot deadlock the test.

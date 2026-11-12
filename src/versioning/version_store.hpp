@@ -87,10 +87,9 @@ class VersionStore {
   // ledger write failure) returns a user-facing message and changes no state (no pin held).
   std::expected<BranchInfo, std::string> CreateBranch(std::string name);
 
-  // Drops `name` unless a session is attached; `own_checkout` is the caller's own attached branch number, which does
-  // not count (it leaves afterwards). Releases the fork pin; the directory goes once no core holder or session is
-  // left. A ledger write failure drops nothing; a crash before directory removal leaves it behind, its number never
-  // reused.
+  // Drops `name` unless a session is attached; `own_checkout` (the caller's own branch number) does not count.
+  // Releases the fork pin (a hidden branch holds none, and is droppable too); the directory goes once no core holder
+  // or session is left. A ledger write failure drops nothing; a crash before removal orphans it, number never reused.
   std::expected<DropResult, std::string> DropBranch(std::string_view name,
                                                     std::optional<uint64_t> own_checkout = std::nullopt);
 
@@ -128,6 +127,9 @@ class VersionStore {
 
   // Ordered by ascending branch number (creation order).
   std::vector<std::pair<std::string, BranchInfo>> List() const;
+
+  // The hidden branches, in List's order and form.
+  std::vector<std::pair<std::string, BranchInfo>> ListHidden() const;
 
   bool Exists(std::string_view name) const;
 

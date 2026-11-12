@@ -15,7 +15,10 @@ namespace memgraph::versioning {
 
 std::optional<GateError> CheckVersioningGate(GateOperation op, GateState const &state) {
   const bool creating = op == GateOperation::kCreate;
-  if (!state.flag_enabled) return GateError::kDisabled;
+  // Leftovers can only be in IN_MEMORY_TRANSACTIONAL, so a cleanup in another mode has nothing to do.
+  if (!state.flag_enabled && (op != GateOperation::kCleanup || !state.is_in_memory_transactional)) {
+    return GateError::kDisabled;
+  }
   if (creating && !state.enterprise_valid) return GateError::kNoLicense;
   if (!state.is_in_memory_transactional) return GateError::kUnsupportedStorageMode;
   if (creating && !state.durable) return GateError::kNotDurable;
