@@ -138,8 +138,8 @@ inline bool operator==(const TtlInfo &lhs, const TtlInfo &rhs) {
 /**
  * @brief Time-to-live handler.
  *
- * Interface is mutex protected, only so that coordinator can resume thread is paused.
- * TTL queries are uniquely accessed, to the interface doesn't need protecting from the user side.
+ * TTL queries run under unique storage access. Promotion does not, so Pause(), Resume(), and
+ * ResumeIfWanted() hold wanted_mutex_.
  * Role changes use Suspend() and ResumeIfWanted(), which keep Wanted(); ENABLE TTL and STOP TTL use
  * Resume() and Pause(), which set it.
  *
