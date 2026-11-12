@@ -307,9 +307,19 @@ std::optional<BranchKey> ReadKeyWith(GetProperty &&get_property, std::span<stora
   return key;
 }
 
-// A single-property range as the storage scan applies it: bounds, IS_NOT_NULL and the planner's value predicate.
+// A single-property range as the storage scan applies it: bounds (a one-sided range is fenced to its bound's type),
+// IS_NOT_NULL and the planner's value predicate.
 bool BranchValueInRange(storage::PropertyValueRange const &range, storage::PropertyValue const &value) {
   if (!range.IsValueInRange(value)) return false;
+  if (range.type_ == storage::PropertyRangeType::BOUNDED && range.lower_.has_value() != range.upper_.has_value()) {
+    if (range.lower_) {
+      auto const end = storage::UpperBoundComparableWith(range.lower_->value());
+      if (end && !(value < end->value())) return false;
+    } else {
+      auto const start = storage::LowerBoundComparableWith(range.upper_->value());
+      if (start && value < start->value()) return false;
+    }
+  }
   if (range.type_ == storage::PropertyRangeType::IS_NOT_NULL && value.IsNull()) return false;
   auto const &pred = range.GetValuePredicate();
   return !pred || (*pred)(value);
@@ -488,6 +498,7 @@ class IndexStream final : public BranchStream<Q> {
 };
 
 using VertexIndexStream = IndexStream<VertexAccessor, storage::VertexAccessor, storage::VerticesIterable>;
+using EdgeIndexStream = IndexStream<EdgeAccessor, storage::EdgeAccessor, storage::EdgesIterable>;
 
 // The vertex scan's hooks: `label_in_key` says whether a label's membership is part of the key, `key_properties` are
 // the root properties of the key's parts.
@@ -676,7 +687,7 @@ VerticesIterable DbAccessor::BranchVertices(storage::View view, storage::Propert
       property,
       [&] { return branch_ctx_->historical().Vertices(property, lower, upper, storage::View::OLD); },
       [&] { return accessor_->Vertices(property, lower, upper, view); },
-      [range](storage::PropertyValue const &value) { return range.IsValueInRange(value); });
+      [range](storage::PropertyValue const &value) { return BranchValueInRange(range, value); });
 }
 
 VerticesIterable DbAccessor::BranchVertices(storage::View view, storage::PropertyId property,
@@ -689,6 +700,148 @@ VerticesIterable DbAccessor::BranchVertices(storage::View view, storage::Propert
       [&] { return branch_ctx_->historical().Vertices(property, range, storage::View::OLD); },
       [&] { return accessor_->Vertices(property, range, view); },
       [range](storage::PropertyValue const &value) { return BranchValueInRange(range, value); });
+}
+
+namespace {
+using EdgeScan = BranchScan<EdgeAccessor>;
+
+// Full scan of the branch's edges, O(V + E log E), for when the index is not ready on both engines. `key_of` owns what
+// it uses; matches come back in key order, as an index scan yields them.
+template <typename KeyOf>
+EdgesIterable FallbackEdgeScan(versioning::BranchContext &ctx, storage::View view, KeyOf key_of) {
+  std::vector<std::pair<storage::PropertyValue, EdgeAccessor>> keyed;
+  for (auto vertex : ctx.Vertices(view)) {
+    auto edges = ctx.OutEdges(vertex, view);
+    if (!edges) continue;
+    for (auto &raw : *edges) {
+      EdgeAccessor candidate(raw, &ctx);
+      if (auto key = key_of(candidate)) keyed.emplace_back(std::move(*key), candidate);
+    }
+  }
+  std::ranges::stable_sort(keyed, [](auto const &a, auto const &b) { return a.first < b.first; });
+  std::vector<EdgeAccessor> result;
+  result.reserve(keyed.size());
+  for (auto &entry : keyed) result.push_back(std::move(entry.second));
+  EdgeScan::StillMatches still_matches;
+  if (view == storage::View::NEW) still_matches = [key_of](EdgeAccessor &e) { return key_of(e).has_value(); };
+  return EdgesIterable(std::make_shared<EdgeScan>(std::move(result), std::move(still_matches)));
+}
+
+// A fork edge is hidden by its own delete marker (deleting an endpoint marks every fork edge it hides), so the edge
+// filters alone decide; `written` has no hint-bit term, as main's edges carry the bit only with properties_on_edges.
+EdgeIndexStream::Spec EdgeStreamSpec(versioning::BranchContext &ctx, storage::View view,
+                                     std::optional<storage::PropertyId> property,
+                                     std::function<std::optional<BranchKey>(EdgeAccessor &)> branch_key,
+                                     std::function<std::optional<BranchKey>(storage::EdgeAccessor const &)> fork_key) {
+  auto *const core = std::addressof(*ctx.core());
+  auto may_have_changed = [core, property](storage::EdgeAccessor const &raw) {
+    auto const gid = raw.Gid();
+    return core->MayHaveForkEdgeDeleted(gid) || (property && core->MayHaveForkEdgePropertyFieldChange(gid, *property));
+  };
+  return {.view = view,
+          .keyed = property.has_value(),
+          .order = storage::IndexOrder::ASC,
+          .branch_key = std::move(branch_key),
+          .fork_key = std::move(fork_key),
+          .may_have_changed = may_have_changed,
+          .written = may_have_changed,
+          .is_fork_candidate = [&ctx](storage::Gid gid) { return ctx.IsForkCandidateEdge(gid); },
+          .find_fork = [&ctx](storage::EdgeAccessor const &raw) { return ctx.FindForkEdgeOfStub(raw); }};
+}
+
+EdgesIterable StreamEdgeScan(versioning::BranchContext &ctx, EdgeIndexStream::Spec spec, storage::EdgesIterable fork,
+                             storage::EdgesIterable diff) {
+  return EdgesIterable(std::make_shared<EdgeScan>(
+      std::make_unique<EdgeIndexStream>(ctx, std::move(spec), std::move(fork), std::move(diff))));
+}
+
+// Ascending by value. The diff engine's index holds branch-native edges and the stubs of fork edges that gained a
+// value; `edge_type` narrows a typed scan's rows.
+template <typename ForkScan, typename DiffScan>
+EdgesIterable BranchEdgePropertyScan(versioning::BranchContext &ctx, storage::View view, storage::PropertyId property,
+                                     std::optional<storage::EdgeTypeId> edge_type,
+                                     storage::PropertyValueRange const &range, bool index_ready, ForkScan &&fork_scan,
+                                     DiffScan &&diff_scan) {
+  auto const key_of = [view, property, edge_type, range](EdgeAccessor &e) -> std::optional<storage::PropertyValue> {
+    if (edge_type && e.EdgeType() != *edge_type) return std::nullopt;
+    auto value = e.GetProperty(view, property);
+    if (!value.has_value() || value->IsNull() || !BranchValueInRange(range, *value)) return std::nullopt;
+    return std::move(*value);
+  };
+  if (!index_ready) return FallbackEdgeScan(ctx, view, key_of);
+
+  auto branch_key = [key_of](EdgeAccessor &e) -> std::optional<BranchKey> {
+    auto value = key_of(e);
+    if (!value) return std::nullopt;
+    return BranchKey{std::move(*value)};
+  };
+  auto fork_key = [property](storage::EdgeAccessor const &raw) -> std::optional<BranchKey> {
+    auto value = raw.GetProperty(property, storage::View::OLD);
+    if (!value.has_value() || value->IsNull()) return std::nullopt;
+    return BranchKey{std::move(*value)};
+  };
+  return StreamEdgeScan(
+      ctx, EdgeStreamSpec(ctx, view, property, std::move(branch_key), std::move(fork_key)), fork_scan(), diff_scan());
+}
+
+bool BranchEdgeOfType(versioning::BranchContext &ctx, EdgeAccessor &e, storage::View view,
+                      storage::EdgeTypeId edge_type) {
+  if (e.EdgeType() != edge_type) return false;
+  if (e.impl_.storage_ == &ctx.diff_engine()) return view != storage::View::NEW || !e.IsDeleted();
+  return !ctx.IsForkEdgeHidden(e.impl_, view);
+}
+}  // namespace
+
+// Unsorted: main@fork's rows, then the diff engine's. Its edge-type index is filled by edge creation only, so it holds
+// branch-native edges and never a stub.
+EdgesIterable DbAccessor::BranchEdges(storage::View view, storage::EdgeTypeId edge_type) {
+  auto &ctx = *branch_ctx_;
+  auto &historical = ctx.historical();
+  auto of_type = [&ctx, view, edge_type](EdgeAccessor &e) { return BranchEdgeOfType(ctx, e, view, edge_type); };
+  if (!historical.EdgeTypeIndexReady(edge_type) || !accessor_->EdgeTypeIndexReady(edge_type)) {
+    return FallbackEdgeScan(ctx, view, [of_type](EdgeAccessor &e) -> std::optional<storage::PropertyValue> {
+      if (!of_type(e)) return std::nullopt;
+      return storage::PropertyValue{};
+    });
+  }
+  auto branch_key = [of_type](EdgeAccessor &e) -> std::optional<BranchKey> {
+    if (!of_type(e)) return std::nullopt;
+    return BranchKey{};
+  };
+  auto fork_key = [](storage::EdgeAccessor const &) -> std::optional<BranchKey> { return BranchKey{}; };
+  return StreamEdgeScan(ctx,
+                        EdgeStreamSpec(ctx, view, std::nullopt, std::move(branch_key), std::move(fork_key)),
+                        historical.Edges(edge_type, storage::View::OLD),
+                        accessor_->Edges(edge_type, view));
+}
+
+EdgesIterable DbAccessor::BranchEdges(storage::View view, storage::EdgeTypeId edge_type, storage::PropertyId property,
+                                      storage::PropertyValueRange const &range) {
+  auto &historical = branch_ctx_->historical();
+  return BranchEdgePropertyScan(
+      *branch_ctx_,
+      view,
+      property,
+      edge_type,
+      range,
+      historical.EdgeTypePropertyIndexReady(edge_type, property) &&
+          accessor_->EdgeTypePropertyIndexReady(edge_type, property),
+      [&] { return historical.Edges(edge_type, property, range, storage::View::OLD); },
+      [&] { return accessor_->Edges(edge_type, property, range, view); });
+}
+
+EdgesIterable DbAccessor::BranchEdges(storage::View view, storage::PropertyId property,
+                                      storage::PropertyValueRange const &range) {
+  auto &historical = branch_ctx_->historical();
+  return BranchEdgePropertyScan(
+      *branch_ctx_,
+      view,
+      property,
+      std::nullopt,
+      range,
+      historical.EdgePropertyIndexReady(property) && accessor_->EdgePropertyIndexReady(property),
+      [&] { return historical.Edges(property, range, storage::View::OLD); },
+      [&] { return accessor_->Edges(property, range, view); });
 }
 
 storage::Result<std::optional<std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>>>
