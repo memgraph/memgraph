@@ -15,10 +15,12 @@
 #include <cstdint>
 #include <expected>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 #include "utils/scheduler.hpp"
 #include "utils/settings.hpp"
@@ -120,7 +122,7 @@ struct LicenseChecker {
   LicenseChecker(LicenseChecker &&) = delete;
   LicenseChecker operator=(LicenseChecker &&) = delete;
 
-  void CheckEnvLicense(utils::Settings &settings);
+  void CheckEnvLicense();
   void SetCliLicense(std::string license_key, std::string organization_name, utils::Settings &settings);
   void EnableTesting(LicenseType license_type = LicenseType::ENTERPRISE);
   // Test-only: additionally applies a license memory limit through the real routing
@@ -150,6 +152,12 @@ struct LicenseChecker {
   std::optional<std::pair<std::string, std::string>> cli_license_info_;
   std::optional<std::pair<std::string, std::string>> env_license_info_;
   mutable utils::Synchronized<std::optional<LicenseInfo>, utils::SpinLock> previous_license_info_{std::nullopt};
+  // Why each provided licence was not used at the last revalidation, as "[SOURCE] reason".
+  mutable utils::Synchronized<std::vector<std::string>, utils::SpinLock> license_failures_;
+  // Days since the epoch (UTC) on which the expiry warning was last logged.
+  std::atomic<int64_t> last_expiry_warning_day_{0};
+  // The scheduler and the settings callbacks call RevalidateLicense concurrently.
+  std::mutex revalidate_mutex_;
   bool enterprise_enabled_{false};
   std::atomic<LicenseState> state_{};
   static_assert(std::atomic<LicenseState>::is_always_lock_free);

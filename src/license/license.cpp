@@ -24,8 +24,10 @@
 #include <ctime>
 #include <functional>
 #include <limits>
+#include <mutex>
 #include <optional>
 #include <stdexcept>
+#include <string>
 #include <type_traits>
 #include <utility>
 #include <vector>
@@ -38,6 +40,7 @@
 #include "utils/memory_tracker.hpp"
 #include "utils/settings.hpp"
 #include "utils/spin_lock.hpp"
+#include "utils/string.hpp"
 #include "utils/synchronized.hpp"
 
 namespace memgraph::license {
@@ -46,6 +49,8 @@ namespace {
 inline constexpr std::string_view license_key_prefix = "mglk-";
 
 inline constexpr int64_t kExpirationGraceSeconds = std::chrono::hours{24} / std::chrono::seconds{1};
+inline constexpr int64_t kExpiryWarningSeconds = std::chrono::days{30} / std::chrono::seconds{1};
+inline constexpr int64_t kSecondsPerDay = std::chrono::days{1} / std::chrono::seconds{1};
 
 bool IsLicenseExpired(int64_t valid_until, int64_t now_seconds) {
   return valid_until != 0 && now_seconds - kExpirationGraceSeconds > valid_until;
@@ -85,6 +90,17 @@ LicenseCheckResult IsValidLicenseInternal(const License &license, std::string_vi
   }
 
   return {};
+}
+
+std::string ValidUntilToString(int64_t const valid_until) {
+  if (valid_until == 0) return "FOREVER";
+  const auto time = static_cast<std::time_t>(valid_until);
+  std::tm tm{};
+  std::array<char, 30> buffer;
+  if (gmtime_r(&time, &tm) != nullptr && std::strftime(buffer.data(), buffer.size(), "%Y-%m-%d", &tm) > 0) {
+    return {buffer.data()};
+  }
+  return "error";
 }
 }  // namespace
 
@@ -179,6 +195,7 @@ void ApplyLicenseMemoryLimit(int64_t memory_limit, std::optional<LicenseType> li
 }  // namespace
 
 void LicenseChecker::RevalidateLicense(utils::Settings &settings) {
+  auto const guard = std::scoped_lock{revalidate_mutex_};
   spdlog::trace("License revalidation started");
 
   if (enterprise_enabled_) [[unlikely]] {
@@ -199,23 +216,43 @@ void LicenseChecker::RevalidateLicense(utils::Settings &settings) {
   };
 
   std::vector<Candidate> valid_candidates;
+  std::vector<std::string> failures;
+  // An incomplete pair is usually a licence still being set up, one setting at a time; it is not a rejected licence.
+  bool license_rejected = false;
 
   auto try_add = [&](std::string_view key, std::string_view org, int priority, std::string_view source_name) {
+    auto const reject = [&](std::string_view reason, bool const rejected = true) {
+      failures.push_back(fmt::format("[{}] {}", source_name, reason));
+      license_rejected |= rejected;
+    };
     if (key.empty() && org.empty()) return;
-    if (key.empty() || org.empty()) {
-      spdlog::warn("[{}] Both license key and organization name are required.", source_name);
+    if (key.empty()) {
+      reject("The organization name is set, but the license key is not.", false);
+      return;
+    }
+    if (org.empty()) {
+      reject("The license key is set, but the organization name is not.", false);
       return;
     }
     const auto maybe_license = GetLicense(key);
     if (!maybe_license) {
-      spdlog::warn("[{}] {}",
-                   source_name,
-                   LicenseCheckErrorToString(LicenseCheckError::INVALID_LICENSE_KEY_STRING, "Enterprise features"));
+      reject("The license key is not a valid key.");
       return;
     }
     const auto check = IsValidLicenseInternal(*maybe_license, org);
     if (!check) {
-      spdlog::warn("[{}] {}", source_name, LicenseCheckErrorToString(check.error(), "Enterprise features"));
+      switch (check.error()) {
+        case LicenseCheckError::INVALID_ORGANIZATION_NAME:
+          reject(fmt::format("The organization name '{}' does not match the license key, which is for '{}'.",
+                             org,
+                             maybe_license->organization_name));
+          break;
+        case LicenseCheckError::EXPIRED_LICENSE:
+          reject(fmt::format("The license expired on {}.", ValidUntilToString(maybe_license->valid_until)));
+          break;
+        default:
+          reject(LicenseCheckErrorToString(check.error(), "Enterprise features"));
+      }
       return;
     }
     valid_candidates.push_back({*maybe_license, std::string{key}, std::string{org}, priority});
@@ -228,11 +265,16 @@ void LicenseChecker::RevalidateLicense(utils::Settings &settings) {
   if (env_license_info_) try_add(env_license_info_->first, env_license_info_->second, 1, "ENV");
   if (cli_license_info_) try_add(cli_license_info_->first, cli_license_info_->second, 2, "CLI");
 
+  auto const failures_changed = std::exchange(*license_failures_.Lock(), failures) != failures;
+
   if (valid_candidates.empty()) {
     auto locked = previous_license_info_.Lock();
-    if (*locked) {
-      spdlog::warn("No valid license found. Running in community mode.");
+    if (*locked || (failures_changed && license_rejected)) {
+      spdlog::error("No valid license found. Running in community mode.{}",
+                    failures.empty() ? "" : " " + utils::Join(failures, " "));
       locked->reset();
+    } else if (failures_changed && !failures.empty()) {
+      spdlog::warn("No valid license found. {}", utils::Join(failures, " "));
     }
     atomic_struct_update<LicenseState>(state_, [](LicenseState s) {
       s.valid = false;
@@ -252,6 +294,10 @@ void LicenseChecker::RevalidateLicense(utils::Settings &settings) {
     return a.priority < b.priority;
   });
 
+  if (failures_changed && !failures.empty()) {
+    spdlog::warn("Ignoring a license source. {}", utils::Join(failures, " "));
+  }
+
   // Persist winner to Settings so it survives restarts where CLI/ENV are absent.
   settings.SetValueForce(std::string{kEnterpriseLicenseSettingKey}, winner.key);
   settings.SetValueForce(std::string{kOrganizationNameSettingKey}, winner.org);
@@ -270,6 +316,14 @@ void LicenseChecker::RevalidateLicense(utils::Settings &settings) {
   }
 
   state_.store(LicenseState{.valid = true, .type = winner.license.type}, std::memory_order_release);
+
+  const auto now =
+      std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+  if (winner.license.valid_until != 0 && winner.license.valid_until - now < kExpiryWarningSeconds &&
+      last_expiry_warning_day_.exchange(now / kSecondsPerDay) != now / kSecondsPerDay) {
+    spdlog::warn("The license is valid until {}. Enterprise features stop working 24 hours after that.",
+                 ValidUntilToString(winner.license.valid_until));
+  }
 }
 
 void LicenseChecker::EnableTesting(const LicenseType license_type) {
@@ -304,19 +358,18 @@ void LicenseChecker::DisableTesting() {
   spdlog::info("The license is disabled for testing.");
 }
 
-void LicenseChecker::CheckEnvLicense(utils::Settings &settings) {
+void LicenseChecker::CheckEnvLicense() {
   const char *license_key = std::getenv("MEMGRAPH_ENTERPRISE_LICENSE");
   const char *organization_name = std::getenv("MEMGRAPH_ORGANIZATION_NAME");
-  if (!license_key || !organization_name) {
+  if (!license_key && !organization_name) {
     return;
   }
-  spdlog::warn("License info found in environment variables.");
-  env_license_info_.emplace(license_key, organization_name);
-  RevalidateLicense(settings);
+  spdlog::info("License info found in environment variables.");
+  env_license_info_.emplace(license_key ? license_key : "", organization_name ? organization_name : "");
 }
 
 void LicenseChecker::SetCliLicense(std::string license_key, std::string organization_name, utils::Settings &settings) {
-  spdlog::warn("License info found in command-line flags.");
+  spdlog::info("License info found in command-line flags.");
   cli_license_info_.emplace(std::move(license_key), std::move(organization_name));
   RevalidateLicense(settings);
 }
@@ -389,7 +442,7 @@ void LicenseChecker::StartBackgroundLicenseChecker(std::weak_ptr<utils::Settings
   MG_ASSERT(locked_settings, "Settings are not available");
   RevalidateLicense(*locked_settings);
   scheduler_.SetInterval(std::chrono::minutes{5});
-  scheduler_.Run("licensechecker", [&, this] {
+  scheduler_.Run("licensechecker", [this, settings] {
     if (auto locked_settings = settings.lock()) {
       RevalidateLicense(*locked_settings);
     }
@@ -408,7 +461,8 @@ DetailedLicenseInfo LicenseChecker::GetDetailedLicenseInfo() {
 
   if (!locked_previous_license_info) {
     info.is_valid = false;
-    info.status = "You have not provided any license!";
+    auto failures = license_failures_.Lock();
+    info.status = failures->empty() ? "You have not provided any license." : utils::Join(*failures, " ");
     return info;
   }
 
@@ -418,7 +472,7 @@ DetailedLicenseInfo LicenseChecker::GetDetailedLicenseInfo() {
   const auto maybe_license = GetLicense(locked_previous_license_info->license_key);
   if (!maybe_license) {
     if (info.license_key.empty() && info.organization_name.empty()) {
-      info.status = "You have not provided any license!";
+      info.status = "You have not provided any license.";
     } else {
       info.status = "Invalid license key string!";
     }
@@ -429,20 +483,7 @@ DetailedLicenseInfo LicenseChecker::GetDetailedLicenseInfo() {
   info.memory_limit = maybe_license->memory_limit;
   info.license_type = LicenseTypeToString(maybe_license->type);
 
-  // convert the epoch of validity to date string
-  const int64_t valid_until = maybe_license->valid_until;
-  if (valid_until != 0) {
-    const auto time = static_cast<std::time_t>(valid_until);
-    std::tm *tm = std::gmtime(&time);
-    std::array<char, 30> buffer;
-    if (tm != nullptr && std::strftime(buffer.data(), buffer.size(), "%Y-%m-%d", tm) > 0) {
-      info.valid_until = std::string(buffer.data());
-    } else {
-      info.valid_until = "error";
-    }
-  } else {
-    info.valid_until = "FOREVER";
-  }
+  info.valid_until = ValidUntilToString(maybe_license->valid_until);
 
   // Use the same validation logic as enterprise feature checks to ensure is_valid is consistent.
   // NOTE: this overload does not re-acquire previous_license_info_ lock, so no deadlock.
