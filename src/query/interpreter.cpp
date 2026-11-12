@@ -11,6 +11,7 @@
 
 #include "query/interpreter.hpp"
 #include <fmt/format.h>
+#include <numeric>
 #include "ctre.hpp"
 #include "memory/db_arena_fwd.hpp"
 

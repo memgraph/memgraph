@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <algorithm>
 #include <deque>
 #include <string>
 
@@ -21,8 +22,6 @@
 #include "query/frontend/ast/query/subquery_expression.hpp"
 #include "query/frontend/semantic/symbol.hpp"
 #include "utils/logging.hpp"
-
-#include <absl/container/flat_hash_map.h>
 
 namespace memgraph::query {
 

@@ -11,8 +11,9 @@
 
 #pragma once
 
+#include <algorithm>
+#include <boost/unordered/unordered_flat_set.hpp>
 #include <string_view>
-#include "absl/container/flat_hash_set.h"
 #include "boost/functional/hash.hpp"
 
 namespace memgraph::utils {
@@ -53,7 +54,7 @@ struct CaseInsensitiveSet {
   bool contains(auto const &value) const { return set_.contains(value); }
 
  private:
-  absl::flat_hash_set<std::string, CaseInsensitiveHash, CaseInsensitiveEqual> set_;
+  boost::unordered_flat_set<std::string, CaseInsensitiveHash, CaseInsensitiveEqual> set_;
 };
 
 }  // namespace memgraph::utils

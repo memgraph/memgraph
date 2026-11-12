@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -18,11 +18,11 @@ AsyncIndexHelper::AsyncIndexHelper(Config const &config, ActiveIndices const &ac
                                    uint64_t start_timestamp) {
   if (config.salient.items.enable_label_index_auto_creation) {
     label_index_.emplace(AsyncIndexHelper::LabelIndexInfo{
-        .existing_ = active_indices.label_->ListIndices(start_timestamp) | ranges::to<absl::flat_hash_set>});
+        .existing_ = active_indices.label_->ListIndices(start_timestamp) | ranges::to<LabelSet>});
   }
   if (config.salient.items.enable_edge_type_index_auto_creation) {
     edgetype_index_.emplace(AsyncIndexHelper::EdgeTypeIndexInfo{
-        .existing_ = active_indices.edge_type_->ListIndices(start_timestamp) | ranges::to<absl::flat_hash_set>});
+        .existing_ = active_indices.edge_type_->ListIndices(start_timestamp) | ranges::to<EdgeTypeSet>});
   }
 }
 

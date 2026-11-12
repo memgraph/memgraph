@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "query/plan/profile.hpp"
+#include <numeric>
 
 #include <algorithm>
 #include <chrono>
