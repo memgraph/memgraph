@@ -318,9 +318,9 @@ INSTANTIATE_TEST_SUITE_P(Random, WeightedKShortestRandomInMemory,
 // Hop count and weights.
 class KShortestMemoryTest : public SharedDbTest<memgraph::storage::InMemoryStorage, ::testing::TestWithParam<bool>> {};
 
-// Found paths and candidates share one trie, so the ladder's shared prefixes are stored once: the
-// peak stays under 1.5x the bytes of the returned edge lists, where a vector per path took about 3x.
-// The bound relies on that sharing.
+// Found paths and candidates share one trie, so the ladder's shared prefixes are stored once and
+// the peak stays under 1.5x the bytes of the returned edge lists. A regression pin: the 3x of the
+// vector per path before it was resident memory in the benchmarks, which this counter does not see.
 TEST_P(KShortestMemoryTest, PathsShareTheTrie) {
   constexpr int kRungs = 20;
   const auto run = db_->KShortestLadderMemory(db_.get(), GetParam(), kRungs, {{0, 2 * kRungs - 1, 20000}});

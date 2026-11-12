@@ -5142,6 +5142,7 @@ class KShortestPathsCursor : public Cursor {
   // once after the last row. `clear()` would keep the capacity, and the last row, or one followed
   // only by skipped rows, has no next search to reuse it.
   void ReleasePathStorage() {
+    // The vectors below hold trie indices, so they go together with the trie.
     trie_.assign(1, TrieRoot());
     trie_.shrink_to_fit();
     shortest_paths_.clear();
