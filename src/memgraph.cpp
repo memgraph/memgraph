@@ -555,7 +555,7 @@ int main(int argc, char **argv) {
   memgraph::license::RegisterLicenseSettings(memgraph::license::global_license_checker, *settings);
 
   memgraph::license::global_license_checker.CheckEnvLicense();
-  if (!FLAGS_organization_name.empty() && !FLAGS_license_key.empty()) {
+  if (!FLAGS_organization_name.empty() || !FLAGS_license_key.empty()) {
     memgraph::license::global_license_checker.SetCliLicense(FLAGS_license_key, FLAGS_organization_name, *settings);
   }
 
