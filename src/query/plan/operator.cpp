@@ -4862,12 +4862,12 @@ class KShortestPathsCursor : public Cursor {
     return *weight;
   }
 
-  /// Whether settled `(settled_depth, settled_cost)` rules out `(depth, cost)` at the same vertex: it is
-  /// no deeper and no dearer, or, without a hop cap, strictly cheaper.
-  bool Dominates(int64_t settled_depth, const TypedValue &settled_cost, int64_t depth, const TypedValue &cost) const {
-    const auto order = CostCompare(cost, settled_cost);
+  /// Whether state `a` rules out state `b` at the same vertex: `a` is no deeper and no dearer, or,
+  /// without a hop cap, strictly cheaper.
+  bool Dominates(int64_t a_depth, const TypedValue &a_cost, int64_t b_depth, const TypedValue &b_cost) const {
+    const auto order = CostCompare(b_cost, a_cost);
     if (std::is_lt(order)) return false;
-    if (settled_depth <= depth) return true;
+    if (a_depth <= b_depth) return true;
     return upper_bound_ == std::numeric_limits<int64_t>::max() && std::is_gt(order);
   }
 
