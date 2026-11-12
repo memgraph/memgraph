@@ -238,6 +238,22 @@ class VersioningBranchCoreDefinitionsTest : public VersioningBranchCoreTest {
       ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
     {
+      const auto edge_type = storage_->NameToEdgeType("Indexed");
+      auto acc = storage_->UniqueAccess();
+      ASSERT_TRUE(acc->CreateIndex(edge_type).has_value());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    }
+    {
+      auto acc = storage_->UniqueAccess();
+      ASSERT_TRUE(acc->CreateIndex(storage_->NameToEdgeType("Indexed"), property).has_value());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    }
+    {
+      auto acc = storage_->UniqueAccess();
+      ASSERT_TRUE(acc->CreateGlobalEdgeIndex(property).has_value());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    }
+    {
       auto acc = storage_->UniqueAccess();
       ASSERT_TRUE(acc->CreateExistenceConstraint(label, property).has_value());
       ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
@@ -395,7 +411,7 @@ TEST_F(VersioningBranchCoreAutoIndexTest, DiffEngineNeverTracksSchemaInfo) {
   }
 }
 
-TEST_F(VersioningBranchCoreDefinitionsTest, DiffEngineMirrorsOnlyTheVertexIndexDefinitionsNoConstraintVectorOrText) {
+TEST_F(VersioningBranchCoreDefinitionsTest, DiffEngineMirrorsTheIndexDefinitionsNoConstraintVectorOrText) {
   const auto main_indices = storage_->Access(ms::READ)->ListAllIndices();
   ASSERT_FALSE(main_indices.label.empty());
   ASSERT_FALSE(main_indices.label_properties.empty());
@@ -416,9 +432,12 @@ TEST_F(VersioningBranchCoreDefinitionsTest, DiffEngineMirrorsOnlyTheVertexIndexD
     EXPECT_EQ(indices.label_properties[i].order, main_indices.label_properties[i].order) << "entry " << i;
   }
   EXPECT_EQ(indices.vertex_property, main_indices.vertex_property);
-  EXPECT_TRUE(indices.edge_type.empty());
-  EXPECT_TRUE(indices.edge_type_property.empty());
-  EXPECT_TRUE(indices.edge_property.empty());
+  ASSERT_FALSE(main_indices.edge_type.empty());
+  ASSERT_FALSE(main_indices.edge_type_property.empty());
+  ASSERT_FALSE(main_indices.edge_property.empty());
+  EXPECT_EQ(indices.edge_type, main_indices.edge_type);
+  EXPECT_EQ(indices.edge_type_property, main_indices.edge_type_property);
+  EXPECT_EQ(indices.edge_property, main_indices.edge_property);
   EXPECT_TRUE(indices.text_indices.empty());
   EXPECT_TRUE(indices.text_edge_indices.empty());
   EXPECT_TRUE(indices.point_label_property.empty());
@@ -447,6 +466,14 @@ TEST_F(VersioningBranchCoreSchemaMetadataTest, DiffEngineKeepsSchemaMetadataAndH
       << "a marker reaches the list: the single SHOW consumer must filter ms::IsReservedId";
   std::erase_if(labels, [](ms::LabelId l) { return ms::IsReservedId(l); });
   EXPECT_EQ(labels, std::vector<ms::LabelId>{label});
+}
+
+TEST_F(VersioningBranchCoreDefinitionsTest, TheKeyPartsAreTheLabelPropertyKeysOfMainsIndexesOnly) {
+  auto const indexed = storage_->NameToLabel("Indexed");
+  auto const p = storage_->NameToProperty("p");
+  ASSERT_EQ(core_->key_parts().keys().size(), 1U) << "the label, vertex-property and edge indexes are single-part";
+  EXPECT_EQ(core_->key_parts().keys()[0].label, indexed);
+  EXPECT_EQ(core_->key_parts().keys()[0].properties, std::vector<ms::PropertyId>{p});
 }
 
 TEST_F(VersioningBranchCoreNoEdgePropertiesTest, DiffEngineForcesPropertiesOnEdgesWhenMainHasNone) {
@@ -3947,6 +3974,83 @@ TEST_F(VersioningBranchEdgeWriteTest, ANativeEdgeTakesTheStockMutators) {
   EXPECT_EQ(EdgeStubCount(), 0u);
   EXPECT_EQ(StubCount(), 0u);
   (void)g;
+}
+
+// The diff engine's edge property indexes hold the stub of a changed fork edge, and a scan yields it, though the branch
+// has no native edge (the engine's own edge counter would otherwise hide every fork gid).
+TEST_F(VersioningBranchEdgeWriteTest, EdgePropertyIndexesYieldAChangedForkEdgeBeforeAnyNativeEdgeExists) {
+  auto const x = Prop("x");
+  auto const g = MakeGraph();
+  auto const type = storage_->NameToEdgeType("E");
+  {
+    auto acc = storage_->UniqueAccess();
+    ASSERT_TRUE(acc->CreateGlobalEdgeIndex(x).has_value());
+    Commit(*acc);
+  }
+  {
+    auto acc = storage_->UniqueAccess();
+    ASSERT_TRUE(acc->CreateIndex(type, x).has_value());
+    Commit(*acc);
+  }
+  Fork();
+  Write([&] {
+    auto edge = ForkEdge(g.e1);
+    ASSERT_TRUE(Ctx().SetProperty(edge, x, Int(10)).has_value());
+  });
+  auto acc = Diff().Access(ms::READ);
+  std::vector<ms::Gid> global, typed;
+  for (auto edge : acc->Edges(x, ms::View::NEW)) global.push_back(edge.Gid());
+  for (auto edge : acc->Edges(type, x, ms::View::NEW)) typed.push_back(edge.Gid());
+  EXPECT_EQ(global, std::vector<ms::Gid>{g.e1.gid});
+  EXPECT_EQ(typed, std::vector<ms::Gid>{g.e1.gid});
+}
+
+// An edge key is its type and one property, so no writer needs a key-part copy: whatever writes a property puts the
+// stub under the diff engine's edge property indexes at the written value, and the stub holds nothing else of the fork.
+TEST_F(VersioningBranchEdgeWriteTest, EveryEdgePropertyWriterPutsTheStubUnderTheEdgePropertyIndexes) {
+  auto const x = Prop("x"), y = Prop("y");
+  auto const g = MakeGraph();
+  auto const bare = CreateMainEdge(g.a, g.b, "E", {});
+  auto const type = storage_->NameToEdgeType("E");
+  {
+    auto acc = storage_->UniqueAccess();
+    ASSERT_TRUE(acc->CreateGlobalEdgeIndex(x).has_value());
+    Commit(*acc);
+  }
+  {
+    auto acc = storage_->UniqueAccess();
+    ASSERT_TRUE(acc->CreateIndex(type, x).has_value());
+    Commit(*acc);
+  }
+  Fork();
+  Write([&] {
+    auto e1 = ForkEdge(g.e1);
+    Props update{{x, Int(10)}};
+    ASSERT_TRUE(Ctx().UpdateProperties(e1, update).has_value());
+    auto init = ForkEdge(bare);
+    Props initial{{x, Int(3)}};
+    ASSERT_TRUE(*Ctx().InitProperties(init, initial));
+    auto e2 = ForkEdge(g.e2);
+    ASSERT_TRUE(Ctx().SetProperty(e2, x, Int(6)).has_value());
+    auto loop = ForkEdge(g.loop);
+    ASSERT_TRUE(Ctx().SetProperty(loop, x, ms::PropertyValue{}).has_value());
+  });
+  Write([&] {
+    auto e2 = ForkEdge(g.e2);
+    ASSERT_TRUE(Ctx().SetProperty(e2, x, Int(5)).has_value()) << "back to the fork's value";
+  });
+  auto const indexed = [&](auto &&edges) {
+    std::map<uint64_t, ms::PropertyValue> found;
+    for (auto edge : edges) found.emplace(edge.Gid().AsUint(), *edge.GetProperty(x, ms::View::NEW));
+    return found;
+  };
+  auto acc = Diff().Access(ms::READ);
+  auto const expected = std::map<uint64_t, ms::PropertyValue>{
+      {g.e1.gid.AsUint(), Int(10)}, {bare.gid.AsUint(), Int(3)}, {g.e2.gid.AsUint(), Int(5)}};
+  EXPECT_EQ(indexed(acc->Edges(x, ms::View::NEW)), expected);
+  EXPECT_EQ(indexed(acc->Edges(type, x, ms::View::NEW)), expected);
+  EXPECT_EQ(CommittedEdgeStubOf(g.e1).properties.Properties().size(), 1U) << "y was not copied";
+  EXPECT_TRUE(CommittedEdgeStubOf(g.e1).properties.GetProperty(y).IsNull());
 }
 
 // With main's edge properties off, the branch's fork edges still delete (the marker is a property of the edge
