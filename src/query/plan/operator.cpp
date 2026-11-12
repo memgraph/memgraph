@@ -4131,7 +4131,7 @@ TypedValue AddCost(const TypedValue &lhs, const TypedValue &rhs) {
   // Same-type sums of non-negative weights never drop. A Double added to an Int above 2^53 can round
   // below the Int, and a dropping cost lets a cycle look cheaper than the path that skips it.
   if (lhs.type() == rhs.type()) return sum;
-  if (std::is_lt(CostCompare(sum, lhs))) return lhs;
+  if (std::is_gt(CostCompare(lhs, sum))) return lhs;
   if (std::is_lt(CostCompare(sum, rhs))) return rhs;
   return sum;
 }
