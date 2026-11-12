@@ -347,6 +347,18 @@ TEST_P(KShortestMemoryTest, ReleasesStorageAfterLastRow) {
   EXPECT_LE(run.current_after_last_row, 1UZ << 20U);
 }
 
+// A BFS table past 1024 buckets goes back at the row boundary. After a row that reaches the whole
+// ladder, a one-hop row keeps the first row's adjacency cache but not its BFS tables: about 61% of the
+// first row's bytes. Keeping the tables leaves 92%.
+class KShortestTableMemoryTest : public SharedDbTest<memgraph::storage::InMemoryStorage, ::testing::Test> {};
+
+TEST_F(KShortestTableMemoryTest, ReleasesLargeBfsTablesBetweenRows) {
+  constexpr int kRungs = 2000;
+  const auto run = db_->KShortestLadderMemory(db_.get(), false, kRungs, {{0, 2 * kRungs - 1, 1}, {0, 1, 1}});
+  ASSERT_EQ(run.current_at_path.size(), 2U);
+  EXPECT_LE(run.current_at_path[1], run.current_at_path[0] * 3 / 4);
+}
+
 INSTANTIATE_TEST_SUITE_P(KShortestMemory, KShortestMemoryTest, testing::Bool(),
                          [](const auto &info) { return info.param ? "Weighted" : "HopCount"; });
 

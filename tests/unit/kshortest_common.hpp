@@ -1873,6 +1873,8 @@ class Database {
     size_t current_at_last_path = 0;
     // Bytes still held once `Pull` has returned false.
     size_t current_after_last_row = 0;
+    // Bytes held as each path is served, in serving order.
+    std::vector<size_t> current_at_path;
   };
 
   // One KSHORTEST expansion, walked both ways over a `rungs`-rung ladder, one input row per
@@ -1944,6 +1946,7 @@ class Database {
         ++out.rows;
         out.total_length += frame[edges_sym].ValueList().size();
         out.current_at_last_path = memory.current();
+        out.current_at_path.push_back(memory.current());
       }
       out.current_after_last_row = memory.current();
       out.peak = memory.peak();
