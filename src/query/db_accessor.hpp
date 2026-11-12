@@ -1101,9 +1101,18 @@ class DbAccessor final {
     return accessor_->PrepareForCommitPhase(std::move(commit_args));
   }
 
+#ifdef MG_ENTERPRISE
+  // Branch only: main's existence and type constraints, checked on every vertex the transaction touched (its branch
+  // view). On a violation the transaction is aborted, as main's commit does.
+  std::expected<void, storage::StorageManipulationError> ValidateBranchConstraints();
+
+#endif
   std::expected<void, storage::StorageManipulationError> PeriodicCommit(storage::CommitArgs commit_args) {
 #ifdef MG_ENTERPRISE
-    if (branch_ctx_ != nullptr) return branch_ctx_->PeriodicCommitTransaction(std::move(commit_args));
+    if (branch_ctx_ != nullptr) {
+      return ValidateBranchConstraints().and_then(
+          [&] { return branch_ctx_->PeriodicCommitTransaction(std::move(commit_args)); });
+    }
 #endif
     return accessor_->PeriodicCommit(std::move(commit_args));
   }

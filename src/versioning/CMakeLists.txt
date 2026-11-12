@@ -13,6 +13,7 @@ target_sources(mg-versioning
         edge_stub_index.hpp
         gate.hpp
         index_key_parts.hpp
+        main_constraints.hpp
         name.hpp
         stub_state.hpp
         stub_index.hpp
