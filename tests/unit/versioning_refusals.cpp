@@ -311,9 +311,11 @@ TEST_F(VersioningRefusalsTest, VersioningOffLeavesDatabaseGlobalOperationsUnrefu
   ASSERT_EQ((*acc)->version_store(), nullptr);
   InterpreterFaker off{&interpreter_context, *acc};
   EXPECT_NO_THROW(off.Interpret("CREATE ENUM Mood VALUES { Happy, Sad }"));
-  EXPECT_EQ(ThrownMessage([&] { off.Interpret("SHOW BRANCHES"); }),
-            memgraph::versioning::GateErrorMessage(memgraph::versioning::GateError::kDisabled))
-      << "branches are not listed with versioning off";
+  for (const auto *query : {"SHOW BRANCHES", "SHOW BRANCH", "CREATE BRANCH 'c'", "DROP BRANCH 'b'"}) {
+    EXPECT_EQ(ThrownMessage([&] { off.Interpret(query); }),
+              memgraph::versioning::GateErrorMessage(memgraph::versioning::GateError::kDisabled))
+        << query << " is disabled with versioning off";
+  }
 }
 
 // STORAGE MODE checks at Prepare and again under the switch's exclusive hold, so a branch created between refuses it.

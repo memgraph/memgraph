@@ -174,7 +174,22 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
     }
   }
 
-  void Visit(VersioningQuery & /*unused*/) override { AddPrivilege(AuthQuery::Privilege::BRANCH_USE); }
+  void Visit(VersioningQuery &query) override {
+    switch (query.action_) {
+      case VersioningQuery::Action::CREATE_BRANCH:
+        AddPrivilege(AuthQuery::Privilege::BRANCH_EDIT);
+        break;
+      case VersioningQuery::Action::DROP_BRANCH:
+        AddPrivilege(AuthQuery::Privilege::BRANCH_EDIT);
+        // FORCE also terminates other sessions' transactions, like DROP DATABASE ... FORCE.
+        if (query.force_) AddPrivilege(AuthQuery::Privilege::TRANSACTION_MANAGEMENT);
+        break;
+      case VersioningQuery::Action::SHOW_BRANCH:
+      case VersioningQuery::Action::SHOW_BRANCHES:
+        AddPrivilege(AuthQuery::Privilege::BRANCH_USE);
+        break;
+    }
+  }
 
   void Visit(UseDatabaseQuery & /*unused*/) override { AddPrivilege(AuthQuery::Privilege::MULTI_DATABASE_USE); }
 
