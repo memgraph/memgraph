@@ -42,6 +42,7 @@
 #include "storage/v2/storage.hpp"
 #include "utils/join_vector.hpp"
 #include "utils/logging.hpp"
+#include "utils/memory.hpp"
 #include "utils/temporal.hpp"
 
 #include "formatters.hpp"
@@ -348,6 +349,32 @@ std::vector<std::vector<memgraph::query::TypedValue>> PullResults(memgraph::quer
   }
   return output;
 }
+
+// Counts the bytes requested through it, so a test can bound what a cursor holds.
+class PeakCountingResource : public memgraph::utils::MemoryResource {
+ public:
+  size_t current() const { return current_; }
+
+  size_t peak() const { return peak_; }
+
+ private:
+  void *do_allocate(size_t bytes, size_t alignment) override {
+    void *p = memgraph::utils::NewDeleteResource()->allocate(bytes, alignment);
+    current_ += bytes;
+    peak_ = std::max(peak_, current_);
+    return p;
+  }
+
+  void do_deallocate(void *p, size_t bytes, size_t alignment) override {
+    current_ -= bytes;
+    memgraph::utils::NewDeleteResource()->deallocate(p, bytes, alignment);
+  }
+
+  bool do_is_equal(const memgraph::utils::MemoryResource &other) const noexcept override { return this == &other; }
+
+  size_t current_ = 0;
+  size_t peak_ = 0;
+};
 
 enum class FineGrainedTestType {
   ALL_GRANTED,
@@ -1834,6 +1861,96 @@ class Database {
     EXPECT_EQ(PathVertexIds(&db_accessor, results[0]), (std::vector<int>{2, 5, 3}));
   }
 #endif
+
+  // --- memory --------------------------------------------------------------------------------------
+
+  struct MemoryRun {
+    size_t rows = 0;
+    // Edges over every returned path.
+    size_t total_length = 0;
+    size_t peak = 0;
+    // Bytes held as the last row's last path is served.
+    size_t current_at_last_path = 0;
+    // Bytes still held once `Pull` has returned false.
+    size_t current_after_last_row = 0;
+  };
+
+  // One KSHORTEST expansion, walked both ways over a `rungs`-rung ladder, one input row per
+  // `(source, sink, |k)`. The cursor and its evaluation both allocate through one counter. Rows are
+  // counted and dropped, so beyond the cursor the counter sees only the current row's values.
+  // Weighted runs read `e.weight`, set to 1 on every edge so both cursors return the same paths
+  // and one bound fits both. A literal weight would take the hop-count search.
+  MemoryRun KShortestLadderMemory(Database *db, bool weighted, int rungs,
+                                  const std::vector<std::tuple<int, int, int64_t>> &input_rows) {
+    auto storage_dba = db->Access();
+    memgraph::query::DbAccessor dba(storage_dba.get());
+    memgraph::query::ExecutionContext context{.db_accessor = &dba, .metric_handles = &TestMetricHandles()};
+    auto source_sym = context.symbol_table.CreateSymbol("source", true);
+    auto sink_sym = context.symbol_table.CreateSymbol("sink", true);
+    auto limit_sym = context.symbol_table.CreateSymbol("limit", true);
+    auto edges_sym = context.symbol_table.CreateSymbol("edges", true);
+    auto total_sym = context.symbol_table.CreateSymbol("total", true);
+
+    // Rails `0..rungs-1` and `rungs..2*rungs-1`, joined at every step.
+    std::vector<std::tuple<int, int, std::string>> ladder;
+    for (int i = 0; i + 1 < rungs; ++i) {
+      ladder.emplace_back(i, i + 1, "a");
+      ladder.emplace_back(rungs + i, rungs + i + 1, "a");
+    }
+    for (int i = 0; i < rungs; ++i) ladder.emplace_back(i, rungs + i, "b");
+    auto [vertices, edges] = db->BuildGraph(&dba, std::vector<int>(static_cast<size_t>(2 * rungs), 0), ladder);
+    std::map<std::pair<int, int>, memgraph::storage::PropertyValue> weights;
+    for (const auto &[from, to, type] : ladder) weights.emplace(std::pair{from, to}, int64_t{1});
+    SetEdgeWeights(dba, edges, ladder, weights);
+    dba.AdvanceCommand();
+
+    std::vector<std::vector<memgraph::query::TypedValue>> frames;
+    for (const auto &[source, sink, limit] : input_rows) {
+      frames.push_back({memgraph::query::TypedValue(vertices[source]),
+                        memgraph::query::TypedValue(vertices[sink]),
+                        memgraph::query::TypedValue(limit)});
+    }
+    auto input_op =
+        std::make_shared<Yield>(nullptr, std::vector<memgraph::query::Symbol>{source_sym, sink_sym, limit_sym}, frames);
+    auto kshortest_op =
+        db->MakeKShortestOperator(source_sym,
+                                  sink_sym,
+                                  edges_sym,
+                                  memgraph::query::EdgeAtom::Direction::BOTH,
+                                  {},
+                                  input_op,
+                                  true,
+                                  nullptr,
+                                  nullptr,
+                                  FilterLambda(context, nullptr),
+                                  IDENT("limit")->MapTo(limit_sym),
+                                  weighted ? std::optional(MakeWeightLambda(dba, context)) : std::nullopt,
+                                  weighted ? std::optional(total_sym) : std::nullopt);
+
+    context.evaluation_context.properties = memgraph::query::NamesToProperties(storage.properties_, &dba);
+    context.evaluation_context.labels = memgraph::query::NamesToLabels(storage.labels_, &dba);
+    context.evaluation_context.edgetypes = memgraph::query::NamesToEdgeTypes(storage.edge_types_, &dba);
+
+    PeakCountingResource memory;
+    MemoryRun out;
+    {
+      // Both are needed: the cursor's own state comes from the first, candidates and spur paths
+      // from the second.
+      memgraph::metrics::DatabaseMetricHandles handles;
+      auto cursor = kshortest_op->MakeCursor(&memory, handles);
+      context.evaluation_context.memory = &memory;
+      memgraph::query::Frame frame(context.symbol_table.max_position());
+      while (cursor->Pull(frame, context)) {
+        ++out.rows;
+        out.total_length += frame[edges_sym].ValueList().size();
+        out.current_at_last_path = memory.current();
+      }
+      out.current_after_last_row = memory.current();
+      out.peak = memory.peak();
+    }
+    dba.Abort();
+    return out;
+  }
 
   // An inverted range is provably empty. Assert on the work done, not just the empty result:
   // unguarded, the top-up loop enumerates every simple path in the graph first.
