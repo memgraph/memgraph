@@ -38,7 +38,12 @@ licence_probe_module_loaded() {
 }
 
 licence_probe_metrics_served() {
-  [[ "$(curl -s -o /dev/null -w '%{http_code}' "http://localhost:$1/metrics")" == 200 ]]
+  local out
+  out="$(curl -s -w '\n%{http_code}' "http://localhost:$1/metrics")"
+  [[ "${out##*$'\n'}" == 200 ]] && return 0
+  grep -qi license <<<"$out" && return 1
+  echo "$out" >&2
+  return 2
 }
 
 licence_probe_audit_written() {
