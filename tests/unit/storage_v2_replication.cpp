@@ -46,6 +46,7 @@
 #include "storage/v2/inmemory/replication/recovery.hpp"
 #include "storage/v2/replication/recovery.hpp"
 #include "storage/v2/storage.hpp"
+#include "storage/v2/transaction_constants.hpp"
 #include "storage/v2/view.hpp"
 #include "tests/test_commit_args_helper.hpp"
 #include "tests/unit/storage_test_utils.hpp"
@@ -1961,6 +1962,30 @@ TEST_F(ReplicationTest, RecoveryStepsWithOnlyCurrentWal) {
   ASSERT_TRUE(steps_with_gap.has_value());
   ASSERT_EQ(steps_with_gap->size(), 1);
   EXPECT_TRUE(std::holds_alternative<memgraph::storage::RecoverySnapshot>(steps_with_gap->front()));
+}
+
+// A replica at the initial timestamp gets the snapshot even when the current WAL holds the whole history.
+TEST_F(ReplicationTest, RecoveryStepsFromInitialTimestampKeepSnapshot) {
+  MinMemgraph main(main_conf);
+  auto *in_mem = static_cast<InMemoryStorage *>(main.db.storage());
+
+  memgraph::utils::FileRetainer file_retainer;
+  auto file_locker = file_retainer.AddLocker();
+
+  {
+    const memgraph::memory::DbArenaScope arena_scope{&main.db.Arena()};
+    auto acc = in_mem->Access(memgraph::storage::WRITE);
+    acc->CreateVertex();
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+  ASSERT_EQ(in_mem->repl_storage_state_.commit_ts_info_.load().ldt_, 1);
+  ASSERT_TRUE(in_mem->CreateSnapshot().has_value());
+
+  const memgraph::memory::DbArenaScope arena_scope{&main.db.Arena()};
+  auto const steps = GetRecoverySteps(memgraph::storage::kTimestampInitialId, &file_locker, in_mem);
+  ASSERT_TRUE(steps.has_value());
+  ASSERT_FALSE(steps->empty());
+  EXPECT_TRUE(std::holds_alternative<memgraph::storage::RecoverySnapshot>(steps->front()));
 }
 
 // Analytical writes are never appended to the WAL, so a storage that replicates must not be allowed to
