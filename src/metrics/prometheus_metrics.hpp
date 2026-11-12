@@ -11,7 +11,6 @@
 
 #pragma once
 
-#include <array>
 #include <cstdint>
 #include <expected>
 #include <functional>
@@ -109,8 +108,7 @@ struct GlobalMetricHandles {
 
   // Transaction (global) — incremented when no per-db context is available
   prometheus::Counter *transient_errors;
-  // Indexed by ReplicationFailureOutcome.
-  std::array<CounterHandle, kReplicationFailureOutcomes.size()> replication_failures;
+  ReplicationFailureCounters replication_failures;
   prometheus::Counter *failed_query;
   prometheus::Counter *failed_prepare;
   prometheus::Counter *failed_pull;

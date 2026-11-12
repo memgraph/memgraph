@@ -29,8 +29,13 @@
 #include <concepts>
 #include <expected>
 #include <future>
+#include <memory>
 #include <optional>
 #include <string>
+
+namespace memgraph::metrics {
+struct ReplicationFailureCounters;
+}  // namespace memgraph::metrics
 
 namespace memgraph::memory {
 class ArenaPool;
@@ -109,7 +114,7 @@ class ReplicationStorageClient {
   ReplicationStorageClient(ReplicationStorageClient &&) noexcept = delete;
   ReplicationStorageClient &operator=(ReplicationStorageClient &&) noexcept = delete;
 
-  ~ReplicationStorageClient() = default;
+  ~ReplicationStorageClient();
 
   auto Mode() const -> replication_coordination_glue::ReplicationMode { return client_.mode_; }
 
@@ -289,6 +294,8 @@ class ReplicationStorageClient {
   void TryCheckReplicaStateSync(Storage *main_storage, DatabaseProtector const &protector);
 
   ::memgraph::replication::ReplicationClient &client_;
+  // The database's replication failure counters, holding this replica's series from Start until destruction.
+  std::unique_ptr<metrics::ReplicationFailureCounters> failure_counters_;
   mutable utils::Synchronized<replication::ReplicaState, utils::SpinLock> replica_state_{
       replication::ReplicaState::MAYBE_BEHIND};
   mutable std::atomic<CommitTsInfo> commit_ts_info_;

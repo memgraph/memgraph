@@ -561,13 +561,18 @@ def test_committed_txn_survives_failover(test_name):
 
 
 def replication_failures_on_main(outcome):
+    """Sums the failures for instance_1, after checking each counted series names a reason a down replica can give."""
     with urllib.request.urlopen("http://localhost:9093/metrics") as response:
         body = response.read().decode("utf-8")
+    total = 0
     for labels, value in REPLICATION_FAILURES.findall(body):
         found = dict(LABEL.findall(labels))
         if found.get("outcome") == outcome and found.get("database") == "memgraph":
-            return float(value)
-    return None
+            if float(value):
+                assert found.get("mg_instance") == "instance_1"
+                assert found.get("reason") in {"not_in_sync", "rpc_error"}
+            total += float(value)
+    return total
 
 
 def test_aborted_strict_sync_commit_counts_as_aborted_failure(test_name):
@@ -575,7 +580,6 @@ def test_aborted_strict_sync_commit_counts_as_aborted_failure(test_name):
     interactive_mg_runner.kill(inner_instances_description, "instance_1")
     instance3_cursor = connect(host="localhost", port=7689).cursor()
     before = replication_failures_on_main("aborted")
-    assert before is not None
 
     with pytest.raises(Exception):
         execute_and_fetch_all(instance3_cursor, "CREATE (n:Node)")

@@ -16,8 +16,10 @@
 #include <string_view>
 
 #include <prometheus/counter.h>
+#include <prometheus/family.h>
 #include <prometheus/gauge.h>
 #include <prometheus/histogram.h>
+#include <prometheus/labels.h>
 
 #include "utils/logging.hpp"
 
@@ -59,6 +61,27 @@ inline constexpr std::array<CounterLabelValue, 2> kReplicationFailureOutcomes{{
     {.label = "committed", .info_name = "ReplicationFailuresCommitted"},
     {.label = "aborted", .info_name = "ReplicationFailuresAborted"},
 }};
+
+enum class ReplicationFailureReason : uint8_t { NOT_IN_SYNC, RPC_ERROR, DIVERGED, TIMEOUT };
+
+// Indexed by ReplicationFailureReason.
+inline constexpr std::array<std::string_view, 4> kReplicationFailureReasons{
+    "not_in_sync", "rpc_error", "diverged", "timeout"};
+
+// Counts replication failures in one series per replica, outcome, and reason. Does nothing without a family.
+struct ReplicationFailureCounters {
+  prometheus::Family<prometheus::Counter> *family{nullptr};
+  // The database's entry label, or none for failures outside any database.
+  prometheus::Labels labels;
+
+  // Creates the replica's series at 0, so that its first failure is an increase.
+  void AddReplica(std::string_view replica) const;
+  void RemoveReplica(std::string_view replica) const;
+  void Increment(std::string_view replica, ReplicationFailureOutcome outcome, ReplicationFailureReason reason) const;
+  // Sums the outcome's series across replicas and reasons.
+  auto Total(std::string_view outcome_label) const -> int64_t;
+  void RemoveAll() const;
+};
 
 struct CounterHandle {
   prometheus::Counter *counter{nullptr};
@@ -196,8 +219,7 @@ struct DatabaseMetricHandles {
   CounterHandle successful_query;
   CounterHandle write_write_conflicts;
   CounterHandle transient_errors;
-  // Indexed by ReplicationFailureOutcome.
-  std::array<CounterHandle, kReplicationFailureOutcomes.size()> replication_failures;
+  ReplicationFailureCounters replication_failures;
   GaugeHandle unreleased_delta_objects;
 
   // Query type

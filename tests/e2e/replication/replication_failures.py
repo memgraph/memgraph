@@ -60,14 +60,27 @@ def test_name(request):
     return request.node.name
 
 
-def replication_failures(outcome, database="memgraph"):
+# A down replica is reported as not in sync once main notices, or as an RPC error if the commit gets there first
+DOWN_REPLICA_REASONS = {"not_in_sync", "rpc_error"}
+
+
+def replication_failure_series(database="memgraph"):
+    """Returns (labels, value) for each of the database's replication failure series."""
     with urllib.request.urlopen("http://localhost:9091/metrics") as response:
         body = response.read().decode("utf-8")
-    for labels, value in REPLICATION_FAILURES.findall(body):
-        found = dict(LABEL.findall(labels))
-        if found.get("outcome") == outcome and found.get("database") == database:
-            return float(value)
-    return None
+    series = [(dict(LABEL.findall(labels)), float(value)) for labels, value in REPLICATION_FAILURES.findall(body)]
+    return [(labels, value) for labels, value in series if labels.get("database") == database]
+
+
+def replication_failures(outcome, database="memgraph"):
+    """Sums the failures for the replica, after checking each counted series names a reason a down replica can give."""
+    total = 0
+    for labels, value in replication_failure_series(database):
+        if labels.get("outcome") == outcome:
+            assert labels.get("mg_instance") == "replica"
+            assert value == 0 or labels.get("reason") in DOWN_REPLICA_REASONS
+            total += value
+    return total
 
 
 def start_with_replica_down(test_name):
@@ -80,12 +93,12 @@ def start_with_replica_down(test_name):
 
 def test_unconfirmed_sync_commit_counts_as_committed_failure(test_name):
     cursor = start_with_replica_down(test_name)
-    before = replication_failures("committed")
-    assert before is not None
+    # Registering the replica creates its series, one per outcome and reason, so the first failure is an increase
+    assert [value for _, value in replication_failure_series()] == [0] * 8
 
     execute_and_fetch_all(cursor, "CREATE ();")
 
-    assert replication_failures("committed") == before + 1
+    assert replication_failures("committed") == 1
     assert replication_failures("aborted") == 0
 
 
@@ -95,7 +108,6 @@ def test_after_commit_trigger_counts_its_own_commit(test_name):
         cursor, "CREATE TRIGGER audit ON () CREATE AFTER COMMIT EXECUTE UNWIND createdVertices AS v CREATE (:Audit);"
     )
     before = replication_failures("committed")
-    assert before is not None
 
     execute_and_fetch_all(cursor, "CREATE ();")
 
