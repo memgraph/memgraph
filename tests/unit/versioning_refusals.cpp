@@ -26,6 +26,7 @@
 #include "query/db_accessor.hpp"
 #include "query/procedure/mg_procedure_impl.hpp"
 #include "versioning/branch_engine.hpp"
+#include "versioning/branch_ledger.hpp"
 #include "versioning/gate.hpp"
 #include "versioning_fixture.hpp"
 
@@ -297,9 +298,65 @@ TEST_F(VersioningRefusalsTest, HiddenBranchesKeepDatabaseGlobalOperationsRefused
   InterpreterFaker hidden{&interpreter_context, *acc};
 
   for (const auto &[query, message] : kRefusedWhileBranchesExist) ExpectRefusedWith(hidden, query, message, true);
-  EXPECT_EQ(ThrownMessage([&] { hidden.Interpret("SHOW BRANCHES"); }),
-            memgraph::versioning::GateErrorMessage(memgraph::versioning::GateError::kDisabled))
-      << "hidden branches are not listed";
+  for (const auto *query : {"CREATE BRANCH 'c'", "SHOW BRANCH"}) {
+    EXPECT_EQ(ThrownMessage([&] { hidden.Interpret(query); }),
+              memgraph::versioning::GateErrorMessage(memgraph::versioning::GateError::kDisabled))
+        << query;
+  }
+}
+
+namespace {
+std::vector<std::string> BranchNames(InterpreterFaker &session) {
+  std::vector<std::string> names;
+  for (const auto &row : session.Interpret("SHOW BRANCHES").GetResults()) names.emplace_back(row[0].ValueString());
+  return names;
+}
+}  // namespace
+
+TEST_F(VersioningRefusalsTest, HiddenBranchesCanBeListedAndDroppedWhileVersioningIsOff) {
+  const auto directory = data_directory / "cleanup_db";
+  uint64_t number_of_b = 0;
+  {
+    memgraph::utils::Gatekeeper<memgraph::dbms::Database> gk{StandaloneConfig(directory, true)};
+    auto acc = gk.access();
+    ASSERT_TRUE(acc);
+    const auto b = (*acc)->version_store()->CreateBranch("b");
+    ASSERT_TRUE(b.has_value());
+    number_of_b = b->number;
+    ASSERT_TRUE((*acc)->version_store()->CreateBranch("c").has_value());
+  }
+  const auto directory_of_b = directory / "branches" / std::to_string(number_of_b);
+  std::filesystem::create_directories(directory_of_b / "wal");
+
+  memgraph::utils::Gatekeeper<memgraph::dbms::Database> gk{StandaloneConfig(directory, false)};
+  auto acc = gk.access();
+  ASSERT_TRUE(acc);
+  InterpreterFaker hidden{&interpreter_context, *acc};
+
+  EXPECT_THAT(BranchNames(hidden), ::testing::ElementsAre("main", "b", "c"));
+  EXPECT_THAT(ThrownMessage([&] { hidden.Interpret("DROP BRANCH 'missing'"); }),
+              ::testing::HasSubstr("Branch 'missing' does not exist."));
+
+  hidden.Interpret("DROP BRANCH 'b'");
+  EXPECT_THAT(BranchNames(hidden), ::testing::ElementsAre("main", "c"));
+  EXPECT_FALSE(std::filesystem::exists(directory_of_b)) << "the branch's files go with it";
+  const auto ledger = memgraph::versioning::BranchLedger{directory / "branches" / "ledger"}.Read();
+  ASSERT_TRUE(ledger.has_value() && ledger->has_value());
+  ASSERT_EQ((*ledger)->branches.size(), 1U);
+  EXPECT_EQ((*ledger)->branches[0].name, "c");
+
+  ExpectRefusedWith(
+      hidden, "STORAGE MODE IN_MEMORY_ANALYTICAL", "Cannot switch storage mode while branches exist", true);
+  hidden.Interpret("DROP BRANCH 'c' FORCE");
+  EXPECT_TRUE((*acc)->version_store()->Empty());
+
+  // Nothing is left to clean up, so the statements say what they always said without the flag.
+  for (const auto *query : {"SHOW BRANCHES", "DROP BRANCH 'c'"}) {
+    EXPECT_EQ(ThrownMessage([&] { hidden.Interpret(query); }),
+              memgraph::versioning::GateErrorMessage(memgraph::versioning::GateError::kDisabled))
+        << query;
+  }
+  EXPECT_NO_THROW(hidden.Interpret("STORAGE MODE IN_MEMORY_ANALYTICAL"));
 }
 
 // STORAGE MODE checks at Prepare and again under the switch's exclusive hold, so a branch created between refuses it.

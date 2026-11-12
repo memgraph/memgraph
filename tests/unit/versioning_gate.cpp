@@ -27,7 +27,7 @@ using memgraph::versioning::GateState;
 using memgraph::versioning::StartupConfigError;
 
 TEST(VersioningGate, ExhaustiveTruthTableHonoursPrecedence) {
-  for (const auto op : {GateOperation::kObserve, GateOperation::kCreate}) {
+  for (const auto op : {GateOperation::kObserve, GateOperation::kCreate, GateOperation::kCleanup}) {
     const bool creating = op == GateOperation::kCreate;
     for (unsigned bits = 0; bits < 16; ++bits) {
       const GateState state{.flag_enabled = (bits & 1U) != 0,
@@ -35,7 +35,7 @@ TEST(VersioningGate, ExhaustiveTruthTableHonoursPrecedence) {
                             .is_in_memory_transactional = (bits & 4U) != 0,
                             .durable = (bits & 8U) != 0};
       std::optional<GateError> expected;
-      if (!state.flag_enabled) {
+      if (!state.flag_enabled && (op != GateOperation::kCleanup || !state.is_in_memory_transactional)) {
         expected = GateError::kDisabled;
       } else if (creating && !state.enterprise_valid) {
         expected = GateError::kNoLicense;

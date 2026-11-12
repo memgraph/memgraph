@@ -108,6 +108,7 @@ class AuthQuery : public memgraph::query::Query {
     SERVER_SIDE_DESCRIPTIONS,
     RELOAD_TLS,
     BRANCH_USE,
+    BRANCH_EDIT,
     // Coordinator-only privileges (READ / WRITE in the grammar). Not part of kPrivilegesAll, so GRANT ALL PRIVILEGES on
     // a data instance does not grant them; they gate queries only on coordinators.
     COORDINATOR_READ,
@@ -333,6 +334,7 @@ const std::vector<AuthQuery::Privilege> kPrivilegesAll = {
 /// Deliberately not in kPrivilegesAll; see PrivilegesAll.
 const std::vector<AuthQuery::Privilege> kBranchPrivileges = {
     AuthQuery::Privilege::BRANCH_USE,
+    AuthQuery::Privilege::BRANCH_EDIT,
 };
 #endif
 
@@ -348,8 +350,9 @@ inline std::vector<AuthQuery::Privilege> PrivilegesAll() {
   return all;
 }
 
-/// What DENY ALL and REVOKE ALL cover: graph versioning's privileges even while versioning is off, since a privilege
-/// hidden from SHOW PRIVILEGES can still be held and would resurface when versioning is enabled again.
+/// What DENY ALL and REVOKE ALL cover: graph versioning's privileges whether or not it is enabled. A privilege that is
+/// kept out of sight is still held, and would resurface when versioning is enabled again (DROP BRANCH cleans up
+/// leftover branches while versioning is off).
 inline std::vector<AuthQuery::Privilege> PrivilegesDeniedOrRevokedByAll() {
   auto all = kPrivilegesAll;
 #ifdef MG_ENTERPRISE

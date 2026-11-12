@@ -953,7 +953,13 @@ TYPED_TEST(InterpreterTest, UserWithAMemoryQuotaStillSkipsTheTransaction) {
 #ifndef MG_ENTERPRISE
 // Graph Versioning is enterprise-only: community parses the branch statements and refuses to run them.
 TYPED_TEST(InterpreterTest, BranchQueriesAreEnterpriseOnly) {
-  for (auto const *query : {"SHOW BRANCH", "SHOW BRANCH 'feature'", "SHOW BRANCHES", "SHOW BRANCHES FOR DATABASE x"}) {
+  for (auto const *query : {"CREATE BRANCH feature",
+                            "DROP BRANCH feature",
+                            "DROP BRANCH 'feature' FORCE",
+                            "SHOW BRANCH",
+                            "SHOW BRANCH 'feature'",
+                            "SHOW BRANCHES",
+                            "SHOW BRANCHES FOR DATABASE x"}) {
     SCOPED_TRACE(query);
     EXPECT_THROW(this->Interpret(query), memgraph::query::EnterpriseOnlyException);
   }
