@@ -58,7 +58,7 @@ run_auth_feature_tests "$MODE"
 
 # Starts its own licensed and unlicensed containers, so it is outside
 # run_feature_tests.
-test_enterprise_features_need_licence
+test_enterprise_features_need_license
 
 # NOTE: Kerberos is deliberately outside run_feature_tests: SSO has to be
 # enabled at startup, so this brings up its own memgraph container (from the
