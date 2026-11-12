@@ -1873,6 +1873,8 @@ class Database {
     size_t current_at_last_path = 0;
     // Bytes still held once `Pull` has returned false.
     size_t current_after_last_row = 0;
+    // Bytes held as each path is served, in serving order.
+    std::vector<size_t> current_at_path;
   };
 
   // One KSHORTEST expansion, walked both ways over a `rungs`-rung ladder, one input row per
@@ -1881,7 +1883,7 @@ class Database {
   // Weighted runs read `e.weight`, set to 1 on every edge so both cursors return the same paths
   // and one bound fits both. A literal weight would take the hop-count search.
   MemoryRun KShortestLadderMemory(Database *db, bool weighted, int rungs,
-                                  const std::vector<std::tuple<int, int, int64_t>> &input_rows) {
+                                  const std::vector<std::tuple<int, int, int64_t>> &input_rows, int multiplicity = 1) {
     auto storage_dba = db->Access();
     memgraph::query::DbAccessor dba(storage_dba.get());
     memgraph::query::ExecutionContext context{.db_accessor = &dba, .metric_handles = &TestMetricHandles()};
@@ -1893,11 +1895,13 @@ class Database {
 
     // Rails `0..rungs-1` and `rungs..2*rungs-1`, joined at every step.
     std::vector<std::tuple<int, int, std::string>> ladder;
-    for (int i = 0; i + 1 < rungs; ++i) {
-      ladder.emplace_back(i, i + 1, "a");
-      ladder.emplace_back(rungs + i, rungs + i + 1, "a");
+    for (int copy = 0; copy < multiplicity; ++copy) {
+      for (int i = 0; i + 1 < rungs; ++i) {
+        ladder.emplace_back(i, i + 1, "a");
+        ladder.emplace_back(rungs + i, rungs + i + 1, "a");
+      }
+      for (int i = 0; i < rungs; ++i) ladder.emplace_back(i, rungs + i, "b");
     }
-    for (int i = 0; i < rungs; ++i) ladder.emplace_back(i, rungs + i, "b");
     auto [vertices, edges] = db->BuildGraph(&dba, std::vector<int>(static_cast<size_t>(2 * rungs), 0), ladder);
     std::map<std::pair<int, int>, memgraph::storage::PropertyValue> weights;
     for (const auto &[from, to, type] : ladder) weights.emplace(std::pair{from, to}, int64_t{1});
@@ -1944,6 +1948,7 @@ class Database {
         ++out.rows;
         out.total_length += frame[edges_sym].ValueList().size();
         out.current_at_last_path = memory.current();
+        out.current_at_path.push_back(memory.current());
       }
       out.current_after_last_row = memory.current();
       out.peak = memory.peak();
