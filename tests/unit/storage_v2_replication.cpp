@@ -1940,15 +1940,16 @@ TEST_F(ReplicationTest, RecoveryStepsWithOnlyCurrentWal) {
     ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   };
 
-  {
-    // A transaction takes a timestamp when it starts, so this one moves the first commit's timestamp past 1
+  // A transaction takes a timestamp when it starts, so these reads leave a replica commit between the initial
+  // timestamp and the first commit
+  for (auto i = 0; i < 2; ++i) {
     const memgraph::memory::DbArenaScope arena_scope{&main.db.Arena()};
     auto const acc = in_mem->Access(memgraph::storage::READ);
   }
   create_vertex_and_commit();
   // The current WAL opens on the first commit, so it starts at that commit's timestamp
   auto const current_wal_from = in_mem->repl_storage_state_.commit_ts_info_.load().ldt_;
-  ASSERT_GE(current_wal_from, 2);
+  ASSERT_EQ(current_wal_from, 3);
   create_vertex_and_commit();
   ASSERT_TRUE(in_mem->CreateSnapshot().has_value());
 
