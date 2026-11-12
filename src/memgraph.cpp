@@ -290,6 +290,8 @@ void CleanDataDir(std::filesystem::path const &data_directory) {
 }  // namespace
 
 int main(int argc, char **argv) {
+  // Unhandled exception handler init.
+  std::set_terminate(&memgraph::utils::TerminateHandler);
   memgraph::memory::SetHooks();
   memgraph::memory::EnableBackgroundThreads();
   google::SetUsageMessage("Memgraph database server");
@@ -367,9 +369,6 @@ int main(int argc, char **argv) {
   // inherits the blocked mask.  The main thread will consume them
   // synchronously via sigwait() later.
   BlockShutdownSignals();
-
-  // Unhandled exception handler init.
-  std::set_terminate(&memgraph::utils::TerminateHandler);
 
 #ifdef MG_ENTERPRISE
   memgraph::flags::SetFinalCoordinationSetup();

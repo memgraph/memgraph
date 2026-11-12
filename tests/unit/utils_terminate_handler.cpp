@@ -24,6 +24,6 @@ namespace {
 }  // namespace
 
 // The PID-1 exit path is not unit-testable (a gtest death-test child is never PID 1).
-TEST(TerminateHandler, AbortsAfterFlushingMessage) {
+TEST(TerminateHandler, AbortsWithSigabrt) {
   EXPECT_EXIT(FatalAs(), ::testing::KilledBySignal(SIGABRT), "fatal-message");
 }

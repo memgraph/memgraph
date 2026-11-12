@@ -33,7 +33,6 @@ inline constexpr int kAbortExitStatus = 128 + SIGABRT;
 /// an arch-dependent fatal signal (SIGTRAP, status 133, on aarch64; SIGSEGV, status 139, on x86-64) instead of
 /// SIGABRT. Exit with the SIGABRT status directly there.
 [[noreturn]] inline void AbortProcess() noexcept {
-  std::cerr.flush();
   std::fflush(nullptr);
   if (::getpid() == 1) {
     ::_exit(kAbortExitStatus);
@@ -60,7 +59,6 @@ inline void TerminateHandler(std::ostream &stream) noexcept {
       stacktrace.dump(stream);
     }
   }
-  stream.flush();
   AbortProcess();
 }
 
