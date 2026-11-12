@@ -4703,7 +4703,7 @@ class KShortestPathsCursor : public Cursor {
   /// Access check first: an edge the user cannot read must never make a lambda run on it.
   bool ArcAllowed(const EdgeAccessor &edge, const VertexAccessor &head, Frame &frame, ExpressionEvaluator &evaluator,
                   ExecutionContext &context) {
-    return EdgeAndEndpointReadable(edge, head, storage::View::OLD, context) &&
+    return EdgeAndEndpointReadable(edge, head, self_.view_, context) &&
            EvaluateFilterLambda(edge, head, frame, evaluator, context);
   }
 

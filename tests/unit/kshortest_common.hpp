@@ -1860,6 +1860,58 @@ class Database {
     ASSERT_EQ(results.size(), 1);
     EXPECT_EQ(PathVertexIds(&db_accessor, results[0]), (std::vector<int>{2, 5, 3}));
   }
+
+  // The access check reads a vertex at the operator's view. The command labels the middle of the only path with a
+  // denied label: an operator at View::NEW must see the label and find no path, one at View::OLD still finds it.
+  void KShortestTestAccessCheckReadsOperatorView(Database *db, memgraph::storage::View view) {
+    auto storage_dba = db->Access();
+    memgraph::query::DbAccessor db_accessor(storage_dba.get());
+    memgraph::query::ExecutionContext context{.db_accessor = &db_accessor, .metric_handles = &TestMetricHandles()};
+    memgraph::query::Symbol source_symbol = context.symbol_table.CreateSymbol("source", true);
+    memgraph::query::Symbol sink_symbol = context.symbol_table.CreateSymbol("sink", true);
+    memgraph::query::Symbol edges_symbol = context.symbol_table.CreateSymbol("edges", true);
+    memgraph::query::Symbol inner_node_symbol = context.symbol_table.CreateSymbol("inner_node", true);
+    memgraph::query::Symbol inner_edge_symbol = context.symbol_table.CreateSymbol("inner_edge", true);
+
+    std::vector<memgraph::query::VertexAccessor> vertices;
+    std::vector<memgraph::query::EdgeAccessor> edges;
+    std::tie(vertices, edges) = db->BuildGraph(&db_accessor, {0, 1, 2}, {{0, 1, "a"}, {1, 2, "a"}});
+    db_accessor.AdvanceCommand();
+    ASSERT_TRUE(vertices[1].AddLabel(db_accessor.NameToLabel("Hid")).has_value());
+
+    memgraph::auth::User user{"test"};
+    user.fine_grained_access_handler().edge_type_permissions().GrantGlobal(memgraph::auth::FineGrainedPermission::READ);
+    user.fine_grained_access_handler().label_permissions().GrantGlobal(memgraph::auth::FineGrainedPermission::READ);
+    user.fine_grained_access_handler().label_permissions().Deny({"Hid"}, memgraph::auth::kAllLabelPermissions);
+    memgraph::glue::FineGrainedAuthChecker auth_checker{user, &db_accessor};
+    context.auth_checker = &auth_checker;
+
+    std::shared_ptr<memgraph::query::plan::LogicalOperator> input_operator = nullptr;
+    input_operator = YieldVertices(&db_accessor, {vertices[0]}, source_symbol, input_operator);
+    input_operator = YieldVertices(&db_accessor, {vertices[2]}, sink_symbol, input_operator);
+    auto kshortest = db->MakeKShortestOperator(
+        source_symbol,
+        sink_symbol,
+        edges_symbol,
+        memgraph::query::EdgeAtom::Direction::OUT,
+        {},
+        input_operator,
+        true,
+        nullptr,
+        nullptr,
+        memgraph::query::plan::ExpansionLambda{inner_edge_symbol, inner_node_symbol, nullptr});
+    dynamic_cast<memgraph::query::plan::ExpandVariable &>(*kshortest).view_ = view;
+    input_operator = std::move(kshortest);
+
+    context.evaluation_context.properties = memgraph::query::NamesToProperties(storage.properties_, &db_accessor);
+    context.evaluation_context.labels = memgraph::query::NamesToLabels(storage.labels_, &db_accessor);
+    context.evaluation_context.edgetypes = memgraph::query::NamesToEdgeTypes(storage.edge_types_, &db_accessor);
+
+    auto results = PullResults(
+        input_operator.get(), &context, std::vector<memgraph::query::Symbol>{source_symbol, sink_symbol, edges_symbol});
+    EXPECT_EQ(results.size(), view == memgraph::storage::View::NEW ? 0 : 1);
+    db_accessor.Abort();
+  }
 #endif
 
   // --- memory --------------------------------------------------------------------------------------
