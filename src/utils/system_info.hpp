@@ -12,6 +12,7 @@
 #pragma once
 
 #include <cstdint>
+#include <filesystem>
 #include <nlohmann/json_fwd.hpp>
 #include <string>
 #include <unordered_set>
@@ -36,6 +37,14 @@ struct CPUInfo {
 };
 
 std::string GetMachineId();
+
+inline constexpr auto kInstallIdFileName = ".memgraph_install_id";
+
+/// Returns the UUID identifying this Memgraph installation (i.e. this data directory). It's stored in
+/// `<data_directory>/.memgraph_install_id` and reused on every start. A new one is generated if the file is missing or
+/// doesn't hold a valid UUID. If the file can't be written, the newly generated id is still returned, but it'll only
+/// last for the current run. Call it only while holding the data directory lock.
+std::string GetOrCreateInstallId(const std::filesystem::path &data_directory);
 
 /// Reads the hostname from /etc/hostname. Returns "UNKNOWN" if it can't be read.
 std::string GetHostname();

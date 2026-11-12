@@ -47,11 +47,12 @@ namespace memgraph::telemetry {
 constexpr auto kMaxBatchSize{100};
 
 Telemetry::Telemetry(std::string url, std::filesystem::path storage_directory, std::string uuid, std::string machine_id,
-                     bool const ssl, std::filesystem::path root_directory,
+                     std::string install_id, bool const ssl, std::filesystem::path root_directory,
                      std::chrono::duration<int64_t> refresh_interval, const uint64_t send_every_n)
     : url_(std::move(url)),
       uuid_(std::move(uuid)),
       machine_id_(std::move(machine_id)),
+      install_id_(std::move(install_id)),
       hostname_(utils::GetHostname()),
       ssl_(ssl),
       send_every_n_(send_every_n),
@@ -116,6 +117,7 @@ void Telemetry::StoreData(const nlohmann::json &event, const nlohmann::json &dat
                             {"type", "telemetry"},
                             {"product", kProduct},
                             {"machine_id", machine_id_},
+                            {"install_id", install_id_},
                             {"hostname", hostname_},
                             {"event", event},
                             {"data", data},

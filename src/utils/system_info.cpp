@@ -17,14 +17,17 @@
 #include <algorithm>
 #include <cstdlib>
 #include <filesystem>
+#include <fstream>
 #include <nlohmann/json.hpp>
 #include <string>
 #include <thread>
 #include <vector>
 
 #include "utils/file.hpp"
+#include "utils/logging.hpp"
 #include "utils/string.hpp"
 #include "utils/sysinfo/memory.hpp"
+#include "utils/uuid.hpp"
 
 namespace memgraph::utils {
 
@@ -40,6 +43,51 @@ std::string GetMachineId() {
     return "UNKNOWN";
   }
   return machine_id_lines[0];
+}
+
+namespace {
+bool IsValidUUID(std::string_view str) {
+  try {
+    UUID{}.set(str);
+    return true;
+  } catch (const std::invalid_argument &) {
+    return false;
+  }
+}
+}  // namespace
+
+std::string GetOrCreateInstallId(const std::filesystem::path &data_directory) {
+  const auto path = data_directory / kInstallIdFileName;
+
+  if (const auto lines = ReadLines(path); !lines.empty()) {
+    auto existing = std::string{Trim(lines[0])};
+    if (IsValidUUID(existing)) return existing;
+    spdlog::warn("Install id file {} doesn't contain a valid UUID; generating a new one.", path);
+  }
+
+  auto install_id = GenerateUUID();
+  // Write to a temporary file and rename it, so a crash mid-write never leaves a truncated id behind.
+  auto tmp_path = path;
+  tmp_path += ".tmp";
+  {
+    std::ofstream out(tmp_path, std::ios::out | std::ios::trunc);
+    out << install_id << '\n';
+    out.close();
+    if (!out) {
+      spdlog::warn("Failed to write install id file {}; the install id will only last for this run.", tmp_path);
+      std::error_code ec;
+      std::filesystem::remove(tmp_path, ec);
+      return install_id;
+    }
+  }
+  std::error_code ec;
+  std::filesystem::rename(tmp_path, path, ec);
+  if (ec) {
+    spdlog::warn(
+        "Failed to create install id file {}: {}; the install id will only last for this run.", path, ec.message());
+    std::filesystem::remove(tmp_path, ec);
+  }
+  return install_id;
 }
 
 std::string GetHostname() {

@@ -165,6 +165,8 @@ def verify_storage(storage, args):
         assert "data" in item, f"Missing 'data' field in item {i}"
         assert "event" in item, f"Missing 'event' field in item {i}"
         assert "machine_id" in item, f"Missing 'machine_id' field in item {i}"
+        assert "install_id" in item, f"Missing 'install_id' field in item {i}"
+        assert "hostname" in item, f"Missing 'hostname' field in item {i}"
         assert "run_id" in item, f"Missing 'run_id' field in item {i}"
         assert "timestamp" in item, f"Missing 'timestamp' field in item {i}"
         assert "type" in item, f"Missing 'type' field in item {i}"
@@ -190,6 +192,20 @@ def verify_storage(storage, args):
         print()
 
 
+def verify_install_id(items, install_id_file):
+    """
+    Every startup reuses the install id persisted in the data directory, so all items must carry the same one, and it
+    must match what's stored in the install id file.
+    """
+    install_ids = {item["install_id"] for item in items}
+    assert len(install_ids) == 1, f"Multiple install IDs found: {install_ids}"
+    if install_id_file:
+        with open(install_id_file) as f:
+            stored = f.read().strip()
+        (install_id,) = install_ids
+        assert install_id == stored, f"Install ID {install_id} doesn't match {stored} stored in {install_id_file}"
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--address", type=str, default="127.0.0.1")
@@ -204,6 +220,7 @@ if __name__ == "__main__":
     parser.add_argument("--duration", type=int, default=10)
     parser.add_argument("--startups", type=int, default=1)
     parser.add_argument("--no-check-duration", action="store_true")
+    parser.add_argument("--install-id-file", type=str, default="")
     parser.add_argument(
         "--field-check", action="store_true", help="Enable detailed field validation for telemetry items"
     )
@@ -255,5 +272,9 @@ if __name__ == "__main__":
     if storage:
         machine_ids = set(map(lambda x: x["machine_id"], itertools.chain(*startups)))
         assert len(machine_ids) == 1, f"Multiple machine IDs found: {machine_ids}"
+        hostnames = set(map(lambda x: x["hostname"], itertools.chain(*startups)))
+        assert len(hostnames) == 1, f"Multiple hostnames found: {hostnames}"
+        # every run shares the same data directory, so it has to reuse the same install id
+        verify_install_id(list(itertools.chain(*startups)), args.install_id_file)
 
     print("All telemetry validation passed!")

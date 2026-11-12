@@ -40,7 +40,7 @@ using FuncSig = std::function<std::optional<nlohmann::json>()>;
 class Telemetry final {
  public:
   Telemetry(std::string url, std::filesystem::path storage_directory, std::string uuid, std::string machine_id,
-            bool ssl, std::filesystem::path root_directory,
+            std::string install_id, bool ssl, std::filesystem::path root_directory,
             std::chrono::duration<int64_t> refresh_interval = std::chrono::minutes(10), uint64_t send_every_n = 10);
 
   // Generic/user-defined collector
@@ -90,6 +90,7 @@ class Telemetry final {
   const std::string url_;
   const std::string uuid_;
   const std::string machine_id_;
+  const std::string install_id_;
   const std::string hostname_;
   const bool ssl_;
   uint64_t num_{0};
