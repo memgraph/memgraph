@@ -201,11 +201,10 @@ std::optional<std::vector<RecoveryStep>> GetRecoverySteps(uint64_t replica_commi
     // The current WAL replaces the snapshot when it reaches back to the replica's next commit and holds the
     // snapshot's data. A replica at the initial timestamp still gets the snapshot, whose loading also archives the
     // replica's old durability files.
-    auto const current_wal_suffices =
-        replica_commit != kTimestampInitialId && current_wal_from_timestamp &&
-        *current_wal_from_timestamp <= replica_commit + 1 &&
-        SnapshotTsCoveredByAnyWal(
-            {}, current_wal_from_timestamp, current_wal_timestamp, latest_snapshot->durable_timestamp);
+    auto const current_wal_covers_snapshot = SnapshotTsCoveredByAnyWal(
+        {}, current_wal_from_timestamp, current_wal_timestamp, latest_snapshot->durable_timestamp);
+    auto const current_wal_suffices = replica_commit != kTimestampInitialId && current_wal_from_timestamp &&
+                                      *current_wal_from_timestamp <= replica_commit + 1 && current_wal_covers_snapshot;
     // If we failed to add snapshot, recovery cannot be done successfully
     if (!current_wal_suffices && !add_snapshot()) return std::nullopt;
   }
