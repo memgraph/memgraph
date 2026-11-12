@@ -375,7 +375,10 @@ TEST(QueryStorageAccess, EveryQueryStatesWhatItNeeds) {
   // Branch statements take no storage accessor: they work on the version registry, and the ones that
   // need main's lock take it themselves. None reads graph data, so a broken database still lists and
   // drops its branches.
-  for (auto const action : {VersioningQuery::Action::SHOW_BRANCH, VersioningQuery::Action::SHOW_BRANCHES}) {
+  for (auto const action : {VersioningQuery::Action::SHOW_BRANCH,
+                            VersioningQuery::Action::SHOW_BRANCHES,
+                            VersioningQuery::Action::CREATE_BRANCH,
+                            VersioningQuery::Action::DROP_BRANCH}) {
     DeclaresWithAction<VersioningQuery>(action, NoAccess{}, false);
   }
 
