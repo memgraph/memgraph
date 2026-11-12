@@ -787,5 +787,39 @@ def test_all_shortest_paths_when_denied_edge_type_3(switch):
     assert all(node.id in expected_path for node in path_result[0][1])
 
 
+# The query itself makes the target unreadable: the user may add ks_hidden but not read it, and reads
+# ks_target only on a node labelled exactly that. KSHORTEST must check the target as it checks every
+# other vertex the path enters, as WSHORTEST does.
+def test_kshortest_refuses_a_target_the_query_made_unreadable():
+    admin_cursor = common.connect(username="admin", password="test").cursor()
+    reset_permissions(admin_cursor)
+    common.execute_and_fetch_all(admin_cursor, "CREATE (:ks_source)-[:ks_edge]->(:ks_mid)-[:ks_edge]->(:ks_target);")
+    grants = [
+        "READ ON NODES CONTAINING LABELS :ks_source",
+        "READ ON NODES CONTAINING LABELS :ks_mid",
+        "READ ON NODES CONTAINING LABELS :ks_target MATCHING EXACTLY",
+        "SET LABEL ON NODES CONTAINING LABELS :ks_target MATCHING EXACTLY",
+        "SET LABEL, CREATE ON NODES CONTAINING LABELS :ks_hidden",
+        "READ ON EDGES OF TYPE :ks_edge",
+    ]
+    try:
+        for grant in grants:
+            common.execute_and_fetch_all(admin_cursor, f"GRANT {grant} TO user;")
+        user_cursor = common.connect(username="user", password="test").cursor()
+
+        result = common.execute_and_fetch_all(
+            user_cursor,
+            "MATCH (s:ks_source), (t:ks_target) SET t:ks_hidden WITH s, t "
+            "MATCH p=(s)-[:ks_edge *KSHORTEST]->(t) RETURN count(p);",
+        )
+
+        assert result == [(0,)]
+    finally:
+        common.execute_and_fetch_all(
+            admin_cursor, "MATCH (n) WHERE n:ks_source OR n:ks_mid OR n:ks_target DETACH DELETE n;"
+        )
+        reset_permissions(admin_cursor)
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))
