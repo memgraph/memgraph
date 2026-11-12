@@ -57,11 +57,8 @@ create_test_users
 run_auth_feature_tests "$MODE"
 
 # Starts its own licensed and unlicensed containers, so it is outside
-# run_feature_tests. FIPS mode refuses everything unlicensed and has its own
-# checks below.
-if [[ "$MODE" != "fips" ]]; then
-  test_enterprise_features_need_licence
-fi
+# run_feature_tests.
+test_enterprise_features_need_licence
 
 # NOTE: Kerberos is deliberately outside run_feature_tests: SSO has to be
 # enabled at startup, so this brings up its own memgraph container (from the
