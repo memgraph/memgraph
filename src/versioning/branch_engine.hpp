@@ -434,6 +434,10 @@ class BranchContext {
   // The base edge out of base vertex `from_gid`, found in its base-state out-adjacency: O(out-degree).
   std::optional<storage::EdgeAccessor> FindBaseEdge(storage::Gid edge_gid, storage::Gid from_gid);
 
+  // The base edge `overlay` stands for, O(1) from the edge overlay index's creation-time record; nullopt if it has
+  // none.
+  std::optional<storage::EdgeAccessor> FindBaseEdgeOfOverlay(const storage::EdgeAccessor &overlay);
+
   // Diff-engine-only lookup of a branch-native edge (on a native vertex or an overlay). Null for a base edge gid.
   std::optional<storage::EdgeAccessor> FindDiffEdge(storage::Gid edge_gid, storage::View view);
   // Same, walking the FROM vertex's adjacency.
