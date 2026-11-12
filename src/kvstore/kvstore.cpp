@@ -27,22 +27,20 @@ namespace {
 // RocksDB is not exception-safe, so the memory limit must never throw from an allocation inside it.
 using OomBlocker = utils::MemoryTracker::OutOfMemoryExceptionBlocker;
 
-// RocksDB destructors release internal state, which can allocate.
-template <typename T>
-struct BlockingDeleter {
-  void operator()(T *ptr) const {
+// Destroying a RocksDB iterator releases its read state, which can allocate.
+struct IteratorDeleter {
+  void operator()(rocksdb::Iterator *it) const {
     const OomBlocker oom_blocker;
-    delete ptr;
+    delete it;
   }
 };
 
-using DbPtr = std::unique_ptr<rocksdb::DB, BlockingDeleter<rocksdb::DB>>;
-using IteratorPtr = std::unique_ptr<rocksdb::Iterator, BlockingDeleter<rocksdb::Iterator>>;
+using IteratorPtr = std::unique_ptr<rocksdb::Iterator, IteratorDeleter>;
 }  // namespace
 
 struct KVStore::impl {
   std::filesystem::path storage;
-  DbPtr db;
+  std::unique_ptr<rocksdb::DB> db;
   rocksdb::Options options;
 };
 
@@ -66,11 +64,14 @@ KVStore::~KVStore() {
   if (pimpl_ == nullptr) return;
   (void)pimpl_->db->SyncWAL();
   (void)pimpl_->db->Close();
+  // Destroy the database and its options while the blocker is still open.
+  pimpl_.reset();
 }
 
 KVStore::KVStore(KVStore &&other) { pimpl_ = std::move(other.pimpl_); }
 
 KVStore &KVStore::operator=(KVStore &&other) {
+  const OomBlocker oom_blocker;
   pimpl_ = std::move(other.pimpl_);
   return *this;
 }
