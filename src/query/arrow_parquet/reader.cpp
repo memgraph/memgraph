@@ -18,6 +18,7 @@ module;
 #include "utils/data_queue.hpp"
 #include "utils/download_temp_file.hpp"
 #include "utils/exceptions.hpp"
+#include "utils/memory_tracker.hpp"
 #include "utils/pmr/string.hpp"
 #include "utils/prefetched.hpp"
 #include "utils/temporal.hpp"
@@ -78,7 +79,10 @@ class GlobalS3APIManager {
   }
 
  private:
+  // Arrow and the AWS SDK both mark S3 as initialised before setting it up, so a memory limit exception part way
+  // through would leave it half set up for the rest of the process.
   GlobalS3APIManager() {
+    const memgraph::utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_blocker;
     auto const status = arrow::fs::EnsureS3Initialized();
     MG_ASSERT(status.ok(), "Failed to initialize S3 file system: {}", status.message());
   }
