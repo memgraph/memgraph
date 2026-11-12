@@ -15,6 +15,7 @@
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/replication/recovery.hpp"
+#include "storage/v2/transaction_constants.hpp"
 #include "utils/on_scope_exit.hpp"
 
 namespace memgraph::storage {
@@ -198,9 +199,11 @@ std::optional<std::vector<RecoveryStep>> GetRecoverySteps(uint64_t replica_commi
 
   } else if (latest_snapshot && latest_snapshot->durable_timestamp > replica_commit) {
     // The current WAL replaces the snapshot when it reaches back to the replica's next commit and holds the
-    // snapshot's data.
+    // snapshot's data. A replica at the initial timestamp still gets the snapshot, whose loading also archives the
+    // replica's old durability files.
     auto const current_wal_suffices =
-        current_wal_from_timestamp && *current_wal_from_timestamp <= replica_commit + 1 &&
+        replica_commit != kTimestampInitialId && current_wal_from_timestamp &&
+        *current_wal_from_timestamp <= replica_commit + 1 &&
         SnapshotTsCoveredByAnyWal(
             {}, current_wal_from_timestamp, current_wal_timestamp, latest_snapshot->durable_timestamp);
     // If we failed to add snapshot, recovery cannot be done successfully
