@@ -1923,8 +1923,8 @@ TEST_F(ReplicationTest, RecoveryStepsAfterPeriodicSnapshot) {
   }
 }
 
-// With no finalized WAL, a replica inside the current WAL's range needs only that WAL, even when a periodic
-// snapshot is newer than the replica.
+// With no finalized WAL, the current WAL replaces a periodic snapshot newer than the replica only when it starts no
+// later than the commit after the replica's.
 TEST_F(ReplicationTest, RecoveryStepsWithOnlyCurrentWal) {
   MinMemgraph main(main_conf);
   auto *in_mem = static_cast<InMemoryStorage *>(main.db.storage());
@@ -1939,16 +1939,28 @@ TEST_F(ReplicationTest, RecoveryStepsWithOnlyCurrentWal) {
     ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   };
 
+  {
+    // A transaction takes a timestamp when it starts, so this one moves the first commit's timestamp past 1
+    const memgraph::memory::DbArenaScope arena_scope{&main.db.Arena()};
+    auto const acc = in_mem->Access(memgraph::storage::READ);
+  }
   create_vertex_and_commit();
-  auto const replica_commit = in_mem->repl_storage_state_.commit_ts_info_.load().ldt_;
+  // The current WAL opens on the first commit, so it starts at that commit's timestamp
+  auto const current_wal_from = in_mem->repl_storage_state_.commit_ts_info_.load().ldt_;
+  ASSERT_GE(current_wal_from, 2);
   create_vertex_and_commit();
   ASSERT_TRUE(in_mem->CreateSnapshot().has_value());
 
   const memgraph::memory::DbArenaScope arena_scope{&main.db.Arena()};
-  auto const steps = GetRecoverySteps(replica_commit, &file_locker, in_mem);
-  ASSERT_TRUE(steps.has_value());
-  ASSERT_EQ(steps->size(), 1);
-  EXPECT_TRUE(std::holds_alternative<memgraph::storage::RecoveryCurrentWal>(steps->front()));
+  auto const steps_without_gap = GetRecoverySteps(current_wal_from - 1, &file_locker, in_mem);
+  ASSERT_TRUE(steps_without_gap.has_value());
+  ASSERT_EQ(steps_without_gap->size(), 1);
+  EXPECT_TRUE(std::holds_alternative<memgraph::storage::RecoveryCurrentWal>(steps_without_gap->front()));
+
+  auto const steps_with_gap = GetRecoverySteps(current_wal_from - 2, &file_locker, in_mem);
+  ASSERT_TRUE(steps_with_gap.has_value());
+  ASSERT_EQ(steps_with_gap->size(), 1);
+  EXPECT_TRUE(std::holds_alternative<memgraph::storage::RecoverySnapshot>(steps_with_gap->front()));
 }
 
 // Analytical writes are never appended to the WAL, so a storage that replicates must not be allowed to
