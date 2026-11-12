@@ -107,6 +107,15 @@ void MirrorMainIndexDefinitionsIntoDiffEngine(storage::InMemoryStorage &diff_eng
   for (const auto &property : main_indices.vertex_property) {
     mirror([&](storage::Storage::Accessor &acc) { return acc.CreateGlobalVertexIndex(property); });
   }
+  for (const auto &edge_type : main_indices.edge_type) {
+    mirror([&](storage::Storage::Accessor &acc) { return acc.CreateIndex(edge_type); });
+  }
+  for (const auto &[edge_type, property] : main_indices.edge_type_property) {
+    mirror([&](storage::Storage::Accessor &acc) { return acc.CreateIndex(edge_type, property); });
+  }
+  for (const auto &property : main_indices.edge_property) {
+    mirror([&](storage::Storage::Accessor &acc) { return acc.CreateGlobalEdgeIndex(property); });
+  }
 }
 
 }  // namespace
@@ -361,6 +370,17 @@ std::optional<storage::EdgeAccessor> BranchContext::FindBaseEdge(storage::Gid ed
   auto const found = std::ranges::find_if(out->edges, [&](const auto &edge) { return edge.Gid() == edge_gid; });
   if (found == out->edges.end()) return std::nullopt;
   return *found;
+}
+
+std::optional<storage::EdgeAccessor> BranchContext::FindBaseEdgeOfOverlay(const storage::EdgeAccessor &overlay) {
+  auto const base_edge = edge_overlays().FindBase(overlay.Gid());
+  DMG_ASSERT(base_edge.has_value(), "a base-candidate diff edge is not an edge overlay");
+  if (!base_edge) return std::nullopt;
+  // The overlay's endpoints are the endpoint overlays; the base edge names the base vertices.
+  auto *const from = FindBaseVertexPtr(overlay.from_vertex_->gid);
+  auto *const to = FindBaseVertexPtr(overlay.to_vertex_->gid);
+  if (from == nullptr || to == nullptr) return std::nullopt;
+  return storage::EdgeAccessor{*base_edge, overlay.EdgeType(), from, to, &main(), historical().GetTransaction()};
 }
 
 std::optional<storage::VertexAccessor> BranchContext::ResolveVertex(storage::Gid gid, storage::View view) {
