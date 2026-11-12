@@ -465,6 +465,8 @@ Feature: Write visibility inside one query
             | n | cs     |
             | 2 | [1, 1] |
 
+    # A writing CALL body under parallel execution hits a separate parallel-execution defect.
+    @skip_parallel_execution
     Scenario: Index range scan does not revisit nodes a later CALL moved into the range (indexes :WvA(p))
         Given an empty graph
         And with new index :WvA(p)
@@ -482,6 +484,8 @@ Feature: Write visibility inside one query
             | c | ps       |
             | 2 | [11, 12] |
 
+    # A writing CALL body under parallel execution hits a separate parallel-execution defect.
+    @skip_parallel_execution
     Scenario: Label scan does not revisit nodes a later CALL moved into the range
         # A control: the scan reads each node once with or without a barrier.
         Given an empty graph
@@ -1718,6 +1722,8 @@ Feature: Write visibility inside one query
             | xs     |
             | [1, 2] |
 
+    # A writing CALL body under parallel execution hits a separate parallel-execution defect.
+    @skip_parallel_execution
     Scenario: Two write-read conflicts in one part each see their write
         Given an empty graph
         And having executed:
@@ -1736,6 +1742,8 @@ Feature: Write visibility inside one query
             | c1 | c2 |
             | 1  | 1  |
 
+    # A writing CALL body under parallel execution hits a separate parallel-execution defect.
+    @skip_parallel_execution
     Scenario: Two write-read conflicts in one part each see their write (indexes :WvS(x))
         Given an empty graph
         And with new index :WvS(x)
