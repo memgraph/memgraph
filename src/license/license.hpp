@@ -15,6 +15,7 @@
 #include <cstdint>
 #include <expected>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -155,6 +156,8 @@ struct LicenseChecker {
   mutable utils::Synchronized<std::vector<std::string>, utils::SpinLock> license_failures_;
   // Days since the epoch (UTC) on which the expiry warning was last logged.
   std::atomic<int64_t> last_expiry_warning_day_{0};
+  // The scheduler and the settings callbacks call RevalidateLicense concurrently.
+  std::mutex revalidate_mutex_;
   bool enterprise_enabled_{false};
   std::atomic<LicenseState> state_{};
   static_assert(std::atomic<LicenseState>::is_always_lock_free);

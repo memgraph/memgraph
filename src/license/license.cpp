@@ -24,6 +24,7 @@
 #include <ctime>
 #include <functional>
 #include <limits>
+#include <mutex>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -194,6 +195,7 @@ void ApplyLicenseMemoryLimit(int64_t memory_limit, std::optional<LicenseType> li
 }  // namespace
 
 void LicenseChecker::RevalidateLicense(utils::Settings &settings) {
+  auto const guard = std::scoped_lock{revalidate_mutex_};
   spdlog::trace("License revalidation started");
 
   if (enterprise_enabled_) [[unlikely]] {
