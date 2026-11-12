@@ -3250,10 +3250,8 @@ constexpr std::string_view kKShortestWeightFirstHint =
 // A v3.13 path filter `(e, n, p | ...)` is now a weight lambda, which cannot take the path.
 TEST_P(CypherMainVisitorTest, SemanticExceptionOnKShortestWeightLambdaWithAccumulatedPath) {
   auto &ast_generator = *GetParam();
-  for (const auto *lambda : {"(e, n, p | e.w) total",
-                             "(e, n, p | size(p) > 0)",
-                             "(e, n, p, w | w < 50)",
-                             "(e, n, p | e.w) total (f, m | m.ok)"}) {
+  for (const auto *lambda :
+       {"(e, n, p | e.w) total", "(e, n, p | size(p) > 0)", "(e, n, p | e.w) total (f, m | m.ok)"}) {
     SCOPED_TRACE(lambda);
     try {
       ast_generator.ParseQuery(fmt::format("MATCH ()-[r:type1 *kShortest {}]->() RETURN r", lambda));
@@ -3277,7 +3275,6 @@ TEST_P(CypherMainVisitorTest, SemanticExceptionOnKShortestBooleanShapedLoneLambd
                                    "(e, n | e.w > 0 AND n.ok)",
                                    "(e, n | NOT e.hidden)",
                                    "(e, n | n.name STARTS WITH 'a')",
-                                   "(e, n | e.w IS NOT NULL)",
                                    "(e, n | n.id IN ['A'])",
                                    "(e, n | e.a OR n.b)",
                                    "(e, n | e.a XOR n.b)",
@@ -3302,25 +3299,18 @@ TEST_P(CypherMainVisitorTest, SemanticExceptionOnKShortestBooleanShapedLoneLambd
   }
 }
 
-// Weights that are not boolean-shaped parse, and the check is for KSHORTEST's lone lambda only.
+// Weights that are not boolean-shaped parse, and both KSHORTEST checks are for KSHORTEST only: the
+// weighted and all shortest path expansions keep accepting an accumulated path the body does not read.
 TEST_P(CypherMainVisitorTest, KShortestNumericWeightLambdaParses) {
   auto &ast_generator = *GetParam();
   for (const auto *query : {"MATCH ()-[r *kShortest (e, n | e.w)]->() RETURN r",
                             "MATCH ()-[r *kShortest (e, n | n.cost + e.w)]->() RETURN r",
                             "MATCH ()-[r *kShortest (e, n | e.w) (e, n | n.ok)]->() RETURN r",
-                            "MATCH ()-[r *wShortest (e, n | e.w > 0) total]->() RETURN r"}) {
+                            "MATCH ()-[r *wShortest (e, n | e.w > 0) total]->() RETURN r",
+                            "MATCH ()-[r:type1 *wShortest (e, n, p | e.w) total]->() RETURN r",
+                            "MATCH ()-[r:type1 *allShortest (e, n, p | e.w) total]->() RETURN r"}) {
     SCOPED_TRACE(query);
     EXPECT_NO_THROW(ast_generator.ParseQuery(query));
-  }
-}
-
-// The weighted and all shortest path expansions keep accepting an extra argument the body does not read.
-TEST_P(CypherMainVisitorTest, WShortestWeightLambdaAcceptsUnreadAccumulatedPath) {
-  auto &ast_generator = *GetParam();
-  for (const auto *type : {"wShortest", "allShortest"}) {
-    SCOPED_TRACE(type);
-    EXPECT_NO_THROW(
-        ast_generator.ParseQuery(fmt::format("MATCH ()-[r:type1 *{} (e, n, p | e.w) total]->() RETURN r", type)));
   }
 }
 

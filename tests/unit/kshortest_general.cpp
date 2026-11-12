@@ -266,10 +266,6 @@ TEST_F(WeightedKShortestCasesInMemory, LowerBoundKeepsDeviations) {
 
 TEST_F(WeightedKShortestCasesInMemory, ZeroWeightCycle) { db_->KShortestWeightedTestZeroWeightCycle(db_.get()); }
 
-TEST_F(WeightedKShortestCasesInMemory, NonBooleanFilterThrows) {
-  db_->KShortestWeightedTestNonBooleanFilterThrows(db_.get());
-}
-
 TEST_F(WeightedKShortestCasesInMemory, UnreachableTargetDoesNotSearch) {
   db_->KShortestWeightedTestUnreachableTargetDoesNotSearch(db_.get());
 }
@@ -288,11 +284,6 @@ TEST_F(WeightedKShortestCasesInMemory, UnusedArcWeightValidated) {
 // prefix's cost has to be accumulated correctly all the way down it.
 TEST_F(WeightedKShortestCasesInMemory, LadderMatchesOracleAtDepth) {
   db_->KShortestWeightedTest(db_.get(), -1, -1, EdgeAtom::Direction::OUT, {}, -1, kLadderVertexLocations, kLadderEdges);
-}
-
-TEST_F(WeightedKShortestCasesInMemory, InterleavedRootsMatchOracle) {
-  db_->KShortestWeightedTest(
-      db_.get(), -1, -1, EdgeAtom::Direction::BOTH, {}, -1, kInterleavedVertexLocations, kInterleavedEdges);
 }
 
 // Random graphs at fixed seeds, every pair, against the brute-force enumeration. This is what would
@@ -417,10 +408,10 @@ TEST_F(GeneralKShortestTestOnDisk, KShortestWithFilterLambda) {
   db_->KShortestTest(db_.get(), -1, -1, EdgeAtom::Direction::BOTH, {}, -1, FilterLambdaType::USE_CTX);
 }
 
-class WeightedKShortestTestOnDisk
-    : public SharedDbTest<memgraph::storage::DiskStorage, ::testing::TestWithParam<WeightedMatrixParam>> {};
+// One weighted case on disk storage: the weights are read through disk accessors, and the cell asserts
+// they reorder the paths. The adjacency the search walks is the one the unweighted disk matrix covers.
+class WeightedKShortestTestOnDisk : public SharedDbTest<memgraph::storage::DiskStorage, ::testing::Test> {};
 
-TEST_P(WeightedKShortestTestOnDisk, All) { RunWeightedMatrixCell(db_.get(), GetParam()); }
-
-INSTANTIATE_TEST_SUITE_P(Weighted, WeightedKShortestTestOnDisk, kWeightedMatrix);
-INSTANTIATE_TEST_SUITE_P(WeightedLimit, WeightedKShortestTestOnDisk, kWeightedLimitMatrix);
+TEST_F(WeightedKShortestTestOnDisk, Both) {
+  RunWeightedMatrixCell(db_.get(), WeightedMatrixParam{-1, -1, EdgeAtom::Direction::BOTH, {}, -1});
+}

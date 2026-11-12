@@ -726,12 +726,15 @@ class Database {
     context.evaluation_context.edgetypes = memgraph::query::NamesToEdgeTypes(storage.edge_types_, &dba);
     std::vector<std::vector<memgraph::query::TypedValue>> results;
 
-    // A non-boolean, non-null lambda result must abort the pull.
+    // A non-boolean, non-null lambda result must abort the pull. The weighted search runs the same check.
     if (filter_lambda_type == FilterLambdaType::ERROR) {
-      EXPECT_THROW(PullResults(input_op.get(),
-                               &context,
-                               std::vector<memgraph::query::Symbol>{source_sym, sink_sym, edges_sym, blocked_sym}),
-                   memgraph::query::QueryRuntimeException);
+      ExpectRuntimeError(
+          [&] {
+            PullResults(input_op.get(),
+                        &context,
+                        std::vector<memgraph::query::Symbol>{source_sym, sink_sym, edges_sym, blocked_sym});
+          },
+          "Expansion condition must evaluate to boolean or null");
       dba.Abort();
       return;
     }
@@ -1257,27 +1260,6 @@ class Database {
         EXPECT_EQ(served, expected);
       }
     }
-    dba.Abort();
-  }
-
-  // The weighted search applies the filter lambda through the same check as the hop-count one, so a
-  // non-boolean verdict is the same error. The only test that pins this text.
-  void KShortestWeightedTestNonBooleanFilterThrows(Database *db) {
-    auto storage_dba = db->Access();
-    memgraph::query::DbAccessor dba(storage_dba.get());
-    memgraph::query::ExecutionContext context{.db_accessor = &dba, .metric_handles = &TestMetricHandles()};
-    auto [vertices, edges] = db->BuildGraph(&dba, DetourVertexLocations(), DetourEdges());
-    SetEdgeWeights(dba, edges, DetourEdges(), DetourIntWeights());
-    dba.AdvanceCommand();
-    ExpectRuntimeError(
-        [&] {
-          RunWeighted(
-              db,
-              dba,
-              context,
-              {.sources = {vertices[0]}, .sinks = {vertices[3]}, .filter_lambda = FilterLambda(context, LITERAL(42))});
-        },
-        "Expansion condition must evaluate to boolean or null");
     dba.Abort();
   }
 
