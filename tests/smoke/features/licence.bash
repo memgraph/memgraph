@@ -23,8 +23,13 @@ LICENCE_PROBE_QUERIES=(
   "CREATE USER probe_user IDENTIFIED BY '$LICENCE_PROBE_PASSWORD';"
 )
 
+# Returns 0 on success, 1 if refused for lack of a license, 2 on any other error.
 licence_probe_query() {
-  echo "$2" | $MEMGRAPH_CONSOLE_BINARY --host "$MEMGRAPH_DEFAULT_HOST" --port "$1" "${@:3}" 2>/dev/null
+  local out
+  out="$(echo "$2" | $MEMGRAPH_CONSOLE_BINARY --host "$MEMGRAPH_DEFAULT_HOST" --port "$1" "${@:3}" 2>&1)" && { echo "$out"; return 0; }
+  grep -qi license <<<"$out" && return 1
+  echo "$out" >&2
+  return 2
 }
 
 licence_probe_module_loaded() {
@@ -46,9 +51,14 @@ licence_probe_password_masked() {
 
 # $1: expected state (on|off), $2: feature, the rest: the probe.
 licence_expect() {
-  local expected="$1" feature="$2" actual=off
+  local expected="$1" feature="$2" actual
   shift 2
-  "$@" >/dev/null && actual=on
+  "$@" >/dev/null
+  case $? in
+    0) actual=on ;;
+    1) actual=off ;;
+    *) echo "FAIL: $feature failed for a reason other than the license"; return 1 ;;
+  esac
   [[ "$actual" == "$expected" ]] && return 0
   echo "FAIL: $feature is $actual, expected $expected"
   return 1
