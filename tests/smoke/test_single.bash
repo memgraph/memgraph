@@ -60,7 +60,7 @@ run_auth_feature_tests "$MODE"
 # run_feature_tests. FIPS mode refuses everything unlicensed and has its own
 # checks below.
 if [[ "$MODE" != "fips" ]]; then
-  test_enterprise_features_need_licence "$IMAGE_TYPE"
+  test_enterprise_features_need_licence
 fi
 
 # NOTE: Kerberos is deliberately outside run_feature_tests: SSO has to be

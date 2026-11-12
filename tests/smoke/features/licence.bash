@@ -70,10 +70,10 @@ licence_expect() {
 }
 
 # $1: container, $2: Bolt port, $3: metrics port, $4: expected state (on|off),
-# $5: image type, the rest: extra docker run arguments.
+# the rest: extra docker run arguments.
 licence_probe_container() {
-  local name="$1" bolt="$2" metrics="$3" expected="$4" image_type="$5" failed=0 query
-  shift 5
+  local name="$1" bolt="$2" metrics="$3" expected="$4" failed=0 query
+  shift 4
   docker_stop_if_there "$name" >/dev/null 2>&1 || true
   docker run -d --rm -p "$bolt:7687" -p "$metrics:9091" --name "$name" "$@" \
     "$MEMGRAPH_DOCKERHUB_IMAGE" $MEMGRAPH_GENERAL_FLAGS $LICENCE_PROBE_FLAGS >/dev/null \
@@ -81,9 +81,7 @@ licence_probe_container() {
   wait_for_memgraph "$MEMGRAPH_DEFAULT_HOST" "$bolt" || { docker_stop_if_there "$name" >/dev/null 2>&1; return 1; }
 
   licence_expect "$expected" "HTTP metrics" licence_probe_metrics_served "$metrics" || failed=1
-  if [[ "$image_type" == "mage" ]]; then
-    licence_expect "$expected" "enterprise query modules" licence_probe_module_loaded "$bolt" || failed=1
-  fi
+  licence_expect "$expected" "enterprise query modules" licence_probe_module_loaded "$bolt" || failed=1
   for query in "${LICENCE_PROBE_QUERIES[@]}"; do
     licence_expect "$expected" "'$query'" licence_probe_query "$bolt" "$query" || failed=1
   done
@@ -96,11 +94,10 @@ licence_probe_container() {
   return $failed
 }
 
-# $1: image type (memgraph|mage)
 test_enterprise_features_need_licence() {
   echo "FEATURE: Enterprise features need a license"
   local failed=0
-  licence_probe_container memgraph_smoke_unlicensed 8005 9003 off "$1" || failed=1
-  licence_probe_container memgraph_smoke_licensed 8006 9004 on "$1" $MEMGRAPH_ENTERPRISE_DOCKER_ENVS || failed=1
+  licence_probe_container memgraph_smoke_unlicensed 8005 9003 off || failed=1
+  licence_probe_container memgraph_smoke_licensed 8006 9004 on $MEMGRAPH_ENTERPRISE_DOCKER_ENVS || failed=1
   return $failed
 }
