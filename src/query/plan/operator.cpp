@@ -4228,6 +4228,9 @@ class KShortestPathsCursor : public Cursor {
           ++current_path_index_;
         }
         if (!ComputeNextShortestPath(current_source_.value(), current_target_.value(), frame, evaluator, context)) {
+          // Spent: a later Pull goes to the input rather than searching this row again.
+          current_source_.reset();
+          current_target_.reset();
           return false;
         }
       }
