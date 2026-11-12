@@ -9,6 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <numeric>
 #include "boost/dll/runtime_symbol_info.hpp"
 #include "gtest/gtest.h"
 

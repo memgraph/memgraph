@@ -12,6 +12,7 @@
 #include <array>
 #include <concepts>
 #include <cstdint>
+#include <numeric>
 #include <optional>
 #include <range/v3/all.hpp>
 #include <span>

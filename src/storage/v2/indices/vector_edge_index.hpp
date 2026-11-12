@@ -17,7 +17,7 @@
 #include <shared_mutex>
 #include <span>
 
-#include "absl/container/flat_hash_map.h"
+#include <boost/unordered/unordered_flat_map.hpp>
 #include "storage/v2/common_function_signatures.hpp"
 #include "storage/v2/durability/serialization.hpp"
 #include "storage/v2/edge.hpp"
@@ -72,7 +72,9 @@ struct VectorEdgeIndexRecoveryInfo {
 /// (VectorIndexId), then edge_vectors[p][e.gid] holds its float vector. A plain list in the property store
 /// is its own vector and wins over any map entry. Tag IDs are not trusted during recovery.
 struct VectorEdgeIndexRecovery {
-  using EdgeVectors = absl::flat_hash_map<PropertyId, absl::flat_hash_map<Gid, utils::small_vector<float>>>;
+  using EdgeVectors =
+      boost::unordered_flat_map<PropertyId, boost::unordered_flat_map<Gid, utils::small_vector<float>, std::hash<Gid>>,
+                                std::hash<PropertyId>>;
 
   /// Called on WAL EdgeSetProperty: captures tag→edge_vectors[p][gid] or erases (list/null) when p has a
   /// spec; demotes stale tags to plain lists (mutates value) when p has no spec.

@@ -12,6 +12,7 @@
 // VM bytecode compilation tests: verifies correct instruction generation.
 
 #include <gtest/gtest.h>
+#include <numeric>
 
 #include "planner/pattern/vm/compiler.hpp"
 #include "test_egraph_fixture.hpp"
