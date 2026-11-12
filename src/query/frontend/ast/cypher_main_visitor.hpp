@@ -1567,6 +1567,8 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   bool in_with_ = false;
   // The fold whose brace body is being parsed, if any.
   std::optional<SubqueryExpression::Fold> subquery_fold_;
+  // In a top-level or fold WHEN body, where a returned expression must be aliased.
+  bool in_when_body_ = false;
   Parameters *parameters_;
   // Token positions of `$name` parameters, mapped to their unescaped names. Stripped literals are not in here.
   std::unordered_map<int32_t, std::string> parameter_names_;
