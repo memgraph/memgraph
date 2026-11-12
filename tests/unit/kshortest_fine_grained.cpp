@@ -183,6 +183,11 @@ TEST_F(FineGrainedKShortestTestInMemory, DeniedSinkYieldsNoPath) {
   db_->KShortestTestDeniedSinkYieldsNoPath(db_.get());
 }
 
+TEST_F(FineGrainedKShortestTestInMemory, AccessCheckReadsOperatorView) {
+  db_->KShortestTestAccessCheckReadsOperatorView(db_.get(), memgraph::storage::View::NEW);
+  db_->KShortestTestAccessCheckReadsOperatorView(db_.get(), memgraph::storage::View::OLD);
+}
+
 class WeightedFineGrainedKShortestTestInMemory
     : public ::testing::TestWithParam<std::tuple<EdgeAtom::Direction, FineGrainedTestType>> {
  public:
