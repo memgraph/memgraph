@@ -359,6 +359,18 @@ TEST_F(KShortestTableMemoryTest, ReleasesLargeBfsTablesBetweenRows) {
   EXPECT_LE(run.current_at_path[1], run.current_at_path[0] * 3 / 4);
 }
 
+// Every parallel edge pushes its own frontier entry, so the pushes outnumber the live frontier by
+// far. Reusing popped slots holds about 370 bytes per edge as the path is served; keeping every
+// pushed entry held about 700.
+TEST_F(KShortestTableMemoryTest, WeightedFrontierReusesPoppedSlots) {
+  constexpr int kRungs = 500;
+  constexpr int kCopies = 16;
+  const auto run = db_->KShortestLadderMemory(db_.get(), true, kRungs, {{0, 2 * kRungs - 1, 1}}, kCopies);
+  ASSERT_EQ(run.current_at_path.size(), 1U);
+  constexpr size_t kEdges = kCopies * ((3 * kRungs) - 2);
+  EXPECT_LE(run.current_at_path[0], 512 * kEdges);
+}
+
 INSTANTIATE_TEST_SUITE_P(KShortestMemory, KShortestMemoryTest, testing::Bool(),
                          [](const auto &info) { return info.param ? "Weighted" : "HopCount"; });
 
