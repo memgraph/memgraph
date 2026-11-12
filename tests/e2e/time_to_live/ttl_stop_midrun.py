@@ -258,10 +258,10 @@ def test_storage_mode_refusal_restores_ttl():
         connection.close()
     deadline = time.time() + 15.0
     while time.time() < deadline:
-        if _count(refused) == 1:  # only the Keep vertex remains
+        if _count(refused) == 0:  # the post-refusal :TTL vertex was reaped
             break
         time.sleep(0.2)
-    assert _count(refused) == 1, "TTL was not left running after a refused STORAGE MODE"
+    assert _count(refused) == 0, "TTL was not left running after a refused STORAGE MODE"
 
     # A successful switch on an empty TTL-enabled database must leave TTL disabled on the new storage.
     switched = "ttl_switch_success"
