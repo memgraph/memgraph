@@ -948,6 +948,27 @@ class StorageV2GcIndexSweepReaderTest : public StorageV2GcIndexSweepCountTest {
     ASSERT_NO_FATAL_FAILURE(Commit(acc));
   }
 
+  // Once the reader ends nothing needs the older entry, so the next pass must take it.
+  void EndReaderAndCollect(std::unique_ptr<ms::Storage::Accessor> &reader) {
+    reader->Abort();
+    reader.reset();
+    CollectWhileReaderIsOpen();
+  }
+
+  uint64_t EdgeTypePropertyCount() {
+    auto acc = storage->Access(ms::READ);
+    auto const n = acc->ApproximateEdgeCount(storage->NameToEdgeType("E"), storage->NameToProperty("p"));
+    acc->Abort();
+    return n;
+  }
+
+  uint64_t EdgePropertyCount() {
+    auto acc = storage->Access(ms::READ);
+    auto const n = acc->ApproximateEdgeCount(storage->NameToProperty("p"));
+    acc->Abort();
+    return n;
+  }
+
   static size_t Count(auto &&iterable) {
     size_t n = 0;
     for ([[maybe_unused]] auto &&item : iterable) ++n;
@@ -970,7 +991,8 @@ TEST_F(StorageV2GcIndexSweepReaderTest, LabelIndexKeepsTheEntryAReaderOlderThanA
   CollectWhileReaderIsOpen();
 
   EXPECT_EQ(Count(reader->Vertices(storage->NameToLabel("L"), ms::View::OLD)), 1);
-  reader->Abort();
+  EndReaderAndCollect(reader);
+  EXPECT_EQ(IndexedCount("L"), 1) << "the older entry outlived the reader that needed it";
 }
 
 TEST_F(StorageV2GcIndexSweepReaderTest, LabelPropertyIndexKeepsTheEntryAReaderOlderThanARestoredValueSees) {
@@ -989,7 +1011,8 @@ TEST_F(StorageV2GcIndexSweepReaderTest, LabelPropertyIndexKeepsTheEntryAReaderOl
                                                            memgraph::utils::MakeBoundInclusive(ms::PropertyValue{1}))},
                 ms::View::OLD)),
             1);
-  reader->Abort();
+  EndReaderAndCollect(reader);
+  EXPECT_EQ(IndexedCount("L", "p"), 1) << "the older entry outlived the reader that needed it";
 }
 
 TEST_F(StorageV2GcIndexSweepReaderTest, LabelPropertyIndexKeepsTheEntryAReaderOlderThanASameValueWriteSees) {
@@ -1007,7 +1030,8 @@ TEST_F(StorageV2GcIndexSweepReaderTest, LabelPropertyIndexKeepsTheEntryAReaderOl
                                                            memgraph::utils::MakeBoundInclusive(ms::PropertyValue{1}))},
                 ms::View::OLD)),
             1);
-  reader->Abort();
+  EndReaderAndCollect(reader);
+  EXPECT_EQ(IndexedCount("L", "p"), 1) << "the older entry outlived the reader that needed it";
 }
 
 TEST_F(StorageV2GcIndexSweepReaderTest, GlobalVertexIndexKeepsTheEntryAReaderOlderThanASameValueWriteSees) {
@@ -1019,7 +1043,8 @@ TEST_F(StorageV2GcIndexSweepReaderTest, GlobalVertexIndexKeepsTheEntryAReaderOld
   CollectWhileReaderIsOpen();
 
   EXPECT_EQ(Count(reader->Vertices(storage->NameToProperty("p"), ms::View::OLD)), 1);
-  reader->Abort();
+  EndReaderAndCollect(reader);
+  EXPECT_EQ(GlobalIndexedCount("p"), 1) << "the older entry outlived the reader that needed it";
 }
 
 TEST_F(StorageV2GcIndexSweepReaderTest, EdgeTypePropertyIndexKeepsTheEntryAReaderOlderThanASameValueWriteSees) {
@@ -1031,7 +1056,8 @@ TEST_F(StorageV2GcIndexSweepReaderTest, EdgeTypePropertyIndexKeepsTheEntryAReade
   CollectWhileReaderIsOpen();
 
   EXPECT_EQ(Count(reader->Edges(storage->NameToEdgeType("E"), storage->NameToProperty("p"), ms::View::OLD)), 1);
-  reader->Abort();
+  EndReaderAndCollect(reader);
+  EXPECT_EQ(EdgeTypePropertyCount(), 1) << "the older entry outlived the reader that needed it";
 }
 
 TEST_F(StorageV2GcIndexSweepReaderTest, EdgePropertyIndexKeepsTheEntryAReaderOlderThanASameValueWriteSees) {
@@ -1047,7 +1073,8 @@ TEST_F(StorageV2GcIndexSweepReaderTest, EdgePropertyIndexKeepsTheEntryAReaderOld
   CollectWhileReaderIsOpen();
 
   EXPECT_EQ(Count(reader->Edges(storage->NameToProperty("p"), ms::View::OLD)), 1);
-  reader->Abort();
+  EndReaderAndCollect(reader);
+  EXPECT_EQ(EdgePropertyCount(), 1) << "the older entry outlived the reader that needed it";
 }
 
 ///// ONE RULE, TWO ROUTES TO IT
@@ -1185,14 +1212,6 @@ TEST_F(StorageV2GcIndexSweepCountTest, AnEdgeCreationArmsOnlyOnTheTransactionalR
   EXPECT_EQ(SweptByOnePass(), 0) << "the analytical route arms none, and nothing it could sweep is stale";
 }
 
-namespace {
-// UpdateBeforeCommit and Abort cannot be interleaved through the public API, so reach the protected
-// transaction the way the commit path does.
-struct TransactionPeek : ms::Accessor {
-  static ms::Transaction &Of(ms::Accessor &acc) { return acc.*(&TransactionPeek::transaction_); }
-};
-}  // namespace
-
 // A unique-constraint sweep drops the older of two entries for the same vertex and key. While the
 // newer one is still in flight a reader at the horizon cannot see it, so the older one is the only
 // thing that makes the vertex's key visible to a concurrent committer's validation.
@@ -1217,8 +1236,9 @@ TEST_F(StorageV2GcIndexSweepCountTest, UniqueConstraintSweepKeepsOlderDuplicateW
     ASSERT_NO_ERROR(vertex->SetProperty(acc2->NameToProperty("a"), ms::PropertyValue{1}));
   }
 
-  // What the commit path does before validating, stopping short of the commit.
-  auto &tx = TransactionPeek::Of(*acc2);
+  // UpdateBeforeCommit and Abort cannot be interleaved through the public API, so drive it directly,
+  // as the commit path does before validating, stopping short of the commit.
+  auto &tx = *acc2->GetTransaction();
   ASSERT_TRUE(tx.constraint_verification_info);
   for (auto const *vertex : tx.constraint_verification_info->GetVerticesForUniqueConstraintChecking()) {
     tx.active_constraints_->unique_->UpdateBeforeCommit(vertex, tx);

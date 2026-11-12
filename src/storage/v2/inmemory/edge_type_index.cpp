@@ -279,10 +279,9 @@ uint64_t InMemoryEdgeTypeIndex::RemoveObsoleteEntries(Storage *storage, uint64_t
 
           const bool has_next = next_it != edges_acc.end();
 
-          // The way they are removed from the index is through this check. The entries should
-          // be right next to each other(in terms of iterator semantics) and the older one
-          // should be removed here.
-          // The older entry is redundant only once the newer one is visible to every reader.
+          // Unreachable today: edge types are immutable, so each edge has one entry and no pair forms
+          // in transactional mode. Kept for parity with the other sweeps: the older of two adjacent
+          // entries for one edge is redundant only once the newer one is visible to every reader.
           const bool redundant_duplicate =
               has_next && it->from_vertex == next_it->from_vertex && it->to_vertex == next_it->to_vertex &&
               it->edge == next_it->edge &&
