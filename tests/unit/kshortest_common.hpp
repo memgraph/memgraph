@@ -1348,6 +1348,22 @@ class Database {
       ExpectRuntimeError([&] { RunWeighted(db, dba, context, query(3, 0, constant)); },
                          memgraph::query::EdgeAtom::kKShortestWeightFirstHint);
     }
+
+    // Read before the filter: a row whose every edge the filter rejects still raises.
+    auto filtered = query(0, 3, LITERAL(-1));
+    filtered.filter_lambda = FilterLambda(context, LITERAL(false));
+    ExpectRuntimeError([&] { RunWeighted(db, dba, context, filtered); }, "Weight must be non-negative, got -1.");
+
+    // Null, both as a literal and as a parameter.
+    context.evaluation_context.parameters.Add(1, memgraph::storage::ExternalPropertyValue());
+    for (auto *constant : {static_cast<memgraph::query::Expression *>(LITERAL(memgraph::query::TypedValue())),
+                           static_cast<memgraph::query::Expression *>(PARAMETER_LOOKUP(1))}) {
+      ExpectRuntimeError(
+          [&] { RunWeighted(db, dba, context, query(0, 3, constant)); },
+          fmt::format("The weight lambda of a KSHORTEST path expansion must not evaluate to null. Give every "
+                      "relationship a weight, or filter the ones without one out. If the lambda is a v3.13 filter: {}",
+                      memgraph::query::EdgeAtom::kKShortestWeightFirstHint));
+    }
     dba.Abort();
   }
 
