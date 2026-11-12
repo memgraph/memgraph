@@ -1985,7 +1985,7 @@ TEST_F(ReplicationTest, RecoveryStepsFromInitialTimestampKeepSnapshot) {
   const memgraph::memory::DbArenaScope arena_scope{&main.db.Arena()};
   auto const steps = GetRecoverySteps(memgraph::storage::kTimestampInitialId, &file_locker, in_mem);
   ASSERT_TRUE(steps.has_value());
-  ASSERT_FALSE(steps->empty());
+  ASSERT_EQ(steps->size(), 1);
   EXPECT_TRUE(std::holds_alternative<memgraph::storage::RecoverySnapshot>(steps->front()));
 }
 
