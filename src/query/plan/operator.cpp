@@ -4137,9 +4137,12 @@ TypedValue AddCost(const TypedValue &lhs, const TypedValue &rhs) {
 }
 
 /// A served path's total, added weight by weight in path order. An Int sum that overflows is an error, and
-/// unlike `AddCost` nothing is promoted or held up: the total is the plain left-to-right sum.
+/// unlike `AddCost` nothing is promoted or held up: the total is the plain left-to-right sum. So a mixed
+/// Int/Double total above 2^53 can round below one of its own weights (Int 2^53+1 then Double 0.5 serves
+/// 2^53), and paths the search ties can then serve their totals out of order.
 TypedValue AddServedCost(const TypedValue &lhs, const TypedValue &rhs) {
   if (lhs.IsNull()) return rhs;
+  if (rhs.IsNull()) return lhs;
   ValidateWeightTypes(lhs, rhs);
   if (lhs.IsInt() && rhs.IsInt()) {
     int64_t sum{};
