@@ -1020,6 +1020,7 @@ def test_multitenancy_replication_unlicensed_main_keeps_replica_state(connection
     # 1/ Setup replication, databases A and B, and an authorized user
     # 2/ Break MAIN's licence with a mismatched organization name
     # 3/ Validate users, roles, and data on the replica
+    # 4/ Restore MAIN's licence; the replica catches up on auth changes and data
 
     # 0/
     MEMGRAPH_INSTANCES_DESCRIPTION_WITH_RECOVERY = get_instances_with_recovery(test_name)
@@ -1073,6 +1074,18 @@ def test_multitenancy_replication_unlicensed_main_keeps_replica_state(connection
     assert [row[0] for row in execute_and_fetch_all(cursor_replica, "SHOW ROLES;")] == ["analyst"]
     assert get_number_of_nodes_func(cursor_replica, "A")() == 7
     assert get_number_of_nodes_func(cursor_replica, "B")() == 2
+
+    # 4/
+    execute_and_fetch_all(main_cursor, "CREATE USER late;")
+    recoveries_before = recoveries()
+    execute_and_fetch_all(main_cursor, f"SET DATABASE SETTING 'organization.name' TO '{organization_name}';")
+    mg_sleep_and_assert(True, lambda: dict(execute_and_fetch_all(main_cursor, "SHOW LICENSE INFO;"))["is_valid"])
+    mg_sleep_and_assert(True, lambda: recoveries() > recoveries_before)
+    assert sorted(row[0] for row in execute_and_fetch_all(cursor_replica, "SHOW USERS;")) == ["late", "tester"]
+    assert [row[0] for row in execute_and_fetch_all(cursor_replica, "SHOW ROLES;")] == ["analyst"]
+    execute_and_fetch_all(main_cursor, "USE DATABASE A;")
+    execute_and_fetch_all(main_cursor, "CREATE (:Node);")
+    mg_sleep_and_assert(8, get_number_of_nodes_func(cursor_replica, "A"))
 
 
 @pytest.mark.parametrize("replica_name", [("replica_1"), ("replica_2")])
