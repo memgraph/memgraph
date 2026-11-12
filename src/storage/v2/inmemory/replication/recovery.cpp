@@ -198,7 +198,7 @@ std::optional<std::vector<RecoveryStep>> GetRecoverySteps(uint64_t replica_commi
 
   } else if (latest_snapshot && latest_snapshot->durable_timestamp > replica_commit) {
     // The current WAL replaces the snapshot when it reaches back to the replica's next commit and holds the
-    // snapshot's data
+    // snapshot's data.
     auto const current_wal_suffices =
         current_wal_from_timestamp && *current_wal_from_timestamp <= replica_commit + 1 &&
         SnapshotTsCoveredByAnyWal(
