@@ -250,3 +250,54 @@ Feature: Hops Limit
         Then the result should be:
             | counter |
             | 0       |
+
+    # Unlimited, the three shortest are [0, 1, 7], [0, 1, 5, 4, 7] and [0, 6, 2, 5, 1, 7]. The limit cuts a
+    # spur search short before it finds the 4-hop path, so serving the 5-hop path second would be wrong.
+    Scenario: KSHORTEST under a hops limit serves only paths it can prove are the shortest
+        Given an empty graph
+        And having executed:
+            """
+            UNWIND range(0, 7) AS i CREATE (:V {id: i})
+            """
+        And having executed:
+            """
+            UNWIND [[0, 1], [0, 6], [1, 0], [1, 2], [1, 5], [1, 7], [2, 5], [3, 6], [4, 5], [4, 7], [5, 1], [5, 2], [5, 4], [6, 2], [7, 1], [7, 5]] AS e
+            MATCH (a:V {id: e[0]}), (b:V {id: e[1]}) CREATE (a)-[:R]->(b)
+            """
+        And having executed:
+            """
+            SET DATABASE SETTING 'hops_limit_partial_results' TO 'true'
+            """
+        When executing query:
+            """
+            USING HOPS LIMIT 10 MATCH (a:V {id: 0}), (b:V {id: 7}) WITH a, b
+            MATCH p=(a)-[:R *KSHORTEST|3]->(b) RETURN [x IN nodes(p) | x.id] AS path
+            """
+        Then the result should be:
+            | path      |
+            | [0, 1, 7] |
+
+    # The limit runs out in the first search, after it has found the shortest path.
+    Scenario: KSHORTEST under a hops limit serves the shortest path its first search found
+        Given an empty graph
+        And having executed:
+            """
+            UNWIND range(0, 7) AS i CREATE (:V {id: i})
+            """
+        And having executed:
+            """
+            UNWIND [[0, 1], [0, 6], [1, 0], [1, 2], [1, 5], [1, 7], [2, 5], [3, 6], [4, 5], [4, 7], [5, 1], [5, 2], [5, 4], [6, 2], [7, 1], [7, 5]] AS e
+            MATCH (a:V {id: e[0]}), (b:V {id: e[1]}) CREATE (a)-[:R]->(b)
+            """
+        And having executed:
+            """
+            SET DATABASE SETTING 'hops_limit_partial_results' TO 'true'
+            """
+        When executing query:
+            """
+            USING HOPS LIMIT 3 MATCH (a:V {id: 0}), (b:V {id: 7}) WITH a, b
+            MATCH p=(a)-[:R *KSHORTEST|3]->(b) RETURN [x IN nodes(p) | x.id] AS path
+            """
+        Then the result should be:
+            | path      |
+            | [0, 1, 7] |
