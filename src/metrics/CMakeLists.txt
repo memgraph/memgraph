@@ -5,6 +5,6 @@ target_sources(mg-metrics
     prometheus_metrics.cpp
 )
 
-target_link_libraries(mg-metrics PUBLIC prometheus-cpp::core mg-utils mg-flags)
+target_link_libraries(mg-metrics PUBLIC prometheus-cpp::core mg-utils mg-flags PRIVATE mg-license)
 
 target_include_directories(mg-metrics PUBLIC ${CMAKE_SOURCE_DIR}/src)

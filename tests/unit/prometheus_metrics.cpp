@@ -13,6 +13,8 @@
 
 #include <algorithm>
 #include <filesystem>
+#include <limits>
+#include <optional>
 #include <string_view>
 #include <variant>
 
@@ -23,6 +25,7 @@
 #include "dbms/constants.hpp"
 #include "dbms/database.hpp"
 #include "disk_test_utils.hpp"
+#include "license/license.hpp"
 #include "metrics/scoped_gauge.hpp"
 #include "metrics/scoped_histogram_timer.hpp"
 #include "storage/v2/config.hpp"
@@ -109,6 +112,35 @@ TEST(PrometheusMetrics, UpdateGaugesReportsTrackedMemoryAndTheEnforcedLimit) {
   auto const families = pm.CollectForScrape();
   EXPECT_EQ(FindGauge(families, "memgraph_memory_limit_bytes"), static_cast<double>(kLimit));
   EXPECT_TRUE(FindGauge(families, "memgraph_memory_tracked_bytes").has_value());
+}
+
+namespace {
+
+std::optional<double> LicenseExpiryAfterUpdate(std::optional<int64_t> valid_until) {
+  auto &checker = memgraph::license::global_license_checker;
+  memgraph::utils::OnScopeExit const disable{[&] { checker.DisableTesting(); }};
+  if (valid_until) {
+    checker.EnableTesting();
+    checker.GetLicenseInfo().Lock()->value().license.valid_until = *valid_until;
+  }
+  memgraph::metrics::PrometheusMetrics pm;
+  pm.UpdateGauges();
+  return FindGauge(pm.CollectForScrape(), "memgraph_license_expiry_timestamp_seconds");
+}
+
+}  // namespace
+
+TEST(PrometheusMetrics, LicenseExpiryIsTheLicenceValidUntil) {
+  constexpr int64_t kValidUntil = 1'900'000'000;
+  EXPECT_EQ(LicenseExpiryAfterUpdate(kValidUntil), static_cast<double>(kValidUntil));
+}
+
+TEST(PrometheusMetrics, LicenseExpiryIsInfiniteForAPerpetualLicence) {
+  EXPECT_EQ(LicenseExpiryAfterUpdate(0), std::numeric_limits<double>::infinity());
+}
+
+TEST(PrometheusMetrics, LicenseExpiryIsAbsentWithoutALicence) {
+  EXPECT_EQ(LicenseExpiryAfterUpdate(std::nullopt), std::nullopt);
 }
 
 TEST(PrometheusMetrics, GetOrAddDatabaseRegistersMetrics) {

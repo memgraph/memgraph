@@ -531,6 +531,7 @@ class PrometheusMetrics {
   prometheus::Family<prometheus::Gauge> &build_info_family_;
   prometheus::Family<prometheus::Gauge> &memory_limit_family_;
   prometheus::Family<prometheus::Gauge> &memory_tracked_family_;
+  prometheus::Family<prometheus::Gauge> &license_expiry_family_;
   prometheus::Gauge &memory_limit_bytes_;
   prometheus::Gauge &memory_tracked_bytes_;
 
