@@ -90,6 +90,7 @@ class Telemetry final {
   const std::string url_;
   const std::string uuid_;
   const std::string machine_id_;
+  const std::string hostname_;
   const bool ssl_;
   uint64_t num_{0};
   utils::Scheduler scheduler_;

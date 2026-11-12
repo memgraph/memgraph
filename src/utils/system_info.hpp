@@ -37,6 +37,9 @@ struct CPUInfo {
 
 std::string GetMachineId();
 
+/// Reads the hostname from /etc/hostname. Returns "UNKNOWN" if it can't be read.
+std::string GetHostname();
+
 MemoryInfo GetMemoryInfo();
 
 CPUInfo GetCPUInfo(const std::string &machine);

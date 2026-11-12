@@ -52,6 +52,7 @@ Telemetry::Telemetry(std::string url, std::filesystem::path storage_directory, s
     : url_(std::move(url)),
       uuid_(std::move(uuid)),
       machine_id_(std::move(machine_id)),
+      hostname_(utils::GetHostname()),
       ssl_(ssl),
       send_every_n_(send_every_n),
       storage_(std::move(storage_directory)) {
@@ -115,6 +116,7 @@ void Telemetry::StoreData(const nlohmann::json &event, const nlohmann::json &dat
                             {"type", "telemetry"},
                             {"product", kProduct},
                             {"machine_id", machine_id_},
+                            {"hostname", hostname_},
                             {"event", event},
                             {"data", data},
                             {"timestamp", utils::Timestamp::Now().SecWithNsecSinceTheEpoch()},

@@ -42,6 +42,15 @@ std::string GetMachineId() {
   return machine_id_lines[0];
 }
 
+std::string GetHostname() {
+  // /etc/hostname holds a single hostname line; skip blank lines and surrounding whitespace.
+  for (const auto &line : memgraph::utils::ReadLines("/etc/hostname")) {
+    auto hostname = utils::Trim(line);
+    if (!hostname.empty()) return std::string{hostname};
+  }
+  return "UNKNOWN";
+}
+
 MemoryInfo GetMemoryInfo() {
   // sysinfo reports KiB; MemoryInfo is in bytes.
   const auto capacity = sysinfo::InstalledMemory().value_or(sysinfo::MemoryCapacity{});
