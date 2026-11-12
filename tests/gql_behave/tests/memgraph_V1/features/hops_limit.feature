@@ -345,3 +345,21 @@ Feature: Hops Limit
         Then the result should be, in order:
             | path   | total |
             | [1, 2] | 2     |
+
+    Scenario: Weighted KSHORTEST under a hops limit can spend the budget on the target's in-edges first
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (s:N {id: 'S'}), (t:N {id: 'T'}), (s)-[:R {w: 1}]->(t)
+            WITH t UNWIND range(1, 8) AS i CREATE (:N {id: i})-[:R {w: 1}]->(t)
+            """
+        And having executed:
+            """
+            SET DATABASE SETTING 'hops_limit_partial_results' TO 'true'
+            """
+        When executing query:
+            """
+            USING HOPS LIMIT 5 MATCH (s:N {id: 'S'}), (t:N {id: 'T'}) WITH s, t
+            MATCH p=(s)-[:R *KSHORTEST (e, n | e.w) total]->(t) RETURN total
+            """
+        Then the result should be empty

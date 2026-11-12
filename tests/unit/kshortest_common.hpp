@@ -1127,12 +1127,13 @@ class Database {
                                        {{0, 3}, PV(int64_t{0})},
                                        {{0, 2}, PV(int64_t{0})}});
     ASSERT_EQ(served.size(), 3U);
-    size_t previous_hops = 0;
-    for (const auto &[total, hops] : served) {
+    // Each route has its own hop count here, so the hop sequence also names the paths.
+    std::vector<size_t> hops;
+    for (const auto &[total, path_hops] : served) {
       EXPECT_EQ(total.ValueInt(), 0);
-      EXPECT_GE(hops, previous_hops) << "an all-zero total must still order by hops";
-      previous_hops = hops;
+      hops.push_back(path_hops);
     }
+    EXPECT_EQ(hops, (std::vector<size_t>{1, 2, 3})) << "an all-zero total must still order by hops";
   }
 
   // Durations add and compare like numbers, and the total keeps the type.
@@ -1250,6 +1251,7 @@ class Database {
           expected.emplace_back(path.weight, std::move(path.vertices));
         }
         auto &served = actual[{source_id, sink_id}];
+        // Sorted, so this pins the set of paths, not the order served; `ZeroWeights` pins that.
         std::ranges::sort(expected);
         std::ranges::sort(served);
         EXPECT_EQ(served, expected);
@@ -1336,7 +1338,7 @@ class Database {
 
     ASSERT_EQ(run.rows.size(), 1U) << "both cheap routes pass through the blocked vertex";
     EXPECT_EQ(run.rows[0][3].ValueInt(), 10);
-    EXPECT_EQ(run.rows[0][2].ValueList().size(), 1U);
+    EXPECT_EQ(PathVertexIds(&dba, run.rows[0]), (std::vector<int>{0, 3}));
     dba.Abort();
   }
 
