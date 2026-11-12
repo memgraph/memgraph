@@ -78,7 +78,8 @@ licence_probe_container() {
   docker run -d --rm -p "$bolt:7687" -p "$metrics:9091" --name "$name" "$@" \
     "$MEMGRAPH_DOCKERHUB_IMAGE" $MEMGRAPH_GENERAL_FLAGS $LICENCE_PROBE_FLAGS >/dev/null \
     || { echo "FAIL: could not start $name"; return 1; }
-  wait_for_memgraph "$MEMGRAPH_DEFAULT_HOST" "$bolt" || { docker_stop_if_there "$name" >/dev/null 2>&1; return 1; }
+  wait_for_memgraph "$MEMGRAPH_DEFAULT_HOST" "$bolt" \
+    || { docker logs "$name" 2>&1 | tail -20; docker_stop_if_there "$name" >/dev/null 2>&1; return 1; }
 
   licence_expect "$expected" "HTTP metrics" licence_probe_metrics_served "$metrics" || failed=1
   licence_expect "$expected" "enterprise query modules" licence_probe_module_loaded "$bolt" || failed=1
@@ -90,6 +91,7 @@ licence_probe_container() {
   licence_expect "$expected" "audit log" licence_probe_audit_written "$name" || failed=1
   licence_expect "$expected" "query-log password masking" licence_probe_password_masked "$name" || failed=1
 
+  (( failed )) && docker logs "$name" 2>&1 | tail -20
   docker_stop_if_there "$name" >/dev/null 2>&1 || true
   return $failed
 }
