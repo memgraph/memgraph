@@ -13,8 +13,13 @@
 #ifdef MG_ENTERPRISE
 #include <algorithm>
 #include <iterator>
+#include <set>
 #include <span>
 #include <unordered_set>
+
+#include "storage/v2/constraints/constraint_violation.hpp"
+#include "storage/v2/exceptions.hpp"
+#include "versioning/main_constraints.hpp"
 #endif
 #include <cppitertools/filter.hpp>
 #include <cppitertools/imap.hpp>
@@ -203,6 +208,12 @@ auto KeptInBranch(Graph const *graph) {
                                .expanded_count = result.expanded_count};
   };
 }
+
+// Text and vector indexes are not branch-aware (not in v1), so a search on a branch errors instead of answering without
+// the fork's state and the branch's changes.
+constexpr auto kTextSearchOnBranch = "Text search is not supported on a branch in v1. Run it on main: USE BRANCH main.";
+constexpr auto kVectorSearchOnBranch =
+    "Vector search is not supported on a branch in v1. Run it on main: USE BRANCH main.";
 #endif
 
 }  // namespace
@@ -943,6 +954,60 @@ storage::Result<EdgeAccessor> DbAccessor::BranchInsertEdge(const VertexAccessor 
   return EdgeAccessor(*edge, branch_ctx_);
 }
 
+std::expected<void, storage::StorageManipulationError> DbAccessor::ValidateBranchConstraints() {
+  auto &ctx = *branch_ctx_;
+  versioning::MainConstraints const main_constraints{ctx};
+  auto const existence = main_constraints.Existence();
+  auto const types = main_constraints.Types();
+  if (existence.empty() && types.empty()) return {};
+
+  // Every vertex the diff transaction wrote: a native vertex's deltas, or a fork vertex's stub deltas (label/property
+  // writes, removal and delete markers), keyed by gid. ResolveVertex returns nullopt for a deleted one.
+  std::vector<uint64_t> touched;
+  for (auto const &delta : accessor_->GetTransaction()->deltas) {
+    auto const prev = delta.prev.Get();
+    if (prev.type == storage::PreviousPtr::Type::VERTEX) touched.push_back(prev.vertex->gid.AsUint());
+  }
+  std::ranges::sort(touched);
+  touched.erase(std::ranges::unique(touched).begin(), touched.end());
+
+  auto const violation =
+      [&](storage::ConstraintViolation found) -> std::expected<void, storage::StorageManipulationError> {
+    accessor_->Abort();
+    return std::unexpected{storage::StorageManipulationError{std::move(found)}};
+  };
+  for (auto const raw_gid : touched) {
+    auto resolved = ctx.ResolveVertex(storage::Gid::FromUint(raw_gid), storage::View::NEW);
+    if (!resolved) continue;
+    VertexAccessor const vertex{*resolved, branch_ctx_};
+    auto const labels = vertex.Labels(storage::View::NEW);
+    if (!labels) throw QueryRuntimeException("Unable to validate constraints on a branch: failed to read labels.");
+    auto const constrained = [&](storage::LabelId label) { return std::ranges::contains(*labels, label); };
+    if (std::ranges::none_of(existence, [&](auto const &c) { return constrained(c.first); }) &&
+        std::ranges::none_of(types, [&](auto const &c) { return constrained(std::get<0>(c)); })) {
+      continue;
+    }
+    auto const props = vertex.Properties(storage::View::NEW);
+    if (!props) throw QueryRuntimeException("Unable to validate constraints on a branch: failed to read properties.");
+    auto const value = [&](storage::PropertyId property) -> storage::PropertyValue const * {
+      auto const it = props->find(property);
+      return it == props->end() || it->second.IsNull() ? nullptr : &it->second;
+    };
+    for (auto const &[label, property] : existence) {
+      if (constrained(label) && value(property) == nullptr) {
+        return violation({storage::ConstraintViolation::Type::EXISTENCE, label, std::set{property}});
+      }
+    }
+    for (auto const &[label, property, kind] : types) {
+      auto const *written = value(property);  // type constraints do not enforce existence
+      if (constrained(label) && written != nullptr && !storage::PropertyValueMatchesTypeConstraint(*written, kind)) {
+        return violation({storage::ConstraintViolation::Type::TYPE, label, kind, std::set{property}});
+      }
+    }
+  }
+  return {};
+}
+
 #endif
 bool DbAccessor::TextIndexExists(const std::string &index_name) const { return accessor_->TextIndexExists(index_name); }
 
@@ -950,22 +1015,34 @@ std::vector<storage::TextSearchResult> DbAccessor::TextIndexSearch(const std::st
                                                                    const std::string &search_query,
                                                                    text_search_mode search_mode,
                                                                    const storage::TextSearchConfig &config) const {
+#ifdef MG_ENTERPRISE
+  if (branch_ctx_ != nullptr) throw storage::TextSearchException(kTextSearchOnBranch);
+#endif
   return accessor_->TextIndexSearch(index_name, search_query, search_mode, config);
 }
 
 std::string DbAccessor::TextIndexAggregate(const std::string &index_name, const std::string &search_query,
                                            const std::string &aggregation_query) const {
+#ifdef MG_ENTERPRISE
+  if (branch_ctx_ != nullptr) throw storage::TextSearchException(kTextSearchOnBranch);
+#endif
   return accessor_->TextIndexAggregate(index_name, search_query, aggregation_query);
 }
 
 std::string DbAccessor::TextEdgeIndexAggregate(const std::string &index_name, const std::string &search_query,
                                                const std::string &aggregation_query) {
+#ifdef MG_ENTERPRISE
+  if (branch_ctx_ != nullptr) throw storage::TextSearchException(kTextSearchOnBranch);
+#endif
   return accessor_->TextEdgeIndexAggregate(index_name, search_query, aggregation_query);
 }
 
 std::vector<storage::TextEdgeSearchResult> DbAccessor::SearchEdgeTextIndex(
     const std::string &index_name, const std::string &search_query, text_search_mode search_mode,
     const storage::TextSearchConfig &config) const {
+#ifdef MG_ENTERPRISE
+  if (branch_ctx_ != nullptr) throw storage::TextSearchException(kTextSearchOnBranch);
+#endif
   return accessor_->SearchEdgeTextIndex(index_name, search_query, search_mode, config);
 }
 
@@ -975,11 +1052,17 @@ bool DbAccessor::PointIndexExists(storage::LabelId label, storage::PropertyId pr
 
 std::vector<std::tuple<storage::VertexAccessor, double, double>> DbAccessor::VectorIndexSearchOnNodes(
     const std::string &index_name, uint64_t number_of_results, const std::vector<float> &vector) {
+#ifdef MG_ENTERPRISE
+  if (branch_ctx_ != nullptr) throw storage::VectorSearchException(kVectorSearchOnBranch);
+#endif
   return accessor_->VectorIndexSearchOnNodes(index_name, number_of_results, vector);
 }
 
 std::vector<std::tuple<storage::EdgeAccessor, double, double>> DbAccessor::VectorIndexSearchOnEdges(
     const std::string &index_name, uint64_t number_of_results, const std::vector<float> &vector) {
+#ifdef MG_ENTERPRISE
+  if (branch_ctx_ != nullptr) throw storage::VectorSearchException(kVectorSearchOnBranch);
+#endif
   return accessor_->VectorIndexSearchOnEdges(index_name, number_of_results, vector);
 }
 

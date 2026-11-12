@@ -8249,7 +8249,12 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
     }
     case DatabaseInfoQuery::InfoType::CONSTRAINT: {
       header = {"constraint type", "label", "properties", "data_type"};
+#ifdef MG_ENTERPRISE
+      // Unique constraints are not enforced on a branch in v1 (ValidateBranchConstraints skips them), hence the marker.
+      handler = [storage = current_db.db_acc_->get()->storage(), on_branch = current_db.branch_context() != nullptr] {
+#else
       handler = [storage = current_db.db_acc_->get()->storage()] {
+#endif
         auto ac = storage->GetActiveConstraints();
         auto const ts = storage::kLargestCommittedTimestamp;
         storage::ConstraintsInfo const info{
@@ -8276,6 +8281,9 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
                              TypedValue(storage->LabelToName(item.first)),
                              TypedValue(std::move(properties)),
                              TypedValue("")});
+#ifdef MG_ENTERPRISE
+          if (on_branch) results.back()[0] = TypedValue("unique (not enforced on branch)");
+#endif
         }
         for (const auto &[label, property, type] : info.type) {
           results.push_back({TypedValue("data_type"),
@@ -12161,7 +12169,9 @@ void Interpreter::Commit() {
   auto *const branch =
       current_db_.execution_db_accessor_ ? current_db_.execution_db_accessor_->branch_context() : nullptr;
   auto maybe_commit_error = branch != nullptr
-                                ? branch->CommitTransaction(make_commit_arg(is_main, *current_db_.db_acc_))
+                                ? current_db_.execution_db_accessor_->ValidateBranchConstraints().and_then([&] {
+                                    return branch->CommitTransaction(make_commit_arg(is_main, *current_db_.db_acc_));
+                                  })
                                 : current_db_.db_transactional_accessor_->PrepareForCommitPhase(
                                       make_commit_arg(is_main, *current_db_.db_acc_));
 #else
@@ -12207,9 +12217,21 @@ void Interpreter::Commit() {
                                      property_names_stream.str());
               }
               case storage::ConstraintViolation::Type::TYPE: {
+#ifdef MG_ENTERPRISE
+                // Only a branch commit gets here: main checks type constraints at write time.
+                MG_ASSERT(execution_db_accessor->branch_context() != nullptr,
+                          "Encountered type constraint violation while commiting which should never happen.");
+                DMG_ASSERT(constraint_violation.properties.size() == 1U && constraint_violation.constraint_kind);
+                throw storage::TypeConstraintViolationException(
+                    "IS TYPED {} violation on {}({})",
+                    storage::TypeConstraintKindToString(*constraint_violation.constraint_kind),
+                    label_name,
+                    execution_db_accessor->PropertyToName(*constraint_violation.properties.begin()));
+#else
                 // This should never get triggered since type constraints get checked immediately and not at
                 // commit time
                 MG_ASSERT(false, "Encountered type constraint violation while commiting which should never happen.");
+#endif
               }
               default:
                 LOG_FATAL("Unknown constraint violation type");
