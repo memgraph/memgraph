@@ -4157,7 +4157,8 @@ TypedValue AddServedCost(const TypedValue &lhs, const TypedValue &rhs) {
 }
 
 /// The served total of `hops` arcs that all weigh `weight`, as one checked multiply. It raises the
-/// error that adding the weight once per hop would raise.
+/// error that adding the weight once per hop would raise. A Double total is `weight * hops`, which can
+/// differ by rounding from the per-arc sum the weighted spelling serves (0.1 over 6 hops: 0.6000000000000001).
 TypedValue ConstantPathCost(const TypedValue &weight, size_t hops, utils::MemoryResource *memory) {
   const auto count = static_cast<int64_t>(hops);
   if (weight.IsDouble()) return TypedValue(weight.ValueDouble() * static_cast<double>(count), memory);
@@ -5093,6 +5094,7 @@ class KShortestPathsCursor : public Cursor {
     } else {
       auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, memory);
       frame_writer.Write(self_.common_.edge_symbol, std::move(edge_list));
+      // A lambda without a `total` name still gets an anonymous symbol; nothing reads it, so skip it.
       if (constant_weight_ && self_.total_weight_ && self_.total_weight_->user_declared()) {
         frame_writer.Write(*self_.total_weight_, ConstantPathCost(*constant_weight_, path.edges.size(), memory));
       }
