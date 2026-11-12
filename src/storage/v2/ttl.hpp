@@ -21,6 +21,7 @@
 #ifdef MG_ENTERPRISE
 
 #include <atomic>
+#include <mutex>
 
 #include <fmt/format.h>
 #include <nlohmann/json_fwd.hpp>
@@ -228,6 +229,7 @@ class TTL final {
    * @brief Pause the background job and record that TTL should stay stopped (STOP TTL).
    */
   void Pause() {
+    auto lock = std::lock_guard{wanted_mutex_};
     wanted_ = false;
     ttl_.Pause();
   }
@@ -237,6 +239,7 @@ class TTL final {
    *
    */
   void Resume() {
+    auto lock = std::lock_guard{wanted_mutex_};
     wanted_ = true;
     ttl_.Resume();
   }
@@ -252,6 +255,7 @@ class TTL final {
    *
    */
   void ResumeIfWanted() {
+    auto lock = std::lock_guard{wanted_mutex_};
     if (wanted_) ttl_.Resume();
   }
 
@@ -267,6 +271,7 @@ class TTL final {
   TtlInfo info_{};                   //!< configuration
   bool enabled_{false};              //!< feature enabler
   std::atomic<bool> wanted_{false};  //!< asked to run rather than stopped
+  std::mutex wanted_mutex_;          //!< makes reading or setting wanted_ and pausing or resuming ttl_ one step
   Storage *storage_ptr_{};
   metrics::CounterHandle deleted_nodes_{};
   metrics::CounterHandle deleted_edges_{};
