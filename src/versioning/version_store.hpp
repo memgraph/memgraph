@@ -187,7 +187,10 @@ class VersionStore {
   // Drops `name`: kInUse while a session holds it unless `force`. Forced, sessions keep working on the dropped branch
   // until they let go. The pin and directory go with the last checkout. A ledger write failure drops nothing; a crash
   // before directory removal leaves it behind, its id never reused.
-  std::expected<DropResult, std::string> DropBranch(std::string_view name, bool force = false);
+  // `own_checkouts` of the sessions holding it are the caller's own and do not make it kInUse. With `expected_id`, a
+  // branch of that name but another id (dropped and re-created since the caller looked it up) is kNotFound.
+  std::expected<DropResult, std::string> DropBranch(std::string_view name, bool force = false, size_t own_checkouts = 0,
+                                                    std::optional<uint64_t> expected_id = std::nullopt);
 
   std::optional<Listing> Get(std::string_view name) const;
 
