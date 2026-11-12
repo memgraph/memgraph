@@ -2612,3 +2612,19 @@ Feature: Write visibility inside one query
             | 1  | 0 | 0 |
             | 2  | 1 | 1 |
             | 3  | 0 | 0 |
+
+    Scenario: An IN-list index seek in a COUNT after a SET sees the SET (indexes :WvIl(id))
+        Given an empty graph
+        And with new index :WvIl(id)
+        And having executed:
+            """
+            CREATE (:WvIl {id: 1}), (:WvIl {id: 2}), (:WvIn), (:WvIn)
+            """
+        When executing query:
+            """
+            MATCH (n:WvIn) SET n.l = [1, 2] RETURN COUNT { MATCH (m:WvIl) WHERE m.id IN n.l } AS c
+            """
+        Then the result should be:
+            | c |
+            | 2 |
+            | 2 |
