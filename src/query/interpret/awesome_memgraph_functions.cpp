@@ -2440,8 +2440,9 @@ bool IsFunctionPure(std::string_view function_name) {
 }
 
 bool FunctionReadsGraph(std::string_view function_name) {
-  auto const it = builtin_functions.find(utils::ToUpperCase(function_name));
-  return it == builtin_functions.end() || it->second.reads_graph_;
+  auto const &functions = BuiltinFunctions();
+  auto const it = functions.find(utils::ToUpperCase(function_name));
+  return it == functions.end() || it->second.reads_graph_;
 }
 
 }  // namespace memgraph::query
