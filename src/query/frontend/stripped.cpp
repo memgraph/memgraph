@@ -176,8 +176,8 @@ StrippedQuery::StrippedQuery(std::string query) : original_(std::move(query)) {
       case Token::UNMATCHED:
         LOG_FATAL("Shouldn't happen");
       case Token::KEYWORD: {
-        // true/false are also valid names (symbolicName admits memgraphCypherKeyword, MemgraphCypher.g4),
-        // so the stripped text keeps the user's spelling; the value still lands in literals_.
+        // NULL is not stripped (IS NULL / IS NOT NULL). true/false are also valid names, so the stripped
+        // text keeps their spelling; the value is still recorded in literals_.
         if (utils::IEquals(token.second, "true")) {
           replace_stripped(token_index, true, token.second);
         } else if (utils::IEquals(token.second, "false")) {
