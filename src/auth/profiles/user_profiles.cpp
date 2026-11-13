@@ -104,8 +104,9 @@ UserProfiles::UserProfiles(Repository &durability) : durability_{&durability} {
     }
   });
 
-  // Data written before usernames were folded can place spellings of one user in several profiles. Keep one in
-  // memory (the largest raw spelling, i.e. the exact-lowercase one older binaries enforced) and leave durable as is.
+  // Data written before usernames were folded can place spellings of one user in several profiles. Keep one in memory:
+  // the profile with the largest raw spelling (all-lowercase when present, as older binaries enforced; ties go to the
+  // smallest profile name). Durable data is left as is.
   for (const auto &[user, entries] : spellings) {
     std::set<std::string> names;
     const std::pair<std::string, std::string> *winner = nullptr;
