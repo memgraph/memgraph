@@ -11,11 +11,16 @@
 
 #include <fmt/format.h>
 #include <gtest/gtest.h>
+#include <sys/resource.h>
+#include <unistd.h>
 #include <algorithm>
 #include <filesystem>
 #include <optional>
 #include <tuple>
+#include <string>
 #include <unordered_map>
+#include <variant>
+#include <vector>
 
 #include "storage/v2/access_type.hpp"
 #include "storage/v2/constraints/active_constraints.hpp"
@@ -38,6 +43,7 @@
 #include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage_test_utils.hpp"
+#include "tests/test_commit_args_helper.hpp"
 #include "utils/file.hpp"
 #include "utils/file_locker.hpp"
 #include "utils/uuid.hpp"
@@ -1754,3 +1760,117 @@ TEST_P(StorageModeWalFileTest, StorageModeData) {
 
 INSTANTIATE_TEST_SUITE_P(ParameterizedWalStorageModeTests, StorageModeWalFileTest, ::testing::ValuesIn(storage_modes),
                          StorageModeWalFileTest::PrintStringParamToName());
+
+namespace {
+// Makes every open() in this process fail with EMFILE for as long as it lives: the soft limit is lowered to just
+// above the highest open descriptor and every free descriptor below it is taken.
+class FdExhaustion {
+ public:
+  FdExhaustion() {
+    EXPECT_EQ(getrlimit(RLIMIT_NOFILE, &saved_), 0);
+    int max_fd = 0;
+    for (auto const &entry : std::filesystem::directory_iterator("/proc/self/fd")) {
+      max_fd = std::max(max_fd, std::stoi(entry.path().filename().string()));
+    }
+    rlimit lowered = saved_;
+    lowered.rlim_cur = static_cast<rlim_t>(max_fd) + 1;
+    EXPECT_EQ(setrlimit(RLIMIT_NOFILE, &lowered), 0);
+    for (int fd = dup(STDIN_FILENO); fd != -1; fd = dup(STDIN_FILENO)) held_.push_back(fd);
+  }
+
+  FdExhaustion(FdExhaustion const &) = delete;
+  FdExhaustion &operator=(FdExhaustion const &) = delete;
+
+  ~FdExhaustion() {
+    for (int const fd : held_) close(fd);
+    EXPECT_EQ(setrlimit(RLIMIT_NOFILE, &saved_), 0);
+  }
+
+ private:
+  rlimit saved_{};
+  std::vector<int> held_;
+};
+
+size_t CountVertices(memgraph::storage::Storage::Accessor &acc) {
+  size_t count = 0;
+  for ([[maybe_unused]] auto const vertex : acc.Vertices(memgraph::storage::View::OLD)) ++count;
+  return count;
+}
+}  // namespace
+
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+class WalOpenFailureTest : public ::testing::TestWithParam<bool> {
+ public:
+  void SetUp() override { std::filesystem::remove_all(storage_directory); }
+
+  void TearDown() override { std::filesystem::remove_all(storage_directory); }
+
+  memgraph::storage::Config MakeConfig(bool recover) const {
+    memgraph::storage::Config config{};
+    config.gc.type = memgraph::storage::Config::Gc::Type::NONE;
+    config.experimental_commit_lock_narrowing = GetParam();
+    config.durability.storage_directory = storage_directory;
+    config.durability.recover_on_startup = recover;
+    config.durability.snapshot_wal_mode =
+        memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL;
+    config.durability.snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::minutes(20)};
+    config.durability.wal_file_size_kibibytes = 1;
+    config.durability.wal_file_flush_every_n_tx = 1;
+    return config;
+  }
+
+  // Large enough that one commit fills the 1 KiB WAL, so the next commit has to create a new file.
+  static auto Commit(memgraph::storage::InMemoryStorage &store) {
+    auto acc = store.Access(memgraph::storage::WRITE);
+    auto vertex = acc->CreateVertex();
+    EXPECT_TRUE(vertex.SetProperty(store.NameToProperty("p"), memgraph::storage::PropertyValue(std::string(2048, 'x')))
+                    .has_value());
+    return acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs());
+  }
+
+  std::vector<std::string> WalFiles() const {
+    std::vector<std::string> names;
+    for (auto const &entry : std::filesystem::directory_iterator(storage_directory / "wal")) {
+      names.push_back(entry.path().filename().string());
+    }
+    std::ranges::sort(names);
+    return names;
+  }
+
+  std::filesystem::path storage_directory{std::filesystem::temp_directory_path() / "MG_test_unit_wal_open_failure"};
+};
+
+// Failing to create the next WAL file must fail that commit, not the process, leave nothing behind, and burn no WAL
+// sequence number: the retry has to produce a chain that recovery accepts.
+TEST_P(WalOpenFailureTest, CommitFailsCleanlyAndRetrySucceeds) {
+  std::vector<std::string> wal_files_before;
+  {
+    auto store = std::make_unique<memgraph::storage::InMemoryStorage>(MakeConfig(false));
+    ASSERT_TRUE(Commit(*store).has_value());
+    wal_files_before = WalFiles();
+    ASSERT_EQ(wal_files_before.size(), 1);  // finalised by the rotation after the first commit
+
+    {
+      FdExhaustion const exhausted;
+      auto const failed = Commit(*store);
+      ASSERT_FALSE(failed.has_value());
+      EXPECT_TRUE(std::holds_alternative<memgraph::storage::PersistenceError>(failed.error()));
+    }
+    EXPECT_EQ(WalFiles(), wal_files_before);
+
+    {
+      auto acc = store->Access(memgraph::storage::READ);
+      EXPECT_EQ(CountVertices(*acc), 1);
+    }
+
+    ASSERT_TRUE(Commit(*store).has_value());
+    EXPECT_EQ(WalFiles().size(), 2);
+  }
+
+  // A burnt sequence number would surface here as a RecoveryFailure about a missing WAL file.
+  auto recovered = std::make_unique<memgraph::storage::InMemoryStorage>(MakeConfig(true));
+  auto acc = recovered->Access(memgraph::storage::READ);
+  EXPECT_EQ(CountVertices(*acc), 2);
+}
+
+INSTANTIATE_TEST_SUITE_P(CommitLockNarrowing, WalOpenFailureTest, ::testing::Bool());
