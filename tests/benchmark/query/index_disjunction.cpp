@@ -132,8 +132,16 @@ void PropertyBranchesPerInputRow(benchmark::State &state) {
   RunQuery(state, "UNWIND range(1, 2000) AS x MATCH (n:A|B {p: x % 1000}) RETURN count(*) AS c");
 }
 
+// The first input row yields every vertex, the other 50000 none: a narrow row must not pay for the wide one.
+void NarrowRowsAfterAWideRow(benchmark::State &state) {
+  RunQuery(state,
+           "UNWIND range(1, 50001) AS x MATCH (n:A|B) WHERE n.p >= CASE WHEN x = 1 THEN 0 ELSE 1000 END "
+           "RETURN count(*) AS c");
+}
+
 BENCHMARK(LabelBranches)->Unit(benchmark::kMillisecond);
 BENCHMARK(PropertyBranchesPerInputRow)->Unit(benchmark::kMillisecond);
+BENCHMARK(NarrowRowsAfterAWideRow)->Unit(benchmark::kMillisecond);
 
 }  // namespace
 

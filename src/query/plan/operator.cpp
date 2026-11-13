@@ -1808,15 +1808,25 @@ class ScanAllByIndexDisjunctionCursor : public Cursor {
     vertices_.reset();
     vertices_it_.reset();
     vertices_end_it_.reset();
-    seen_.clear();
+    ClearSeen();
   }
 
  private:
+  // clear() writes every bucket, and buckets never shrink: after a wide row, erase only the entries of a narrow one.
+  void ClearSeen() {
+    if (seen_.empty()) return;
+    if (seen_.bucket_count() > std::max<size_t>(kMinBucketsForErase, 8 * seen_.size())) {
+      seen_.erase(seen_.begin(), seen_.end());
+      return;
+    }
+    seen_.clear();
+  }
+
   // Starts the next branch, after the last one on a new input row. False once the input is exhausted.
   bool StartNextBranch(Frame &frame, ExecutionContext &context) {
     if (branch_ + 1 == self_.branches_.size()) {
       if (!input_cursor_->Pull(frame, context)) return false;
-      seen_.clear();
+      ClearSeen();
       branch_ = 0;
     } else {
       ++branch_;
@@ -1873,6 +1883,8 @@ class ScanAllByIndexDisjunctionCursor : public Cursor {
     vertices_it_.emplace(vertices_->begin());
     vertices_end_it_.emplace(vertices_->end());
   }
+
+  static constexpr size_t kMinBucketsForErase = 1024;
 
   const ScanAllByIndexDisjunction &self_;
   const UniqueCursorPtr input_cursor_;
