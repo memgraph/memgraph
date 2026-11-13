@@ -958,11 +958,9 @@ class DbmsHandler {
    */
   NewResultT New_(std::string_view name, utils::UUID uuid, system::Transaction *txn = nullptr,
                   std::optional<std::filesystem::path> rel_dir = {}) {
-    auto config_copy = default_config_;
+    auto config_copy = CurrentDefaultConfig();
     config_copy.salient.name = name;
     config_copy.salient.uuid = uuid;
-    // The snapshot schedule can change at run time, so a new database starts from the current one.
-    config_copy.durability.snapshot_interval = utils::SchedulerInterval{flags::run_time::GetStorageSnapshotInterval()};
     spdlog::debug("Creating database '{}' - '{}'", name, std::string{uuid});
     if (rel_dir) {
       storage::UpdatePaths(config_copy, default_config_.durability.storage_directory / *rel_dir);
@@ -971,6 +969,13 @@ class DbmsHandler {
                            default_config_.durability.storage_directory / kMultiTenantDir / std::string{uuid});
     }
     return New_(std::move(config_copy), txn);
+  }
+
+  // The instance defaults on the snapshot schedule in effect now, which can change at run time.
+  storage::Config CurrentDefaultConfig() const {
+    auto config = default_config_;
+    config.durability.snapshot_interval = flags::run_time::GetEffectiveSnapshotInterval();
+    return config;
   }
 
   /**

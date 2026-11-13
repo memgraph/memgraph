@@ -18,6 +18,7 @@
 #include "dbms/database.hpp"
 #include "dbms/dbms_handler.hpp"
 #include "disk_test_utils.hpp"
+#include "flags/run_time_configurable.hpp"
 #include "memory/db_arena.hpp"
 #include "query/interpret/awesome_memgraph_functions.hpp"
 #include "query/interpreter_context.hpp"
@@ -27,6 +28,7 @@
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/replication/enums.hpp"
 #include "tests/test_commit_args_helper.hpp"
+#include "utils/settings.hpp"
 
 // NOLINTNEXTLINE(google-build-using-namespace)
 using namespace memgraph::storage;
@@ -79,8 +81,9 @@ class InfoTest : public testing::Test {
   }
 
   void SetUp() {
-    // DbmsHandler starts each database on the snapshot schedule in this flag, which the server sets at startup.
-    gflags::SetCommandLineOption("storage_snapshot_interval", "120");
+    // DbmsHandler starts each database on the run-time snapshot schedule, which the server sets at startup.
+    memgraph::flags::run_time::Initialize(settings_);
+    settings_.SetValue("storage.snapshot.interval", "120");
 #ifdef MG_ENTERPRISE
     dbms_handler_.emplace(config);
     auto db_acc = dbms_handler_->Get();  // Default db
@@ -128,6 +131,7 @@ class InfoTest : public testing::Test {
       }()  // iile
   };
   gflags::FlagSaver flag_saver_;
+  memgraph::utils::Settings settings_{storage_directory / "settings"};
   std::optional<memgraph::dbms::DbmsHandler> dbms_handler_;
   std::optional<memgraph::dbms::DatabaseAccess> db_acc_;
   std::optional<memgraph::memory::DbArenaScope> db_arena_scope_;

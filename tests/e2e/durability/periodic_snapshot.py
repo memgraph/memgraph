@@ -493,6 +493,41 @@ def test_new_database_follows_runtime_interval(test_name):
     assert execute_and_fetch_all(cursor, "SHOW SNAPSHOTS;"), "The new database kept the startup interval"
 
 
+def test_resumed_database_follows_runtime_interval(test_name):
+    """A database resumed after the snapshot interval is changed at runtime uses the changed interval."""
+    if not (os.environ.get("MEMGRAPH_ENTERPRISE_LICENSE") and os.environ.get("MEMGRAPH_ORGANIZATION_NAME")):
+        pytest.skip("needs an enterprise license (MEMGRAPH_ENTERPRISE_LICENSE + MEMGRAPH_ORGANIZATION_NAME)")
+    instance = {
+        "resumed_interval": {
+            "args": [
+                "--log-level=TRACE",
+                "--also-log-to-stderr",
+                "--storage-snapshot-interval-sec=0",
+                "--storage-snapshot-interval=300",
+            ],
+            "log_file": f"{get_logs_path(FILE, test_name)}/resumed_interval.log",
+            "data_directory": get_data_path(FILE, test_name),
+        }
+    }
+    interactive_mg_runner.start(instance, "resumed_interval")
+    cursor = connect(host="localhost", port=7687).cursor()
+    execute_and_fetch_all(cursor, "CREATE DATABASE tenant;")
+    execute_and_fetch_all(cursor, "SET DATABASE SETTING 'storage.snapshot.interval' TO '1';")
+    execute_and_fetch_all(cursor, "SUSPEND DATABASE tenant;")
+    execute_and_fetch_all(cursor, "RESUME DATABASE tenant;")
+    execute_and_fetch_all(cursor, "USE DATABASE tenant;")
+    resumed = len(execute_and_fetch_all(cursor, "SHOW SNAPSHOTS;"))
+    execute_and_fetch_all(cursor, "CREATE ();")
+
+    tries = 0
+    while len(execute_and_fetch_all(cursor, "SHOW SNAPSHOTS;")) == resumed and tries < 10:
+        tries += 1
+        time.sleep(1)
+    assert (
+        len(execute_and_fetch_all(cursor, "SHOW SNAPSHOTS;")) > resumed
+    ), "The resumed database kept the startup interval"
+
+
 def test_negative_interval_flag_refused(test_name):
     """A negative snapshot interval stops startup instead of scheduling snapshots back to back."""
     instance = {
