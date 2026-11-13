@@ -18,11 +18,13 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <nlohmann/json.hpp>
 #include <string>
 #include <thread>
 #include <vector>
 
+#include "utils/base64.hpp"
 #include "utils/file.hpp"
 #include "utils/logging.hpp"
 #include "utils/string.hpp"
@@ -262,6 +264,37 @@ RuntimeEnv DetectRuntimeEnv() {
     return RuntimeEnv::KUBERNETES;
   }
   return RuntimeEnv::NO_KUBERNETES;
+}
+
+std::optional<std::string> ExtractPodUidFromServiceAccountToken(std::string_view token) {
+  // A JWT is `header.payload.signature`, each part base64url-encoded without padding.
+  token = Trim(token);
+  const auto first_dot = token.find('.');
+  if (first_dot == std::string_view::npos) return std::nullopt;
+  const auto second_dot = token.find('.', first_dot + 1);
+  if (second_dot == std::string_view::npos) return std::nullopt;
+
+  std::string payload{token.substr(first_dot + 1, second_dot - first_dot - 1)};
+  if (payload.empty()) return std::nullopt;
+  payload.append((4 - payload.size() % 4) % 4, '=');
+
+  try {
+    const auto claims = nlohmann::json::parse(base64_decode(payload));
+    const auto pod_uid = claims.at("kubernetes.io").at("pod").at("uid").get<std::string>();
+    // Pod UIDs are UUIDs; anything else means this isn't the claim we expect, so don't report it.
+    if (!IsValidUUID(pod_uid)) return std::nullopt;
+    return pod_uid;
+  } catch (const std::exception &) {
+    // Invalid base64 or JSON, a missing claim, or a claim of the wrong type.
+    return std::nullopt;
+  }
+}
+
+std::optional<std::string> GetKubernetesPodUid(const std::filesystem::path &token_path) {
+  std::ifstream in(token_path);
+  if (!in) return std::nullopt;
+  const std::string token{std::istreambuf_iterator<char>{in}, std::istreambuf_iterator<char>{}};
+  return ExtractPodUidFromServiceAccountToken(token);
 }
 
 unsigned GetSafeHardwareConcurrency(unsigned fallback) {

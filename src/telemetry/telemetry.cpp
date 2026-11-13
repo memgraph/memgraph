@@ -54,6 +54,8 @@ Telemetry::Telemetry(std::string url, std::filesystem::path storage_directory, s
       machine_id_(std::move(machine_id)),
       install_id_(std::move(install_id)),
       hostname_(utils::GetHostname()),
+      k8s_pod_uid_(utils::DetectRuntimeEnv() == utils::RuntimeEnv::KUBERNETES ? utils::GetKubernetesPodUid()
+                                                                              : std::nullopt),
       ssl_(ssl),
       send_every_n_(send_every_n),
       storage_(std::move(storage_directory)) {
@@ -119,6 +121,7 @@ void Telemetry::StoreData(const nlohmann::json &event, const nlohmann::json &dat
                             {"machine_id", machine_id_},
                             {"install_id", install_id_},
                             {"hostname", hostname_},
+                            {"k8s_pod_uid", k8s_pod_uid_ ? nlohmann::json(*k8s_pod_uid_) : nlohmann::json(nullptr)},
                             {"event", event},
                             {"data", data},
                             {"timestamp", utils::Timestamp::Now().SecWithNsecSinceTheEpoch()},

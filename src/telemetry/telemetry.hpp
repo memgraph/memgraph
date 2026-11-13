@@ -13,6 +13,7 @@
 
 #include <atomic>
 #include <mutex>
+#include <optional>
 #include <string>
 
 #include <nlohmann/json_fwd.hpp>
@@ -92,6 +93,7 @@ class Telemetry final {
   const std::string machine_id_;
   const std::string install_id_;
   const std::string hostname_;
+  const std::optional<std::string> k8s_pod_uid_;
   const bool ssl_;
   uint64_t num_{0};
   utils::Scheduler scheduler_;

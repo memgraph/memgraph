@@ -14,7 +14,9 @@
 #include <cstdint>
 #include <filesystem>
 #include <nlohmann/json_fwd.hpp>
+#include <optional>
 #include <string>
+#include <string_view>
 #include <unordered_set>
 #include <vector>
 
@@ -64,6 +66,19 @@ std::unordered_set<std::string> ExtractCPUFlags(const std::vector<std::string> &
 std::string ExtractArmCPUVariant(const std::vector<std::string> &cpu_data);
 
 RuntimeEnv DetectRuntimeEnv();
+
+inline constexpr auto kKubernetesServiceAccountTokenPath = "/var/run/secrets/kubernetes.io/serviceaccount/token";
+
+/// Extracts the pod UID from a Kubernetes service account token (a JWT). Bound service account tokens, which are
+/// projected into pods by default, carry it in the `kubernetes.io.pod.uid` claim. Only the payload is decoded; the
+/// signature isn't verified, so never use the result for anything security-related. Returns nullopt if the token can't
+/// be parsed, doesn't have the claim (e.g. a legacy secret-based token), or the claim isn't a UUID.
+std::optional<std::string> ExtractPodUidFromServiceAccountToken(std::string_view token);
+
+/// Reads the service account token mounted into the pod and returns the pod UID from it. Returns nullopt if the token
+/// isn't mounted (e.g. not running in Kubernetes, or `automountServiceAccountToken: false`) or doesn't carry the UID.
+std::optional<std::string> GetKubernetesPodUid(
+    const std::filesystem::path &token_path = kKubernetesServiceAccountTokenPath);
 
 /**
  * Returns the number of hardware threads available, with a guaranteed
