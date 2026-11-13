@@ -48,7 +48,7 @@ inline constexpr auto kInstallIdFileName = ".memgraph_install_id";
 /// last for the current run. Call it only while holding the data directory lock.
 std::string GetOrCreateInstallId(const std::filesystem::path &data_directory);
 
-/// Reads the hostname from /etc/hostname. Returns "UNKNOWN" if it can't be read.
+/// Returns the hostname reported by gethostname(2), falling back to /etc/hostname. Returns "UNKNOWN" if neither works.
 std::string GetHostname();
 
 MemoryInfo GetMemoryInfo();

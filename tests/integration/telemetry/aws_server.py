@@ -167,6 +167,7 @@ def verify_storage(storage, args):
         assert "machine_id" in item, f"Missing 'machine_id' field in item {i}"
         assert "install_id" in item, f"Missing 'install_id' field in item {i}"
         assert "hostname" in item, f"Missing 'hostname' field in item {i}"
+        assert "k8s_pod_uid" in item, f"Missing 'k8s_pod_uid' field in item {i}"
         assert "run_id" in item, f"Missing 'run_id' field in item {i}"
         assert "timestamp" in item, f"Missing 'timestamp' field in item {i}"
         assert "type" in item, f"Missing 'type' field in item {i}"

@@ -1566,6 +1566,10 @@ add_unit_test(utils_k8s_pod_uid
     SOURCES utils_k8s_pod_uid.cpp
     LINK_TARGETS mg-utils)
 
+add_unit_test(utils_hostname
+    SOURCES utils_hostname.cpp
+    LINK_TARGETS mg-utils)
+
 # Test log retention cleanup
 add_unit_test(logging
     SOURCES logging.cpp

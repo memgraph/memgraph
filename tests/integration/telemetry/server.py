@@ -73,6 +73,7 @@ def build_handler(storage, args):
                 assert "machine_id" in item
                 assert "install_id" in item
                 assert "hostname" in item
+                assert "k8s_pod_uid" in item
                 assert "data" in item
                 assert "timestamp" in item
                 storage.append(item)

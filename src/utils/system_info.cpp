@@ -14,13 +14,18 @@
 #include <fmt/format.h>
 #include <gflags/gflags.h>
 #include <sys/utsname.h>
+#include <unistd.h>
 #include <algorithm>
+#include <array>
+#include <climits>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
 #include <nlohmann/json.hpp>
 #include <string>
+#include <string_view>
+#include <system_error>
 #include <thread>
 #include <vector>
 
@@ -50,7 +55,7 @@ std::string GetMachineId() {
 namespace {
 bool IsValidUUID(std::string_view str) {
   try {
-    UUID{}.set(str);
+    UUID{}.set(std::string{str});
     return true;
   } catch (const std::invalid_argument &) {
     return false;
@@ -93,7 +98,15 @@ std::string GetOrCreateInstallId(const std::filesystem::path &data_directory) {
 }
 
 std::string GetHostname() {
-  // /etc/hostname holds a single hostname line; skip blank lines and surrounding whitespace.
+  // The kernel's hostname is what `hostname` prints. Docker and Kubernetes set it to the container/pod name.
+  std::array<char, HOST_NAME_MAX + 1> buffer{};
+  if (::gethostname(buffer.data(), buffer.size() - 1) == 0) {
+    // The buffer is one byte larger than what gethostname may fill, so it's always NUL-terminated, even if truncated.
+    const std::string_view hostname{buffer.data()};
+    // "(none)" is the kernel's placeholder for a hostname that was never set.
+    if (!hostname.empty() && hostname != "(none)") return std::string{hostname};
+  }
+  // Fall back to the configured hostname. It holds a single line; skip blank lines and surrounding whitespace.
   for (const auto &line : memgraph::utils::ReadLines("/etc/hostname")) {
     auto hostname = utils::Trim(line);
     if (!hostname.empty()) return std::string{hostname};
@@ -276,11 +289,11 @@ std::optional<std::string> ExtractPodUidFromServiceAccountToken(std::string_view
 
   std::string payload{token.substr(first_dot + 1, second_dot - first_dot - 1)};
   if (payload.empty()) return std::nullopt;
-  payload.append((4 - payload.size() % 4) % 4, '=');
+  payload.append((4 - (payload.size() % 4)) % 4, '=');
 
   try {
     const auto claims = nlohmann::json::parse(base64_decode(payload));
-    const auto pod_uid = claims.at("kubernetes.io").at("pod").at("uid").get<std::string>();
+    auto pod_uid = claims.at("kubernetes.io").at("pod").at("uid").get<std::string>();
     // Pod UIDs are UUIDs; anything else means this isn't the claim we expect, so don't report it.
     if (!IsValidUUID(pod_uid)) return std::nullopt;
     return pod_uid;
