@@ -561,6 +561,7 @@ Feature: Indexed label disjunction scan
             | h | c |
             | 1 | 6 |
 
+    # Only the per-row Gid set ends this; a one-label scan of the same shape still repeats without end (issue #5012).
     Scenario: A property raised in a writing subquery does not repeat a node within its branch (indexes :A(p), :B(p))
         Given with new index :A(p)
         And with new index :B(p)
