@@ -52,6 +52,20 @@ static_assert(std::ranges::sized_range<ExpandedEdges>);
 namespace {
 const std::vector<EdgeTypeId> kNoEdgeTypes;
 
+// True if the replay for (transaction, delta, view) will undo an edge delta of direction `dir`.
+template <EdgeDirection dir>
+bool ReplaysEdgeDeltas(Transaction const *transaction, Delta const *delta, View view) {
+  bool replays = false;
+  ApplyDeltasForRead(transaction, delta, view, [&replays](const Delta &d) {
+    if constexpr (dir == EdgeDirection::IN) {
+      replays |= d.action == Delta::Action::ADD_IN_EDGE || d.action == Delta::Action::REMOVE_IN_EDGE;
+    } else {
+      replays |= d.action == Delta::Action::ADD_OUT_EDGE || d.action == Delta::Action::REMOVE_OUT_EDGE;
+    }
+  });
+  return replays;
+}
+
 void HandleTypeConstraintViolation(Storage const *storage, ConstraintViolation const &violation) {
   throw TypeConstraintViolationException("IS TYPED {} violation on {}({})",
                                          TypeConstraintKindToString(*violation.constraint_kind),
@@ -1045,9 +1059,8 @@ Result<EdgesVertexAccessorResult> VertexAccessor::InEdges(View view, const std::
     deleted = vertex_->deleted();
     delta = vertex_->delta();
     // The replay mutates the list, so the hop budget and the filter must come after it, and the
-    // hops-unaware cache must not see a budget-cut list.
-    defer_hops = hops_limit && hops_limit->IsUsed() && delta &&
-                 transaction_->isolation_level != IsolationLevel::READ_UNCOMMITTED;
+    // hops-unaware cache must not see a budget-cut list. Defer only if the replay will touch this list.
+    defer_hops = hops_limit && hops_limit->IsUsed() && ReplaysEdgeDeltas<EdgeDirection::IN>(transaction_, delta, view);
     if (defer_hops) {
       in_edges = vertex_->in_edges;
     } else if (edge_types.empty() && !destination) {
@@ -1062,7 +1075,7 @@ Result<EdgesVertexAccessorResult> VertexAccessor::InEdges(View view, const std::
   if (delta && transaction_->isolation_level != IsolationLevel::READ_UNCOMMITTED) {
     // IsolationLevel::READ_COMMITTED would be tricky to propagate invalidation to
     // so for now only cache for IsolationLevel::SNAPSHOT_ISOLATION
-    auto const useCache = !defer_hops && transaction_->UseCache();
+    auto const useCache = !(hops_limit && hops_limit->IsUsed()) && transaction_->UseCache();
     if (useCache) {
       auto const &cache = transaction_->manyDeltasCache;
       if (auto resError = HasError(view, cache, vertex_, for_deleted_); resError) return std::unexpected{*resError};
@@ -1156,9 +1169,8 @@ Result<EdgesVertexAccessorResult> VertexAccessor::OutEdges(View view, const std:
     deleted = vertex_->deleted();
     delta = vertex_->delta();
     // The replay mutates the list, so the hop budget and the filter must come after it, and the
-    // hops-unaware cache must not see a budget-cut list.
-    defer_hops = hops_limit && hops_limit->IsUsed() && delta &&
-                 transaction_->isolation_level != IsolationLevel::READ_UNCOMMITTED;
+    // hops-unaware cache must not see a budget-cut list. Defer only if the replay will touch this list.
+    defer_hops = hops_limit && hops_limit->IsUsed() && ReplaysEdgeDeltas<EdgeDirection::OUT>(transaction_, delta, view);
     if (defer_hops) {
       out_edges = vertex_->out_edges;
     } else if (edge_types.empty() && !destination) {
@@ -1174,7 +1186,7 @@ Result<EdgesVertexAccessorResult> VertexAccessor::OutEdges(View view, const std:
   if (delta && transaction_->isolation_level != IsolationLevel::READ_UNCOMMITTED) {
     // IsolationLevel::READ_COMMITTED would be tricky to propagate invalidation to
     // so for now only cache for IsolationLevel::SNAPSHOT_ISOLATION
-    auto const useCache = !defer_hops && transaction_->UseCache();
+    auto const useCache = !(hops_limit && hops_limit->IsUsed()) && transaction_->UseCache();
     if (useCache) {
       auto const &cache = transaction_->manyDeltasCache;
       if (auto resError = HasError(view, cache, vertex_, for_deleted_); resError) return std::unexpected{*resError};
