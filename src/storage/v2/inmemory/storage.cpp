@@ -614,6 +614,19 @@ InMemoryStorage::InMemoryAccessor::InMemoryAccessor(InMemoryStorage *storage,
                                                     utils::ResourceLockGuard guard)
     : Accessor(storage, override_isolation_level, std::move(guard)), config_(storage->config_.salient.items) {}
 
+#ifdef MG_ENTERPRISE
+InMemoryStorage::InMemoryAccessor::InMemoryAccessor(HistoricalAccess tag, InMemoryStorage *storage,
+                                                    std::function<Transaction()> build_transaction,
+                                                    std::optional<std::chrono::milliseconds> timeout)
+    : Accessor(tag, storage, std::move(build_transaction), timeout), config_(storage->config_.salient.items) {}
+
+void InMemoryStorage::InMemoryAccessor::ReleaseHistoricalPin() {
+  if (std::exchange(transaction_.holds_fork_pin_, false)) {
+    static_cast<InMemoryStorage *>(storage_)->ReleaseForkPin(transaction_.start_timestamp);
+  }
+}
+#endif
+
 InMemoryStorage::InMemoryAccessor::InMemoryAccessor(InMemoryAccessor &&other) noexcept
     : Accessor(std::move(other)), config_(other.config_) {}
 
@@ -1075,6 +1088,15 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
   const bool narrowing = mem_storage->config_.experimental_commit_lock_narrowing;
 
   PublishIndexArming();
+
+#ifdef MG_ENTERPRISE
+  if (transaction_.is_historical_) [[unlikely]] {
+    // MVCC writes already threw (EnsureCommitInfoExists); refuse metadata-only ones before they take effect.
+    if (!transaction_.md_deltas.empty()) throw WriteInHistoricalAccessorException();
+    ReleaseHistoricalPin();
+    return {};
+  }
+#endif
 
   // TODO: duplicated transaction finalization in md_deltas and deltas processing cases
   if (transaction_.deltas.empty() && transaction_.md_deltas.empty()) {
@@ -1896,7 +1918,15 @@ void InMemoryStorage::InMemoryAccessor::Abort(ProgressCallback const &on_progres
 
   transaction_.abort_callbacks_.RunAll();
 
+#ifdef MG_ENTERPRISE
+  if (!transaction_.is_historical_) [[likely]] {
+    mem_storage->commit_log_->MarkFinished(transaction_.start_timestamp);
+  } else {
+    ReleaseHistoricalPin();
+  }
+#else
   mem_storage->commit_log_->MarkFinished(transaction_.start_timestamp);
+#endif
   is_transaction_active_ = false;
 }
 
@@ -3092,6 +3122,75 @@ std::optional<uint64_t> InMemoryStorage::OldestForkPin() const {
   auto const oldest = oldest_fork_pin_.load(std::memory_order_acquire);
   if (oldest == kNoForkPin) return std::nullopt;
   return oldest;
+}
+
+Transaction InMemoryStorage::CreateHistoricalTransaction(uint64_t fork_ts) {
+  uint64_t transaction_id = 0;
+  uint64_t last_durable_ts = 0;
+  uint64_t last_durable_num_committed_txns = 0;
+  std::optional<PointIndexContext> point_index_context;
+  ActiveIndicesPtr active_indices;
+  ActiveConstraintsPtr active_constraints;
+  {
+    auto guard = std::scoped_lock{engine_lock_};
+    transaction_id = transaction_id_++;
+    // Current (not fork-era) index snapshot: scans re-check MVCC visibility at fork_ts, so results stay correct.
+    point_index_context = indices_.point_index_.CreatePointIndexContext();
+    auto commit_ts_info = repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire);
+    last_durable_ts = commit_ts_info.ldt_;
+    last_durable_num_committed_txns = commit_ts_info.num_committed_txns_;
+    active_indices = GetActiveIndices();
+    active_constraints = GetActiveConstraints();
+  }
+
+  auto async_index_helper = AsyncIndexHelper{config_, *active_indices, fork_ts};
+
+  DMG_ASSERT(point_index_context.has_value(), "Expected a value, even if got 0 point indexes");
+  Transaction transaction{transaction_id,
+                          fork_ts,
+                          IsolationLevel::SNAPSHOT_ISOLATION,
+                          storage_mode_,
+                          false,
+                          *std::move(point_index_context),
+                          std::move(active_indices),
+                          std::move(active_constraints),
+                          std::move(async_index_helper),
+                          last_durable_ts,
+                          last_durable_num_committed_txns,
+                          metric_handles_.unreleased_delta_objects};
+  // commit_lock_narrowing stays false: fork_ts is a clean cut (RegisterForkPin: every commit below it was published,
+  // every in-flight one minted >= it), so plain `ts < start_timestamp` visibility is exact.
+  transaction.is_historical_ = true;
+  transaction.holds_fork_pin_ = true;
+  return transaction;
+}
+
+std::expected<std::unique_ptr<Storage::Accessor>, InMemoryStorage::HistoricalAccessError>
+InMemoryStorage::HistoricalAccess(uint64_t fork_ts) {
+  {
+    // Check and self-pin in one critical section: a concurrent DROP BRANCH must not unpin fork_ts in between.
+    auto pin_guard = std::scoped_lock{version_fork_pin_lock_};
+    if (!version_fork_pins_.contains(fork_ts)) {
+      return std::unexpected{HistoricalAccessError::ForkTimestampNotPinned};
+    }
+    version_fork_pins_.insert(fork_ts);
+    oldest_fork_pin_.store(*version_fork_pins_.begin(), std::memory_order_release);
+  }
+  std::unique_ptr<Storage::Accessor> accessor;
+  try {
+    accessor.reset(new InMemoryAccessor{Storage::Accessor::historical_access,
+                                        this,
+                                        [this, fork_ts] { return CreateHistoricalTransaction(fork_ts); },
+                                        std::nullopt});
+  } catch (...) {
+    ReleaseForkPin(fork_ts);  // No accessor took ownership of the self-pin.
+    throw;
+  }
+  // Read under the accessor's guard, so SetStorageMode (UNIQUE) cannot change it while the accessor lives.
+  if (accessor->GetTransaction()->storage_mode != StorageMode::IN_MEMORY_TRANSACTIONAL) {
+    return std::unexpected{HistoricalAccessError::StorageModeNotTransactional};  // ~accessor releases the self-pin
+  }
+  return accessor;
 }
 #endif
 
@@ -5638,6 +5737,12 @@ void InMemoryStorage::Clear(std::function<void()> const &on_progress) {
 }
 
 bool InMemoryStorage::InMemoryAccessor::PointIndexExists(LabelId label, PropertyId property) const {
+#ifdef MG_ENTERPRISE
+  // The point index holds only current values; reporting it absent makes a historical read scan instead.
+  if (transaction_.is_historical_) [[unlikely]] {
+    return false;
+  }
+#endif
   return transaction_.active_indices_->point_->PointIndexExists(label, property);
 }
 
@@ -5802,6 +5907,12 @@ auto InMemoryStorage::InMemoryAccessor::PointVertices(LabelId label, PropertyId 
 
 std::vector<std::tuple<VertexAccessor, double, double>> InMemoryStorage::InMemoryAccessor::VectorIndexSearchOnNodes(
     const std::string &index_name, uint64_t number_of_results, const std::vector<float> &vector) {
+#ifdef MG_ENTERPRISE
+  // The vector index holds only current values and returns hits without an MVCC check.
+  if (transaction_.is_historical_) [[unlikely]] {
+    throw VectorSearchException(kVectorSearchOnHistorical);
+  }
+#endif
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
   std::vector<std::tuple<VertexAccessor, double, double>> result;
 
@@ -5819,6 +5930,12 @@ std::vector<std::tuple<VertexAccessor, double, double>> InMemoryStorage::InMemor
 
 std::vector<std::tuple<EdgeAccessor, double, double>> InMemoryStorage::InMemoryAccessor::VectorIndexSearchOnEdges(
     const std::string &index_name, uint64_t number_of_results, const std::vector<float> &vector) {
+#ifdef MG_ENTERPRISE
+  // The vector index holds only current values and returns hits without an MVCC check.
+  if (transaction_.is_historical_) [[unlikely]] {
+    throw VectorSearchException(kVectorSearchOnHistorical);
+  }
+#endif
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
   std::vector<std::tuple<EdgeAccessor, double, double>> result;
 
