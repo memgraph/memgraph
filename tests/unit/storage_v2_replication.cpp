@@ -46,6 +46,7 @@
 #include "storage/v2/inmemory/replication/recovery.hpp"
 #include "storage/v2/replication/recovery.hpp"
 #include "storage/v2/storage.hpp"
+#include "storage/v2/transaction_constants.hpp"
 #include "storage/v2/view.hpp"
 #include "tests/test_commit_args_helper.hpp"
 #include "tests/unit/storage_test_utils.hpp"
@@ -1921,6 +1922,71 @@ TEST_F(ReplicationTest, RecoveryStepsAfterPeriodicSnapshot) {
       return std::holds_alternative<memgraph::storage::RecoverySnapshot>(step);
     })) << "the WAL chain reproduces everything, so shipping the snapshot is pure waste";
   }
+}
+
+// With no finalized WAL, the current WAL replaces a periodic snapshot newer than the replica only when it starts no
+// later than the commit after the replica's.
+TEST_F(ReplicationTest, RecoveryStepsWithOnlyCurrentWal) {
+  MinMemgraph main(main_conf);
+  auto *in_mem = static_cast<InMemoryStorage *>(main.db.storage());
+
+  memgraph::utils::FileRetainer file_retainer;
+  auto file_locker = file_retainer.AddLocker();
+
+  auto create_vertex_and_commit = [&]() {
+    const memgraph::memory::DbArenaScope arena_scope{&main.db.Arena()};
+    auto acc = in_mem->Access(memgraph::storage::WRITE);
+    acc->CreateVertex();
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  };
+
+  // A transaction takes a timestamp when it starts, so these reads leave a replica commit between the initial
+  // timestamp and the first commit
+  for (auto i = 0; i < 2; ++i) {
+    const memgraph::memory::DbArenaScope arena_scope{&main.db.Arena()};
+    auto const acc = in_mem->Access(memgraph::storage::READ);
+  }
+  create_vertex_and_commit();
+  // The current WAL opens on the first commit, so it starts at that commit's timestamp
+  auto const current_wal_from = in_mem->repl_storage_state_.commit_ts_info_.load().ldt_;
+  ASSERT_EQ(current_wal_from, 3);
+  create_vertex_and_commit();
+  ASSERT_TRUE(in_mem->CreateSnapshot().has_value());
+
+  const memgraph::memory::DbArenaScope arena_scope{&main.db.Arena()};
+  auto const steps_without_gap = GetRecoverySteps(current_wal_from - 1, &file_locker, in_mem);
+  ASSERT_TRUE(steps_without_gap.has_value());
+  ASSERT_EQ(steps_without_gap->size(), 1);
+  EXPECT_TRUE(std::holds_alternative<memgraph::storage::RecoveryCurrentWal>(steps_without_gap->front()));
+
+  auto const steps_with_gap = GetRecoverySteps(current_wal_from - 2, &file_locker, in_mem);
+  ASSERT_TRUE(steps_with_gap.has_value());
+  ASSERT_EQ(steps_with_gap->size(), 1);
+  EXPECT_TRUE(std::holds_alternative<memgraph::storage::RecoverySnapshot>(steps_with_gap->front()));
+}
+
+// A replica at the initial timestamp gets the snapshot even when the current WAL holds the whole history.
+TEST_F(ReplicationTest, RecoveryStepsFromInitialTimestampKeepSnapshot) {
+  MinMemgraph main(main_conf);
+  auto *in_mem = static_cast<InMemoryStorage *>(main.db.storage());
+
+  memgraph::utils::FileRetainer file_retainer;
+  auto file_locker = file_retainer.AddLocker();
+
+  {
+    const memgraph::memory::DbArenaScope arena_scope{&main.db.Arena()};
+    auto acc = in_mem->Access(memgraph::storage::WRITE);
+    acc->CreateVertex();
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+  ASSERT_EQ(in_mem->repl_storage_state_.commit_ts_info_.load().ldt_, 1);
+  ASSERT_TRUE(in_mem->CreateSnapshot().has_value());
+
+  const memgraph::memory::DbArenaScope arena_scope{&main.db.Arena()};
+  auto const steps = GetRecoverySteps(memgraph::storage::kTimestampInitialId, &file_locker, in_mem);
+  ASSERT_TRUE(steps.has_value());
+  ASSERT_EQ(steps->size(), 1);
+  EXPECT_TRUE(std::holds_alternative<memgraph::storage::RecoverySnapshot>(steps->front()));
 }
 
 // Analytical writes are never appended to the WAL, so a storage that replicates must not be allowed to
