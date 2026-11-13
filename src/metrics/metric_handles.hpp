@@ -11,6 +11,8 @@
 
 #pragma once
 
+#include <cstdint>
+
 #include <prometheus/counter.h>
 #include <prometheus/gauge.h>
 #include <prometheus/histogram.h>
@@ -87,12 +89,19 @@ struct ReplicaMetricHandles {
   HistogramHandle wal_files_rpc_seconds;
   HistogramHandle frequent_heartbeat_rpc_seconds;
   HistogramHandle system_recovery_rpc_seconds;
+};
+
+// Recovery outcomes of one replica for one database, as seen by the main.
+struct ReplicaDatabaseMetricHandles {
   CounterHandle replica_recovery_success;
   CounterHandle replica_recovery_fail;
   CounterHandle replica_recovery_skip;
 };
 
 struct DatabaseMetricHandles {
+  // Identifies the database's metrics entry; 0 when the database has no metrics.
+  uint64_t entry_id{0};
+
   // Storage
   GaugeHandle vertex_count;
   GaugeHandle edge_count;

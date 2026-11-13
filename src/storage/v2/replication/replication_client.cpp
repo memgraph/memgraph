@@ -696,6 +696,9 @@ auto ReplicationStorageClient::FinalizeTransactionReplication(DatabaseProtector 
 
 void ReplicationStorageClient::Start(Storage *storage, DatabaseProtector const &protector) {
   spdlog::info("Replication client started for database \"{}\"", storage->name());
+  if (auto const entry_id = storage->metric_handles_.entry_id; entry_id != 0) {
+    recovery_metrics_ = metrics::Metrics().AddReplicaDatabase(entry_id, client_.name_);
+  }
   TryCheckReplicaStateSync(storage, protector);
 }
 
@@ -748,7 +751,7 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, S
     spdlog::info("Replica {} is not in RECOVERY state anymore for db {}, ending the recovery task.",
                  client_.name_,
                  main_db_name);
-    client_.metrics_.handles().replica_recovery_skip.Increment();
+    recovery_metrics_.handles().replica_recovery_skip.Increment();
     return;
   }
 
@@ -991,7 +994,7 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, S
       atomic_struct_update<CommitTsInfo>(commit_ts_info_, std::move(update_func));
       replica_state_.WithLock([](auto &val) { val = ReplicaState::MAYBE_BEHIND; });
       LogRpcFailure();
-      client_.metrics_.handles().replica_recovery_fail.Increment();
+      recovery_metrics_.handles().replica_recovery_fail.Increment();
       return;
     }
     // If recovery failed, set the state to MAYBE_BEHIND because replica for sure didn't recover completely
@@ -1002,14 +1005,14 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, S
       };
       atomic_struct_update<CommitTsInfo>(commit_ts_info_, std::move(update_func));
       replica_state_.WithLock([](auto &val) { val = ReplicaState::MAYBE_BEHIND; });
-      client_.metrics_.handles().replica_recovery_fail.Increment();
+      recovery_metrics_.handles().replica_recovery_fail.Increment();
       return;
     }
   }
 
   // Success here means that the recovery finished. Doesn't matter if there are some commits which happened during
   // the recovery, the important thing here is that it finished.
-  client_.metrics_.handles().replica_recovery_success.Increment();
+  recovery_metrics_.handles().replica_recovery_success.Increment();
 
   // Protect the exit from the recovery. Otherwise, FinalizeTransactionReplication()
   // could check that the replica state isn't replicating, this recovery sets the

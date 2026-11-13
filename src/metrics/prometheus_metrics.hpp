@@ -15,6 +15,7 @@
 #include <expected>
 #include <functional>
 #include <list>
+#include <map>
 #include <mutex>
 #include <optional>
 #include <shared_mutex>
@@ -215,32 +216,56 @@ class PrometheusMetrics {
 
   /// Owns one registration of a replica's metrics and releases it on destruction. Move-only, so
   /// exactly one object releases each registration.
-  class ReplicaRegistration {
+  template <typename Key, typename Handles>
+  class HandleRegistration {
    public:
-    ReplicaRegistration() = default;
-    ~ReplicaRegistration();
+    HandleRegistration() = default;
 
-    ReplicaRegistration(ReplicaRegistration &&other) noexcept;
-    ReplicaRegistration &operator=(ReplicaRegistration &&other) noexcept;
-    ReplicaRegistration(ReplicaRegistration const &) = delete;
-    ReplicaRegistration &operator=(ReplicaRegistration const &) = delete;
+    ~HandleRegistration() { Release(); }
 
-    ReplicaMetricHandles const &handles() const { return handles_; }
+    HandleRegistration(HandleRegistration &&other) noexcept
+        : registry_(std::exchange(other.registry_, nullptr)),
+          key_(std::move(other.key_)),
+          handles_(std::exchange(other.handles_, Handles{})) {}
+
+    HandleRegistration &operator=(HandleRegistration &&other) noexcept {
+      if (this == &other) return *this;
+      Release();
+      registry_ = std::exchange(other.registry_, nullptr);
+      key_ = std::move(other.key_);
+      handles_ = std::exchange(other.handles_, Handles{});
+      return *this;
+    }
+
+    HandleRegistration(HandleRegistration const &) = delete;
+    HandleRegistration &operator=(HandleRegistration const &) = delete;
+
+    Handles const &handles() const { return handles_; }
 
    private:
     friend class PrometheusMetrics;
 
-    ReplicaRegistration(PrometheusMetrics *registry, std::string instance_name, ReplicaMetricHandles handles)
-        : registry_(registry), instance_name_(std::move(instance_name)), handles_(handles) {}
+    HandleRegistration(PrometheusMetrics *registry, Key key, Handles handles)
+        : registry_(registry), key_(std::move(key)), handles_(handles) {}
 
-    void Release() noexcept;
+    void Release() noexcept {
+      if (registry_ == nullptr) return;
+      std::exchange(registry_, nullptr)->ReleaseReplica(key_);
+      handles_ = {};
+    }
 
     PrometheusMetrics *registry_{nullptr};
-    std::string instance_name_;
-    ReplicaMetricHandles handles_{};
+    Key key_{};
+    Handles handles_{};
   };
 
+  using ReplicaRegistration = HandleRegistration<std::string, ReplicaMetricHandles>;
+  // Keyed by the database's metrics entry id and the replica's name.
+  using ReplicaDatabaseRegistration =
+      HandleRegistration<std::pair<uint64_t, std::string>, ReplicaDatabaseMetricHandles>;
+
   [[nodiscard]] ReplicaRegistration AddReplica(std::string_view instance_name);
+  [[nodiscard]] ReplicaDatabaseRegistration AddReplicaDatabase(uint64_t entry_id, std::string_view instance_name);
 
   /// Relabels the default database's entry onto @p new_uuid. The metric objects stay put, so
   /// every outstanding handle, ScopedGauge and delta_container keeps pointing at a live object.
@@ -321,11 +346,12 @@ class PrometheusMetrics {
   StorageSnapshot ResolveStorageSnapshot(utils::UUID const &uuid) const;
 
   void ReleaseReplica(std::string const &instance_name);
+  void ReleaseReplica(std::pair<uint64_t, std::string> const &key);
   // Every live replica's observations of the histogram that `member` selects.
   std::vector<prometheus::ClientMetric::Histogram> ReplicaHistograms(
       HistogramHandle ReplicaMetricHandles::*member) const;
   // Live replicas' counts plus those of replicas already released.
-  int64_t ReplicaRecoveries(CounterHandle ReplicaMetricHandles::*member) const;
+  int64_t ReplicaRecoveries(CounterHandle ReplicaDatabaseMetricHandles::*member) const;
 
   prometheus::Registry registry_;
 
@@ -335,18 +361,20 @@ class PrometheusMetrics {
     uint64_t next_entry_id{1};
   } databases_;
 
+  template <typename Handles>
   struct ReplicaEntry {
-    ReplicaMetricHandles handles;
-    // Registrations of one replica name share every handle, because a family returns the metric it
+    Handles handles;
+    // Registrations of one key share every handle, because a family returns the metric it
     // already holds for a label set. The metrics go when the last registration does.
     std::size_t registrations{1};
   };
 
   struct {
     mutable std::mutex mutex;
-    std::unordered_map<std::string, ReplicaEntry> entries;
-    // Recovery counts of released replicas, so the totals reported without labels never decrease.
-    std::vector<std::pair<CounterHandle ReplicaMetricHandles::*, int64_t>> released_recoveries;
+    std::unordered_map<std::string, ReplicaEntry<ReplicaMetricHandles>> entries;
+    std::map<std::pair<uint64_t, std::string>, ReplicaEntry<ReplicaDatabaseMetricHandles>> databases;
+    // Recovery counts of released registrations, so the totals reported without labels never decrease.
+    std::vector<std::pair<CounterHandle ReplicaDatabaseMetricHandles::*, int64_t>> released_recoveries;
   } replicas_;
 
   std::unordered_map<std::string, int64_t> legacy_json_prev_ha_counter_values_;

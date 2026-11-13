@@ -937,6 +937,7 @@ DatabaseMetricHandles PrometheusMetrics::CreateHandles(uint64_t entry_id) {
   // current ones.
   prometheus::Labels const labels{{kEntryLabel, std::to_string(entry_id)}};
   return DatabaseMetricHandles{
+      .entry_id = entry_id,
       .vertex_count = {&vertex_count_family_.Add(labels)},
       .edge_count = {&edge_count_family_.Add(labels)},
       .disk_usage_bytes = {&disk_usage_family_.Add(labels)},
@@ -1078,28 +1079,6 @@ void PrometheusMetrics::Registration::Release() noexcept {
   handles_ = {};
 }
 
-PrometheusMetrics::ReplicaRegistration::~ReplicaRegistration() { Release(); }
-
-PrometheusMetrics::ReplicaRegistration::ReplicaRegistration(ReplicaRegistration &&other) noexcept
-    : registry_(std::exchange(other.registry_, nullptr)),
-      instance_name_(std::move(other.instance_name_)),
-      handles_(std::exchange(other.handles_, ReplicaMetricHandles{})) {}
-
-auto PrometheusMetrics::ReplicaRegistration::operator=(ReplicaRegistration &&other) noexcept -> ReplicaRegistration & {
-  if (this == &other) return *this;
-  Release();
-  registry_ = std::exchange(other.registry_, nullptr);
-  instance_name_ = std::move(other.instance_name_);
-  handles_ = std::exchange(other.handles_, ReplicaMetricHandles{});
-  return *this;
-}
-
-void PrometheusMetrics::ReplicaRegistration::Release() noexcept {
-  if (registry_ == nullptr) return;
-  std::exchange(registry_, nullptr)->ReleaseReplica(instance_name_);
-  handles_ = {};
-}
-
 auto PrometheusMetrics::AddReplica(std::string_view instance_name) -> ReplicaRegistration {
   std::scoped_lock const lock{replicas_.mutex};
   auto [it, inserted] = replicas_.entries.try_emplace(std::string{instance_name});
@@ -1119,11 +1098,25 @@ auto PrometheusMetrics::AddReplica(std::string_view instance_name) -> ReplicaReg
       .wal_files_rpc_seconds = {&wal_files_rpc_family_.Add(labels, kLatencyBuckets)},
       .frequent_heartbeat_rpc_seconds = {&frequent_heartbeat_rpc_family_.Add(labels, kLatencyBuckets)},
       .system_recovery_rpc_seconds = {&system_recovery_rpc_family_.Add(labels, kLatencyBuckets)},
+  };
+  return ReplicaRegistration{this, it->first, it->second.handles};
+}
+
+auto PrometheusMetrics::AddReplicaDatabase(uint64_t entry_id, std::string_view instance_name)
+    -> ReplicaDatabaseRegistration {
+  std::scoped_lock const lock{replicas_.mutex};
+  auto [it, inserted] = replicas_.databases.try_emplace({entry_id, std::string{instance_name}});
+  if (!inserted) {
+    ++it->second.registrations;
+    return ReplicaDatabaseRegistration{this, it->first, it->second.handles};
+  }
+  prometheus::Labels const labels{{kEntryLabel, std::to_string(entry_id)}, {"mg_instance", std::string{instance_name}}};
+  it->second.handles = ReplicaDatabaseMetricHandles{
       .replica_recovery_success = {&replica_recovery_success_family_.Add(labels)},
       .replica_recovery_fail = {&replica_recovery_fail_family_.Add(labels)},
       .replica_recovery_skip = {&replica_recovery_skip_family_.Add(labels)},
   };
-  return ReplicaRegistration{this, it->first, it->second.handles};
+  return ReplicaDatabaseRegistration{this, it->first, it->second.handles};
 }
 
 void PrometheusMetrics::ReleaseReplica(std::string const &instance_name) {
@@ -1133,18 +1126,6 @@ void PrometheusMetrics::ReleaseReplica(std::string const &instance_name) {
   if (--it->second.registrations > 0) return;
 
   auto const &h = it->second.handles;
-  for (auto const member : {&ReplicaMetricHandles::replica_recovery_success,
-                            &ReplicaMetricHandles::replica_recovery_fail,
-                            &ReplicaMetricHandles::replica_recovery_skip}) {
-    auto const released = static_cast<int64_t>((h.*member).Value());
-    if (auto total =
-            r::find(replicas_.released_recoveries, member, &decltype(replicas_.released_recoveries)::value_type::first);
-        total != replicas_.released_recoveries.end()) {
-      total->second += released;
-    } else {
-      replicas_.released_recoveries.emplace_back(member, released);
-    }
-  }
   start_txn_replication_family_.Remove(h.start_txn_replication_seconds.get());
   finalize_txn_replication_family_.Remove(h.finalize_txn_replication_seconds.get());
   replica_stream_family_.Remove(h.replica_stream_seconds.get());
@@ -1155,10 +1136,32 @@ void PrometheusMetrics::ReleaseReplica(std::string const &instance_name) {
   wal_files_rpc_family_.Remove(h.wal_files_rpc_seconds.get());
   frequent_heartbeat_rpc_family_.Remove(h.frequent_heartbeat_rpc_seconds.get());
   system_recovery_rpc_family_.Remove(h.system_recovery_rpc_seconds.get());
+  replicas_.entries.erase(it);
+}
+
+void PrometheusMetrics::ReleaseReplica(std::pair<uint64_t, std::string> const &key) {
+  std::scoped_lock const lock{replicas_.mutex};
+  auto const it = replicas_.databases.find(key);
+  DMG_ASSERT(it != replicas_.databases.end(), "Releasing replica {} that holds no registration", key.second);
+  if (--it->second.registrations > 0) return;
+
+  auto const &h = it->second.handles;
+  for (auto const member : {&ReplicaDatabaseMetricHandles::replica_recovery_success,
+                            &ReplicaDatabaseMetricHandles::replica_recovery_fail,
+                            &ReplicaDatabaseMetricHandles::replica_recovery_skip}) {
+    auto const released = static_cast<int64_t>((h.*member).Value());
+    if (auto total =
+            r::find(replicas_.released_recoveries, member, &decltype(replicas_.released_recoveries)::value_type::first);
+        total != replicas_.released_recoveries.end()) {
+      total->second += released;
+    } else {
+      replicas_.released_recoveries.emplace_back(member, released);
+    }
+  }
   replica_recovery_success_family_.Remove(h.replica_recovery_success.get());
   replica_recovery_fail_family_.Remove(h.replica_recovery_fail.get());
   replica_recovery_skip_family_.Remove(h.replica_recovery_skip.get());
-  replicas_.entries.erase(it);
+  replicas_.databases.erase(it);
 }
 
 auto PrometheusMetrics::ReplicaHistograms(HistogramHandle ReplicaMetricHandles::*member) const
@@ -1169,9 +1172,9 @@ auto PrometheusMetrics::ReplicaHistograms(HistogramHandle ReplicaMetricHandles::
          r::to<std::vector>();
 }
 
-int64_t PrometheusMetrics::ReplicaRecoveries(CounterHandle ReplicaMetricHandles::*member) const {
+int64_t PrometheusMetrics::ReplicaRecoveries(CounterHandle ReplicaDatabaseMetricHandles::*member) const {
   std::scoped_lock const lock{replicas_.mutex};
-  auto const live = r::fold_left(replicas_.entries | rv::values | rv::transform([member](auto const &entry) {
+  auto const live = r::fold_left(replicas_.databases | rv::values | rv::transform([member](auto const &entry) {
                                    return static_cast<int64_t>((entry.handles.*member).Value());
                                  }),
                                  int64_t{0},
@@ -2260,15 +2263,15 @@ std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfo() const {
   out.push_back({"ReplicaRecoverySuccess",
                  "HighAvailability",
                  "Counter",
-                 ReplicaRecoveries(&ReplicaMetricHandles::replica_recovery_success)});
+                 ReplicaRecoveries(&ReplicaDatabaseMetricHandles::replica_recovery_success)});
   out.push_back({"ReplicaRecoveryFail",
                  "HighAvailability",
                  "Counter",
-                 ReplicaRecoveries(&ReplicaMetricHandles::replica_recovery_fail)});
+                 ReplicaRecoveries(&ReplicaDatabaseMetricHandles::replica_recovery_fail)});
   out.push_back({"ReplicaRecoverySkip",
                  "HighAvailability",
                  "Counter",
-                 ReplicaRecoveries(&ReplicaMetricHandles::replica_recovery_skip)});
+                 ReplicaRecoveries(&ReplicaDatabaseMetricHandles::replica_recovery_skip)});
   out.push_back({"StateCheckRpcSuccess",
                  "HighAvailability",
                  "Counter",
@@ -2690,9 +2693,9 @@ nlohmann::json PrometheusMetrics::GetTelemetryCounters() const {
     {"DemoteInstance", static_cast<int64_t>(global.demote_instance->Value())},
     {"UnregisterReplInstance", static_cast<int64_t>(global.unregister_repl_instance->Value())},
     {"RemoveCoordInstance", static_cast<int64_t>(global.remove_coord_instance->Value())},
-    {"ReplicaRecoverySuccess", ReplicaRecoveries(&ReplicaMetricHandles::replica_recovery_success)},
-    {"ReplicaRecoveryFail", ReplicaRecoveries(&ReplicaMetricHandles::replica_recovery_fail)},
-    {"ReplicaRecoverySkip", ReplicaRecoveries(&ReplicaMetricHandles::replica_recovery_skip)},
+    {"ReplicaRecoverySuccess", ReplicaRecoveries(&ReplicaDatabaseMetricHandles::replica_recovery_success)},
+    {"ReplicaRecoveryFail", ReplicaRecoveries(&ReplicaDatabaseMetricHandles::replica_recovery_fail)},
+    {"ReplicaRecoverySkip", ReplicaRecoveries(&ReplicaDatabaseMetricHandles::replica_recovery_skip)},
     {"StateCheckRpcSuccess", static_cast<int64_t>(global.state_check_rpc_success->Value())},
     {"StateCheckRpcFail", static_cast<int64_t>(global.state_check_rpc_fail->Value())},
     {"UnregisterReplicaRpcSuccess", static_cast<int64_t>(global.unregister_replica_rpc_success->Value())},

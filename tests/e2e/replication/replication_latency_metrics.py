@@ -118,7 +118,8 @@ def counts(name):
 
 
 def count(name, **labels):
-    return counts(name).get(frozenset(labels.items()), 0.0)
+    """Sum over the series of `name` that carry every given label."""
+    return sum(value for series, value in counts(name).items() if frozenset(labels.items()) <= series)
 
 
 def test_commit_latencies_are_labelled_by_replica(test_name):
@@ -159,7 +160,7 @@ def test_recovery_is_counted_for_the_recovered_replica(test_name):
 
     mg_sleep_and_assert_eval_function(
         lambda c: c >= 1,
-        lambda: count("memgraph_replica_recovery_success_total", mg_instance="replica_2"),
+        lambda: count("memgraph_replica_recovery_success_total", mg_instance="replica_2", database="memgraph"),
     )
     assert sum(count(name, mg_instance="replica_2") for name in RECOVERY_RPC_HISTOGRAMS) >= 1
     assert count("memgraph_replica_recovery_success_total", mg_instance="replica_1") == 0
