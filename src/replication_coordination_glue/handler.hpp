@@ -10,6 +10,8 @@
 // licenses/APL.txt.
 #pragma once
 
+#include <utility>
+
 #include "metrics/prometheus_metrics.hpp"
 #include "rpc/client.hpp"
 #include "utils/uuid.hpp"
@@ -36,10 +38,10 @@ inline bool SendSwapMainUUIDRpc(rpc::Client &rpc_client_, const utils::UUID &uui
   return false;
 }
 
-inline void FrequentHeartbeatHandler(uint64_t const request_version, slk::Reader *req_reader,
-                                     slk::Builder *res_builder) {
+inline void FrequentHeartbeatHandler(uint64_t const request_version, slk::Reader *req_reader, slk::Builder *res_builder,
+                                     DatabaseCommitTimestamps database_commit_timestamps) {
   FrequentHeartbeatReq req;
   rpc::LoadWithUpgrade(req, request_version, req_reader);
-  rpc::SendFinalResponse(FrequentHeartbeatRes{}, request_version, res_builder);
+  rpc::SendFinalResponse(FrequentHeartbeatRes{std::move(database_commit_timestamps)}, request_version, res_builder);
 }
 }  // namespace memgraph::replication_coordination_glue

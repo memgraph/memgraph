@@ -11,6 +11,7 @@
 
 import os
 import re
+import shutil
 import sys
 import time
 from functools import partial
@@ -1010,6 +1011,58 @@ def test_multitenancy_replication_restart_replica_w_fc_w_rec(connection, replica
 
     mg_sleep_and_assert(3, get_number_of_nodes_func(cursor_replica, "B"))
     mg_sleep_and_assert(0, get_number_of_edges_func(cursor_replica, "B"))
+
+
+@pytest.mark.parametrize("replica_name", [("replica_1"), ("replica_2")])
+def test_multitenancy_replication_restart_replica_lost_database_directory(connection, replica_name, test_name):
+    # Goal: show that a replica which restarts with a database emptied is rebuilt, even when nothing is written
+    # to MAIN in the meantime
+    # 0/ Setup replication
+    # 1/ MAIN CREATE DATABASE A and B, and write to both
+    # 2/ Kill replica, delete database A's directory, restart replica
+    # 3/ Validate data on replica
+
+    # 0/
+    MEMGRAPH_INSTANCES_DESCRIPTION_WITH_RECOVERY = get_instances_with_recovery(test_name)
+    # Checking every 3 s, MAIN treats a replica as lost only after about 6 s down, so the quick restart below is
+    # caught by the replica reporting the emptied database, not by MAIN's reconnect.
+    MEMGRAPH_INSTANCES_DESCRIPTION_WITH_RECOVERY["main"]["args"].append("--replication-replica-check-frequency-sec=3")
+
+    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION_WITH_RECOVERY, keep_directories=False)
+    setup_replication(connection)
+    main_cursor = connection(BOLT_PORTS["main"], "main").cursor()
+
+    # 1/
+    execute_and_fetch_all(main_cursor, "CREATE DATABASE A;")
+    execute_and_fetch_all(main_cursor, "CREATE DATABASE B;")
+    setup_main(main_cursor)
+
+    cursor_replica = connection(BOLT_PORTS[replica_name], "replica").cursor()
+    mg_sleep_and_assert(7, get_number_of_nodes_func(cursor_replica, "A"))
+    mg_sleep_and_assert(2, get_number_of_nodes_func(cursor_replica, "B"))
+
+    execute_and_fetch_all(main_cursor, "USE DATABASE A;")
+    db_a_uuid = next(
+        value
+        for key, value in execute_and_fetch_all(main_cursor, "SHOW STORAGE INFO ON CURRENT DATABASE;")
+        if key == "database_uuid"
+    )
+
+    # 2/
+    interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION_WITH_RECOVERY, replica_name)
+    replica_data_directory = Path(interactive_mg_runner.BUILD_DIR, "e2e", "data") / (
+        MEMGRAPH_INSTANCES_DESCRIPTION_WITH_RECOVERY[replica_name]["data_directory"]
+    )
+    shutil.rmtree(replica_data_directory / "databases" / db_a_uuid)
+    interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION_WITH_RECOVERY, replica_name)
+
+    # 3/
+    cursor_replica = connection(BOLT_PORTS[replica_name], "replica").cursor()
+    mg_sleep_and_assert(7, get_number_of_nodes_func(cursor_replica, "A"), max_duration=30)
+    mg_sleep_and_assert(3, get_number_of_edges_func(cursor_replica, "A"))
+    mg_sleep_and_assert(2, get_number_of_nodes_func(cursor_replica, "B"))
+    main_logs = Path(interactive_mg_runner.BUILD_DIR, "e2e", "logs", get_logs_path(file, test_name)).glob("main*.log")
+    assert any(f"Replica {replica_name} reported database A as empty" in log.read_text() for log in main_logs)
 
 
 @pytest.mark.parametrize("replica_name", [("replica_1"), ("replica_2")])

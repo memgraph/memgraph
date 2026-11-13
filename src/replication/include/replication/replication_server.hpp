@@ -11,7 +11,10 @@
 
 #pragma once
 
+#include <functional>
+
 #include "replication/config.hpp"
+#include "replication_coordination_glue/messages.hpp"
 #include "rpc/progress_heartbeat.hpp"
 #include "rpc/server.hpp"
 
@@ -43,6 +46,9 @@ class ReplicationServer {
   // heartbeat worker instead of creating and joining a thread per request. The destructor drains rpc_server_ before
   // any member is destroyed, so no handler can still hold a reference here.
   rpc::ProgressHeartbeat progress_heartbeat_;
+  // Reported to MAIN in each frequent heartbeat. Replace before Start().
+  std::function<replication_coordination_glue::DatabaseCommitTimestamps()> database_commit_timestamps_{
+      [] { return replication_coordination_glue::DatabaseCommitTimestamps{}; }};
 };
 
 }  // namespace memgraph::replication

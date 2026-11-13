@@ -11,30 +11,67 @@
 
 #pragma once
 
+#include <cstdint>
+#include <utility>
+#include <vector>
+
 #include "rpc/messages.hpp"
 #include "slk/serialization.hpp"
 #include "utils/uuid.hpp"
 
 namespace memgraph::replication_coordination_glue {
 
-struct FrequentHeartbeatReq {
+struct FrequentHeartbeatReqV1 {
   static constexpr utils::TypeInfo kType{.id = utils::TypeId::REP_FREQUENT_HEARTBEAT_REQ,
                                          .name = "FrequentHeartbeatReq"};
   static constexpr uint64_t kVersion{1};
 
+  static void Load(FrequentHeartbeatReqV1 *self, memgraph::slk::Reader *reader);
+  static void Save(const FrequentHeartbeatReqV1 &self, memgraph::slk::Builder *builder);
+  FrequentHeartbeatReqV1() = default;
+};
+
+/// Same content as V1. The server answers at the request's version, so V2 exists to ask for a V2 response.
+struct FrequentHeartbeatReq {
+  static constexpr utils::TypeInfo kType{.id = utils::TypeId::REP_FREQUENT_HEARTBEAT_REQ,
+                                         .name = "FrequentHeartbeatReq"};
+  static constexpr uint64_t kVersion{2};
+
   static void Load(FrequentHeartbeatReq *self, memgraph::slk::Reader *reader);
   static void Save(const FrequentHeartbeatReq &self, memgraph::slk::Builder *builder);
   FrequentHeartbeatReq() = default;
+
+  static FrequentHeartbeatReq Upgrade(FrequentHeartbeatReqV1 const & /*v1*/) { return {}; }
 };
 
-struct FrequentHeartbeatRes {
+struct FrequentHeartbeatResV1 {
   static constexpr utils::TypeInfo kType{.id = utils::TypeId::REP_FREQUENT_HEARTBEAT_RES,
                                          .name = "FrequentHeartbeatRes"};
   static constexpr uint64_t kVersion{1};
 
+  static void Load(FrequentHeartbeatResV1 *self, memgraph::slk::Reader *reader);
+  static void Save(const FrequentHeartbeatResV1 &self, memgraph::slk::Builder *builder);
+  FrequentHeartbeatResV1() = default;
+};
+
+/// (database uuid, last durable commit timestamp) for each hot database the replica holds.
+using DatabaseCommitTimestamps = std::vector<std::pair<utils::UUID, uint64_t>>;
+
+struct FrequentHeartbeatRes {
+  static constexpr utils::TypeInfo kType{.id = utils::TypeId::REP_FREQUENT_HEARTBEAT_RES,
+                                         .name = "FrequentHeartbeatRes"};
+  static constexpr uint64_t kVersion{2};
+
   static void Load(FrequentHeartbeatRes *self, memgraph::slk::Reader *reader);
   static void Save(const FrequentHeartbeatRes &self, memgraph::slk::Builder *builder);
   FrequentHeartbeatRes() = default;
+
+  explicit FrequentHeartbeatRes(DatabaseCommitTimestamps database_commit_timestamps)
+      : database_commit_timestamps{std::move(database_commit_timestamps)} {}
+
+  FrequentHeartbeatResV1 Downgrade() const { return {}; }
+
+  DatabaseCommitTimestamps database_commit_timestamps;
 };
 
 using FrequentHeartbeatRpc = rpc::RequestResponse<FrequentHeartbeatReq, FrequentHeartbeatRes>;
@@ -72,8 +109,12 @@ using SwapMainUUIDRpc = rpc::RequestResponse<SwapMainUUIDReq, SwapMainUUIDRes>;
 }  // namespace memgraph::replication_coordination_glue
 
 namespace memgraph::slk {
+void Save(const memgraph::replication_coordination_glue::FrequentHeartbeatResV1 &self, memgraph::slk::Builder *builder);
+void Load(memgraph::replication_coordination_glue::FrequentHeartbeatResV1 *self, memgraph::slk::Reader *reader);
 void Save(const memgraph::replication_coordination_glue::FrequentHeartbeatRes &self, memgraph::slk::Builder *builder);
 void Load(memgraph::replication_coordination_glue::FrequentHeartbeatRes *self, memgraph::slk::Reader *reader);
+void Save(const memgraph::replication_coordination_glue::FrequentHeartbeatReqV1 &self, memgraph::slk::Builder *builder);
+void Load(memgraph::replication_coordination_glue::FrequentHeartbeatReqV1 *self, memgraph::slk::Reader *reader);
 void Save(const memgraph::replication_coordination_glue::FrequentHeartbeatReq & /*self*/,
           memgraph::slk::Builder * /*builder*/);
 void Load(memgraph::replication_coordination_glue::FrequentHeartbeatReq * /*self*/, memgraph::slk::Reader * /*reader*/);
