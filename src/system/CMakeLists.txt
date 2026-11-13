@@ -6,6 +6,7 @@ target_sources(mg-system
         BASE_DIRS include
         FILES
         include/system/action.hpp
+        include/system/main_write_gate.hpp
         include/system/system.hpp
         include/system/transaction.hpp
         include/system/state.hpp
