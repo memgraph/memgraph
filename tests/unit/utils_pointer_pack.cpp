@@ -10,6 +10,12 @@
 // licenses/APL.txt.
 
 #include <cstdint>
+#ifdef MG_ENTERPRISE
+#include <atomic>
+#include <mutex>
+#include <thread>
+#include <vector>
+#endif
 
 #include "gtest/gtest.h"
 
@@ -182,3 +188,74 @@ TEST_F(PointerPackTest, SingleBitPack) {
   EXPECT_EQ(pp.Get<0>(), 0u);
   EXPECT_EQ(pp.GetPtr(), &a);
 }
+
+#ifdef MG_ENTERPRISE
+TEST_F(PointerPackTest, SingleBitSetLeavesOtherFlagsAndPointerUntouched) {
+  PointerPack<Dummy, 3> pp(&a, 0b011);
+
+  pp.Set<2>(1);
+  EXPECT_TRUE(pp.GetRelaxed<2>());
+  EXPECT_EQ(pp.Get<0>(), 1u);
+  EXPECT_EQ(pp.Get<1>(), 1u);
+  EXPECT_EQ(pp.GetPtr(), &a);
+
+  pp.Set<0>(0);
+  pp.SetPtr(&b);
+  EXPECT_TRUE(pp.GetRelaxed<2>());
+  EXPECT_FALSE(pp.GetRelaxed<0>());
+  EXPECT_TRUE(pp.GetRelaxed<1>());
+
+  pp.Set<2>(0);
+  EXPECT_FALSE(pp.GetRelaxed<2>());
+  EXPECT_EQ(pp.Get<0>(), 0u);
+  EXPECT_EQ(pp.Get<1>(), 1u);
+  EXPECT_EQ(pp.GetPtr(), &b);
+
+  pp.Set<0, 2>(0b10);
+  EXPECT_EQ((pp.Get<0, 2>()), 0b10u);
+  EXPECT_FALSE(pp.GetRelaxed<2>());
+  EXPECT_EQ(pp.GetPtr(), &b);
+}
+
+// Lock-free GetRelaxed reader vs locked writers rewriting the other flags and pointer: TSan reports any
+// non-atomic write to the packed word; in every build a set bit must never be observed cleared.
+TEST_F(PointerPackTest, RelaxedReaderVsLockedWriters) {
+  constexpr int kWriters = 2;
+  constexpr int kIterations = 20'000;
+
+  PointerPack<Dummy, 3> pp(&a);
+  std::mutex lock;
+  std::atomic<bool> done{false};
+  std::atomic<bool> reader_saw_clear_after_set{false};
+
+  std::thread reader([&] {
+    bool seen_set = false;
+    while (!done.load(std::memory_order_acquire)) {
+      bool const now = pp.GetRelaxed<2>();
+      if (seen_set && !now) reader_saw_clear_after_set.store(true, std::memory_order_relaxed);
+      seen_set = seen_set || now;
+    }
+  });
+
+  std::vector<std::thread> writers;
+  writers.reserve(kWriters);
+  for (int w = 0; w < kWriters; ++w) {
+    writers.emplace_back([&, w] {
+      for (int i = 0; i < kIterations; ++i) {
+        auto guard = std::lock_guard{lock};
+        pp.Set<0>(i & 1);
+        pp.Set<1>((i >> 1) & 1);
+        pp.SetPtr((i & 1) != 0 ? &a : &b);
+        if (w == 0 && i == kIterations / 2) pp.Set<2>(1);
+      }
+    });
+  }
+  for (auto &t : writers) t.join();
+  done.store(true, std::memory_order_release);
+  reader.join();
+
+  EXPECT_FALSE(reader_saw_clear_after_set.load());
+  auto guard = std::lock_guard{lock};
+  EXPECT_TRUE(pp.GetRelaxed<2>());
+}
+#endif  // MG_ENTERPRISE

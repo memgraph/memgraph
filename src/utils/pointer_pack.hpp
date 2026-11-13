@@ -12,6 +12,9 @@
 #pragma once
 
 #include <cstdint>
+#ifdef MG_ENTERPRISE
+#include <atomic>
+#endif
 
 namespace memgraph::utils {
 
@@ -36,7 +39,16 @@ class PointerPack {
 
   T *GetPtr() const { return reinterpret_cast<T *>(storage_ & kPtrMask); }
 
+#ifdef MG_ENTERPRISE
+  /// Writers must hold the caller's lock; `atomic_ref` only keeps the store well-defined vs `GetRelaxed`.
+  void SetPtr(T *ptr) {
+    auto ref = std::atomic_ref<uintptr_t>(storage_);
+    uintptr_t const flags = ref.load(std::memory_order_relaxed) & kFlagsMask;
+    ref.store(reinterpret_cast<uintptr_t>(ptr) | flags, std::memory_order_relaxed);
+  }
+#else
   void SetPtr(T *ptr) { storage_ = reinterpret_cast<uintptr_t>(ptr) | (storage_ & kFlagsMask); }
+#endif
 
   /// Extracts the bit field at position @p Pos with @p Size bits.
   template <int Pos, int Size = 1>
@@ -45,6 +57,27 @@ class PointerPack {
     return (storage_ >> Pos) & ((1UL << Size) - 1);
   }
 
+#ifdef MG_ENTERPRISE
+  /// Sets the bit field at position @p Pos with @p Size bits to @p value. Writers must hold the caller's lock.
+  template <int Pos, int Size = 1>
+  void Set(uintptr_t value) {
+    static_assert(Pos >= 0 && Size > 0 && Pos + Size <= NumFlagBits);
+    const uintptr_t field_mask = ((1UL << Size) - 1) << Pos;
+    auto ref = std::atomic_ref<uintptr_t>(storage_);
+    uintptr_t const old = ref.load(std::memory_order_relaxed);
+    ref.store((old & ~field_mask) | ((value << Pos) & field_mask), std::memory_order_relaxed);
+  }
+
+  /// Lock-free read of the bit at @p Pos. Relaxed: a non-torn flag only, no ordering with prior writes.
+  /// Safe only because every write to `storage_` (`Set`, `SetPtr`) goes through `atomic_ref`.
+  template <int Pos>
+  bool GetRelaxed() const {
+    static_assert(Pos >= 0 && Pos < NumFlagBits);
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast) -- atomic_ref needs a non-const T&; the object is mutable.
+    auto const bits = std::atomic_ref<uintptr_t>(const_cast<uintptr_t &>(storage_)).load(std::memory_order_relaxed);
+    return ((bits >> Pos) & 1UL) != 0;
+  }
+#else
   /// Sets the bit field at position @p Pos with @p Size bits to @p value.
   template <int Pos, int Size = 1>
   void Set(uintptr_t value) {
@@ -52,6 +85,7 @@ class PointerPack {
     const uintptr_t field_mask = ((1UL << Size) - 1) << Pos;
     storage_ = (storage_ & ~field_mask) | ((value << Pos) & field_mask);
   }
+#endif
 
   operator T *() const { return GetPtr(); }  // NOLINT(google-explicit-constructor)
 
