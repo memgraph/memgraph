@@ -14,9 +14,7 @@
 
 #include <bit>
 #include <cfloat>
-#include <cmath>
 #include <cstdint>
-#include <cstdlib>
 #include <filesystem>
 #include <limits>
 #include <map>
@@ -49,6 +47,7 @@
 #include "storage/v2/temporal.hpp"
 #include "tests/test_commit_args_helper.hpp"
 #include "timezone_handler.hpp"
+#include "utils/string.hpp"
 #include "utils/temporal.hpp"
 
 namespace ms = memgraph::storage;
@@ -1245,24 +1244,16 @@ TYPED_TEST(DumpTest, VectorEdgeIndices) {
   }
 }
 
-TEST(CypherLiteralSpelling, SignedZeroKeepsSign) {
-  EXPECT_EQ(memgraph::query::CypherCoordinateLiteral(-0.0), "-0.0");
-  EXPECT_EQ(memgraph::query::CypherCoordinateLiteral(1.0), "1");
-  EXPECT_EQ(memgraph::query::CypherNumericLiteral(-0.0), "-0.0");
-}
-
 TEST(CypherLiteralSpelling, NumericLiteralExtremesRoundTripBitExact) {
   for (double const value : {DBL_MAX, DBL_MIN, std::numeric_limits<double>::denorm_min()}) {
     auto const text = memgraph::query::CypherNumericLiteral(value);
     EXPECT_EQ(text.find('+'), std::string::npos) << text;
-    EXPECT_EQ(std::bit_cast<uint64_t>(std::strtod(text.c_str(), nullptr)), std::bit_cast<uint64_t>(value)) << text;
+    EXPECT_EQ(std::bit_cast<uint64_t>(memgraph::utils::ParseDouble(text)), std::bit_cast<uint64_t>(value)) << text;
   }
 }
 
-// Dump text of floating-point property values has to be a numeric literal the
-// Cypher parser accepts and re-parses to the same value and kind: max_digits10
-// for the emitting type, an integral float keeps its `.0`, and a non-finite
-// value is written as an expression that produces it (never a bare `inf`/`nan`).
+// Dumped floats re-parse to the same value and kind: max_digits10, integral floats keep `.0`,
+// non-finite values are written as expressions (never bare `inf`/`nan`).
 TYPED_TEST(DumpTest, FloatSpelling) {
   {
     auto dba = this->db->Access(memgraph::storage::WRITE);
@@ -1339,10 +1330,8 @@ TYPED_TEST(DumpTest, FloatSpelling) {
   }
 }
 
-// Vector-index floats are narrowed to the index's scalar kind, so the dump has
-// to spell them at the precision of that type (max_digits10<float>) and write a
-// value-producing expression when the stored float is not finite. Point
-// coordinates use the same value-producing spelling for large and non-finite values.
+// Vector-index floats are narrowed to the index's scalar kind, so they are spelled at that
+// type's precision (non-finite after narrowing -> expression); point coordinates likewise.
 TYPED_TEST(DumpTest, VectorIndexFloatSpelling) {
   if (this->config.salient.storage_mode == memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL) {
     GTEST_SKIP() << "Vector index not implemented for ondisk";

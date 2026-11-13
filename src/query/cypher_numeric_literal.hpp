@@ -25,7 +25,7 @@
 namespace memgraph::query {
 
 namespace detail {
-// The lexer's FloatingLiteral allows only a '-' exponent sign (CypherLexer.g4:168-170).
+// The lexer's FloatingLiteral rule (CypherLexer.g4) allows only a '-' exponent sign.
 inline std::string StripExponentPlus(std::string text) {
   auto const exponent = text.find_first_of("eE");
   if (exponent != std::string::npos && exponent + 1 < text.size() && text[exponent + 1] == '+') {

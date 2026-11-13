@@ -15,13 +15,12 @@
 
 namespace memgraph::query {
 namespace detail {
-// Historical display spelling: shortest round-tripping form, no extra precision.
 struct DefaultCoordinateFormatter {
   auto operator()(double value) const -> std::string { return fmt::format("{}", value); }
 };
 }  // namespace detail
 
-// The dumper injects its own coordinate spelling; every other caller keeps the byte-identical default form.
+// Only DUMP injects a coordinate spelling; all other callers use the default overload.
 template <typename CoordinateFormatter>
 [[nodiscard]] inline auto CypherConstructionFor(storage::Point2d const &value, CoordinateFormatter &&format_coordinate)
     -> std::string {
