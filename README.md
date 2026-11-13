@@ -90,38 +90,40 @@ the node and edge level.
 30+ granular permissions.
 - **Encryption in transit, monitoring, backup & restore.**
 
-## :video_game: Memgraph Playground
-
-You don't need to install anything to try out Memgraph. Check out our
-**[Memgraph Playground](https://playground.memgraph.com/)** sandboxes in your
-browser.
-
-<p align="left">
-  <a href="https://playground.memgraph.com/">
-    <img width="450px" alt="Memgraph Playground" src="https://download.memgraph.com/asset/github/memgraph/memgraph-playground.png">
-  </a>
-</p>
-
 ## :floppy_disk: Download & Install
+
+Run Memgraph with one command. It requires
+[Docker](https://docs.docker.com/engine/install/) and starts Memgraph with
+Memgraph Lab:
+
+```bash
+# Linux/macOS
+curl -sSf "https://install.memgraph.com" | sh
+```
+
+```powershell
+# Windows
+iwr https://install.memgraph.com/windows -useb | iex
+```
 
 ### Windows
 
-[![Windows](https://img.shields.io/badge/Windows-Docker-0078D6?style=for-the-badge&logo=windows&logoColor=white)](https://memgraph.com/docs/memgraph/install-memgraph-on-windows-docker)
-[![Windows](https://img.shields.io/badge/Windows-WSL-0078D6?style=for-the-badge&logo=windows&logoColor=white)](https://memgraph.com/docs/memgraph/install-memgraph-on-windows-wsl)
+[![Windows](https://img.shields.io/badge/Windows-Docker-0078D6?style=for-the-badge&logo=windows&logoColor=white)](https://memgraph.com/docs/getting-started/install-memgraph/docker)
+[![Windows](https://img.shields.io/badge/Windows-WSL-0078D6?style=for-the-badge&logo=windows&logoColor=white)](https://memgraph.com/docs/getting-started/install-memgraph/wsl)
 
 ### macOS
 
-[![macOS](https://img.shields.io/badge/macOS-Docker-000000?style=for-the-badge&logo=macos&logoColor=F0F0F0)](https://memgraph.com/docs/memgraph/install-memgraph-on-macos-docker)
-[![macOS](https://img.shields.io/badge/lima-AACF41?style=for-the-badge&logo=macos&logoColor=F0F0F0)](https://memgraph.com/docs/memgraph/install-memgraph-on-ubuntu)
+[![macOS](https://img.shields.io/badge/macOS-Docker-000000?style=for-the-badge&logo=macos&logoColor=F0F0F0)](https://memgraph.com/docs/getting-started/install-memgraph/docker)
+[![macOS](https://img.shields.io/badge/lima-AACF41?style=for-the-badge&logo=macos&logoColor=F0F0F0)](https://memgraph.com/docs/getting-started/install-memgraph/linux)
 
 ### Linux
 
-[![Linux](https://img.shields.io/badge/Linux-Docker-FCC624?style=for-the-badge&logo=linux&logoColor=black)](https://memgraph.com/docs/memgraph/install-memgraph-on-linux-docker)
-[![Debian](https://img.shields.io/badge/Debian-D70A53?style=for-the-badge&logo=debian&logoColor=white)](https://memgraph.com/docs/memgraph/install-memgraph-on-debian)
-[![Ubuntu](https://img.shields.io/badge/Ubuntu-E95420?style=for-the-badge&logo=ubuntu&logoColor=white)](https://memgraph.com/docs/memgraph/install-memgraph-on-ubuntu)
-[![Cent OS](https://img.shields.io/badge/cent%20os-002260?style=for-the-badge&logo=centos&logoColor=F0F0F0)](https://memgraph.com/docs/memgraph/install-memgraph-from-rpm)
-[![Fedora](https://img.shields.io/badge/fedora-0B57A4?style=for-the-badge&logo=fedora&logoColor=F0F0F0)](https://memgraph.com/docs/memgraph/install-memgraph-from-rpm)
-[![RedHat](https://img.shields.io/badge/redhat-EE0000?style=for-the-badge&logo=redhat&logoColor=F0F0F0)](https://memgraph.com/docs/memgraph/install-memgraph-from-rpm)
+[![Linux](https://img.shields.io/badge/Linux-Docker-FCC624?style=for-the-badge&logo=linux&logoColor=black)](https://memgraph.com/docs/getting-started/install-memgraph/docker)
+[![Debian](https://img.shields.io/badge/Debian-D70A53?style=for-the-badge&logo=debian&logoColor=white)](https://memgraph.com/docs/getting-started/install-memgraph/linux#install-the-deb-package-on-debian-or-ubuntu)
+[![Ubuntu](https://img.shields.io/badge/Ubuntu-E95420?style=for-the-badge&logo=ubuntu&logoColor=white)](https://memgraph.com/docs/getting-started/install-memgraph/linux#install-the-deb-package-on-debian-or-ubuntu)
+[![Cent OS](https://img.shields.io/badge/cent%20os-002260?style=for-the-badge&logo=centos&logoColor=F0F0F0)](https://memgraph.com/docs/getting-started/install-memgraph/linux#install-the-rpm-package-on-centos-fedora-rocky-linux-or-red-hat)
+[![Fedora](https://img.shields.io/badge/fedora-0B57A4?style=for-the-badge&logo=fedora&logoColor=F0F0F0)](https://memgraph.com/docs/getting-started/install-memgraph/linux#install-the-rpm-package-on-centos-fedora-rocky-linux-or-red-hat)
+[![RedHat](https://img.shields.io/badge/redhat-EE0000?style=for-the-badge&logo=redhat&logoColor=F0F0F0)](https://memgraph.com/docs/getting-started/install-memgraph/linux#install-the-rpm-package-on-centos-fedora-rocky-linux-or-red-hat)
 
 ### Kubernetes
 
@@ -137,7 +139,7 @@ helm install my-memgraph memgraph/memgraph
 
 You can find the binaries and Docker images on the [Download
 Hub](https://memgraph.com/download) and the installation instructions in the
-[official documentation](https://memgraph.com/docs/memgraph/installation).
+[official documentation](https://memgraph.com/docs/getting-started/install-memgraph).
 
 
 ## :rocket: Daily Builds
@@ -150,20 +152,20 @@ stable releases.
 
 
 ## :cloud: Memgraph Cloud
-Check out [Memgraph Cloud](https://memgraph.com/docs/memgraph-cloud) - a cloud
+Check out [Memgraph Cloud](https://memgraph.com/docs/getting-started/install-memgraph/memgraph-cloud) - a cloud
 service fully managed on AWS and available in 6 geographic regions around the
 world. Memgraph Cloud allows you to create projects with Enterprise instances
 of MemgraphDB from your browser.
 
 <p align="left">
-  <a href="https://memgraph.com/docs/memgraph-cloud">
+  <a href="https://memgraph.com/docs/getting-started/install-memgraph/memgraph-cloud">
     <img width="450px" alt="Memgraph Cloud" src="https://github.com/user-attachments/assets/32fd29aa-331e-4d54-bd0d-42d87d0ff1ff" />
   </a>
 </p>
 
 ## :link: Connect to Memgraph
 [Connect to the
-database](https://memgraph.com/docs/memgraph/connect-to-memgraph) using
+database](https://memgraph.com/docs/client-libraries) using
 Memgraph Lab, mgconsole, various drivers (Python, C/C++ and others) and
 WebSocket.
 
@@ -180,7 +182,7 @@ ad hoc queries, and optimize their performance.
 </p>
 
 ## :file_folder: Import data
-[Import data](https://memgraph.com/docs/memgraph/import-data) into Memgraph
+[Import data](https://memgraph.com/docs/data-migration) into Memgraph
 using Kafka, RedPanda or Pulsar streams, CSV, JSON, Parquet, and JSONL files
 (from local disk, S3, or HTTP), or Cypher commands.
 
@@ -199,7 +201,7 @@ The Memgraph documentation is available at
 
 ## :question: Configuration
 Command line options that Memgraph accepts are available in the [reference
-guide](https://memgraph.com/docs/memgraph/reference-guide/configuration).
+guide](https://memgraph.com/docs/database-management/configuration).
 
 ## :trophy: Contributing
 Welcome to the heart of Memgraph development! We're on a mission to supercharge
