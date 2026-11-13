@@ -21,6 +21,8 @@ def test_all_show_metrics_info_values_are_present(memgraph):
         {"name": "ActiveExistenceConstraints", "type": "Constraint", "metric type": "Gauge"},
         {"name": "ActiveTypeConstraints", "type": "Constraint", "metric type": "Gauge"},
         {"name": "ActiveUniqueConstraints", "type": "Constraint", "metric type": "Gauge"},
+        {"name": "ExistenceConstraintViolations", "type": "Constraint", "metric type": "Counter"},
+        {"name": "UniqueConstraintViolations", "type": "Constraint", "metric type": "Counter"},
         # General (alphabetical)
         {"name": "AverageDegree", "type": "General", "metric type": "Gauge"},
         {"name": "EdgeCount", "type": "General", "metric type": "Gauge"},
