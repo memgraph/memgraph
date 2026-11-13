@@ -19,6 +19,7 @@
 #include "gmock/gmock.h"
 #include "spdlog/spdlog.h"
 
+#include "dbms/constants.hpp"
 #include "disk_test_utils.hpp"
 #include "interpreter_faker.hpp"
 #include "query/exceptions.hpp"
@@ -43,6 +44,7 @@ class TransactionQueueMultipleTest : public ::testing::Test {
   memgraph::storage::Config config{
       [&]() {
         memgraph::storage::Config config{};
+        config.salient.name = memgraph::dbms::kDefaultDB;
         config.durability.storage_directory = data_directory;
         config.disk.main_storage_directory = config.durability.storage_directory / "disk";
         if constexpr (std::is_same_v<StorageType, memgraph::storage::DiskStorage>) {

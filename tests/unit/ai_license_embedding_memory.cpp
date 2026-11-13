@@ -24,6 +24,7 @@
 #include <utility>
 #include <vector>
 
+#include "dbms/constants.hpp"
 #include "dbms/database.hpp"
 #include "interpreter_faker.hpp"
 #include "license/license.hpp"
@@ -68,6 +69,7 @@ memgraph::storage::Config MakeConfig(
     memgraph::storage::StorageMode mode = memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL) {
   memgraph::storage::Config config{};
   config.transaction.isolation_level = isolation;
+  config.salient.name = memgraph::dbms::kDefaultDB;
   config.salient.storage_mode = mode;
   config.durability.storage_directory = dir;
   config.disk.main_storage_directory = dir / "disk";
