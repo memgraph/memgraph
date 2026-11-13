@@ -523,8 +523,8 @@ def load_context(path: str, device: torch.device) -> Tuple[torch.nn.Module, torc
             model_config = json.load(f)
     except FileNotFoundError:
         raise Exception(
-            f"No {Context.CONFIG_NAME} in {path}. Models saved by older versions of link_prediction can't be loaded "
-            "and need to be trained again."
+            f"No {Context.CONFIG_NAME.value} in {path}. Models saved by older versions of link_prediction "
+            "can't be loaded and need to be trained again."
         )
     model = create_model(**model_config["model"], device=device)
     predictor = create_predictor(**model_config["predictor"], device=device)
