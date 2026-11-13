@@ -102,13 +102,8 @@ class BasicException : public std::exception {
 };
 
 /**
- * @brief Marker base for exceptions whose operation may succeed if retried.
- *
- * A retryable exception is thrown for a transient condition (serialization
- * conflict, storage access timeout, RPC failure, out of memory) where executing
- * the same query again may succeed. The Bolt failure classifier maps only the
- * types deriving from this base to `TransientError`; every other
- * @c BasicException is non-retryable and reported as `ClientError`.
+ * @brief Marker base for transient failures where retrying the same query may succeed.
+ * Bolt reports only these as `TransientError`; other @c BasicException types map to `ClientError`.
  */
 class RetryableException : public BasicException {
  public:

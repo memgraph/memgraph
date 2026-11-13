@@ -59,8 +59,7 @@ inline std::pair<std::string, std::string> ExceptionToErrorMessage(const std::ex
     return {"Memgraph.ClientError.MemgraphError.MemgraphError", e.what()};
   }
   if (dynamic_cast<const utils::RetryableException *>(&e)) {
-    // Only RetryableException-derived types (serialization conflicts, storage access timeouts,
-    // RPC failures, OOM) are transient; every other BasicException is a permanent ClientError below.
+    // Only RetryableException is transient; every other BasicException is a ClientError below.
     // If this is in the context of a database (i.e., we have database
     // `metric_handles`), then log count failure in the db metrics;
     // otherwise, count in the global metrics.
