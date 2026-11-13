@@ -13,6 +13,10 @@
 
 #include <execinfo.h>
 #include <spdlog/spdlog.h>
+#include <unistd.h>
+#include <csignal>
+#include <cstdio>
+#include <cstdlib>
 #include <iosfwd>
 #include <iostream>
 
@@ -20,6 +24,21 @@
 #include "utils/stacktrace.hpp"
 
 namespace memgraph::utils {
+
+/// Exit status a shell reports for a process killed by SIGABRT.
+inline constexpr int kAbortExitStatus = 128 + SIGABRT;
+
+/// Abort the process. As PID 1 of a PID namespace (a container entrypoint) the kernel discards the SIGABRT that
+/// std::abort() raises against itself, and glibc then falls through to a trap instruction, so the process dies with
+/// an arch-dependent fatal signal (SIGTRAP, status 133, on aarch64; SIGSEGV, status 139, on x86-64) instead of
+/// SIGABRT. Exit with the SIGABRT status directly there.
+[[noreturn]] inline void AbortProcess() noexcept {
+  std::fflush(nullptr);
+  if (::getpid() == 1) {
+    ::_exit(kAbortExitStatus);
+  }
+  std::abort();
+}
 
 /**
  * Dump stacktrace to the stream and abort the program. For more details
@@ -40,7 +59,7 @@ inline void TerminateHandler(std::ostream &stream) noexcept {
       stacktrace.dump(stream);
     }
   }
-  std::abort();
+  AbortProcess();
 }
 
 inline void TerminateHandler() noexcept { TerminateHandler(std::cerr); }
