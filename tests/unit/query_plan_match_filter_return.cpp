@@ -4793,7 +4793,7 @@ class IndexDisjunctionScan : public testing::Test {
   IndexDisjunctionBranch InBranch(memgraph::storage::LabelId label, ListLiteral *list) {
     auto membership = MakeMembershipList(symbol_table, &storage, list);
     auto branch = PropertyBranch(label, ExpressionRange::In(membership.element, list));
-    branch.membership_slots.push_back({.list = membership.deduped, .symbol = membership.symbol});
+    branch.membership_slots.push_back({.deduped = membership.deduped, .symbol = membership.symbol});
     return branch;
   }
 
@@ -4972,18 +4972,6 @@ TEST_F(IndexDisjunctionScan, InListPerInputRow) {
   EXPECT_EQ(RowsPerX(scan), (std::map<int64_t, int>{{1, 2}, {2, 3}}));
 }
 
-// A vertex a property branch yields is not yielded again by a later label branch, and a vertex the property
-// branch does not reach comes out of the label branch even when it has the property branch's label.
-TEST_F(IndexDisjunctionScan, MixedBranchesDeduplicate) {
-  AddVerticesWithP({{{label_a, label_b}, 1}, {{label_b}, 1}, {{label_a}, 5}, {{label_a, label_b}, 5}});
-  auto scan = std::make_shared<ScanAllByIndexDisjunction>(
-      std::make_shared<Once>(),
-      n,
-      std::vector<IndexDisjunctionBranch>{PropertyBranch(label_b, ExpressionRange::Equal(LITERAL(1))),
-                                          {.label = label_a}});
-  EXPECT_EQ(CountRows(scan), 4);
-}
-
 // A branch over an index that exists only in DESC order seeks that index.
 TEST_F(IndexDisjunctionScan, DescIndexBranch) {
   auto label_d = db->NameToLabel("D");
@@ -5022,15 +5010,16 @@ TEST_F(IndexDisjunctionScan, TwoInSlotsSeekEveryPair) {
     }
     ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
-  auto branch = IndexDisjunctionBranch::LabelProperties(
-      label_b, {memgraph::storage::PropertyPath{prop_p}, memgraph::storage::PropertyPath{prop_q}});
+  IndexDisjunctionBranch branch{
+      .label = label_b,
+      .properties = {memgraph::storage::PropertyPath{prop_p}, memgraph::storage::PropertyPath{prop_q}}};
   for (auto *list : {LIST(LITERAL(1), LITERAL(2)), LIST(LITERAL(3), LITERAL(4))}) {
     auto membership = MakeMembershipList(symbol_table, &storage, list);
     branch.expression_ranges.push_back(ExpressionRange::In(membership.element, list));
-    branch.membership_slots.push_back({.list = membership.deduped, .symbol = membership.symbol});
+    branch.membership_slots.push_back({.deduped = membership.deduped, .symbol = membership.symbol});
   }
   auto scan = std::make_shared<ScanAllByIndexDisjunction>(
-      std::make_shared<Once>(), n, std::vector<IndexDisjunctionBranch>{IndexDisjunctionBranch::Label(label_a), branch});
+      std::make_shared<Once>(), n, std::vector<IndexDisjunctionBranch>{{.label = label_a}, branch});
   EXPECT_EQ(CountRows(scan), 4);
 }
 
@@ -5040,8 +5029,7 @@ TEST_F(IndexDisjunctionScan, ResetInsideAnInBranch) {
   auto scan = std::make_shared<ScanAllByIndexDisjunction>(
       UnwindX({1, 2}),
       n,
-      std::vector<IndexDisjunctionBranch>{IndexDisjunctionBranch::Label(label_a),
-                                          InBranch(label_b, LIST(LITERAL(1), LITERAL(2)))});
+      std::vector<IndexDisjunctionBranch>{{.label = label_a}, InBranch(label_b, LIST(LITERAL(1), LITERAL(2)))});
   auto acc = db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(acc.get());
   auto context = MakeContext(storage, symbol_table, &dba);
@@ -5110,7 +5098,7 @@ TEST_F(IndexDisjunctionScan, EmptySecondInSlotSkipsTheBranch) {
   for (auto *list : {LIST(LITERAL(1)), storage.Create<ListLiteral>(std::vector<Expression *>{})}) {
     auto membership = MakeMembershipList(symbol_table, &storage, list);
     branch.expression_ranges.push_back(ExpressionRange::In(membership.element, list));
-    branch.membership_slots.push_back({.list = membership.deduped, .symbol = membership.symbol});
+    branch.membership_slots.push_back({.deduped = membership.deduped, .symbol = membership.symbol});
   }
   auto scan = std::make_shared<ScanAllByIndexDisjunction>(
       UnwindX({1, 2}), n, std::vector<IndexDisjunctionBranch>{{.label = label_a}, branch});

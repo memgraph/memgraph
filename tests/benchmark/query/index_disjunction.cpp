@@ -9,34 +9,32 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-// An indexed label disjunction, one benchmark per branch kind: label branches read once, and
-// label-property branches sought for every input row. Parsing and planning happen once, outside the loop.
+// An indexed label disjunction: label branches read once, label-property branches sought for every input row,
+// and many narrow input rows after a wide one. Parsing and planning happen once, outside the loop.
 
 #include <cstdint>
+#include <cstdlib>
 #include <initializer_list>
 #include <memory>
 #include <string>
 
-#include "query/frontend/ast/cypher_main_visitor.hpp"
-
 #include <benchmark/benchmark.h>
-
-// planner.hpp has to come before the parser headers: json.hpp needs libc's EOF macro, which antlr hides.
-#include "query/interpret/frame.hpp"
-#include "query/parameters.hpp"
-#include "query/plan/planner.hpp"
 
 #include "metrics/metric_handles.hpp"
 #include "query/context.hpp"
 #include "query/db_accessor.hpp"
+#include "query/frontend/ast/cypher_main_visitor.hpp"
 #include "query/frontend/opencypher/parser.hpp"
 #include "query/frontend/semantic/symbol_generator.hpp"
-#include "query/interpret/eval.hpp"
+#include "query/interpret/frame.hpp"
 #include "query/interpreter.hpp"
+#include "query/parameters.hpp"
+#include "query/plan/planner.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/property_value.hpp"
 #include "tests/test_commit_args_helper.hpp"
 #include "utils/memory.hpp"
+#include "utils/typeinfo.hpp"
 
 namespace {
 

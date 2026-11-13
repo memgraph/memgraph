@@ -506,7 +506,7 @@ TEST_F(QueryCostEstimator, ConditionalCheaperOtherBranchBreaksATie) {
 }
 
 // For a Once input the disjunction costs one label scan over what all of its branches yield.
-TEST_F(QueryCostEstimator, ScanAllByIndexDisjunctionCostsOneScanPerBranch) {
+TEST_F(QueryCostEstimator, ScanAllByIndexDisjunctionCostsOneScanOfAllBranches) {
   AddVertices(100, 30, 20);
   // The label branch counts its 30 vertices, the property branch the one vertex with a = 1.
   MakeOp<ScanAllByIndexDisjunction>(
@@ -529,7 +529,7 @@ TEST_F(QueryCostEstimator, ScanAllByIndexDisjunctionInBranchCountsTheWholeList) 
                                                {.label = label,
                                                 .properties = {ms::PropertyPath{prop_a}},
                                                 .expression_ranges = {ExpressionRange::In(element_ident, list)},
-                                                .membership_slots = {{.list = list, .symbol = element}}}};
+                                                .membership_slots = {{.deduped = list, .symbol = element}}}};
   MakeOp<ScanAllByIndexDisjunction>(last_op_, NextSymbol(), branches);
   // 30 labeled vertices, and one vertex for each of the three values of a.
   EXPECT_COST((30 + 3) * CostParam::kScanAllByLabel);

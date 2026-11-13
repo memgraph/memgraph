@@ -5512,11 +5512,11 @@ TEST(UsedIndexChecker, CollectsEveryBranchOfIndexDisjunction) {
   std::vector<IndexDisjunctionBranch> branches;
   for (const auto *name : {"L0", "L1", "L2"}) {
     labels.push_back(dba.Label(name));
-    branches.push_back(IndexDisjunctionBranch::Label(labels.back()));
+    branches.push_back({.label = labels.back()});
   }
   auto const property_label = dba.Label("P");
   std::vector<memgraph::storage::PropertyPath> const properties{memgraph::storage::PropertyPath{dba.Property("p")}};
-  auto property_branch = IndexDisjunctionBranch::LabelProperties(property_label, properties);
+  IndexDisjunctionBranch property_branch{.label = property_label, .properties = properties};
   property_branch.expression_ranges.push_back(
       ExpressionRange::Equal(storage.Create<memgraph::query::PrimitiveLiteral>(1)));
   branches.push_back(std::move(property_branch));
@@ -5547,7 +5547,7 @@ TEST(IndexDisjunctionClone, IsDeep) {
                                                {.label = dba.Label("B"),
                                                 .properties = {ms::PropertyPath{dba.Property("p")}},
                                                 .expression_ranges = {ExpressionRange::In(element, list)},
-                                                .membership_slots = {{.list = list, .symbol = element_symbol}}}};
+                                                .membership_slots = {{.deduped = list, .symbol = element_symbol}}}};
   ScanAllByIndexDisjunction original(std::make_shared<Once>(), node_symbol, std::move(branches));
 
   AstStorage clone_storage;
@@ -5569,7 +5569,7 @@ TEST(IndexDisjunctionClone, IsDeep) {
   ASSERT_NE(cloned_bound, nullptr);
   EXPECT_EQ(cloned_bound->value_.ValueInt(), 1);
   ASSERT_EQ(branch.membership_slots.size(), 1U);
-  EXPECT_NE(branch.membership_slots[0].list, list);
+  EXPECT_NE(branch.membership_slots[0].deduped, list);
   EXPECT_EQ(branch.membership_slots[0].symbol, element_symbol);
 }
 
