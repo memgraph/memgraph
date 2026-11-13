@@ -33,7 +33,12 @@ FILE = "periodic_snapshot"
 
 
 @pytest.fixture(autouse=True)
-def cleanup_after_test():
+def cleanup_after_test(request):
+    # Tests count log lines, so start without the logs of an earlier run.
+    shutil.rmtree(
+        os.path.join(interactive_mg_runner.BUILD_DIR, "e2e", "logs", get_logs_path(FILE, request.node.name)),
+        ignore_errors=True,
+    )
     yield
     interactive_mg_runner.kill_all(keep_directories=False)
 
@@ -397,7 +402,7 @@ def test_sec_interval_without_license(test_name):
 
 
 def test_cron_skips_after_license_lost(test_name):
-    """Losing the licence stops cron snapshots, and the skip is logged once."""
+    """Losing the licence stops cron snapshots, the skip is logged once, and they restart with the licence."""
     license_key = os.environ.get("MEMGRAPH_ENTERPRISE_LICENSE", "")
     organization_name = os.environ.get("MEMGRAPH_ORGANIZATION_NAME", "")
     if not (license_key and organization_name):
@@ -443,6 +448,14 @@ def test_cron_skips_after_license_lost(test_name):
             time.sleep(2)
         time.sleep(3)
         assert number_of_snapshots(snapshots_dir) == before
+
+        execute_and_fetch_all(cursor, f"SET DATABASE SETTING 'enterprise.license' TO '{license_key}';")
+        assert execute_and_fetch_all(cursor, "SHOW NEXT SNAPSHOT;")
+        tries = 0
+        while number_of_snapshots(snapshots_dir) == before and tries < 10:
+            tries += 1
+            time.sleep(1)
+        assert number_of_snapshots(snapshots_dir) > before, "No snapshot after the license returned"
 
     # The log file name gains a date suffix, so read every file in the test's log directory.
     logs_dir = os.path.join(interactive_mg_runner.BUILD_DIR, "e2e", "logs", get_logs_path(FILE, test_name))

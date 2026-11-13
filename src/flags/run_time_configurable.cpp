@@ -231,7 +231,6 @@ std::atomic<bool> omit_vector_index_properties_on_return_{false};
 std::atomic<uint64_t> file_download_conn_timeout_sec_;
 std::atomic<uint64_t> storage_access_timeout_sec_{1};
 std::atomic<int64_t> log_min_duration_ms_{-1};
-std::atomic<bool> cron_snapshots_skipped_{false};
 std::atomic<bool> log_failed_queries_{false};
 std::atomic<bool> log_query_plan_{true};
 
@@ -264,11 +263,18 @@ memgraph::utils::Settings::ValidatorResult ValidQueryTimeoutStr(std::string_view
 class PeriodicObservable : public memgraph::utils::Observable<memgraph::utils::SchedulerInterval> {
  public:
   void Accept(std::shared_ptr<memgraph::utils::Observer<memgraph::utils::SchedulerInterval>> observer) override {
-    const auto periodic_locked = periodic_.ReadLock();
-    observer->Update(*periodic_locked);
+    observer->Update(Effective());
   }
 
   bool IsCron() const { return std::holds_alternative<std::string>(periodic_.ReadLock()->period_or_cron); }
+
+  // A cron schedule is an enterprise feature: without a valid license, snapshots have no schedule.
+  memgraph::utils::SchedulerInterval Effective() const {
+    if (IsCron() && !memgraph::license::global_license_checker.IsEnterpriseValidFast()) return {};
+    return *periodic_.ReadLock();
+  }
+
+  void Republish() { Notify(); }
 
   void Modify(std::chrono::seconds pause) {
     *periodic_.Lock() = memgraph::utils::SchedulerInterval(pause, std::nullopt);
@@ -359,7 +365,6 @@ bool ValidPeriodicSnapshot(const std::string_view def) {
     if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
       if constexpr (FATAL) {
         spdlog::error("{} {}", kCronSnapshotNeedsLicense, kCronSnapshotsSkipped);
-        cron_snapshots_skipped_.store(true, std::memory_order_relaxed);
         return true;
       }
       spdlog::error(kCronSnapshotNeedsLicense);
@@ -618,6 +623,13 @@ void Initialize(utils::Settings &settings) {
           return {};
         },
         /*validate_startup_value=*/false);
+    license::global_license_checker.OnEnterpriseValidityChange([] {
+      if (!snapshot_periodic_.IsCron()) return;
+      if (!license::global_license_checker.IsEnterpriseValidFast()) {
+        spdlog::error("{} {}", kCronSnapshotNeedsLicense, kCronSnapshotsSkipped);
+      }
+      snapshot_periodic_.Republish();
+    });
   }
 
   // AWS Section
@@ -762,21 +774,7 @@ void SnapshotPeriodicDetach(std::shared_ptr<utils::Observer<utils::SchedulerInte
   snapshot_periodic_.Detach(observer);
 }
 
-bool CronScheduleWithoutLicense() {
-  return snapshot_periodic_.IsCron() && !license::global_license_checker.IsEnterpriseValidFast();
-}
-
-// Reads the schedule and the license separately: a tick racing a schedule change decides on the schedule it read,
-// and the next tick decides on the new one. A cron schedule is only set while the license is valid.
-bool SnapshotScheduleLicensed() {
-  const bool licensed = !CronScheduleWithoutLicense();
-  if (licensed) {
-    cron_snapshots_skipped_.store(false, std::memory_order_relaxed);
-  } else if (!cron_snapshots_skipped_.exchange(true, std::memory_order_relaxed)) {
-    spdlog::error("{} {}", kCronSnapshotNeedsLicense, kCronSnapshotsSkipped);
-  }
-  return licensed;
-}
+auto GetEffectiveSnapshotInterval() -> utils::SchedulerInterval { return snapshot_periodic_.Effective(); }
 
 int64_t GetLogMinDurationMs() { return log_min_duration_ms_.load(std::memory_order_acquire); }
 
