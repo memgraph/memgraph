@@ -66,8 +66,9 @@ void SystemRestore(ReplicationClient &client, system::System &system, dbms::Dbms
   // We still need to system replicate.
   // NB: DbInfo is a local, in-process aggregate only — NOT a wire type, so it needs no versioning of
   // its own. Its fields are passed individually to Stream<SystemRecoveryRpc> below; the serialized
-  // request is the versioned SystemRecoveryReq (V1 -> V2 adds parameters -> V3 adds cold_databases,
-  // with server-side upgrade of an older peer's request). A future layout change bumps that RPC version.
+  // request is the versioned SystemRecoveryReq (V1 -> V2 adds parameters -> V3 adds cold_databases
+  // -> V4 adds includes_auth_and_databases, with server-side upgrade of an older peer's request). A future layout
+  // change bumps that RPC version.
   struct DbInfo {
     std::vector<storage::SalientConfig> configs;
     uint64_t last_committed_timestamp;
@@ -131,7 +132,9 @@ void SystemRestore(ReplicationClient &client, system::System &system, dbms::Dbms
                                                             std::vector<auth::User>{},
                                                             std::vector<auth::Role>{},
                                                             std::vector<auth::UserProfiles::Profile>{},
-                                                            params_snapshot);
+                                                            params_snapshot,
+                                                            std::vector<storage::ColdTenantRecovery>{},
+                                                            /*includes_auth_and_databases=*/false);
       }
       return client.rpc_client_.Stream<SystemRecoveryRpc>(main_uuid,
                                                           db_info.last_committed_timestamp,
@@ -141,7 +144,8 @@ void SystemRestore(ReplicationClient &client, system::System &system, dbms::Dbms
                                                           std::move(auth_roles),
                                                           std::move(auth_profiles),
                                                           params_snapshot,
-                                                          std::move(db_info.cold_databases));
+                                                          std::move(db_info.cold_databases),
+                                                          /*includes_auth_and_databases=*/true);
 #else
       return client.rpc_client_.Stream<SystemRecoveryRpc>(main_uuid,
                                                           db_info.last_committed_timestamp,
@@ -150,7 +154,9 @@ void SystemRestore(ReplicationClient &client, system::System &system, dbms::Dbms
                                                           std::vector<auth::User>{},
                                                           std::vector<auth::Role>{},
                                                           std::vector<auth::UserProfiles::Profile>{},
-                                                          params_snapshot);
+                                                          params_snapshot,
+                                                          std::vector<storage::ColdTenantRecovery>{},
+                                                          /*includes_auth_and_databases=*/false);
 #endif
     });
     guard.reset();
