@@ -43,3 +43,14 @@ Feature: Map operators
         Then the result should be:
             | xa | xcd | xz   |
             | 1  | 42  | null |
+
+
+  Scenario: An unquoted boolean keyword keeps its spelling when used as a name
+        Given an empty graph
+        When executing query:
+            """
+            CREATE (n:false {false: 1}) RETURN {false: 1} AS m, keys(n) AS k, labels(n) AS l
+            """
+        Then the result should be:
+            | m          | k         | l         |
+            | {false: 1} | ['false'] | ['false'] |
