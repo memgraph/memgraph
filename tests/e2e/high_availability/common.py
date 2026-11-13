@@ -117,6 +117,18 @@ def get_vertex_count(cursor):
     return execute_and_fetch_all(cursor, "MATCH (n) RETURN count(n)")[0][0]
 
 
+def get_replica_vertex_count(cursor):
+    """
+    Like get_vertex_count, but returns None while a replica refuses queries because it is recovering from main.
+    """
+    try:
+        return get_vertex_count(cursor)
+    except mgclient.DatabaseError as e:
+        if "broken state" in str(e):
+            return None
+        raise
+
+
 def show_routing_table(cursor):
     """
     Accepts a cursor to a coordinator and returns the routing table as a {role: servers} dict using the
