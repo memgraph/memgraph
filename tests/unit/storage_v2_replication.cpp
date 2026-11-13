@@ -1180,12 +1180,11 @@ TEST_F(ReplicationTest, ForcedResetRunsAfterStateOverwrite) {
   ASSERT_TRUE(WaitUntil([&] { return main.db.storage()->GetReplicaState(replicas[0]) == ReplicaState::READY; }));
   ASSERT_TRUE(HasVertex(replica, replicated_gid));
 
-  auto const &metrics = memgraph::metrics::Metrics().global;
-  auto const success_before = metrics.replica_recovery_success->Value();
-  auto const skip_before = metrics.replica_recovery_skip->Value();
-
   auto *client = FindReplicationClient(main, replicas[0]);
   ASSERT_NE(client, nullptr);
+  auto const &metrics = client->metrics_.handles();
+  auto const success_before = metrics.replica_recovery_success.Value();
+  auto const skip_before = metrics.replica_recovery_skip.Value();
   MaintenancePoolHold hold{*client};
 
   auto const protector = memgraph::dbms::DatabaseProtector{main.db_acc};
@@ -1205,8 +1204,8 @@ TEST_F(ReplicationTest, ForcedResetRunsAfterStateOverwrite) {
 
   EXPECT_FALSE(HasVertex(replica, canary_gid));
   EXPECT_TRUE(HasVertex(replica, replicated_gid));
-  EXPECT_EQ(metrics.replica_recovery_success->Value() - success_before, 1);
-  EXPECT_EQ(metrics.replica_recovery_skip->Value() - skip_before, 0);
+  EXPECT_EQ(metrics.replica_recovery_success.Value() - success_before, 1);
+  EXPECT_EQ(metrics.replica_recovery_skip.Value() - skip_before, 0);
 }
 
 // The frequent check re-queues a MAYBE_BEHIND replica on every tick, so a second check queued while one is

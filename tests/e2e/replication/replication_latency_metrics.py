@@ -30,6 +30,7 @@ file = "replication_latency_metrics"
 
 BOLT_PORTS = {"main": 7687, "replica_1": 7688, "replica_2": 7689}
 REPLICATION_PORTS = {"replica_1": 10001, "replica_2": 10002}
+METRICS_PORTS = {"main": 9091, "replica_1": 9092, "replica_2": 9093}
 COUNT_LINE = re.compile(r"^(\w+)_count(?:\{(.*)\})? (\S+)$", re.MULTILINE)
 LABEL = re.compile(r'(\w+)="([^"]*)"')
 
@@ -61,8 +62,12 @@ LABELLED_FAMILIES = (
 def instances_description(test_name):
     def instance(name, setup_queries):
         return {
-            "args": ["--bolt-port", f"{BOLT_PORTS[name]}", "--log-level=TRACE"]
-            + (["--metrics-port=9091"] if name == "main" else []),
+            "args": [
+                "--bolt-port",
+                f"{BOLT_PORTS[name]}",
+                f"--metrics-port={METRICS_PORTS[name]}",
+                "--log-level=TRACE",
+            ],
             "log_file": f"{get_logs_path(file, test_name)}/{name}.log",
             "data_directory": f"{get_data_path(file, test_name)}/{name}",
             "setup_queries": setup_queries,
@@ -97,7 +102,7 @@ def test_name(request):
 
 
 def scrape():
-    with urllib.request.urlopen("http://localhost:9091/metrics") as response:
+    with urllib.request.urlopen(f"http://localhost:{METRICS_PORTS['main']}/metrics") as response:
         return response.read().decode("utf-8")
 
 
@@ -166,7 +171,7 @@ def test_dropped_replica_series_disappear(test_name):
     execute_and_fetch_all(cursor, "CREATE ();")
     mg_sleep_and_assert_eval_function(
         lambda c: c >= 1,
-        lambda: count("memgraph_start_txn_replication_seconds", mg_instance="replica_2"),
+        lambda: count("memgraph_heartbeat_rpc_seconds", mg_instance="replica_2"),
     )
 
     execute_and_fetch_all(cursor, "DROP REPLICA replica_2;")
