@@ -2411,7 +2411,7 @@ Callback HandleReplicationInfoQuery(ReplicationInfoQuery *repl_query,
     case ReplicationInfoQuery::Action::SHOW_REPLICAS: {
       bool full_info = false;
 #ifdef MG_ENTERPRISE
-      full_info = license::global_license_checker.IsEnterpriseValidFast();
+      full_info = true;
 #endif
 
       callback.header = {"name", "socket_address", "sync_mode", "system_info", "data_info"};

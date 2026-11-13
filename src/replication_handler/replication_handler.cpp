@@ -11,7 +11,6 @@
 
 #include "replication_handler/replication_handler.hpp"
 
-#include "dbms/constants.hpp"
 #include "dbms/dbms_handler.hpp"
 #include "dbms/inmemory/replication_handlers.hpp"
 #include "metrics/prometheus_metrics.hpp"
@@ -550,8 +549,6 @@ auto ReplicationHandler::ShowReplicas() const -> std::expected<query::ReplicasIn
     auto entries = std::vector<query::ReplicasInfo>{};
     entries.reserve(main.registered_replicas_.size());
 
-    const bool full_info = license::global_license_checker.IsEnterpriseValidFast();
-
     for (auto const &replica : main.registered_replicas_) {
       // STEP 1: data_info
       auto data_info = std::map<std::string, query::ReplicaInfoState>{};
@@ -559,7 +556,6 @@ auto ReplicationHandler::ShowReplicas() const -> std::expected<query::ReplicasIn
         auto *storage = db_acc->storage();
         // ATM we only support IN_MEMORY_TRANSACTIONAL
         if (storage->storage_mode_ != storage::StorageMode::IN_MEMORY_TRANSACTIONAL) return;
-        if (!full_info && storage->name() != dbms::kDefaultDB) return;
         [[maybe_unused]] auto ok = storage->repl_storage_state_.WithClient(
             replica.name_, [&](const storage::ReplicationStorageClient &client) {
               auto ts_info = client.GetTimestampInfo(storage);
