@@ -125,6 +125,22 @@ TEST_F(LicenseTest, LicenseOrganizationName) {
   CheckLicenseValidity(true);
 }
 
+TEST_F(LicenseTest, ValidityChangeListener) {
+  const std::string organization_name{"Memgraph"};
+  memgraph::license::License license{organization_name, 0, 0, memgraph::license::LicenseType::ENTERPRISE};
+  int changes = 0;
+  license_checker->OnEnterpriseValidityChange([&changes] { ++changes; });
+
+  settings->SetValue("enterprise.license", memgraph::license::Encode(license));
+  ASSERT_EQ(changes, 0);
+  settings->SetValue("organization.name", organization_name);
+  ASSERT_EQ(changes, 1);
+  settings->SetValue("organization.name", organization_name);
+  ASSERT_EQ(changes, 1);
+  settings->SetValue("organization.name", fmt::format("{}modified", organization_name));
+  ASSERT_EQ(changes, 2);
+}
+
 TEST_F(LicenseTest, Expiration) {
   const std::string organization_name{"Memgraph"};
   const auto now_sec =

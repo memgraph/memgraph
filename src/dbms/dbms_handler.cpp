@@ -1468,7 +1468,7 @@ DbmsHandler::ResumeResult DbmsHandler::Resume_(std::string_view name, system::Tr
     // `fresh` destructs: ~Gatekeeper waits for count == 0, so an outstanding `acc` would self-deadlock
     // the fresh gatekeeper's destruction.
     try {
-      storage::Config cfg = default_config_;
+      storage::Config cfg = CurrentDefaultConfig();
       cfg.salient = salient;
       cfg.durability.recover_on_startup = true;
       storage::UpdatePaths(cfg, default_config_.durability.storage_directory / rel_dir);

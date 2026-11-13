@@ -40,6 +40,7 @@
 #include "dbms/database_info.hpp"
 #include "dbms/rpc.hpp"
 #include "dbms/tenant_profiles.hpp"
+#include "flags/run_time_configurable.hpp"
 #include "kvstore/kvstore.hpp"
 #include "query/stream/streams.hpp"
 #include "query/trigger.hpp"
@@ -56,6 +57,7 @@
 #include "storage/v2/isolation_level.hpp"
 #include "utils/logging.hpp"
 #include "utils/rw_lock.hpp"
+#include "utils/scheduler.hpp"
 #include "utils/uuid.hpp"
 
 namespace memgraph::dbms {
@@ -956,7 +958,7 @@ class DbmsHandler {
    */
   NewResultT New_(std::string_view name, utils::UUID uuid, system::Transaction *txn = nullptr,
                   std::optional<std::filesystem::path> rel_dir = {}) {
-    auto config_copy = default_config_;
+    auto config_copy = CurrentDefaultConfig();
     config_copy.salient.name = name;
     config_copy.salient.uuid = uuid;
     spdlog::debug("Creating database '{}' - '{}'", name, std::string{uuid});
@@ -967,6 +969,13 @@ class DbmsHandler {
                            default_config_.durability.storage_directory / kMultiTenantDir / std::string{uuid});
     }
     return New_(std::move(config_copy), txn);
+  }
+
+  // The instance defaults on the snapshot schedule in effect now, which can change at run time.
+  storage::Config CurrentDefaultConfig() const {
+    auto config = default_config_;
+    config.durability.snapshot_interval = flags::run_time::GetEffectiveSnapshotInterval();
+    return config;
   }
 
   /**
