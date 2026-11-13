@@ -55,9 +55,7 @@ struct ReplicaHandlerAccessToState {
     return state_->last_committed_system_timestamp_.load(std::memory_order_acquire);
   }
 
-  void SetLastCommitedTS(uint64_t new_timestamp) {
-    state_->last_committed_system_timestamp_.store(new_timestamp, std::memory_order_release);
-  }
+  void SetLastCommitedTS(uint64_t new_timestamp) { state_->FinalizeTransaction(new_timestamp); }
 
  private:
   State *state_;
