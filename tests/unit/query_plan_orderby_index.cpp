@@ -12,8 +12,10 @@
 #include "query_plan_checker.hpp"
 
 #include <memory>
+#include <string>
 #include <vector>
 
+#include <fmt/format.h>
 #include <gtest/gtest.h>
 
 #include "query/frontend/ast/ast.hpp"
@@ -94,6 +96,47 @@ TYPED_TEST(OrderByIndexTest, BasicElimination) {
 
   EXPECT_TRUE(PlanContainsOp(planner.plan(), ScanAllByLabelProperties::kType))
       << "Plan should use ScanAllByLabelProperties";
+  EXPECT_FALSE(PlanContainsOp(planner.plan(), OrderBy::kType)) << "OrderBy should be eliminated";
+}
+
+// The branches of an index disjunction give no single order, so ORDER BY stays.
+TYPED_TEST(OrderByIndexTest, IndexDisjunctionKeepsOrderBy) {
+  // MATCH (n:L1|L2) WHERE n.prop > 5 RETURN n ORDER BY n.prop
+  FakeDbAccessor dba;
+  const auto property = PROPERTY_PAIR(dba, "prop");
+  dba.SetIndexCount(dba.Label("L1"), property.second, 1);
+  dba.SetIndexCount(dba.Label("L2"), property.second, 1);
+
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE_WITH_LABELS("n", {"L1", "L2"}))),
+                                   WHERE(GREATER(PROPERTY_LOOKUP(dba, "n", property.second), LITERAL(5))),
+                                   RETURN("n", ORDER_BY(PROPERTY_LOOKUP(dba, "n", property.second)))));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  EXPECT_TRUE(PlanContainsOp(planner.plan(), ScanAllByIndexDisjunction::kType));
+  EXPECT_TRUE(PlanContainsOp(planner.plan(), OrderBy::kType)) << "two seeks are not one ordered seek";
+}
+
+// A disjunction that names one label scans that label's index, which provides the order.
+TYPED_TEST(OrderByIndexTest, OneLabelDisjunctionEliminatesOrderBy) {
+  // MATCH (n) WHERE (n:L OR n:L) AND n.prop > 5 RETURN n ORDER BY n.prop
+  FakeDbAccessor dba;
+  const auto property = PROPERTY_PAIR(dba, "prop");
+  dba.SetIndexCount(dba.Label("L"), property.second, 1);
+
+  auto *node_identifier = IDENT("n");
+  auto *one_label_or = OR(LABELS_TEST(node_identifier, std::vector{this->storage.GetLabelIx("L")}),
+                          LABELS_TEST(node_identifier, std::vector{this->storage.GetLabelIx("L")}));
+  auto *query =
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                         WHERE(AND(one_label_or, GREATER(PROPERTY_LOOKUP(dba, "n", property.second), LITERAL(5)))),
+                         RETURN("n", ORDER_BY(PROPERTY_LOOKUP(dba, "n", property.second)))));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  EXPECT_TRUE(PlanContainsOp(planner.plan(), ScanAllByLabelProperties::kType));
   EXPECT_FALSE(PlanContainsOp(planner.plan(), OrderBy::kType)) << "OrderBy should be eliminated";
 }
 
@@ -1734,6 +1777,37 @@ TYPED_TEST(OrderByIndexTest, EdgeTypePropertyRangeEliminated) {
       << "Plan should use ScanAllByEdgeTypeProperty";
   EXPECT_FALSE(PlanContainsOp(planner.plan(), OrderBy::kType))
       << "OrderBy should be eliminated -- edge type property index provides order";
+}
+
+// A disjunction scan above an ordered edge scan keeps the edge order per input row, like a one-label scan.
+TYPED_TEST(OrderByIndexTest, EdgeTypePropertyOrderSurvivesIndexDisjunction) {
+  // MATCH ()-[e:KNOWS]->() WHERE e.since > 2020 WITH e MATCH (n:L1|L2) RETURN e.since AS es ORDER BY e.since
+  FakeDbAccessor dba;
+  const auto *const edge_type_name = "KNOWS";
+  const auto edge_type = dba.EdgeType(edge_type_name);
+  const auto since_prop = PROPERTY_PAIR(dba, "since");
+  dba.SetIndexCount(edge_type, since_prop.second, 1);
+  dba.SetIndexCount(dba.Label("L1"), 1);
+  dba.SetIndexCount(dba.Label("L2"), 1);
+
+  for (std::vector<std::string> labels : {std::vector<std::string>{"L1"}, std::vector<std::string>{"L1", "L2"}}) {
+    auto *match_e = MATCH(PATTERN(NODE("anon1"), EDGE("e", Direction::OUT, {edge_type_name}), NODE("anon2")));
+    match_e->where_ = WHERE(GREATER(PROPERTY_LOOKUP(dba, "e", since_prop.second), LITERAL(2020)));
+    auto *query = QUERY(SINGLE_QUERY(match_e,
+                                     WITH("e"),
+                                     MATCH(PATTERN(NODE_WITH_LABELS("n", labels))),
+                                     RETURN(PROPERTY_LOOKUP(dba, "e", since_prop.second),
+                                            AS("es"),
+                                            ORDER_BY(PROPERTY_LOOKUP(dba, "e", since_prop.second)))));
+
+    auto symbol_table = memgraph::query::MakeSymbolTable(query);
+    auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+    SCOPED_TRACE(fmt::format("{} label(s)", labels.size()));
+    EXPECT_TRUE(PlanContainsOp(planner.plan(), ScanAllByEdgeTypeProperty::kType));
+    EXPECT_EQ(PlanContainsOp(planner.plan(), ScanAllByIndexDisjunction::kType), labels.size() > 1);
+    EXPECT_FALSE(PlanContainsOp(planner.plan(), OrderBy::kType)) << "the scan of n keeps the order of e";
+  }
 }
 
 // MATCH ()-[e:KNOWS]->() WHERE e.since > 2020 RETURN e ORDER BY e.name -- different property, not eliminated.

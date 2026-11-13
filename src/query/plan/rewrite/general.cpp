@@ -17,15 +17,21 @@
 
 namespace memgraph::query::plan {
 
-UnwoundMembershipList UnwindMembershipList(SymbolTable &symbol_table, AstStorage *ast_storage,
-                                           std::shared_ptr<LogicalOperator> input, Expression *list_expr) {
+MembershipList MakeMembershipList(SymbolTable &symbol_table, AstStorage *ast_storage, Expression *list_expr) {
   auto const &symbol = symbol_table.CreateAnonymousSymbol();
   auto *element = ast_storage->Create<Identifier>(symbol.name());
   element->MapTo(symbol);
   auto *empty_list = ast_storage->Create<ListLiteral>(std::vector<Expression *>{});
   auto *guarded = ast_storage->Create<Coalesce>(std::vector<Expression *>{list_expr, empty_list});
   auto *deduped = ast_storage->Create<Function>("TOSET", std::vector<Expression *>{guarded});
-  return {.op = std::make_shared<Unwind>(std::move(input), deduped, symbol), .element = element};
+  return {.deduped = deduped, .symbol = symbol, .element = element};
+}
+
+UnwoundMembershipList UnwindMembershipList(SymbolTable &symbol_table, AstStorage *ast_storage,
+                                           std::shared_ptr<LogicalOperator> input, Expression *list_expr) {
+  auto membership = MakeMembershipList(symbol_table, ast_storage, list_expr);
+  return {.op = std::make_shared<Unwind>(std::move(input), membership.deduped, membership.symbol),
+          .element = membership.element};
 }
 
 ExpressionRemovalResult RemoveExpressions(Expression *expr, const std::unordered_set<Expression *> &exprs_to_remove,
