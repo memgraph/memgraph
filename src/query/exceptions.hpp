@@ -220,6 +220,13 @@ class QueryRuntimeException : public QueryException {
   SPECIALIZE_GET_EXCEPTION_NAME(QueryRuntimeException)
 };
 
+/// A numerical operation whose result is undefined or not representable (integer overflow, division by zero).
+class ArithmeticException : public QueryRuntimeException {
+ public:
+  using QueryRuntimeException::QueryRuntimeException;
+  SPECIALIZE_GET_EXCEPTION_NAME(ArithmeticException)
+};
+
 /// A download that could deliver the file if the query were run again, such as one the server failed
 /// to serve or that never reached it. Reported to the client as retryable, and counted separately
 /// from other retryable errors so a run of them is visible.

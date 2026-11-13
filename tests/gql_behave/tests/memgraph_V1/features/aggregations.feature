@@ -1363,3 +1363,25 @@ Feature: Aggregations
             MATCH (n:Node) RETURN n.value + $x AS v, COUNT(*) AS c ORDER BY n.value + $y
             """
         Then an error should be raised
+
+    Scenario: Sum and Avg of integers whose total overflows int64 switch to float
+        Given an empty graph
+        When executing query:
+            """
+            UNWIND [9223372036854775807, 1] AS x
+            RETURN sum(x) AS s, avg(x) AS a
+            """
+        Then the result should be:
+            | s                     | a                     |
+            | 9.223372036854776e+18 | 4.611686018427388e+18 |
+
+    Scenario: Sum of integers that fits int64 stays an integer
+        Given an empty graph
+        When executing query:
+            """
+            UNWIND [1, 2, 3] AS x
+            RETURN sum(x) AS s
+            """
+        Then the result should be:
+            | s |
+            | 6 |
