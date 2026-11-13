@@ -4914,6 +4914,24 @@ TEST_F(IndexDisjunctionScan, ResetRestartsInput) {
   EXPECT_EQ(rows, 8);
 }
 
+// After a wide row, a narrow row's seen vertices are forgotten too: the next row yields them again.
+TEST_F(IndexDisjunctionScan, NarrowRowAfterAWideRowForgetsItsVertices) {
+  // 1100 entries leave more than 1024 buckets, so a one-vertex row is erased rather than cleared.
+  std::vector<std::pair<std::vector<memgraph::storage::LabelId>, int64_t>> vertices;
+  for (int64_t p = 0; p < 1100; ++p) vertices.push_back({{label_a}, p});
+  AddVerticesWithP(vertices);
+  auto const at_least_x = [&] {
+    return ExpressionRange::Range(memgraph::utils::MakeBoundInclusive<Expression *>(IDENT("x")->MapTo(x)),
+                                  std::nullopt);
+  };
+  auto scan = std::make_shared<ScanAllByIndexDisjunction>(
+      UnwindX({0, 1099, 1098}),
+      n,
+      std::vector<IndexDisjunctionBranch>{PropertyBranch(label_a, at_least_x()),
+                                          PropertyBranch(label_b, at_least_x())});
+  EXPECT_EQ(RowsPerX(scan), (std::map<int64_t, int>{{0, 1100}, {1099, 1}, {1098, 2}}));
+}
+
 // The bound of a property branch is the input row's value, not the first row's.
 TEST_F(IndexDisjunctionScan, PropertyBranchBoundToInputRow) {
   AddVerticesWithP({{{label_a}, 9}, {{label_b}, 1}, {{label_b}, 2}, {{label_b}, 2}});
