@@ -1,0 +1,5 @@
+query: >
+  RETURN bitwise.op(60, '^', 13) AS symbol, bitwise.op(60, 'XOR', 13) AS word;
+output:
+  - symbol: 49
+    word: 49

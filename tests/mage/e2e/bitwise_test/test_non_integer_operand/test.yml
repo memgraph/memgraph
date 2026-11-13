@@ -1,0 +1,4 @@
+query: >
+  RETURN bitwise.op(1.5, '&', 1) AS result;
+exception_contains: >
+  argument named 'a' at position 0 must be of type INTEGER?
