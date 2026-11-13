@@ -1350,6 +1350,57 @@ TYPED_TEST(TestPlanner, MatchEdgeTypeIndex) {
   }
 }
 
+// Regression test for https://github.com/memgraph/memgraph/issues/5376
+// When a self-loop pattern (a)-[r:T]->(a) is used and an edge type index exists
+// on :T, the planner must NOT rewrite to ScanAllByEdgeType because that operator
+// iterates all edges of that type without enforcing the same-node constraint.
+// The plan should fall back to ScanAll + Expand so that CheckExistingNode can
+// correctly filter out non-self-loop edges.
+TYPED_TEST(TestPlanner, MatchEdgeTypeIndexSelfLoop) {
+  FakeDbAccessor dba;
+  auto indexed_edge_type = dba.EdgeType("indexed_edgetype");
+  dba.SetIndexCount(indexed_edge_type, 1);
+  {
+    // Test MATCH (a)-[r:indexed_edgetype]->(a) RETURN r;
+    // Despite the index, the self-loop constraint (a reused on both ends)
+    // means we must NOT use ScanAllByEdgeType — fall back to Expand.
+    auto *query = QUERY(SINGLE_QUERY(
+        MATCH(PATTERN(NODE("a"), EDGE("r", memgraph::query::EdgeAtom::Direction::OUT, {"indexed_edgetype"}), NODE("a"))),
+        RETURN("r")));
+    auto symbol_table = memgraph::query::MakeSymbolTable(query);
+    auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+    CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectExpand(), ExpectProduce());
+  }
+  {
+    // Test MATCH (a)-[r:indexed_edgetype]->(a) RETURN r; (direction IN)
+    auto *query = QUERY(SINGLE_QUERY(
+        MATCH(PATTERN(NODE("a"), EDGE("r", memgraph::query::EdgeAtom::Direction::IN, {"indexed_edgetype"}), NODE("a"))),
+        RETURN("r")));
+    auto symbol_table = memgraph::query::MakeSymbolTable(query);
+    auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+    CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectExpand(), ExpectProduce());
+  }
+  {
+    // Test MATCH (a)-[r:indexed_edgetype]-(a) RETURN r; (direction BOTH)
+    auto *query = QUERY(SINGLE_QUERY(
+        MATCH(PATTERN(NODE("a"), EDGE("r", memgraph::query::EdgeAtom::Direction::BOTH, {"indexed_edgetype"}), NODE("a"))),
+        RETURN("r")));
+    auto symbol_table = memgraph::query::MakeSymbolTable(query);
+    auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+    CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectExpand(), ExpectProduce());
+  }
+  {
+    // Sanity check: distinct endpoints still use the index.
+    // Test MATCH (a)-[r:indexed_edgetype]->(b) RETURN r;
+    auto *query = QUERY(SINGLE_QUERY(
+        MATCH(PATTERN(NODE("a"), EDGE("r", memgraph::query::EdgeAtom::Direction::OUT, {"indexed_edgetype"}), NODE("b"))),
+        RETURN("r")));
+    auto symbol_table = memgraph::query::MakeSymbolTable(query);
+    auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+    CheckPlan(planner.plan(), symbol_table, ExpectScanAllByEdgeType(), ExpectProduce());
+  }
+}
+
 TYPED_TEST(TestPlanner, MatchEdgeTypePropertyIndexExistence) {
   FakeDbAccessor dba;
   auto edge_type = dba.EdgeType("indexed_edgetype");

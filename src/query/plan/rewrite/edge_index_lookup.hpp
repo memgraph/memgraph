@@ -1065,6 +1065,15 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
       return nullptr;
     }
 
+    // A self-loop pattern like (a)-[r:R]->(a) requires both endpoints to bind to the
+    // same node. ScanAllByEdgeType and ScanAllByEdgeTypeProperty iterate all edges of
+    // a given type without enforcing that constraint, so they would incorrectly match
+    // non-self-loop edges. Keep the Expand operator in this case; it already enforces
+    // the same-node constraint through CheckExistingNode. See issue #5376.
+    if (common.node1_symbol == common.node2_symbol) {
+      return nullptr;
+    }
+
     std::optional<storage::EdgeTypeId> edge_type_from_relationship{};
     if (!common.edge_types.empty()) {
       // if there is already something in a relationship, we will consider that one first, rather
