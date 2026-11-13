@@ -11,6 +11,7 @@
 
 import os
 import sys
+import time
 from functools import partial
 
 import interactive_mg_runner
@@ -379,6 +380,51 @@ def test_ttl_role_transition_ha(test_name):
 
     mg_sleep_and_assert(True, v_checker_old_main.is_less_vertices, max_duration=20)
     mg_sleep_and_assert(True, v_checker_old_main.is_less_edges, max_duration=20)
+
+
+# A restarted MAIN is not writeable, so the coordinator promotes it again; that promotion must not undo STOP TTL.
+def test_stopped_ttl_stays_stopped_after_main_restart_ha(test_name):
+    instances_description = get_instances_description_ttl_ha(test_name=test_name)
+    instance_1_args = instances_description["instance_1"]["args"]
+    instance_1_args[instance_1_args.index("--storage-snapshot-on-exit=false")] = "--storage-snapshot-on-exit=true"
+    interactive_mg_runner.start_all(instances_description, keep_directories=False)
+
+    setup_queries = [
+        "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': 'localhost:7690', 'coordinator_server': 'localhost:10111', 'management_server': 'localhost:10121'}",
+        "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': 'localhost:7691', 'coordinator_server': 'localhost:10112', 'management_server': 'localhost:10122'}",
+        "ADD COORDINATOR 3 WITH CONFIG {'bolt_server': 'localhost:7692', 'coordinator_server': 'localhost:10113', 'management_server': 'localhost:10123'}",
+        "REGISTER INSTANCE instance_1 WITH CONFIG {'bolt_server': 'localhost:7687', 'management_server': 'localhost:10011', 'replication_server': 'localhost:10001'};",
+        "SET INSTANCE instance_1 TO MAIN",
+    ]
+    coord_cursor_3 = connect(host="localhost", port=7692).cursor()
+    for query in setup_queries:
+        execute_and_fetch_all(coord_cursor_3, query)
+
+    instance1_cursor = connect(host="localhost", port=7687).cursor()
+    execute_and_fetch_all(
+        instance1_cursor, "UNWIND RANGE(1,100) AS d CREATE (:TTL{ttl:timestamp() + timestamp(duration({second:d}))});"
+    )
+    execute_and_fetch_all(instance1_cursor, 'ENABLE TTL EVERY "1s";')
+    v_checker = VertexChecker(instance1_cursor)
+    mg_sleep_and_assert(True, v_checker.is_less_vertices, max_duration=20)
+    execute_and_fetch_all(instance1_cursor, "STOP TTL;")
+
+    interactive_mg_runner.stop(instances_description, "instance_1")
+    interactive_mg_runner.start(instances_description, "instance_1")
+    data = [
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
+        ("instance_1", "localhost:7687", "", "localhost:10011", "up", "main"),
+    ]
+    mg_sleep_and_assert(data, partial(show_instances, coord_cursor_3))
+    instance1_cursor = connect(host="localhost", port=7687).cursor()
+    wait_until_main_writeable(instance1_cursor, "CREATE (:Probe);")
+
+    # A running TTL deletes at least one more expired vertex in this window
+    v_checker = VertexChecker(instance1_cursor)
+    time.sleep(3)
+    assert v_checker.is_same_vertices()
 
 
 if __name__ == "__main__":

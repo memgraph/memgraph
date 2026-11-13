@@ -20,6 +20,9 @@
 
 #ifdef MG_ENTERPRISE
 
+#include <atomic>
+#include <mutex>
+
 #include <fmt/format.h>
 #include <nlohmann/json_fwd.hpp>
 
@@ -135,9 +138,10 @@ inline bool operator==(const TtlInfo &lhs, const TtlInfo &rhs) {
 /**
  * @brief Time-to-live handler.
  *
- * Interface is mutex protected, only so that coordinator can resume thread is paused.
- * TTL queries are uniquely accessed, to the interface doesn't need protecting from the user side.
- * However, if instance becomes a REPLICA, the thread is paused until reverted beck to MAIN.
+ * TTL queries run under unique storage access. Promotion does not, so Pause(), Resume(), and
+ * ResumeIfWanted() hold wanted_mutex_.
+ * Role changes use Suspend() and ResumeIfWanted(), which keep Wanted(); ENABLE TTL and STOP TTL use
+ * Resume() and Pause(), which set it.
  *
  */
 class TTL final {
@@ -208,21 +212,52 @@ class TTL final {
    */
   void Disable() {
     enabled_ = false;
+    wanted_ = false;
     info_ = {};
     ttl_.Stop();
   }
 
   /**
-   * @brief TTL's background job should be paused in case instance becomes a REPLICA.
-   *
+   * @brief Whether the last command was ENABLE TTL (true) or STOP TTL (false). Snapshots record it;
+   *        demotion and shutdown leave it unchanged.
    */
-  void Pause() { ttl_.Pause(); }
+  bool Wanted() const { return wanted_; }
+
+  void SetWanted(bool wanted) { wanted_ = wanted; }
 
   /**
-   * @brief Use Resume() to restart once MAIN.
+   * @brief Pause the background job and record that TTL should stay stopped (STOP TTL).
+   */
+  void Pause() {
+    auto lock = std::lock_guard{wanted_mutex_};
+    wanted_ = false;
+    ttl_.Pause();
+  }
+
+  /**
+   * @brief Run the background job and record that TTL should run (ENABLE TTL).
    *
    */
-  void Resume() { ttl_.Resume(); }
+  void Resume() {
+    auto lock = std::lock_guard{wanted_mutex_};
+    wanted_ = true;
+    ttl_.Resume();
+  }
+
+  /**
+   * @brief Pause the background job while this instance is a REPLICA, keeping whether TTL should run.
+   *
+   */
+  void Suspend() { ttl_.Pause(); }
+
+  /**
+   * @brief Restart the background job once MAIN, if TTL should run.
+   *
+   */
+  void ResumeIfWanted() {
+    auto lock = std::lock_guard{wanted_mutex_};
+    if (wanted_) ttl_.Resume();
+  }
 
   /**
    * @brief Set the function to check if this is a main instance
@@ -232,9 +267,11 @@ class TTL final {
   void SetUserCheck(std::function<bool()> check_fn) { user_check_.Update(std::move(check_fn)); }
 
  private:
-  utils::Scheduler ttl_;  //!< background thread
-  TtlInfo info_{};        //!< configuration
-  bool enabled_{false};   //!< feature enabler
+  utils::Scheduler ttl_;             //!< background thread
+  TtlInfo info_{};                   //!< configuration
+  bool enabled_{false};              //!< feature enabler
+  std::atomic<bool> wanted_{false};  //!< asked to run rather than stopped
+  std::mutex wanted_mutex_;          //!< makes reading or setting wanted_ and pausing or resuming ttl_ one step
   Storage *storage_ptr_{};
   metrics::CounterHandle deleted_nodes_{};
   metrics::CounterHandle deleted_edges_{};
@@ -309,6 +346,14 @@ class TTL final {
   void Pause() {}
 
   void Resume() {}
+
+  bool Wanted() const { return false; }
+
+  void SetWanted(bool) {}
+
+  void Suspend() {}
+
+  void ResumeIfWanted() {}
 
   bool Enabled() const { return false; }
 
