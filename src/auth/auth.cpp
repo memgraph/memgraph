@@ -797,7 +797,10 @@ bool Auth::CreateOrUpdateProfile(const std::string &profile_name, UserProfiles::
     // Profile already exists, update it
     // Figure out the difference between the existing users and the new ones
     const auto existing_users = GetUsernamesForProfile(profile_name);
-    const auto &new_users = usernames;
+    std::unordered_set<std::string> new_users;
+    for (const auto &user : usernames) {
+      new_users.insert(utils::ToLowerCase(user));
+    }
     // A failure here is not survivable: both callers are reconciling a replica against the main, and a
     // membership left unreconciled is a permission difference the caller cannot see. Let it throw so the batch
     // is refused and the main sends a snapshot. A membership already in the desired state does not throw.
@@ -807,8 +810,8 @@ bool Auth::CreateOrUpdateProfile(const std::string &profile_name, UserProfiles::
       }
     }
     for (const auto &user : new_users) {
-      // The replica made the same pick from the same data, so a SET to the already-applied profile must still
-      // clear the replica's stale spelling.
+      // Any replicated write of the profile the replica already applies (SET, UPDATE PROFILE, recovery) re-sets an
+      // ambiguous user so its stale spelling is cleared; the main keeps its own until an admin SET/CLEAR there.
       if (!existing_users.contains(user) || user_profiles_.IsAmbiguous(user)) {
         SetProfile(profile_name, user, system_tx);
       }
