@@ -513,6 +513,8 @@ antlrcpp::Any CypherMainVisitor::visitTypeConstraintType(MemgraphCypher::TypeCon
 
 antlrcpp::Any CypherMainVisitor::visitCypherQuery(MemgraphCypher::CypherQueryContext *ctx) {
   auto *cypher_query = storage_->Create<CypherQuery>();
+  auto const nested_index_hints_begin = std::ssize(nested_index_hints_);
+  ++cypher_query_depth_;
   MG_ASSERT(ctx->singleQuery(), "Expected single query.");
   cypher_query->single_query_ = std::any_cast<SingleQuery *>(ctx->singleQuery()->accept(this));
 
@@ -530,6 +532,7 @@ antlrcpp::Any CypherMainVisitor::visitCypherQuery(MemgraphCypher::CypherQueryCon
     }
     cypher_query->cypher_unions_.push_back(std::any_cast<CypherUnion *>(child->accept(this)));
   }
+  --cypher_query_depth_;
 
   if (auto *pre_query_directives_ctx = ctx->preQueryDirectives()) {
     cypher_query->pre_query_directives_ = std::any_cast<PreQueryDirectives>(pre_query_directives_ctx->accept(this));
@@ -538,6 +541,17 @@ antlrcpp::Any CypherMainVisitor::visitCypherQuery(MemgraphCypher::CypherQueryCon
     if (cypher_query->pre_query_directives_.num_threads_ != nullptr) {
       query_info_.is_cacheable = false;
     }
+  }
+
+  // Index hints are plan-wide and the planner reads only the outermost query's directives, so hints written at a
+  // MATCH or in a nested query are gathered there in clause order, a clause's own hints before those nested in it.
+  auto &index_hints = cypher_query->pre_query_directives_.index_hints_;
+  if (cypher_query_depth_ > 0) {
+    nested_index_hints_.insert(
+        nested_index_hints_.begin() + nested_index_hints_begin, index_hints.begin(), index_hints.end());
+  } else {
+    index_hints.insert(index_hints.end(), nested_index_hints_.begin(), nested_index_hints_.end());
+    nested_index_hints_.clear();
   }
 
   if (auto *memory_limit_ctx = ctx->queryMemoryLimit()) {
@@ -564,34 +578,39 @@ auto get_index_properties(auto &&ctx, CypherMainVisitor &cypher_main_visitor) ->
   return ctx | srv::transform(as_prop_ix_path) | r::to_vector;
 }
 
+void CypherMainVisitor::AddIndexHints(MemgraphCypher::IndexHintsContext *ctx, std::vector<IndexHint> &hints) {
+  // A leading variable in `USING INDEX n:Label(prop)` is accepted and ignored: hints apply to the whole plan.
+  for (auto *index_hint_ctx : ctx->indexHint()) {
+    if (auto *prop_ctx = index_hint_ctx->propertyKeyName()) {
+      auto property = std::any_cast<PropertyIx>(prop_ctx->accept(this));
+      hints.emplace_back(
+          // NOLINTNEXTLINE(hicpp-use-emplace,modernize-use-emplace)
+          IndexHint{.index_type_ = IndexHint::IndexType::VERTEX_PROPERTY,
+                    .property_ixs_ = {PropertyIxPath{{property}}}});
+      continue;
+    }
+    auto label = AddLabel(std::any_cast<std::string>(index_hint_ctx->labelName()->accept(this)));
+    auto *list = index_hint_ctx->nestedPropertyKeyList();
+    if (!list) {
+      hints.emplace_back(
+          // NOLINTNEXTLINE(hicpp-use-emplace,modernize-use-emplace)
+          IndexHint{.index_type_ = IndexHint::IndexType::LABEL, .label_ix_ = label});
+      continue;
+    }
+
+    hints.emplace_back(
+        // NOLINTNEXTLINE(hicpp-use-emplace,modernize-use-emplace)
+        IndexHint{.index_type_ = IndexHint::IndexType::LABEL_PROPERTIES,
+                  .label_ix_ = label,
+                  .property_ixs_ = get_index_properties(list->nestedPropertyKeyNames(), *this)});
+  }
+}
+
 antlrcpp::Any CypherMainVisitor::visitPreQueryDirectives(MemgraphCypher::PreQueryDirectivesContext *ctx) {
   PreQueryDirectives pre_query_directives;
   for (auto *pre_query_directive : ctx->preQueryDirective()) {
     if (auto *index_hints_ctx = pre_query_directive->indexHints()) {
-      for (auto *index_hint_ctx : index_hints_ctx->indexHint()) {
-        if (auto *prop_ctx = index_hint_ctx->propertyKeyName()) {
-          auto property = std::any_cast<PropertyIx>(prop_ctx->accept(this));
-          pre_query_directives.index_hints_.emplace_back(
-              // NOLINTNEXTLINE(hicpp-use-emplace,modernize-use-emplace)
-              IndexHint{.index_type_ = IndexHint::IndexType::VERTEX_PROPERTY,
-                        .property_ixs_ = {PropertyIxPath{{property}}}});
-          continue;
-        }
-        auto label = AddLabel(std::any_cast<std::string>(index_hint_ctx->labelName()->accept(this)));
-        auto *list = index_hint_ctx->nestedPropertyKeyList();
-        if (!list) {
-          pre_query_directives.index_hints_.emplace_back(
-              // NOLINTNEXTLINE(hicpp-use-emplace,modernize-use-emplace)
-              IndexHint{.index_type_ = IndexHint::IndexType::LABEL, .label_ix_ = label});
-          continue;
-        }
-
-        pre_query_directives.index_hints_.emplace_back(
-            // NOLINTNEXTLINE(hicpp-use-emplace,modernize-use-emplace)
-            IndexHint{.index_type_ = IndexHint::IndexType::LABEL_PROPERTIES,
-                      .label_ix_ = label,
-                      .property_ixs_ = get_index_properties(list->nestedPropertyKeyNames(), *this)});
-      }
+      AddIndexHints(index_hints_ctx, pre_query_directives.index_hints_);
     } else if (auto *periodic_commit = pre_query_directive->periodicCommit()) {
       if (pre_query_directives.commit_frequency_) {
         throw SyntaxException("Commit frequency can be set only once in the USING statement.");
@@ -2223,6 +2242,9 @@ antlrcpp::Any CypherMainVisitor::visitClause(MemgraphCypher::ClauseContext *ctx)
 antlrcpp::Any CypherMainVisitor::visitCypherMatch(MemgraphCypher::CypherMatchContext *ctx) {
   auto *match = storage_->Create<Match>();
   match->optional_ = !!ctx->OPTIONAL();
+  for (auto *index_hints_ctx : ctx->indexHints()) {
+    AddIndexHints(index_hints_ctx, nested_index_hints_);
+  }
   if (ctx->where()) {
     match->where_ = std::any_cast<Where *>(ctx->where()->accept(this));
   }

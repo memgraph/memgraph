@@ -319,6 +319,8 @@ query : cypherQuery
 
 cypherQuery : ( preQueryDirectives )? singleQuery ( cypherUnion )* ( queryMemoryLimit )? ;
 
+cypherMatch : OPTIONAL? MATCH pattern ( USING indexHints )? where? ( USING indexHints )? ;
+
 authQuery : createRole
           | dropRole
           | showRoles
@@ -417,9 +419,7 @@ hopsLimit: HOPS LIMIT literal ;
 
 indexHints: INDEX indexHint ( ',' indexHint )* ;
 
-indexHint: ':' labelName nestedPropertyKeyList?
-         | ':' '(' propertyKeyName ')'
-         ;
+indexHint: variable? ':' ( labelName nestedPropertyKeyList? | '(' propertyKeyName ')' ) ;
 
 periodicCommit : PERIODIC COMMIT periodicCommitNumber=literal ;
 

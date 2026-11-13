@@ -10022,6 +10022,52 @@ TEST_P(CypherMainVisitorTest, UseHintWithNestedCompositeIndices) {
   EXPECT_EQ((hints[0].property_ixs_)[2].path[0].name, "country");
 }
 
+TEST_P(CypherMainVisitorTest, PerMatchIndexHints) {
+  auto &ast_generator = *GetParam();
+  auto const hint_signatures = [&](const std::string &query_string) {
+    auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(query_string));
+    std::vector<std::string> signatures;
+    if (query == nullptr) return signatures;
+    for (auto const &hint : query->pre_query_directives_.index_hints_) {
+      std::string signature = hint.label_ix_.name;
+      for (auto const &properties : hint.property_ixs_) {
+        signature += "(" + properties.AsPathString() + ")";
+      }
+      signatures.push_back(std::move(signature));
+    }
+    return signatures;
+  };
+
+  for (const auto *query_string : {"MATCH (p:Person) USING INDEX :Person(name) RETURN p",
+                                   "MATCH (p:Person) USING INDEX p:Person(name) RETURN p",
+                                   "MATCH (p:Person) WHERE p.name = 'Alice' USING INDEX :Person(name) RETURN p",
+                                   "MATCH (p:Person) WHERE p.name = 'Alice' USING INDEX p:Person(name) RETURN p",
+                                   "USING INDEX p:Person(name) MATCH (p:Person) RETURN p"}) {
+    SCOPED_TRACE(query_string);
+    EXPECT_THAT(hint_signatures(query_string), ElementsAre("Person(name)"));
+  }
+
+  EXPECT_THAT(
+      hint_signatures("USING INDEX :A MATCH (a:A) USING INDEX :B "
+                      "CALL { USING INDEX :C MATCH (c:C) USING INDEX :D RETURN c } "
+                      "MATCH (e:E) USING INDEX :E RETURN 1 AS x UNION MATCH (f:F) USING INDEX :F RETURN 1 AS x"),
+      ElementsAre("A", "B", "C", "D", "E", "F"));
+  EXPECT_THAT(hint_signatures("MATCH (n) USING INDEX :A WHERE COUNT { MATCH (m) USING INDEX :B RETURN m } > 0 "
+                              "CALL { MATCH (c) USING INDEX :C RETURN c } IN TRANSACTIONS OF 1 ROWS RETURN n"),
+              ElementsAre("A", "B", "C"));
+}
+
+TEST_P(CypherMainVisitorTest, PerMatchAdmissionIsIndexHintsOnly) {
+  auto &ast_generator = *GetParam();
+  for (const auto *query_string : {"MATCH (n) USING HOPS LIMIT 5 RETURN n",
+                                   "MATCH (n) USING PERIODIC COMMIT 10 CREATE (n)",
+                                   "MATCH (n) USING PARALLEL EXECUTION RETURN n",
+                                   "MATCH (n) USING PARALLEL EXECUTION 4 RETURN n"}) {
+    SCOPED_TRACE(query_string);
+    ASSERT_THROW(ast_generator.ParseQuery(query_string), SyntaxException);
+  }
+}
+
 TEST_P(CypherMainVisitorTest, ExistsSubqueries) {
   {
     auto &ast_generator = *GetParam();
