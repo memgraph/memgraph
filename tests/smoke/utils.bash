@@ -220,6 +220,8 @@ docker_stop_if_there() {
 
 cleanup_docker() {
   docker_stop_if_there memgraph_smoke || true
+  docker_stop_if_there memgraph_smoke_unlicensed || true
+  docker_stop_if_there memgraph_smoke_licensed || true
 
   if declare -F kerberos_cleanup >/dev/null; then
     kerberos_cleanup

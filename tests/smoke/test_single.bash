@@ -56,6 +56,10 @@ run_feature_tests "$IMAGE_TYPE" docker "$MODE"
 create_test_users
 run_auth_feature_tests "$MODE"
 
+# Starts its own licensed and unlicensed containers, so it is outside
+# run_feature_tests.
+test_enterprise_features_need_license
+
 # NOTE: Kerberos is deliberately outside run_feature_tests: SSO has to be
 # enabled at startup, so this brings up its own memgraph container (from the
 # same image) plus a throwaway KDC instead of reusing memgraph_smoke. It is
