@@ -310,7 +310,7 @@ auto DownloadToStream(std::string_view url, std::ostream &os) -> bool {
 auto UrlToStringStream(std::string_view url) -> std::stringstream {
   auto ss = std::stringstream{};
   if (!requests::DownloadToStream(url, ss)) {
-    throw utils::BasicException("CSV was unable to be fetched from {}", url);
+    throw utils::RetryableException("CSV was unable to be fetched from {}", url);
   }
   return ss;
 };

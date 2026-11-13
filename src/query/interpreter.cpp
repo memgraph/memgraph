@@ -7028,10 +7028,10 @@ PreparedQuery PrepareRecoverSnapshotQuery(ParsedQuery parsed_query, bool in_expl
                   "Please clean them manually, or re-run RECOVER SNAPSHOT ... FORCE.");
             }
             case DownloadFailure: {
-              throw utils::BasicException("Failed to download snapshot file from {}", path);
+              throw RetryBasicException("Failed to download snapshot file from {}", path);
             }
             case S3GetFailure: {
-              throw utils::BasicException("Failed to download snapshot file from s3 {}", path);
+              throw RetryBasicException("Failed to download snapshot file from s3 {}", path);
             }
             case S3MissingAwsRegion: {
               throw utils::BasicException(utils::AwsValidationErrorToStr(utils::AwsValidationError::AWS_REGION));
