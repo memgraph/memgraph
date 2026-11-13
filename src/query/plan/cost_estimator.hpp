@@ -871,7 +871,7 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
   }
 
   /// Estimates the cardinality of a label-property scan, serial or parallel.
-  /// @param in_lists_unwound true when an Unwind above the scan feeds each IN element, false when the scan seeks
+  /// @param in_lists_unwound true when an Unwind below the scan feeds each IN element, false when the scan seeks
   /// every element itself.
   double EstimateLabelPropertiesCardinality(storage::LabelId label,
                                             std::vector<storage::PropertyPath> const &properties,

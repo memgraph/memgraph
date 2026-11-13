@@ -837,21 +837,12 @@ class ScanAllByLabelProperties : public memgraph::query::plan::ScanAll {
 /// One index access of a @c ScanAllByIndexDisjunction: a label index when @c properties is
 /// empty, a label-property index otherwise.
 struct IndexDisjunctionBranch {
-  /// An `x IN list` slot: @c list is toSet(coalesce(list, [])); each of its elements is written
+  /// An `x IN list` slot: @c deduped is toSet(coalesce(list, [])); each of its elements is written
   /// to @c symbol, which the slot's range reads.
   struct MembershipSlot {
-    Expression *list{nullptr};
+    Expression *deduped{nullptr};
     Symbol symbol;
   };
-
-  /// A label-index branch.
-  static IndexDisjunctionBranch Label(storage::LabelId label) { return {.label = label}; }
-
-  /// A label-property-index branch; its ranges and IN slots are added after.
-  static IndexDisjunctionBranch LabelProperties(storage::LabelId label, std::vector<storage::PropertyPath> properties,
-                                                storage::IndexOrder order = storage::IndexOrder::ASC) {
-    return {.label = label, .properties = std::move(properties), .index_order = order};
-  }
 
   storage::LabelId label;
   std::vector<storage::PropertyPath> properties;

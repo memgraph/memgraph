@@ -1512,6 +1512,7 @@ namespace {
 std::optional<std::vector<storage::PropertyValueRange>> EvaluateSeekRanges(
     std::span<const ExpressionRange> expression_ranges, ExpressionEvaluator &evaluator,
     std::span<ValuePredicateForRow> value_predicates) {
+  DMG_ASSERT(expression_ranges.size() == value_predicates.size(), "One value predicate per range.");
   auto to_property_value_range = [&](auto &&expression_range) { return expression_range.Evaluate(evaluator); };
   auto prop_value_ranges = expression_ranges | rv::transform(to_property_value_range) | ranges::to_vector;
 
@@ -1750,7 +1751,7 @@ IndexDisjunctionBranch IndexDisjunctionBranch::Clone(AstStorage &storage) const 
   copy.expression_ranges = expression_ranges |
                            rv::transform([&](auto const &range) { return ExpressionRange(range, storage); }) |
                            ranges::to_vector;
-  for (auto &slot : copy.membership_slots) slot.list = slot.list->Clone(&storage);
+  for (auto &slot : copy.membership_slots) slot.deduped = slot.deduped->Clone(&storage);
   return copy;
 }
 
@@ -1790,8 +1791,8 @@ class ScanAllByIndexDisjunctionCursor : public Cursor {
         continue;
       }
 #endif
-      // A vertex comes out of the first branch that yields it. Labels can change between pulls even under OLD (a
-      // writing subquery advances the command, a periodic commit starts a new snapshot), so only the Gid is exact.
+      // A vertex comes out once per input row, from the first seek that yields it. Labels and properties can change
+      // between pulls even under OLD (a command advance, a new snapshot), so only the Gid is exact.
       if (!seen_.insert(vertex.Gid()).second) continue;
       auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
       frame_writer.Write(self_.output_symbol_, vertex);
@@ -1815,7 +1816,7 @@ class ScanAllByIndexDisjunctionCursor : public Cursor {
   // clear() writes every bucket, and buckets never shrink: after a wide row, erase only the entries of a narrow one.
   void ClearSeen() {
     if (seen_.empty()) return;
-    if (seen_.bucket_count() > std::max<size_t>(kMinBucketsForErase, 8 * seen_.size())) {
+    if (seen_.bucket_count() > std::max(kMinBucketsForErase, kBucketsPerEntryForErase * seen_.size())) {
       seen_.erase(seen_.begin(), seen_.end());
       return;
     }
@@ -1840,7 +1841,7 @@ class ScanAllByIndexDisjunctionCursor : public Cursor {
     ExpressionEvaluator evaluator{&frame, context, self_.view_, nullptr, &context.number_of_hops};
     membership_values_.clear();
     for (auto const &slot : branch.membership_slots) {
-      auto list = slot.list->Accept(evaluator);
+      auto list = slot.deduped->Accept(evaluator);
       auto &values = membership_values_.emplace_back(std::move(list.ValueList()));
       if (values.empty()) return true;
     }
@@ -1851,6 +1852,7 @@ class ScanAllByIndexDisjunctionCursor : public Cursor {
 
   // Seeks the current branch's index for its next tuple of IN elements. False when no tuple is left.
   bool NextSeek(Frame &frame, ExecutionContext &context) {
+    if (!tuple_pending_) return false;
     auto const &branch = self_.branches_[branch_];
     ExpressionEvaluator evaluator{&frame, context, self_.view_, nullptr, &context.number_of_hops};
     while (tuple_pending_) {
@@ -1885,6 +1887,7 @@ class ScanAllByIndexDisjunctionCursor : public Cursor {
   }
 
   static constexpr size_t kMinBucketsForErase = 1024;
+  static constexpr size_t kBucketsPerEntryForErase = 8;
 
   const ScanAllByIndexDisjunction &self_;
   const UniqueCursorPtr input_cursor_;
@@ -11940,19 +11943,11 @@ UniqueCursorPtr ScanParallelByLabelProperties::MakeCursor(utils::MemoryResource 
 }
 
 std::string ScanParallelByLabelProperties::ToString(const DbAccessor *dba) const {
-  auto const property_names =
-      properties_ | rv::transform([&](storage::PropertyPath const &property_path) {
-        return utils::Join(
-            property_path | rv::transform([&](storage::PropertyId prop) { return dba->PropertyToName(prop); }), ".");
-      }) |
-      ranges::to_vector;
-  auto const properties_stringified = utils::Join(property_names, ", ");
-  std::string_view suffix = index_order_ == storage::IndexOrder::DESC ? " (DESC)" : "";
-  return fmt::format("ScanParallelByLabelProperties (threads: {0}, :{1} {{{2}}}){3}",
+  return fmt::format("ScanParallelByLabelProperties (threads: {0}, :{1} {2}){3}",
                      num_threads_,
                      dba->LabelToName(label_),
-                     properties_stringified,
-                     suffix);
+                     IndexPropertiesToString(dba, properties_),
+                     IndexOrderSuffix(index_order_));
 }
 
 std::unique_ptr<LogicalOperator> ScanParallelByLabelProperties::Clone(AstStorage *storage) const {

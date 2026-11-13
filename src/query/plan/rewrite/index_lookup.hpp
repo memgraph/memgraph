@@ -2069,7 +2069,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
           if (std::holds_alternative<LabelIx>(index)) {
             metadata.all_property_filters_same = false;
             metadata.labels_to_erase.push_back(std::get<LabelIx>(index));
-            branches.push_back(IndexDisjunctionBranch::Label(GetLabel(std::get<LabelIx>(index))));
+            branches.push_back({.label = GetLabel(std::get<LabelIx>(index))});
             continue;
           }
           auto &label_property_index = std::get<LabelPropertyIndex>(index);
@@ -2078,9 +2078,9 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
             metadata.all_property_filters_same = false;
           }
           filtered_property_ids = label_property_index.properties;
-          auto branch = IndexDisjunctionBranch::LabelProperties(GetLabel(label_property_index.label),
-                                                                std::move(label_property_index.properties),
-                                                                label_property_index.order);
+          IndexDisjunctionBranch branch{.label = GetLabel(label_property_index.label),
+                                        .properties = std::move(label_property_index.properties),
+                                        .index_order = label_property_index.order};
           for (auto const &filter_info : label_property_index.filters) {
             if (!PropertyFilter::RequiresPostFilterOnNodeScan(filter_info.property_filter->type_)) {
               metadata.expressions_to_mark_for_removal.push_back(filter_info.expression);
@@ -2091,11 +2091,9 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
             }
             // The branch evaluates the list for each input row; an Unwind below the scan would multiply every branch.
             auto membership = MakeMembershipList(*symbol_table_, ast_storage_, filter_info.property_filter->value_);
-            FilterInfo element_filter = filter_info;
-            element_filter.property_filter->value_ = membership.element;
             branch.expression_ranges.push_back(
-                to_expression_range(element_filter, capture_membership_list(filter_info)));
-            branch.membership_slots.push_back({.list = membership.deduped, .symbol = membership.symbol});
+                ExpressionRange::In(membership.element, capture_membership_list(filter_info)));
+            branch.membership_slots.push_back({.deduped = membership.deduped, .symbol = membership.symbol});
           }
           branches.push_back(std::move(branch));
         }
@@ -2108,7 +2106,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
                                      std::move(metadata)};
           }
           for (auto const &slot : branch.membership_slots) {
-            input = std::make_shared<Unwind>(std::move(input), slot.list, slot.symbol);
+            input = std::make_shared<Unwind>(std::move(input), slot.deduped, slot.symbol);
           }
           auto scan = std::make_unique<ScanAllByLabelProperties>(input,
                                                                  node_symbol,
@@ -2117,7 +2115,8 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
                                                                  std::move(branch.expression_ranges),
                                                                  view);
           scan->index_order_ = branch.index_order;
-          return ScanByIndexResult{std::move(scan), std::move(metadata)};
+          return ScanByIndexResult{
+              std::move(scan), std::move(metadata), /*has_in_filter=*/!branch.membership_slots.empty()};
         }
         return ScanByIndexResult{
             std::make_unique<ScanAllByIndexDisjunction>(input, node_symbol, std::move(branches), view),
