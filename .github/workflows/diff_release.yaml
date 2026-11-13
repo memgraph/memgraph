@@ -808,6 +808,22 @@ jobs:
           --run-id "${{ github.run_id }}" \
           --job-id "${{ github.job }}-${{ github.run_attempt }}"
 
+      - name: Copy core dump stack traces
+        if: failure()
+        continue-on-error: true
+        run: |
+          mkdir -p build/e2e/stacktraces
+          docker cp "mgbuild_${TOOLCHAIN}_${OS}:/tmp/mg-cores/stacktraces/." build/e2e/stacktraces || true
+
+      - name: Save core dump stack traces
+        continue-on-error: true
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        if: failure()
+        with:
+          name: "Stack traces(Release build)${{ env.RUN_ID }}"
+          path: build/e2e/stacktraces
+          if-no-files-found: ignore
+
       - name: Stop mgbuild container
         if: always()
         run: |
