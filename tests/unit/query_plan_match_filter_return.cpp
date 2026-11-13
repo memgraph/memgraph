@@ -5055,3 +5055,64 @@ TEST_F(IndexDisjunctionScan, ResetInsideAnInBranch) {
   while (cursor->Pull(frame, context)) ++rows;
   EXPECT_EQ(rows, 6);
 }
+
+// Under NEW the branches see a vertex this transaction created and has not committed; under OLD they do not.
+TEST_F(IndexDisjunctionScan, NewViewSeesUncommittedVertex) {
+  AddVertices({{label_a}});
+  auto acc = db->Access(memgraph::storage::WRITE);
+  memgraph::query::DbAccessor dba(acc.get());
+  ASSERT_TRUE(dba.InsertVertex().AddLabel(label_b).has_value());
+  auto context = MakeContext(storage, symbol_table, &dba);
+  EXPECT_EQ(PullAll(*ScanAOrB(std::make_shared<Once>(), memgraph::storage::View::NEW), &context), 2);
+  EXPECT_EQ(PullAll(*ScanAOrB(std::make_shared<Once>(), memgraph::storage::View::OLD), &context), 1);
+}
+
+// An IN list is read in the scan's view: under NEW it sees a property this command set on the input vertex.
+TEST_F(IndexDisjunctionScan, InListReadsTheScanView) {
+  auto label_o = db->NameToLabel("O");
+  {
+    auto unique_acc = db->UniqueAccess();
+    ASSERT_TRUE(unique_acc->CreateIndex(label_o).has_value());
+    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+  AddVerticesWithP({{{label_o}, 1}, {{label_b}, 1}, {{label_b}, 2}, {{label_b}, 2}});
+  auto acc = db->Access(memgraph::storage::WRITE);
+  memgraph::query::DbAccessor dba(acc.get());
+  for (auto vertex : dba.Vertices(memgraph::storage::View::OLD)) {
+    if (*vertex.HasLabel(memgraph::storage::View::OLD, label_o)) {
+      ASSERT_TRUE(vertex.SetProperty(prop_p, memgraph::storage::PropertyValue(2)).has_value());
+    }
+  }
+  auto m = symbol_table.CreateSymbol("m", true);
+  auto input = std::make_shared<ScanAllByLabel>(std::make_shared<Once>(), m, label_o, memgraph::storage::View::NEW);
+  auto *m_p = PROPERTY_LOOKUP(dba, IDENT("m")->MapTo(m), prop_p);
+  auto scan = std::make_shared<ScanAllByIndexDisjunction>(
+      input,
+      n,
+      std::vector<IndexDisjunctionBranch>{{.label = label_a}, InBranch(label_b, LIST(m_p))},
+      memgraph::storage::View::NEW);
+  auto context = MakeContext(storage, symbol_table, &dba);
+  EXPECT_EQ(PullAll(*scan, &context), 2);
+}
+
+// An empty IN list in any slot leaves its branch with nothing to seek; the other branches still run.
+TEST_F(IndexDisjunctionScan, EmptySecondInSlotSkipsTheBranch) {
+  auto prop_q = db->NameToProperty("q");
+  {
+    auto unique_acc = db->UniqueAccess();
+    ASSERT_TRUE(unique_acc->CreateIndex(label_b, {prop_p, prop_q}).has_value());
+    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+  AddVerticesWithP({{{label_a}, 1}, {{label_b}, 1}});
+  IndexDisjunctionBranch branch{
+      .label = label_b,
+      .properties = {memgraph::storage::PropertyPath{prop_p}, memgraph::storage::PropertyPath{prop_q}}};
+  for (auto *list : {LIST(LITERAL(1)), storage.Create<ListLiteral>(std::vector<Expression *>{})}) {
+    auto membership = MakeMembershipList(symbol_table, &storage, list);
+    branch.expression_ranges.push_back(ExpressionRange::In(membership.element, list));
+    branch.membership_slots.push_back({.list = membership.deduped, .symbol = membership.symbol});
+  }
+  auto scan = std::make_shared<ScanAllByIndexDisjunction>(
+      UnwindX({1, 2}), n, std::vector<IndexDisjunctionBranch>{{.label = label_a}, branch});
+  EXPECT_EQ(RowsPerX(scan), (std::map<int64_t, int>{{1, 1}, {2, 1}}));
+}
