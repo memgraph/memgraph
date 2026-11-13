@@ -45,9 +45,28 @@ struct Context {
 #endif
   utils::PriorityThreadPool *worker_pool_;
 
-  auto AddTask(auto &&task, utils::Priority priority) {
+  using TaskID = utils::PriorityThreadPool::TaskID;
+
+  auto AddTask(auto &&task, utils::Priority priority, bool productive = true) {
     MG_ASSERT(worker_pool_, "Trying to add task to a non-existent worker pool");
-    return worker_pool_->ScheduledAddTask(std::forward<decltype(task)>(task), priority);
+    return worker_pool_->ScheduledAddTask(std::forward<decltype(task)>(task), priority, productive);
   }
+
+  void ParkAdmission(auto &&task, TaskID id, std::chrono::steady_clock::time_point deadline,
+                     utils::WaitResource resource, uint64_t observed_epoch) {
+    MG_ASSERT(worker_pool_, "Trying to park admission on a non-existent worker pool");
+    worker_pool_->ParkAdmission(std::forward<decltype(task)>(task), id, deadline, resource, observed_epoch);
+  }
+
+  // 0 when no pool is configured.
+  uint64_t WakeEpoch(utils::WaitResource resource) const noexcept {
+    return worker_pool_ ? worker_pool_->WakeEpoch(resource) : 0;
+  }
+
+  // False when no pool is configured.
+  bool IsDrainingAdmissions() const noexcept { return worker_pool_ && worker_pool_->IsDrainingAdmissions(); }
+
+  // 1 when no pool is configured (park on first contention).
+  uint32_t RescheduleCap() const noexcept { return worker_pool_ ? worker_pool_->AdmissionRescheduleCap() : 1u; }
 };
 }  // namespace memgraph::glue

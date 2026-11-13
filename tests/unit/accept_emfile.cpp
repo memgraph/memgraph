@@ -33,11 +33,13 @@
 #include <gtest/gtest.h>
 #include <boost/beast/http.hpp>
 
+#include "communication/bolt/v1/state.hpp"
 #include "communication/http/server.hpp"
 #include "communication/server.hpp"
 #include "communication/v2/server.hpp"
 #include "communication/websocket/auth.hpp"
 #include "communication/websocket/server.hpp"
+#include "utils/priority_thread_pool.hpp"
 
 using namespace std::chrono_literals;
 
@@ -205,8 +207,20 @@ class EchoSession {
 std::atomic<int> g_v2_sessions_created{0};
 
 struct V2Context {
+  using TaskID = memgraph::utils::PriorityThreadPool::TaskID;
+
   template <class F, class P>
-  void AddTask(F &&, P) {}
+  TaskID AddTask(F &&, P, bool = true) {
+    return 0;
+  }
+
+  void ParkAdmission(auto &&, TaskID, std::chrono::steady_clock::time_point, memgraph::utils::WaitResource, uint64_t) {}
+
+  uint64_t WakeEpoch(memgraph::utils::WaitResource) const noexcept { return 0; }
+
+  bool IsDrainingAdmissions() const noexcept { return false; }
+
+  uint32_t RescheduleCap() const noexcept { return 1; }
 };
 
 struct V2Session {
@@ -220,6 +234,22 @@ struct V2Session {
   void HandleError() {}
 
   int ApproximateQueryPriority() const { return 0; }
+
+  bool HasPendingCommit() const { return false; }
+
+  bool HasPendingBegin() const { return false; }
+
+  bool HasBufferedData() const { return false; }
+
+  memgraph::communication::bolt::PendingOutcome FinishPendingCommit() {
+    return memgraph::communication::bolt::PendingOutcome::Done;
+  }
+
+  memgraph::communication::bolt::PendingOutcome FinishPendingBegin() {
+    return memgraph::communication::bolt::PendingOutcome::Done;
+  }
+
+  std::chrono::steady_clock::time_point PendingBeginDeadline() const { return {}; }
 };
 
 // v2::Server reports the requested endpoint, not the bound one, so pick a port up front. The returned socket holds the
