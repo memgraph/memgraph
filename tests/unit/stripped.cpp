@@ -647,9 +647,9 @@ TEST(QueryStripper, BinaryMinusInListIsNotFolded) {
     EXPECT_EQ(stripped.stripped_query().str(), "RETURN [ a - " + kStrippedIntToken + " ]");
   }
   {
-    StrippedQuery stripped("RETURN [CASE WHEN trUE THEN 2 END-1]");
+    StrippedQuery stripped("RETURN [CASE WHEN true THEN 2 END-1]");
     EXPECT_EQ(stripped.stripped_query().str(),
-              "RETURN [ CASE WHEN trUE THEN " + kStrippedIntToken + " END - " + kStrippedIntToken + " ]");
+              "RETURN [ CASE WHEN true THEN " + kStrippedIntToken + " END - " + kStrippedIntToken + " ]");
   }
 }
 
