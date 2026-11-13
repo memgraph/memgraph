@@ -12,10 +12,21 @@
 #pragma once
 
 #include <algorithm>
+#include <array>
+#include <cmath>
+#include <cstdint>
+#include <functional>
+#include <iterator>
 #include <limits>
 #include <map>
 #include <optional>
 #include <queue>
+#include <random>
+#include <ranges>
+#include <set>
+#include <string>
+#include <utility>
+#include <vector>
 
 #include "gtest/gtest.h"
 
@@ -31,6 +42,8 @@
 #include "storage/v2/storage.hpp"
 #include "utils/join_vector.hpp"
 #include "utils/logging.hpp"
+#include "utils/memory.hpp"
+#include "utils/temporal.hpp"
 
 #include "formatters.hpp"
 
@@ -183,6 +196,74 @@ std::vector<std::vector<int>> YenKShortestPaths(int num_vertices, const std::vec
   return all_paths;
 }
 
+// --- weighted KSHORTEST ---------------------------------------------------------------------------
+
+// The weight `BuildGraph` stores on the edge between `a` and `b`. Symmetric in its two arguments so
+// the oracle can read it off a traversal pair without knowing which way the edge is stored, and
+// spread wide enough that the weighted order departs from the hop-count one on the default
+// fixture, which the weighted matrix insists on.
+inline int64_t EdgeWeightFor(int a, int b) {
+  static constexpr std::array<int64_t, 5> kWeights{11, 7, 5, 1, 9};
+  return kWeights[static_cast<size_t>((std::min(a, b) * 7 + std::max(a, b) * 3) % 5)];
+}
+
+struct WeightedPath {
+  std::vector<int> vertices;
+  int64_t weight;
+
+  size_t hops() const { return vertices.size() - 1; }
+};
+
+// Every simple path from source to target, in the `(total weight, hop count)` order the weighted
+// expansion promises. Brute force over the edge list, so it shares nothing with Yen's or with the
+// operator's own search; the vertex sequence breaks remaining ties only to make this a stable set.
+inline std::vector<WeightedPath> WeightedSimplePaths(
+    const std::vector<std::pair<int, int>> &edges, int source, int target,
+    const std::function<int64_t(int, int)> &weight_of = EdgeWeightFor) {
+  std::vector<WeightedPath> out;
+  std::queue<WeightedPath> q;
+  q.push(WeightedPath{{source}, 0});
+
+  while (!q.empty()) {
+    auto path = q.front();
+    q.pop();
+    const int current = path.vertices.back();
+    if (current == target && path.vertices.size() > 1) {
+      out.push_back(std::move(path));
+      continue;
+    }
+    for (const auto &[from, to] : edges) {
+      if (from != current) continue;
+      if (std::ranges::contains(path.vertices, to)) continue;
+      auto next = path;
+      next.vertices.push_back(to);
+      next.weight += weight_of(from, to);
+      q.push(std::move(next));
+    }
+  }
+
+  std::ranges::sort(out, [](const WeightedPath &a, const WeightedPath &b) {
+    return std::tuple{a.weight, a.hops(), a.vertices} < std::tuple{b.weight, b.hops(), b.vertices};
+  });
+  return out;
+}
+
+// A pseudo-random simple digraph: no self-loops and no parallel edges, because the oracle keys an
+// edge by `(from, to)` and could not match a graph that had either.
+inline std::pair<std::vector<int>, std::vector<std::tuple<int, int, std::string>>> RandomKShortestGraph(
+    uint32_t seed, int vertex_count, double density) {
+  std::mt19937 rng(seed);
+  std::uniform_real_distribution<double> coin(0.0, 1.0);
+  std::vector<std::tuple<int, int, std::string>> edges;
+  for (int from = 0; from < vertex_count; ++from) {
+    for (int to = 0; to < vertex_count; ++to) {
+      if (from == to) continue;
+      if (coin(rng) < density) edges.emplace_back(from, to, (from + to) % 2 == 0 ? "a" : "b");
+    }
+  }
+  return {std::vector<int>(static_cast<size_t>(vertex_count), 0), edges};
+}
+
 class Yield : public memgraph::query::plan::LogicalOperator {
  public:
   Yield(const std::shared_ptr<memgraph::query::plan::LogicalOperator> &input,
@@ -268,6 +349,32 @@ std::vector<std::vector<memgraph::query::TypedValue>> PullResults(memgraph::quer
   }
   return output;
 }
+
+// Counts the bytes requested through it, so a test can bound what a cursor holds.
+class PeakCountingResource : public memgraph::utils::MemoryResource {
+ public:
+  size_t current() const { return current_; }
+
+  size_t peak() const { return peak_; }
+
+ private:
+  void *do_allocate(size_t bytes, size_t alignment) override {
+    void *p = memgraph::utils::NewDeleteResource()->allocate(bytes, alignment);
+    current_ += bytes;
+    peak_ = std::max(peak_, current_);
+    return p;
+  }
+
+  void do_deallocate(void *p, size_t bytes, size_t alignment) override {
+    current_ -= bytes;
+    memgraph::utils::NewDeleteResource()->deallocate(p, bytes, alignment);
+  }
+
+  bool do_is_equal(const memgraph::utils::MemoryResource &other) const noexcept override { return this == &other; }
+
+  size_t current_ = 0;
+  size_t peak_ = 0;
+};
 
 enum class FineGrainedTestType {
   ALL_GRANTED,
@@ -392,6 +499,24 @@ std::vector<int> PathVertexIds(memgraph::query::DbAccessor *dba, const std::vect
   return ids;
 }
 
+// Appends every loopless path from `source` of 1..`max_hops` arcs to `paths`, as vertex ids. Each arc is one edge
+// in one direction, so two edges between the same pair give two paths.
+void AppendLooplessPaths(const std::vector<std::pair<int, int>> &arcs, int source, int max_hops,
+                         std::vector<std::vector<int>> &paths) {
+  std::vector<int> path{source};
+  auto extend = [&](this auto &self) -> void {
+    if (path.size() > 1) paths.push_back(path);
+    if (std::cmp_greater_equal(path.size() - 1, max_hops)) return;
+    for (const auto &[from, to] : arcs) {
+      if (from != path.back() || std::ranges::contains(path, to)) continue;
+      path.push_back(to);
+      self();
+      path.pop_back();
+    }
+  };
+  extend();
+}
+
 // Given a list of k-shortest path results of form (from, to, path),
 // checks if all paths are valid and returns the path lengths.
 std::vector<int> CheckPathsAndExtractLengths(memgraph::query::DbAccessor *dba,
@@ -416,6 +541,90 @@ void AppendEntities(const std::vector<memgraph::query::VertexAccessor> &vertices
   for (const auto &edge : edges) out.emplace_back(edge);
 }
 
+// The arcs an arm leaves readable: the edge type must be readable, and so must the arc's head in
+// path order - the vertex the access check reads whichever pass walks the arc. The label arms leave
+// vertex 5 ungranted as well as the one they are named for.
+inline std::vector<std::pair<int, int>> ReadableArcs(FineGrainedTestType fine_grained_test_type,
+                                                     memgraph::query::EdgeAtom::Direction direction) {
+  auto readable = [&](const std::vector<std::string> &types, const std::vector<int> &unreadable) {
+    auto arcs = GetEdgeList(kEdges, direction, types);
+    std::erase_if(arcs, [&](const auto &arc) { return std::ranges::contains(unreadable, arc.second); });
+    return arcs;
+  };
+  switch (fine_grained_test_type) {
+    case FineGrainedTestType::ALL_GRANTED:
+      return readable({"a", "b"}, {});
+    case FineGrainedTestType::ALL_DENIED:
+      return {};
+    case FineGrainedTestType::EDGE_TYPE_A_DENIED:
+      return readable({"b"}, {});
+    case FineGrainedTestType::EDGE_TYPE_B_DENIED:
+      return readable({"a"}, {});
+    case FineGrainedTestType::LABEL_0_DENIED:
+      return readable({"a", "b"}, {0, 5});
+    case FineGrainedTestType::LABEL_3_DENIED:
+      return readable({"a", "b"}, {3, 5});
+  }
+}
+
+#ifdef MG_ENTERPRISE
+// Applies one arm's grants and denials to `user` and answers with the arcs a reader is left with,
+// trimming `edge_types` where the arm denies one outright.
+inline std::vector<std::pair<int, int>> ApplyFineGrainedArm(memgraph::auth::User &user,
+                                                            FineGrainedTestType fine_grained_test_type,
+                                                            memgraph::query::EdgeAtom::Direction direction,
+                                                            std::vector<std::string> &edge_types) {
+  switch (fine_grained_test_type) {
+    case FineGrainedTestType::ALL_GRANTED:
+      user.fine_grained_access_handler().label_permissions().GrantGlobal(memgraph::auth::FineGrainedPermission::READ);
+      user.fine_grained_access_handler().edge_type_permissions().GrantGlobal(
+          memgraph::auth::FineGrainedPermission::READ);
+      break;
+    case FineGrainedTestType::ALL_DENIED:
+      break;
+    case FineGrainedTestType::EDGE_TYPE_A_DENIED:
+      user.fine_grained_access_handler().label_permissions().GrantGlobal(memgraph::auth::FineGrainedPermission::READ);
+      user.fine_grained_access_handler().edge_type_permissions().Grant({"b"},
+                                                                       memgraph::auth::FineGrainedPermission::READ);
+      user.fine_grained_access_handler().edge_type_permissions().Deny({"a"}, memgraph::auth::kAllEdgeTypePermissions);
+
+      edge_types.erase(std::remove(edge_types.begin(), edge_types.end(), "a"), edge_types.end());
+      break;
+    case FineGrainedTestType::EDGE_TYPE_B_DENIED:
+      user.fine_grained_access_handler().label_permissions().GrantGlobal(memgraph::auth::FineGrainedPermission::READ);
+      user.fine_grained_access_handler().edge_type_permissions().Grant({"a"},
+                                                                       memgraph::auth::FineGrainedPermission::READ);
+      user.fine_grained_access_handler().edge_type_permissions().Deny({"b"}, memgraph::auth::kAllEdgeTypePermissions);
+
+      edge_types.erase(std::remove(edge_types.begin(), edge_types.end(), "b"), edge_types.end());
+      break;
+    case FineGrainedTestType::LABEL_0_DENIED:
+      // Vertex 5 is not granted here either, so this arm denies two vertices.
+      user.fine_grained_access_handler().edge_type_permissions().GrantGlobal(
+          memgraph::auth::FineGrainedPermission::READ);
+      user.fine_grained_access_handler().label_permissions().Grant({"1"}, memgraph::auth::FineGrainedPermission::READ);
+      user.fine_grained_access_handler().label_permissions().Grant({"2"}, memgraph::auth::FineGrainedPermission::READ);
+      user.fine_grained_access_handler().label_permissions().Grant({"3"}, memgraph::auth::FineGrainedPermission::READ);
+      user.fine_grained_access_handler().label_permissions().Grant({"4"}, memgraph::auth::FineGrainedPermission::READ);
+      user.fine_grained_access_handler().label_permissions().Deny({"0"}, memgraph::auth::kAllLabelPermissions);
+      break;
+    case FineGrainedTestType::LABEL_3_DENIED:
+      // As above: vertex 5 goes ungranted here too.
+      user.fine_grained_access_handler().edge_type_permissions().GrantGlobal(
+          memgraph::auth::FineGrainedPermission::READ);
+      user.fine_grained_access_handler().label_permissions().Grant({"0"}, memgraph::auth::FineGrainedPermission::READ);
+      user.fine_grained_access_handler().label_permissions().Grant({"1"}, memgraph::auth::FineGrainedPermission::READ);
+      user.fine_grained_access_handler().label_permissions().Grant({"2"}, memgraph::auth::FineGrainedPermission::READ);
+      user.fine_grained_access_handler().label_permissions().Grant({"4"}, memgraph::auth::FineGrainedPermission::READ);
+      user.fine_grained_access_handler().label_permissions().Deny({"3"}, memgraph::auth::kAllLabelPermissions);
+      break;
+  }
+
+  return ReadableArcs(fine_grained_test_type, direction);
+}
+
+#endif
+
 // Common interface for single-node and distributed Memgraph.
 class Database {
  public:
@@ -425,7 +634,9 @@ class Database {
       memgraph::query::EdgeAtom::Direction direction, const std::vector<memgraph::storage::EdgeTypeId> &edge_types,
       const std::shared_ptr<memgraph::query::plan::LogicalOperator> &input, bool existing_node,
       memgraph::query::Expression *lower_bound, memgraph::query::Expression *upper_bound,
-      const memgraph::query::plan::ExpansionLambda &filter_lambda, memgraph::query::Expression *limit = nullptr) = 0;
+      const memgraph::query::plan::ExpansionLambda &filter_lambda, memgraph::query::Expression *limit = nullptr,
+      std::optional<memgraph::query::plan::ExpansionLambda> weight_lambda = std::nullopt,
+      std::optional<memgraph::query::Symbol> total_weight = std::nullopt) = 0;
   virtual std::pair<std::vector<memgraph::query::VertexAccessor>, std::vector<memgraph::query::EdgeAccessor>>
   BuildGraph(memgraph::query::DbAccessor *dba, const std::vector<int> &vertex_locations,
              const std::vector<std::tuple<int, int, std::string>> &edges) = 0;
@@ -543,12 +754,15 @@ class Database {
     context.evaluation_context.edgetypes = memgraph::query::NamesToEdgeTypes(storage.edge_types_, &dba);
     std::vector<std::vector<memgraph::query::TypedValue>> results;
 
-    // A non-boolean, non-null lambda result must abort the pull.
+    // A non-boolean, non-null lambda result must abort the pull. The weighted search runs the same check.
     if (filter_lambda_type == FilterLambdaType::ERROR) {
-      EXPECT_THROW(PullResults(input_op.get(),
-                               &context,
-                               std::vector<memgraph::query::Symbol>{source_sym, sink_sym, edges_sym, blocked_sym}),
-                   memgraph::query::QueryRuntimeException);
+      ExpectRuntimeError(
+          [&] {
+            PullResults(input_op.get(),
+                        &context,
+                        std::vector<memgraph::query::Symbol>{source_sym, sink_sym, edges_sym, blocked_sym});
+          },
+          "Expansion condition must evaluate to boolean or null");
       dba.Abort();
       return;
     }
@@ -660,6 +874,659 @@ class Database {
     dba.Abort();
   }
 
+  // --- weighted arm --------------------------------------------------------------------------------
+
+  // Runs `body` and checks that it raises exactly `expected`. The base class also takes a Duration
+  // overflow, which is not a query error.
+  template <typename Body>
+  static void ExpectRuntimeError(Body &&body, std::string_view expected) {
+    try {
+      std::forward<Body>(body)();
+      ADD_FAILURE() << "expected an error: " << expected;
+    } catch (const memgraph::utils::BasicException &e) {
+      EXPECT_EQ(std::string_view(e.what()), expected);
+    }
+  }
+
+  // The weight lambda every weighted case here uses: `e.weight`, which is what `BuildGraph` stores
+  // and what `EdgeWeightFor` replays.
+  memgraph::query::plan::ExpansionLambda MakeWeightLambda(memgraph::query::DbAccessor &dba,
+                                                          memgraph::query::ExecutionContext &context) {
+    auto edge_sym = context.symbol_table.CreateSymbol("weight_edge", true);
+    auto node_sym = context.symbol_table.CreateSymbol("weight_node", true);
+    auto *inner_edge = IDENT("weight_edge")->MapTo(edge_sym);
+    return memgraph::query::plan::ExpansionLambda{
+        edge_sym, node_sym, PROPERTY_LOOKUP(dba, inner_edge, PROPERTY_PAIR(dba, "weight"))};
+  }
+
+  struct WeightedRun {
+    // source, sink, edges, total weight
+    std::vector<std::vector<memgraph::query::TypedValue>> rows;
+    int64_t hops = 0;
+  };
+
+  // A filter lambda over its own inner symbols.
+  static memgraph::query::plan::ExpansionLambda FilterLambda(memgraph::query::ExecutionContext &context,
+                                                             memgraph::query::Expression *expression) {
+    return memgraph::query::plan::ExpansionLambda{context.symbol_table.CreateSymbol("filter_edge", true),
+                                                  context.symbol_table.CreateSymbol("filter_node", true),
+                                                  expression};
+  }
+
+  // -1 is the matrices' "no bound".
+  static std::optional<int> Bound(int value) { return value == -1 ? std::nullopt : std::optional(value); }
+
+  struct WeightedQuery {
+    std::vector<memgraph::query::VertexAccessor> sources;
+    std::vector<memgraph::query::VertexAccessor> sinks;
+    memgraph::query::EdgeAtom::Direction direction = memgraph::query::EdgeAtom::Direction::OUT;
+    std::vector<memgraph::storage::EdgeTypeId> edge_types;
+    std::optional<int> lower_bound;
+    std::optional<int> upper_bound;
+    std::optional<int> limit;
+    // `e.weight` when unset.
+    std::optional<memgraph::query::plan::ExpansionLambda> weight_lambda;
+    std::optional<memgraph::query::plan::ExpansionLambda> filter_lambda;
+  };
+
+  // One weighted KSHORTEST expansion, over every ordered pair of the two vertex lists.
+  WeightedRun RunWeighted(Database *db, memgraph::query::DbAccessor &dba, memgraph::query::ExecutionContext &context,
+                          const WeightedQuery &query) {
+    auto source_sym = context.symbol_table.CreateSymbol("source", true);
+    auto sink_sym = context.symbol_table.CreateSymbol("sink", true);
+    auto edges_sym = context.symbol_table.CreateSymbol("edges", true);
+    auto total_sym = context.symbol_table.CreateSymbol("total", true);
+    auto literal_or_null = [&](std::optional<int> value) -> memgraph::query::Expression * {
+      return value ? LITERAL(*value) : nullptr;
+    };
+
+    std::shared_ptr<memgraph::query::plan::LogicalOperator> input_op;
+    input_op = YieldVertices(&dba, query.sources, source_sym, input_op);
+    input_op = YieldVertices(&dba, query.sinks, sink_sym, input_op);
+    input_op = db->MakeKShortestOperator(source_sym,
+                                         sink_sym,
+                                         edges_sym,
+                                         query.direction,
+                                         query.edge_types,
+                                         input_op,
+                                         true,
+                                         literal_or_null(query.lower_bound),
+                                         literal_or_null(query.upper_bound),
+                                         query.filter_lambda.value_or(FilterLambda(context, nullptr)),
+                                         literal_or_null(query.limit),
+                                         query.weight_lambda.value_or(MakeWeightLambda(dba, context)),
+                                         total_sym);
+
+    context.evaluation_context.properties = memgraph::query::NamesToProperties(storage.properties_, &dba);
+    context.evaluation_context.labels = memgraph::query::NamesToLabels(storage.labels_, &dba);
+    context.evaluation_context.edgetypes = memgraph::query::NamesToEdgeTypes(storage.edge_types_, &dba);
+
+    const auto hops_before = context.number_of_hops;
+    WeightedRun out;
+    out.rows = PullResults(
+        input_op.get(), &context, std::vector<memgraph::query::Symbol>{source_sym, sink_sym, edges_sym, total_sym});
+    out.hops = context.number_of_hops - hops_before;
+    return out;
+  }
+
+  // Overwrites every edge's `weight`. `BuildGraph` returns the accessors in the order it was given
+  // the edge list, which is how an edge is matched to its entry here - the `from`/`to` properties
+  // are not readable yet, because nothing has advanced the command since they were written.
+  void SetEdgeWeights(memgraph::query::DbAccessor &dba, std::vector<memgraph::query::EdgeAccessor> &edges,
+                      const std::vector<std::tuple<int, int, std::string>> &graph_edges,
+                      const std::map<std::pair<int, int>, memgraph::storage::PropertyValue> &weights) {
+    MG_ASSERT(edges.size() == graph_edges.size(), "the accessors line up with the edge list they were built from");
+    for (size_t i = 0; i < edges.size(); ++i) {
+      const auto it = weights.find({std::get<0>(graph_edges[i]), std::get<1>(graph_edges[i])});
+      MG_ASSERT(it != weights.end(), "every fixture edge needs a weight");
+      MG_ASSERT(edges[i].SetProperty(dba.NameToProperty("weight"), it->second).has_value());
+    }
+  }
+
+  // A graph whose cheapest route is also its longest: 0-1-2-3 over three cheap hops against the one
+  // expensive edge 0-3. Hop count would serve them the other way round.
+  static const std::vector<int> &DetourVertexLocations() {
+    static const std::vector<int> v{0, 0, 0, 0};
+    return v;
+  }
+
+  static const std::vector<std::tuple<int, int, std::string>> &DetourEdges() {
+    static const std::vector<std::tuple<int, int, std::string>> e{
+        {0, 1, "a"}, {1, 2, "a"}, {2, 3, "a"}, {0, 3, "a"}, {0, 2, "a"}};
+    return e;
+  }
+
+  // The weighted matrix: every ordered pair, against a brute-force enumeration. Without a limit the
+  // two must agree path for path - that is what catches a *lost* path, which a subset check cannot.
+  // Also checks the served order really is ascending by `(weight, hops)`, and that the total weight
+  // column equals the sum over the path the operator wrote beside it. Returns how often a pair served
+  // a path with fewer hops than the one before it.
+  size_t KShortestWeightedTest(Database *db, int lower_bound, int upper_bound,
+                               memgraph::query::EdgeAtom::Direction direction, std::vector<std::string> edge_types,
+                               int limit = -1, const std::vector<int> &vertex_locations = kVertexLocations,
+                               const std::vector<std::tuple<int, int, std::string>> &graph_edges = kEdges) {
+    const int vertex_count = static_cast<int>(vertex_locations.size());
+    auto storage_dba = db->Access();
+    memgraph::query::DbAccessor dba(storage_dba.get());
+    memgraph::query::ExecutionContext context{.db_accessor = &dba, .metric_handles = &TestMetricHandles()};
+
+    auto [vertices, edges] = db->BuildGraph(&dba, vertex_locations, graph_edges);
+    dba.AdvanceCommand();
+
+    std::vector<memgraph::storage::EdgeTypeId> storage_edge_types;
+    for (const auto &t : edge_types) storage_edge_types.push_back(dba.NameToEdgeType(t));
+
+    auto run = RunWeighted(db,
+                           dba,
+                           context,
+                           {.sources = vertices,
+                            .sinks = vertices,
+                            .direction = direction,
+                            .edge_types = storage_edge_types,
+                            .lower_bound = Bound(lower_bound),
+                            .upper_bound = Bound(upper_bound),
+                            .limit = Bound(limit)});
+
+    const auto edge_list = GetEdgeList(graph_edges, direction, edge_types);
+    const int effective_lower = lower_bound != -1 ? lower_bound : 1;
+    const int effective_upper = upper_bound != -1 ? upper_bound : vertex_count;
+
+    auto expected_for = [&](int source_id, int sink_id) {
+      auto paths = WeightedSimplePaths(edge_list, source_id, sink_id);
+      std::erase_if(paths, [&](const WeightedPath &p) {
+        return p.hops() < static_cast<size_t>(effective_lower) || p.hops() > static_cast<size_t>(effective_upper);
+      });
+      return paths;
+    };
+
+    std::map<std::pair<int, int>, std::vector<std::pair<int64_t, std::vector<int>>>> actual;
+    std::map<std::pair<int, int>, std::vector<std::pair<int64_t, size_t>>> served;
+    for (const auto &row : run.rows) {
+      const auto source_id = static_cast<int>(GetProp(row[0].ValueVertex(), "id", &dba).ValueInt());
+      const auto sink_id = static_cast<int>(GetProp(row[1].ValueVertex(), "id", &dba).ValueInt());
+      SCOPED_TRACE(fmt::format("source = {}, sink = {}", source_id, sink_id));
+      CheckPath(&dba, row[0].ValueVertex(), row[1].ValueVertex(), row[2].ValueList(), edge_list);
+
+      auto ids = PathVertexIds(&dba, row);
+      int64_t summed = 0;
+      for (size_t i = 1; i < ids.size(); ++i) summed += EdgeWeightFor(ids[i - 1], ids[i]);
+      EXPECT_TRUE(row[3].IsInt()) << "an all-integer weight lambda must keep the total an integer";
+      if (row[3].IsInt()) {
+        EXPECT_EQ(row[3].ValueInt(), summed) << "the total weight column must be the sum of the path's own edges";
+      }
+
+      served[{source_id, sink_id}].emplace_back(summed, ids.size() - 1);
+      actual[{source_id, sink_id}].emplace_back(summed, std::move(ids));
+    }
+
+    // A pair that came back empty is invisible to the per-pair loop, so the total catches it.
+    size_t expected_total = 0;
+    for (int source_id = 0; source_id < vertex_count; ++source_id) {
+      for (int sink_id = 0; sink_id < vertex_count; ++sink_id) {
+        if (source_id == sink_id) continue;
+        const auto group = expected_for(source_id, sink_id).size();
+        expected_total += limit == -1 ? group : std::min(group, static_cast<size_t>(limit));
+      }
+    }
+    EXPECT_EQ(run.rows.size(), expected_total);
+
+    size_t hop_inversions = 0;
+    for (int source_id = 0; source_id < vertex_count; ++source_id) {
+      for (int sink_id = 0; sink_id < vertex_count; ++sink_id) {
+        if (source_id == sink_id) continue;
+        SCOPED_TRACE(fmt::format("source = {}, sink = {}", source_id, sink_id));
+        const auto expected = expected_for(source_id, sink_id);
+        auto &rows = actual[{source_id, sink_id}];
+        const auto &order = served[{source_id, sink_id}];
+
+        for (size_t i = 1; i < order.size(); ++i) {
+          EXPECT_LE(order[i - 1], order[i]) << "paths must be served in ascending (weight, hops) order";
+          if (order[i].second < order[i - 1].second) ++hop_inversions;
+        }
+
+        if (limit != -1) {
+          // Which of several equally ranked paths a capped pair keeps is undetermined, so the served
+          // prefix is compared as a multiset of (weight, hops) classes, and each path must be the oracle's.
+          std::vector<std::pair<int64_t, size_t>> expected_classes;
+          for (const auto &path : expected | std::views::take(limit)) {
+            expected_classes.emplace_back(path.weight, path.hops());
+          }
+          auto served_classes = order;
+          std::ranges::sort(served_classes);
+          EXPECT_EQ(served_classes, expected_classes);
+          for (const auto &[weight, ids] : rows) {
+            EXPECT_TRUE(std::ranges::any_of(expected, [&](const WeightedPath &p) { return p.vertices == ids; }))
+                << "served a path the oracle does not have: " << memgraph::utils::JoinVector(ids, "->");
+          }
+          continue;
+        }
+
+        std::vector<std::pair<int64_t, std::vector<int>>> expected_rows;
+        expected_rows.reserve(expected.size());
+        for (const auto &path : expected) expected_rows.emplace_back(path.weight, path.vertices);
+        std::ranges::sort(expected_rows);
+        std::ranges::sort(rows);
+        EXPECT_EQ(rows, expected_rows);
+      }
+    }
+
+    dba.Abort();
+    return hop_inversions;
+  }
+
+  // One source-sink pair over the detour graph with hand-written weights: `(total, hops)` per served
+  // path, in the order they came out.
+  std::vector<std::pair<memgraph::query::TypedValue, size_t>> DetourResults(
+      Database *db, const std::map<std::pair<int, int>, memgraph::storage::PropertyValue> &weights,
+      int lower_bound = -1) {
+    auto storage_dba = db->Access();
+    memgraph::query::DbAccessor dba(storage_dba.get());
+    memgraph::query::ExecutionContext context{.db_accessor = &dba, .metric_handles = &TestMetricHandles()};
+    auto [vertices, edges] = db->BuildGraph(&dba, DetourVertexLocations(), DetourEdges());
+    SetEdgeWeights(dba, edges, DetourEdges(), weights);
+    dba.AdvanceCommand();
+
+    auto run = RunWeighted(
+        db, dba, context, {.sources = {vertices[0]}, .sinks = {vertices[3]}, .lower_bound = Bound(lower_bound)});
+
+    std::vector<std::pair<memgraph::query::TypedValue, size_t>> out;
+    for (const auto &row : run.rows) {
+      CheckPath(&dba,
+                row[0].ValueVertex(),
+                row[1].ValueVertex(),
+                row[2].ValueList(),
+                GetEdgeList(DetourEdges(), memgraph::query::EdgeAtom::Direction::OUT, {}));
+      out.emplace_back(row[3], row[2].ValueList().size());
+    }
+    dba.Abort();
+    return out;
+  }
+
+  static std::map<std::pair<int, int>, memgraph::storage::PropertyValue> DetourIntWeights() {
+    using PV = memgraph::storage::PropertyValue;
+    return {{{0, 1}, PV(int64_t{1})},
+            {{1, 2}, PV(int64_t{1})},
+            {{2, 3}, PV(int64_t{1})},
+            {{0, 3}, PV(int64_t{10})},
+            {{0, 2}, PV(int64_t{4})}};
+  }
+
+  // Zero weights tie every route, so only hop count orders them.
+  void KShortestWeightedTestZeroWeights(Database *db) {
+    using PV = memgraph::storage::PropertyValue;
+    const auto served = DetourResults(db,
+                                      {{{0, 1}, PV(int64_t{0})},
+                                       {{1, 2}, PV(int64_t{0})},
+                                       {{2, 3}, PV(int64_t{0})},
+                                       {{0, 3}, PV(int64_t{0})},
+                                       {{0, 2}, PV(int64_t{0})}});
+    ASSERT_EQ(served.size(), 3U);
+    // Each route has its own hop count here, so the hop sequence also names the paths.
+    std::vector<size_t> hops;
+    for (const auto &[total, path_hops] : served) {
+      EXPECT_EQ(total.ValueInt(), 0);
+      hops.push_back(path_hops);
+    }
+    EXPECT_EQ(hops, (std::vector<size_t>{1, 2, 3})) << "an all-zero total must still order by hops";
+  }
+
+  // Durations add and compare like numbers, and the total keeps the type.
+  void KShortestWeightedTestDurationWeights(Database *db) {
+    auto duration = [](int64_t micros) {
+      return memgraph::storage::PropertyValue(
+          memgraph::storage::TemporalData(memgraph::storage::TemporalType::Duration, micros));
+    };
+    const auto served = DetourResults(db,
+                                      {{{0, 1}, duration(1)},
+                                       {{1, 2}, duration(1)},
+                                       {{2, 3}, duration(1)},
+                                       {{0, 3}, duration(10)},
+                                       {{0, 2}, duration(4)}});
+    ASSERT_EQ(served.size(), 3U);
+    ASSERT_TRUE(served[0].first.IsDuration()) << "a Duration weight must keep a Duration total";
+    EXPECT_EQ(served[0].first.ValueDuration().microseconds, 3);
+    EXPECT_EQ(served[1].first.ValueDuration().microseconds, 5);
+    EXPECT_EQ(served[2].first.ValueDuration().microseconds, 10);
+  }
+
+  // An integer and a double in the same expansion add to a double; the routes that never touch the
+  // double keep their integer totals.
+  void KShortestWeightedTestMixedNumericWeights(Database *db) {
+    using PV = memgraph::storage::PropertyValue;
+    const auto served = DetourResults(db,
+                                      {{{0, 1}, PV(int64_t{1})},
+                                       {{1, 2}, PV(0.5)},
+                                       {{2, 3}, PV(int64_t{1})},
+                                       {{0, 3}, PV(int64_t{10})},
+                                       {{0, 2}, PV(int64_t{4})}});
+    ASSERT_EQ(served.size(), 3U);
+    ASSERT_TRUE(served[0].first.IsDouble());
+    EXPECT_DOUBLE_EQ(served[0].first.ValueDouble(), 2.5);
+    EXPECT_TRUE(served[1].first.IsInt());
+    EXPECT_EQ(served[1].first.ValueInt(), 5);
+    EXPECT_EQ(served[2].first.ValueInt(), 10);
+  }
+
+  // Paths under the lower bound are not served, but they are still base paths, so the longer routes
+  // that deviate from them have to come out. Here the cheapest route is also the only servable one,
+  // so the bound skips from the middle of the enumeration rather than off its front.
+  void KShortestWeightedTestLowerBoundKeepsDeviations(Database *db) {
+    using PV = memgraph::storage::PropertyValue;
+    const auto served = DetourResults(db,
+                                      {{{0, 1}, PV(int64_t{1})},
+                                       {{1, 2}, PV(int64_t{1})},
+                                       {{2, 3}, PV(int64_t{1})},
+                                       {{0, 3}, PV(int64_t{4})},
+                                       {{0, 2}, PV(int64_t{2})}},
+                                      3);
+    ASSERT_EQ(served.size(), 1U);
+    EXPECT_EQ(served[0].second, 3U);
+    EXPECT_EQ(served[0].first.ValueInt(), 3);
+  }
+
+  // A target nothing can reach is settled by the reverse tree alone, so the source's own component is
+  // never swept. Assert on the work done, as `InvertedRangeDoesNotSearch` does.
+  void KShortestWeightedTestUnreachableTargetDoesNotSearch(Database *db) {
+    auto storage_dba = db->Access();
+    memgraph::query::DbAccessor dba(storage_dba.get());
+    memgraph::query::ExecutionContext context{.db_accessor = &dba, .metric_handles = &TestMetricHandles()};
+    // Vertex 3 has no edges at all; 0, 1 and 2 form a cycle a forward sweep would walk.
+    auto [vertices, edges] =
+        db->BuildGraph(&dba,
+                       std::vector<int>{0, 0, 0, 0},
+                       std::vector<std::tuple<int, int, std::string>>{{0, 1, "a"}, {1, 2, "a"}, {2, 0, "a"}});
+    dba.AdvanceCommand();
+
+    auto run = RunWeighted(db, dba, context, {.sources = {vertices[0]}, .sinks = {vertices[3]}});
+    EXPECT_TRUE(run.rows.empty());
+    EXPECT_EQ(run.hops, 0) << "nothing reaches the target, so nothing should have been expanded";
+    dba.Abort();
+  }
+
+  // A cycle of zero-weight arcs on the way to the target: going round it costs nothing, so cost alone
+  // never rules out a looping path. Every pair against the oracle.
+  void KShortestWeightedTestZeroWeightCycle(Database *db) {
+    using PV = memgraph::storage::PropertyValue;
+    const std::vector<std::tuple<int, int, std::string>> graph_edges{
+        {0, 1, "a"}, {1, 2, "a"}, {2, 1, "a"}, {0, 2, "a"}, {1, 3, "a"}, {2, 3, "a"}};
+    const std::map<std::pair<int, int>, int64_t> weight_of{
+        {{0, 1}, 0}, {{1, 2}, 0}, {{2, 1}, 0}, {{0, 2}, 0}, {{1, 3}, 1}, {{2, 3}, 1}};
+    std::map<std::pair<int, int>, PV> weights;
+    for (const auto &[arc, weight] : weight_of) weights.emplace(arc, PV(weight));
+
+    auto storage_dba = db->Access();
+    memgraph::query::DbAccessor dba(storage_dba.get());
+    memgraph::query::ExecutionContext context{.db_accessor = &dba, .metric_handles = &TestMetricHandles()};
+    auto [vertices, edges] = db->BuildGraph(&dba, std::vector<int>(4, 0), graph_edges);
+    SetEdgeWeights(dba, edges, graph_edges, weights);
+    dba.AdvanceCommand();
+
+    const auto out = memgraph::query::EdgeAtom::Direction::OUT;
+    // No pair has more than 4 simple paths; the limit bounds a cursor that would loop instead.
+    constexpr int kLimit = 10;
+    auto run =
+        RunWeighted(db, dba, context, {.sources = vertices, .sinks = vertices, .direction = out, .limit = kLimit});
+
+    const auto edge_list = GetEdgeList(graph_edges, out, {});
+    std::map<std::pair<int, int>, std::vector<std::pair<int64_t, std::vector<int>>>> actual;
+    for (const auto &row : run.rows) {
+      auto ids = PathVertexIds(&dba, row);
+      EXPECT_EQ(std::set<int>(ids.begin(), ids.end()).size(), ids.size())
+          << "served a path that repeats a vertex: " << memgraph::utils::JoinVector(ids, "->");
+      actual[{ids.front(), ids.back()}].emplace_back(row[3].ValueInt(), std::move(ids));
+    }
+    for (int source_id = 0; source_id < 4; ++source_id) {
+      for (int sink_id = 0; sink_id < 4; ++sink_id) {
+        if (source_id == sink_id) continue;
+        SCOPED_TRACE(fmt::format("source = {}, sink = {}", source_id, sink_id));
+        std::vector<std::pair<int64_t, std::vector<int>>> expected;
+        for (auto &path : WeightedSimplePaths(
+                 edge_list, source_id, sink_id, [&](int from, int to) { return weight_of.at({from, to}); })) {
+          expected.emplace_back(path.weight, std::move(path.vertices));
+        }
+        auto &served = actual[{source_id, sink_id}];
+        // Sorted, so this pins the set of paths, not the order served; `ZeroWeights` pins that.
+        std::ranges::sort(expected);
+        std::ranges::sort(served);
+        EXPECT_EQ(served, expected);
+      }
+    }
+    dba.Abort();
+  }
+
+  // Each invalid weight raises its own text, word for word; the v3.13 filter spellings name the migration.
+  void KShortestWeightedTestWeightErrorTexts(Database *db) {
+    using PV = memgraph::storage::PropertyValue;
+    const std::string hint =
+        "KSHORTEST takes the weight lambda first. To filter without a weight, write (e, n | 1) (e, n | <filter>).";
+    const std::vector<std::tuple<const char *, PV, std::string>> cases{
+        {"boolean", PV(true), hint},
+        {"null",
+         PV(),
+         "The weight lambda of a KSHORTEST path expansion must not evaluate to null. Give every relationship a "
+         "weight, or filter the ones without one out. If the lambda is a v3.13 filter: " +
+             hint},
+        {"negative", PV(int64_t{-1}), "Weight must be non-negative, got -1."},
+        {"NaN", PV(std::nan("")), "The weight lambda of a KSHORTEST path expansion must not evaluate to NaN."},
+        {"string", PV("heavy"), "Weight must be numeric or a Duration, got string."},
+        {"duration among integers",
+         PV(memgraph::storage::TemporalData(memgraph::storage::TemporalType::Duration, 1)),
+         "All weights should be of the same type, either numeric or a Duration. Please update the weight expression "
+         "or the filter expression. For more details, visit https://memgr.ph/wsp."}};
+
+    for (const auto &[name, weight, expected] : cases) {
+      SCOPED_TRACE(name);
+      auto weights = DetourIntWeights();
+      weights[{0, 1}] = weight;
+      ExpectRuntimeError([&] { DetourResults(db, weights); }, expected);
+    }
+  }
+
+  // An Int total that would wrap is an error: wrapped negative, it would order a longer path first.
+  void KShortestWeightedTestIntOverflow(Database *db) {
+    using PV = memgraph::storage::PropertyValue;
+    auto weights = DetourIntWeights();
+    weights[{0, 1}] = PV(std::numeric_limits<int64_t>::max());
+    weights[{1, 2}] = PV(int64_t{1});
+    ExpectRuntimeError([&] { DetourResults(db, weights); },
+                       "The total weight of a KSHORTEST path overflows a 64-bit integer.");
+  }
+
+  // --- constant weight -----------------------------------------------------------------------------
+
+  // A weight lambda over symbols nothing reads, so its body is all that matters.
+  memgraph::query::plan::ExpansionLambda MakeConstantWeightLambda(memgraph::query::ExecutionContext &context,
+                                                                  memgraph::query::Expression *constant) {
+    return memgraph::query::plan::ExpansionLambda{context.symbol_table.CreateSymbol("weight_edge", true),
+                                                  context.symbol_table.CreateSymbol("weight_node", true),
+                                                  constant};
+  }
+
+  // A constant is validated once, at the first row that reaches the search, so an invalid one raises
+  // even on a row with no edge to take, where the weighted search weighs nothing and gives no row.
+  // Rows skipped before the search never read it.
+  void KShortestConstantWeightValidatedAtFirstSearchedRow(Database *db) {
+    auto storage_dba = db->Access();
+    memgraph::query::DbAccessor dba(storage_dba.get());
+    memgraph::query::ExecutionContext context{.db_accessor = &dba, .metric_handles = &TestMetricHandles()};
+    auto [vertices, edges] = db->BuildGraph(&dba, DetourVertexLocations(), DetourEdges());
+    dba.AdvanceCommand();
+    auto query = [&](size_t source, size_t sink, memgraph::query::Expression *constant) {
+      return WeightedQuery{.sources = {vertices[source]},
+                           .sinks = {vertices[sink]},
+                           .weight_lambda = MakeConstantWeightLambda(context, constant)};
+    };
+
+    // Skipped before the search: source equals sink, `|0`, and a lower bound above the upper one.
+    EXPECT_TRUE(RunWeighted(db, dba, context, query(0, 0, LITERAL(true))).rows.empty());
+    auto no_paths = query(0, 3, LITERAL(true));
+    no_paths.limit = 0;
+    EXPECT_TRUE(RunWeighted(db, dba, context, no_paths).rows.empty());
+    auto inverted = query(0, 3, LITERAL(true));
+    inverted.lower_bound = 3;
+    inverted.upper_bound = 2;
+    EXPECT_TRUE(RunWeighted(db, dba, context, inverted).rows.empty());
+
+    // Vertex 3 has no out-edges and vertex 0 no in-edges. The server parses the literal into a
+    // parameter, so both shapes must take the hop-count search.
+    context.evaluation_context.parameters.Add(0, memgraph::storage::ExternalPropertyValue(true));
+    for (auto *constant : {static_cast<memgraph::query::Expression *>(LITERAL(true)),
+                           static_cast<memgraph::query::Expression *>(PARAMETER_LOOKUP(0))}) {
+      ExpectRuntimeError([&] { RunWeighted(db, dba, context, query(3, 0, constant)); },
+                         memgraph::query::EdgeAtom::kKShortestWeightFirstHint);
+    }
+
+    // Read before the filter: a row whose every edge the filter rejects still raises.
+    auto filtered = query(0, 3, LITERAL(-1));
+    filtered.filter_lambda = FilterLambda(context, LITERAL(false));
+    ExpectRuntimeError([&] { RunWeighted(db, dba, context, filtered); }, "Weight must be non-negative, got -1.");
+
+    // Null, both as a literal and as a parameter.
+    context.evaluation_context.parameters.Add(1, memgraph::storage::ExternalPropertyValue());
+    for (auto *constant : {static_cast<memgraph::query::Expression *>(LITERAL(memgraph::query::TypedValue())),
+                           static_cast<memgraph::query::Expression *>(PARAMETER_LOOKUP(1))}) {
+      ExpectRuntimeError(
+          [&] { RunWeighted(db, dba, context, query(0, 3, constant)); },
+          fmt::format("The weight lambda of a KSHORTEST path expansion must not evaluate to null. Give every "
+                      "relationship a weight, or filter the ones without one out. If the lambda is a v3.13 filter: {}",
+                      memgraph::query::EdgeAtom::kKShortestWeightFirstHint));
+    }
+    dba.Abort();
+  }
+
+  // A declared total under a constant is the constant times the hop count. From 0 to 3 the detour
+  // graph has one path each of 1, 2 and 3 hops.
+  void KShortestConstantTotals(Database *db) {
+    auto storage_dba = db->Access();
+    memgraph::query::DbAccessor dba(storage_dba.get());
+    memgraph::query::ExecutionContext context{.db_accessor = &dba, .metric_handles = &TestMetricHandles()};
+    auto [vertices, edges] = db->BuildGraph(&dba, DetourVertexLocations(), DetourEdges());
+    dba.AdvanceCommand();
+
+    const std::vector<memgraph::storage::ExternalPropertyValue> constants{
+        memgraph::storage::ExternalPropertyValue(int64_t{2}),
+        memgraph::storage::ExternalPropertyValue(0.1),
+        memgraph::storage::ExternalPropertyValue(
+            memgraph::storage::TemporalData(memgraph::storage::TemporalType::Duration, 3))};
+    for (size_t i = 0; i < constants.size(); ++i) {
+      context.evaluation_context.parameters.Add(static_cast<int>(i), constants[i]);
+      const auto run =
+          RunWeighted(db,
+                      dba,
+                      context,
+                      {.sources = {vertices[0]},
+                       .sinks = {vertices[3]},
+                       .weight_lambda = MakeConstantWeightLambda(context, PARAMETER_LOOKUP(static_cast<int>(i)))});
+      std::vector<size_t> hop_counts;
+      for (const auto &row : run.rows) {
+        const auto hops = row[2].ValueList().size();
+        hop_counts.push_back(hops);
+        const auto &total = row[3];
+        if (total.IsInt()) {
+          EXPECT_EQ(total.ValueInt(), 2 * static_cast<int64_t>(hops));
+        } else if (total.IsDouble()) {
+          EXPECT_DOUBLE_EQ(total.ValueDouble(), 0.1 * static_cast<double>(hops));
+        } else {
+          EXPECT_EQ(total.ValueDuration().microseconds, 3 * static_cast<int64_t>(hops));
+        }
+      }
+      std::ranges::sort(hop_counts);
+      EXPECT_EQ(hop_counts, (std::vector<size_t>{1, 2, 3})) << "constant " << i;
+    }
+    dba.Abort();
+  }
+
+  // A declared total under a constant is one checked multiply, so it raises what adding the constant
+  // once per hop raises: two hops of 2^62, or of a Duration of 10^8 days. 1-2-3 is the only route.
+  void KShortestConstantTotalOverflow(Database *db) {
+    auto storage_dba = db->Access();
+    memgraph::query::DbAccessor dba(storage_dba.get());
+    memgraph::query::ExecutionContext context{.db_accessor = &dba, .metric_handles = &TestMetricHandles()};
+    auto [vertices, edges] = db->BuildGraph(&dba, DetourVertexLocations(), DetourEdges());
+    dba.AdvanceCommand();
+
+    constexpr int64_t kDayMicros = 86'400'000'000;
+    const std::vector<std::pair<memgraph::storage::ExternalPropertyValue, std::string>> cases{
+        {memgraph::storage::ExternalPropertyValue(int64_t{1} << 62),
+         "The total weight of a KSHORTEST path overflows a 64-bit integer."},
+        {memgraph::storage::ExternalPropertyValue(
+             memgraph::storage::TemporalData(memgraph::storage::TemporalType::Duration, 100'000'000 * kDayMicros)),
+         "Duration arithmetic overflows"}};
+    for (size_t i = 0; i < cases.size(); ++i) {
+      const auto &[constant, expected] = cases[i];
+      context.evaluation_context.parameters.Add(static_cast<int>(i), constant);
+      ExpectRuntimeError(
+          [&] {
+            RunWeighted(db,
+                        dba,
+                        context,
+                        {.sources = {vertices[1]},
+                         .sinks = {vertices[3]},
+                         .weight_lambda = MakeConstantWeightLambda(context, PARAMETER_LOOKUP(static_cast<int>(i)))});
+          },
+          expected);
+    }
+    dba.Abort();
+  }
+
+  // The filter lambda still prunes under weights. Blocking vertex 2 leaves only the single expensive
+  // hop, so an expansion that ran the lambda nowhere, or only in the reverse tree, is visible here.
+  void KShortestWeightedTestFilterLambda(Database *db) {
+    auto storage_dba = db->Access();
+    memgraph::query::DbAccessor dba(storage_dba.get());
+    memgraph::query::ExecutionContext context{.db_accessor = &dba, .metric_handles = &TestMetricHandles()};
+    auto filter = FilterLambda(context, nullptr);
+    auto *inner_node = IDENT("filter_node")->MapTo(filter.inner_node_symbol);
+
+    auto [vertices, edges] = db->BuildGraph(&dba, DetourVertexLocations(), DetourEdges());
+    SetEdgeWeights(dba, edges, DetourEdges(), DetourIntWeights());
+    dba.AdvanceCommand();
+
+    filter.expression = NEQ(PROPERTY_LOOKUP(dba, inner_node, PROPERTY_PAIR(dba, "id")), LITERAL(2));
+    auto run =
+        RunWeighted(db, dba, context, {.sources = {vertices[0]}, .sinks = {vertices[3]}, .filter_lambda = filter});
+
+    ASSERT_EQ(run.rows.size(), 1U) << "both cheap routes pass through the blocked vertex";
+    EXPECT_EQ(run.rows[0][3].ValueInt(), 10);
+    EXPECT_EQ(PathVertexIds(&dba, run.rows[0]), (std::vector<int>{0, 3}));
+    dba.Abort();
+  }
+
+  // The reverse tree weighs every arc that can reach the target, so an invalid weight on an arc no
+  // path from the source takes still raises an error, unless the filter lambda rules the arc out.
+  void KShortestWeightedTestUnusedArcWeightValidated(Database *db) {
+    using PV = memgraph::storage::PropertyValue;
+    // 0 -> 1 is the only path; 2 -> 1 reaches the target from a vertex the source cannot reach.
+    const std::vector<std::tuple<int, int, std::string>> graph_edges{{0, 1, "a"}, {2, 1, "a"}};
+    const std::map<std::pair<int, int>, PV> weights{{{0, 1}, PV(int64_t{1})}, {{2, 1}, PV(int64_t{-1})}};
+    for (const bool filtered : {false, true}) {
+      SCOPED_TRACE(filtered ? "filtered" : "unfiltered");
+      auto storage_dba = db->Access();
+      memgraph::query::DbAccessor dba(storage_dba.get());
+      memgraph::query::ExecutionContext context{.db_accessor = &dba, .metric_handles = &TestMetricHandles()};
+      auto filter = FilterLambda(context, nullptr);
+      auto *inner_edge = IDENT("filter_edge")->MapTo(filter.inner_edge_symbol);
+      auto [vertices, edges] = db->BuildGraph(&dba, {0, 0, 0}, graph_edges);
+      SetEdgeWeights(dba, edges, graph_edges, weights);
+      dba.AdvanceCommand();
+
+      if (filtered)
+        filter.expression = GREATER_EQ(PROPERTY_LOOKUP(dba, inner_edge, PROPERTY_PAIR(dba, "weight")), LITERAL(0));
+      auto run = [&] {
+        return RunWeighted(
+            db, dba, context, {.sources = {vertices[0]}, .sinks = {vertices[1]}, .filter_lambda = filter});
+      };
+      if (filtered) {
+        const auto result = run();
+        ASSERT_EQ(result.rows.size(), 1U);
+        EXPECT_EQ(result.rows[0][3].ValueInt(), 1);
+      } else {
+        ExpectRuntimeError(run, "Weight must be non-negative, got -1.");
+      }
+      dba.Abort();
+    }
+  }
+
 #ifdef MG_ENTERPRISE
   // `blocked_vertex_id` also blocks every edge into that vertex with a filter lambda, so the
   // expansion must honour the access checks and the lambda at once. `limit` is `|k`, or -1 for none.
@@ -688,82 +1555,10 @@ class Database {
     db_accessor.AdvanceCommand();
 
     memgraph::auth::User user{"test"};
-    std::vector<std::pair<int, int>> edges_in_result;
-    switch (fine_grained_test_type) {
-      case FineGrainedTestType::ALL_GRANTED:
-        user.fine_grained_access_handler().label_permissions().GrantGlobal(memgraph::auth::FineGrainedPermission::READ);
-        user.fine_grained_access_handler().edge_type_permissions().GrantGlobal(
-            memgraph::auth::FineGrainedPermission::READ);
-        edges_in_result = GetEdgeList(kEdges, direction, {"a", "b"});
-        break;
-      case FineGrainedTestType::ALL_DENIED:
-        break;
-      case FineGrainedTestType::EDGE_TYPE_A_DENIED:
-        user.fine_grained_access_handler().label_permissions().GrantGlobal(memgraph::auth::FineGrainedPermission::READ);
-        user.fine_grained_access_handler().edge_type_permissions().Grant({"b"},
-                                                                         memgraph::auth::FineGrainedPermission::READ);
-        user.fine_grained_access_handler().edge_type_permissions().Deny({"a"}, memgraph::auth::kAllEdgeTypePermissions);
-
-        edges_in_result = GetEdgeList(kEdges, direction, {"b"});
-        edge_types.erase(std::remove(edge_types.begin(), edge_types.end(), "a"), edge_types.end());
-        break;
-      case FineGrainedTestType::EDGE_TYPE_B_DENIED:
-        user.fine_grained_access_handler().label_permissions().GrantGlobal(memgraph::auth::FineGrainedPermission::READ);
-        user.fine_grained_access_handler().edge_type_permissions().Grant({"a"},
-                                                                         memgraph::auth::FineGrainedPermission::READ);
-        user.fine_grained_access_handler().edge_type_permissions().Deny({"b"}, memgraph::auth::kAllEdgeTypePermissions);
-
-        edges_in_result = GetEdgeList(kEdges, direction, {"a"});
-        edge_types.erase(std::remove(edge_types.begin(), edge_types.end(), "b"), edge_types.end());
-        break;
-      case FineGrainedTestType::LABEL_0_DENIED:
-        user.fine_grained_access_handler().edge_type_permissions().GrantGlobal(
-            memgraph::auth::FineGrainedPermission::READ);
-        user.fine_grained_access_handler().label_permissions().Grant({"1"},
-                                                                     memgraph::auth::FineGrainedPermission::READ);
-        user.fine_grained_access_handler().label_permissions().Grant({"2"},
-                                                                     memgraph::auth::FineGrainedPermission::READ);
-        user.fine_grained_access_handler().label_permissions().Grant({"3"},
-                                                                     memgraph::auth::FineGrainedPermission::READ);
-        user.fine_grained_access_handler().label_permissions().Grant({"4"},
-                                                                     memgraph::auth::FineGrainedPermission::READ);
-        user.fine_grained_access_handler().label_permissions().Deny({"0"}, memgraph::auth::kAllLabelPermissions);
-
-        edges_in_result = GetEdgeList(kEdges, direction, {"a", "b"});
-        edges_in_result.erase(
-            std::remove_if(edges_in_result.begin(), edges_in_result.end(), [](const auto &e) { return e.second == 0; }),
-            edges_in_result.end());
-        break;
-      case FineGrainedTestType::LABEL_3_DENIED:
-        user.fine_grained_access_handler().edge_type_permissions().GrantGlobal(
-            memgraph::auth::FineGrainedPermission::READ);
-        user.fine_grained_access_handler().label_permissions().Grant({"0"},
-                                                                     memgraph::auth::FineGrainedPermission::READ);
-        user.fine_grained_access_handler().label_permissions().Grant({"1"},
-                                                                     memgraph::auth::FineGrainedPermission::READ);
-        user.fine_grained_access_handler().label_permissions().Grant({"2"},
-                                                                     memgraph::auth::FineGrainedPermission::READ);
-        user.fine_grained_access_handler().label_permissions().Grant({"4"},
-                                                                     memgraph::auth::FineGrainedPermission::READ);
-        user.fine_grained_access_handler().label_permissions().Deny({"3"}, memgraph::auth::kAllLabelPermissions);
-
-        edges_in_result = GetEdgeList(kEdges, direction, {"a", "b"});
-        edges_in_result.erase(
-            std::remove_if(edges_in_result.begin(), edges_in_result.end(), [](const auto &e) { return e.second == 3; }),
-            edges_in_result.end());
-        break;
-    }
+    const auto edges_in_result = ApplyFineGrainedArm(user, fine_grained_test_type, direction, edge_types);
 
     memgraph::glue::FineGrainedAuthChecker auth_checker{user, &db_accessor};
     context.auth_checker = &auth_checker;
-
-    // We run k-shortest paths for all possible source-sink pairs
-    if (fine_grained_test_type == FineGrainedTestType::LABEL_0_DENIED) {
-      vertices.erase(std::remove_if(vertices.begin(),
-                                    vertices.end(),
-                                    [&](const auto &v) { return GetProp(v, "id", &db_accessor).ValueInt() == 0; }),
-                     vertices.end());
-    }
 
     std::vector<memgraph::storage::EdgeTypeId> storage_edge_types;
     for (const auto &t : edge_types) {
@@ -784,63 +1579,58 @@ class Database {
     context.evaluation_context.labels = memgraph::query::NamesToLabels(storage.labels_, &db_accessor);
     context.evaluation_context.edgetypes = memgraph::query::NamesToEdgeTypes(storage.edge_types_, &db_accessor);
 
-    // One pass over the source-sink cartesian; only the lambda and the limit vary between runs.
-    auto run = [&](bool with_lambda, int path_limit) {
-      std::shared_ptr<memgraph::query::plan::LogicalOperator> input_operator = nullptr;
-      input_operator = YieldVertices(&db_accessor, vertices, source_symbol, input_operator);
-      input_operator = YieldVertices(&db_accessor, vertices, sink_symbol, input_operator);
-
-      memgraph::query::Expression *filter_expr = nullptr;
-      if (with_lambda) {
-        // Compare vertex identities against an outer frame symbol, not `inner_node.id`: a property
-        // lookup built here evaluates to null, which left this whole matrix passing on zero rows.
-        input_operator = std::make_shared<Yield>(
-            input_operator,
-            std::vector<memgraph::query::Symbol>{blocked_symbol},
-            std::vector<std::vector<memgraph::query::TypedValue>>{{memgraph::query::TypedValue(*blocked_vertex)}});
-        filter_expr = NEQ(inner_node, blocked);
-      }
-
-      input_operator = db->MakeKShortestOperator(
-          source_symbol,
-          sink_symbol,
-          edges_symbol,
-          direction,
-          storage_edge_types,
-          input_operator,
-          true,
-          nullptr,
-          upper_bound == -1 ? nullptr : LITERAL(upper_bound),
-          memgraph::query::plan::ExpansionLambda{inner_edge_symbol, inner_node_symbol, filter_expr},
-          path_limit == -1 ? nullptr : LITERAL(path_limit));
-      return PullResults(input_operator.get(),
-                         &context,
-                         std::vector<memgraph::query::Symbol>{source_symbol, sink_symbol, edges_symbol});
-    };
-
-    // The reference run: access checks only. Everything below derives from it, so nothing has to
-    // model the checks - the endpoints are seeded unchecked, so a denied source or sink still yields.
-    const auto baseline = run(false, -1);
-    CheckPathsAndExtractLengths(&db_accessor, edges_in_result, baseline);
-    if (fine_grained_test_type == FineGrainedTestType::ALL_DENIED) {
-      EXPECT_EQ(baseline.size(), 0);
-    } else {
-      // `CheckPathsAndExtractLengths` passes vacuously on zero rows, and on the label arms the
-      // assertions below degrade to a per-pair cap an empty result also satisfies.
-      EXPECT_FALSE(baseline.empty());
-    }
-
-    // The lambda binds the arc head at every position but index 0, the seeded source, so it rejects
-    // exactly the paths visiting the blocked vertex later. Sorted to compare as a multiset.
+    // The reference enumerates the readable arcs, independent of the cursor: an arc's verdict is a property of the
+    // arc, whichever search pass reaches it. The source is seeded unchecked, so a denied source still yields.
+    // Sorted to compare as a multiset.
+    const int max_hops = upper_bound == -1 ? kVertexCount - 1 : upper_bound;
     std::vector<std::vector<int>> expected_paths;
-    for (const auto &row : baseline) {
-      auto ids = PathVertexIds(&db_accessor, row);
-      if (blocked_vertex_id && std::find(ids.begin() + 1, ids.end(), *blocked_vertex_id) != ids.end()) continue;
-      expected_paths.push_back(std::move(ids));
+    for (const auto &source : vertices) {
+      AppendLooplessPaths(edges_after_lambda, GetProp(source, "id", &db_accessor).ValueInt(), max_hops, expected_paths);
     }
     std::ranges::sort(expected_paths);
+    if (fine_grained_test_type == FineGrainedTestType::ALL_DENIED) {
+      EXPECT_TRUE(expected_paths.empty());
+    } else {
+      // An empty reference would let every assertion below pass on zero rows.
+      EXPECT_FALSE(expected_paths.empty());
+    }
+    if (blocked_vertex_id && fine_grained_test_type == FineGrainedTestType::ALL_GRANTED) {
+      // If the lambda pruned nothing, the arm would prove nothing about it.
+      std::vector<std::vector<int>> unfiltered_paths;
+      for (const auto &source : vertices) {
+        AppendLooplessPaths(
+            edges_in_result, GetProp(source, "id", &db_accessor).ValueInt(), max_hops, unfiltered_paths);
+      }
+      EXPECT_LT(expected_paths.size(), unfiltered_paths.size());
+    }
 
-    const auto results = run(blocked_vertex_id.has_value(), limit);
+    std::shared_ptr<memgraph::query::plan::LogicalOperator> input_operator = nullptr;
+    input_operator = YieldVertices(&db_accessor, vertices, source_symbol, input_operator);
+    input_operator = YieldVertices(&db_accessor, vertices, sink_symbol, input_operator);
+    memgraph::query::Expression *filter_expr = nullptr;
+    if (blocked_vertex) {
+      // Compare vertex identities against an outer frame symbol, not `inner_node.id`: a property
+      // lookup built here evaluates to null, which left this whole matrix passing on zero rows.
+      input_operator = std::make_shared<Yield>(
+          input_operator,
+          std::vector<memgraph::query::Symbol>{blocked_symbol},
+          std::vector<std::vector<memgraph::query::TypedValue>>{{memgraph::query::TypedValue(*blocked_vertex)}});
+      filter_expr = NEQ(inner_node, blocked);
+    }
+    input_operator = db->MakeKShortestOperator(
+        source_symbol,
+        sink_symbol,
+        edges_symbol,
+        direction,
+        storage_edge_types,
+        input_operator,
+        true,
+        nullptr,
+        upper_bound == -1 ? nullptr : LITERAL(upper_bound),
+        memgraph::query::plan::ExpansionLambda{inner_edge_symbol, inner_node_symbol, filter_expr},
+        limit == -1 ? nullptr : LITERAL(limit));
+    const auto results = PullResults(
+        input_operator.get(), &context, std::vector<memgraph::query::Symbol>{source_symbol, sink_symbol, edges_symbol});
     CheckPathsAndExtractLengths(&db_accessor, edges_after_lambda, results);
 
     std::vector<std::vector<int>> actual_paths;
@@ -850,27 +1640,13 @@ class Database {
     std::map<std::pair<int, int>, size_t> actual_per_pair;
     for (const auto &path : actual_paths) ++actual_per_pair[{path.front(), path.back()}];
 
-    // Deriving from the reference run holds only while an arc's verdict is a property of the arc. It
-    // is not when a *vertex* is denied: the check tests the endpoint away from the vertex being
-    // expanded, so it is the arc's head on one pass and its tail on the other, and the search stops
-    // as soon as one frontier empties. Denying an edge type is symmetric and stays predictable.
-    const bool verdict_depends_on_search_direction = fine_grained_test_type == FineGrainedTestType::LABEL_0_DENIED ||
-                                                     fine_grained_test_type == FineGrainedTestType::LABEL_3_DENIED;
-
-    if (verdict_depends_on_search_direction) {
-      if (limit != -1) {
-        for (const auto &[pair, count] : actual_per_pair) {
-          SCOPED_TRACE(fmt::format("source = {}, sink = {}", pair.first, pair.second));
-          EXPECT_LE(count, static_cast<size_t>(limit));
-        }
-      }
-    } else if (limit == -1) {
-      // Without a limit the two runs must agree path for path, which is what pins over-blocking - a
-      // subset check like `CheckPathsAndExtractLengths` cannot see a dropped path.
+    if (limit == -1) {
+      // Without a limit the run must match the reference path for path, which is what pins
+      // over-blocking - a subset check like `CheckPathsAndExtractLengths` cannot see a dropped path.
       EXPECT_EQ(actual_paths, expected_paths);
     } else {
       // With a limit, which of several equally long paths a pair keeps is undetermined, so check only
-      // the cap, the total, and that every path also came out of the unlimited run.
+      // the cap, the total, and that every path is in the reference.
       std::map<std::pair<int, int>, size_t> expected_per_pair;
       for (const auto &path : expected_paths) ++expected_per_pair[{path.front(), path.back()}];
 
@@ -887,16 +1663,88 @@ class Database {
       }
       for (const auto &path : actual_paths) {
         EXPECT_TRUE(std::ranges::binary_search(expected_paths, path))
-            << "Returned a path the unlimited run did not: " << memgraph::utils::JoinVector(path, "->");
+            << "Returned a path the reference does not have: " << memgraph::utils::JoinVector(path, "->");
       }
     }
 
-    if (blocked_vertex_id && fine_grained_test_type == FineGrainedTestType::ALL_GRANTED) {
-      // If the lambda pruned nothing, this arm would prove nothing about it.
-      EXPECT_LT(results.size(), baseline.size());
+    db_accessor.Abort();
+  }
+
+  // The weighted arm under fine-grained access control. Like the hop-count search, this one asks
+  // the same question of an arc whichever way it walks it - the check always tests the arc's head -
+  // so an arc's verdict is a property of the arc and every arm, label denials included, can be
+  // compared exactly against a brute-force enumeration over the arcs the permissions leave.
+  void KShortestWeightedTestWithFineGrainedFiltering(Database *db, memgraph::query::EdgeAtom::Direction direction,
+                                                     std::vector<std::string> edge_types,
+                                                     FineGrainedTestType fine_grained_test_type) {
+    auto storage_dba = db->Access();
+    memgraph::query::DbAccessor dba(storage_dba.get());
+    memgraph::query::ExecutionContext context{.db_accessor = &dba, .metric_handles = &TestMetricHandles()};
+
+    auto [vertices, edges] = db->BuildGraph(&dba, kVertexLocations, kEdges);
+    dba.AdvanceCommand();
+
+    memgraph::auth::User user{"test"};
+    const auto readable_edges = ApplyFineGrainedArm(user, fine_grained_test_type, direction, edge_types);
+    // The weight lambda reads a property, and a user with no property rules at all is *restricted*,
+    // not unrestricted - every lookup would come back null and this arm would prove nothing.
+    // Granting them globally keeps it about the label and edge-type denials it is named for.
+    user.property_access_handler().label_properties().GrantGlobal("*", memgraph::auth::kAllPropertyPermissionTypes);
+    user.property_access_handler().edge_type_properties().GrantGlobal("*", memgraph::auth::kAllPropertyPermissionTypes);
+    memgraph::glue::FineGrainedAuthChecker auth_checker{user, &dba};
+    context.auth_checker = &auth_checker;
+
+    // A denied vertex stays in the source and sink lists on purpose. Nothing reaches it, because
+    // every arc into it is denied, but a search seeded on it still walks out of it unchecked - the
+    // same pre-existing trait `*BFS` has - and `readable_edges` already says exactly that.
+
+    std::vector<memgraph::storage::EdgeTypeId> storage_edge_types;
+    for (const auto &t : edge_types) storage_edge_types.push_back(dba.NameToEdgeType(t));
+
+    auto run =
+        RunWeighted(db,
+                    dba,
+                    context,
+                    {.sources = vertices, .sinks = vertices, .direction = direction, .edge_types = storage_edge_types});
+
+    std::map<std::pair<int, int>, std::vector<std::pair<int64_t, std::vector<int>>>> actual;
+    for (const auto &row : run.rows) {
+      const auto source_id = static_cast<int>(GetProp(row[0].ValueVertex(), "id", &dba).ValueInt());
+      const auto sink_id = static_cast<int>(GetProp(row[1].ValueVertex(), "id", &dba).ValueInt());
+      SCOPED_TRACE(fmt::format("source = {}, sink = {}", source_id, sink_id));
+      CheckPath(&dba, row[0].ValueVertex(), row[1].ValueVertex(), row[2].ValueList(), readable_edges);
+      actual[{source_id, sink_id}].emplace_back(row[3].ValueInt(), PathVertexIds(&dba, row));
     }
 
-    db_accessor.Abort();
+    size_t expected_total = 0;
+    for (const auto &source : vertices) {
+      for (const auto &sink : vertices) {
+        const auto source_id = static_cast<int>(GetProp(source, "id", &dba).ValueInt());
+        const auto sink_id = static_cast<int>(GetProp(sink, "id", &dba).ValueInt());
+        if (source_id == sink_id) continue;
+        SCOPED_TRACE(fmt::format("source = {}, sink = {}", source_id, sink_id));
+
+        std::vector<std::pair<int64_t, std::vector<int>>> expected;
+        for (const auto &path : WeightedSimplePaths(readable_edges, source_id, sink_id)) {
+          expected.emplace_back(path.weight, path.vertices);
+        }
+        expected_total += expected.size();
+        auto &rows = actual[{source_id, sink_id}];
+        std::ranges::sort(expected);
+        std::ranges::sort(rows);
+        EXPECT_EQ(rows, expected);
+      }
+    }
+    EXPECT_EQ(run.rows.size(), expected_total);
+    if (fine_grained_test_type == FineGrainedTestType::ALL_DENIED) {
+      EXPECT_TRUE(run.rows.empty());
+    } else {
+      // The comparison above passes vacuously on zero rows, so one arm proving nothing would be
+      // invisible without this.
+      EXPECT_FALSE(run.rows.empty());
+    }
+
+    dba.Abort();
   }
 
   // The access check must run before the lambda. Edge (5)-[:b]->(3) is the only one with `to` = 3
@@ -962,12 +1810,9 @@ class Database {
     db_accessor.Abort();
   }
 
-  // The memo must not merge the two halves of the bidirectional search. Denied vertex 4 is the
-  // target: the source side checks `To` = 4 and denies, the target side binds the same vertex but
-  // checks `From` = 2 and allows, so a pass-blind memo replays the `false` and loses the path.
-  // Relies on endpoints being seeded unchecked (pre-existing, shared with `*BFS`); if that is ever
-  // fixed this returns zero rows and needs redesigning, not relaxing.
-  void KShortestTestMemoDistinguishesSearchDirections(Database *db) {
+  // A path must not end at a vertex the user cannot read: denied sink 4 yields nothing, although arc (2)->(4)
+  // is the shortest path. Sink 3, reached by (2)->(5)->(3), shows the denial is not blanket.
+  void KShortestTestDeniedSinkYieldsNoPath(Database *db) {
     auto storage_dba = db->Access();
     memgraph::query::DbAccessor db_accessor(storage_dba.get());
     memgraph::query::ExecutionContext context{.db_accessor = &db_accessor, .metric_handles = &TestMetricHandles()};
@@ -991,8 +1836,7 @@ class Database {
 
     std::shared_ptr<memgraph::query::plan::LogicalOperator> input_operator = nullptr;
     input_operator = YieldVertices(&db_accessor, {vertices[2]}, source_symbol, input_operator);
-    // Vertex 1 sits behind the denied vertex 4, so this also proves the denial is in effect.
-    input_operator = YieldVertices(&db_accessor, {vertices[4], vertices[1]}, sink_symbol, input_operator);
+    input_operator = YieldVertices(&db_accessor, {vertices[4], vertices[3]}, sink_symbol, input_operator);
 
     input_operator = db->MakeKShortestOperator(
         source_symbol,
@@ -1013,13 +1857,105 @@ class Database {
     auto results = PullResults(
         input_operator.get(), &context, std::vector<memgraph::query::Symbol>{source_symbol, sink_symbol, edges_symbol});
 
-    ASSERT_FALSE(results.empty());
-    // The one-hop (2)-[:b]->(4) must come out first.
-    EXPECT_EQ(results[0][2].ValueList().size(), 1);
-    // Nothing may reach vertex 1, which is only reachable through the denied vertex 4.
-    for (const auto &row : results) EXPECT_EQ(row[1].ValueVertex(), vertices[4]);
+    ASSERT_EQ(results.size(), 1);
+    EXPECT_EQ(PathVertexIds(&db_accessor, results[0]), (std::vector<int>{2, 5, 3}));
   }
 #endif
+
+  // --- memory --------------------------------------------------------------------------------------
+
+  struct MemoryRun {
+    size_t rows = 0;
+    // Edges over every returned path.
+    size_t total_length = 0;
+    size_t peak = 0;
+    // Bytes held as the last row's last path is served.
+    size_t current_at_last_path = 0;
+    // Bytes still held once `Pull` has returned false.
+    size_t current_after_last_row = 0;
+    // Bytes held as each path is served, in serving order.
+    std::vector<size_t> current_at_path;
+  };
+
+  // One KSHORTEST expansion, walked both ways over a `rungs`-rung ladder, one input row per
+  // `(source, sink, |k)`. The cursor and its evaluation both allocate through one counter. Rows are
+  // counted and dropped, so beyond the cursor the counter sees only the current row's values.
+  // Weighted runs read `e.weight`, set to 1 on every edge so both cursors return the same paths
+  // and one bound fits both. A literal weight would take the hop-count search.
+  MemoryRun KShortestLadderMemory(Database *db, bool weighted, int rungs,
+                                  const std::vector<std::tuple<int, int, int64_t>> &input_rows, int multiplicity = 1) {
+    auto storage_dba = db->Access();
+    memgraph::query::DbAccessor dba(storage_dba.get());
+    memgraph::query::ExecutionContext context{.db_accessor = &dba, .metric_handles = &TestMetricHandles()};
+    auto source_sym = context.symbol_table.CreateSymbol("source", true);
+    auto sink_sym = context.symbol_table.CreateSymbol("sink", true);
+    auto limit_sym = context.symbol_table.CreateSymbol("limit", true);
+    auto edges_sym = context.symbol_table.CreateSymbol("edges", true);
+    auto total_sym = context.symbol_table.CreateSymbol("total", true);
+
+    // Rails `0..rungs-1` and `rungs..2*rungs-1`, joined at every step.
+    std::vector<std::tuple<int, int, std::string>> ladder;
+    for (int copy = 0; copy < multiplicity; ++copy) {
+      for (int i = 0; i + 1 < rungs; ++i) {
+        ladder.emplace_back(i, i + 1, "a");
+        ladder.emplace_back(rungs + i, rungs + i + 1, "a");
+      }
+      for (int i = 0; i < rungs; ++i) ladder.emplace_back(i, rungs + i, "b");
+    }
+    auto [vertices, edges] = db->BuildGraph(&dba, std::vector<int>(static_cast<size_t>(2 * rungs), 0), ladder);
+    std::map<std::pair<int, int>, memgraph::storage::PropertyValue> weights;
+    for (const auto &[from, to, type] : ladder) weights.emplace(std::pair{from, to}, int64_t{1});
+    SetEdgeWeights(dba, edges, ladder, weights);
+    dba.AdvanceCommand();
+
+    std::vector<std::vector<memgraph::query::TypedValue>> frames;
+    for (const auto &[source, sink, limit] : input_rows) {
+      frames.push_back({memgraph::query::TypedValue(vertices[source]),
+                        memgraph::query::TypedValue(vertices[sink]),
+                        memgraph::query::TypedValue(limit)});
+    }
+    auto input_op =
+        std::make_shared<Yield>(nullptr, std::vector<memgraph::query::Symbol>{source_sym, sink_sym, limit_sym}, frames);
+    auto kshortest_op =
+        db->MakeKShortestOperator(source_sym,
+                                  sink_sym,
+                                  edges_sym,
+                                  memgraph::query::EdgeAtom::Direction::BOTH,
+                                  {},
+                                  input_op,
+                                  true,
+                                  nullptr,
+                                  nullptr,
+                                  FilterLambda(context, nullptr),
+                                  IDENT("limit")->MapTo(limit_sym),
+                                  weighted ? std::optional(MakeWeightLambda(dba, context)) : std::nullopt,
+                                  weighted ? std::optional(total_sym) : std::nullopt);
+
+    context.evaluation_context.properties = memgraph::query::NamesToProperties(storage.properties_, &dba);
+    context.evaluation_context.labels = memgraph::query::NamesToLabels(storage.labels_, &dba);
+    context.evaluation_context.edgetypes = memgraph::query::NamesToEdgeTypes(storage.edge_types_, &dba);
+
+    PeakCountingResource memory;
+    MemoryRun out;
+    {
+      // Both are needed: the cursor's own state comes from the first, candidates and spur paths
+      // from the second.
+      memgraph::metrics::DatabaseMetricHandles handles;
+      auto cursor = kshortest_op->MakeCursor(&memory, handles);
+      context.evaluation_context.memory = &memory;
+      memgraph::query::Frame frame(context.symbol_table.max_position());
+      while (cursor->Pull(frame, context)) {
+        ++out.rows;
+        out.total_length += frame[edges_sym].ValueList().size();
+        out.current_at_last_path = memory.current();
+        out.current_at_path.push_back(memory.current());
+      }
+      out.current_after_last_row = memory.current();
+      out.peak = memory.peak();
+    }
+    dba.Abort();
+    return out;
+  }
 
   // An inverted range is provably empty. Assert on the work done, not just the empty result:
   // unguarded, the top-up loop enumerates every simple path in the graph first.

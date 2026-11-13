@@ -50,7 +50,9 @@ class VertexDb : public Database {
       Symbol source_sym, Symbol sink_sym, Symbol edge_sym, EdgeAtom::Direction direction,
       const std::vector<memgraph::storage::EdgeTypeId> &edge_types, const std::shared_ptr<LogicalOperator> &input,
       bool existing_node, memgraph::query::Expression *lower_bound, memgraph::query::Expression *upper_bound,
-      const memgraph::query::plan::ExpansionLambda &filter_lambda, memgraph::query::Expression *limit) override {
+      const memgraph::query::plan::ExpansionLambda &filter_lambda, memgraph::query::Expression *limit,
+      std::optional<memgraph::query::plan::ExpansionLambda> weight_lambda,
+      std::optional<memgraph::query::Symbol> total_weight) override {
     return std::make_unique<ExpandVariable>(input,
                                             source_sym,
                                             sink_sym,
@@ -63,8 +65,8 @@ class VertexDb : public Database {
                                             upper_bound,
                                             existing_node,
                                             filter_lambda,
-                                            std::nullopt,
-                                            std::nullopt,
+                                            std::move(weight_lambda),
+                                            std::move(total_weight),
                                             limit);
   }
 
@@ -92,6 +94,9 @@ class VertexDb : public Database {
       auto edge = dba->InsertEdge(&from, &to, dba->NameToEdgeType(type));
       MG_ASSERT(edge->SetProperty(dba->NameToProperty("from"), memgraph::storage::PropertyValue(u)).has_value());
       MG_ASSERT(edge->SetProperty(dba->NameToProperty("to"), memgraph::storage::PropertyValue(v)).has_value());
+      // The weighted arm reads this; `EdgeWeightFor` is the same formula, so the oracle can replay it.
+      MG_ASSERT(edge->SetProperty(dba->NameToProperty("weight"), memgraph::storage::PropertyValue(EdgeWeightFor(u, v)))
+                    .has_value());
       edge_addr.push_back(*edge);
     }
 
@@ -115,8 +120,7 @@ struct FineGrainedCase {
   std::optional<int> blocked_vertex;
 };
 
-// Enumerated rather than combined so the combinations that cannot assert anything stay out: without
-// a lambda and without a limit the harness would compare the reference run to itself, and with
+// Enumerated rather than combined so the combination that cannot assert anything stays out: with
 // everything denied the result is empty whatever the lambda does.
 inline std::vector<FineGrainedCase> FineGrainedCases() {
   static constexpr auto kTypes = std::array{FineGrainedTestType::ALL_GRANTED,
@@ -130,7 +134,6 @@ inline std::vector<FineGrainedCase> FineGrainedCases() {
     for (auto limit : {-1, 3}) {
       for (auto test_type : kTypes) {
         for (std::optional<int> blocked : {std::optional<int>{}, std::optional<int>{4}}) {
-          if (!blocked && limit == -1) continue;
           if (blocked && test_type == FineGrainedTestType::ALL_DENIED) continue;
           cases.push_back({3, direction, {"a", "b"}, limit, test_type, blocked});
         }
@@ -176,9 +179,40 @@ TEST_F(FineGrainedKShortestTestInMemory, AccessCheckRunsBeforeFilterLambda) {
   db_->KShortestTestAccessCheckBeforeFilterLambda(db_.get());
 }
 
-TEST_F(FineGrainedKShortestTestInMemory, MemoDistinguishesSearchDirections) {
-  db_->KShortestTestMemoDistinguishesSearchDirections(db_.get());
+TEST_F(FineGrainedKShortestTestInMemory, DeniedSinkYieldsNoPath) {
+  db_->KShortestTestDeniedSinkYieldsNoPath(db_.get());
 }
+
+class WeightedFineGrainedKShortestTestInMemory
+    : public ::testing::TestWithParam<std::tuple<EdgeAtom::Direction, FineGrainedTestType>> {
+ public:
+  using StorageType = memgraph::storage::InMemoryStorage;
+
+  static void SetUpTestCase() {
+    memgraph::license::global_license_checker.EnableTesting();
+    db_ = std::make_unique<VertexDb<StorageType>>();
+  }
+
+  static void TearDownTestCase() { db_ = nullptr; }
+
+ protected:
+  static std::unique_ptr<VertexDb<StorageType>> db_;
+};
+
+std::unique_ptr<VertexDb<WeightedFineGrainedKShortestTestInMemory::StorageType>>
+    WeightedFineGrainedKShortestTestInMemory::db_{nullptr};
+
+TEST_P(WeightedFineGrainedKShortestTestInMemory, AccessChecks) {
+  auto const [direction, test_type] = GetParam();
+  this->db_->KShortestWeightedTestWithFineGrainedFiltering(db_.get(), direction, {"a", "b"}, test_type);
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    WeightedFineGrained, WeightedFineGrainedKShortestTestInMemory,
+    testing::Combine(testing::Values(EdgeAtom::Direction::OUT, EdgeAtom::Direction::IN, EdgeAtom::Direction::BOTH),
+                     testing::Values(FineGrainedTestType::ALL_GRANTED, FineGrainedTestType::ALL_DENIED,
+                                     FineGrainedTestType::EDGE_TYPE_A_DENIED, FineGrainedTestType::EDGE_TYPE_B_DENIED,
+                                     FineGrainedTestType::LABEL_0_DENIED, FineGrainedTestType::LABEL_3_DENIED)));
 
 class FineGrainedKShortestTestOnDisk : public ::testing::TestWithParam<FineGrainedCase> {
  public:

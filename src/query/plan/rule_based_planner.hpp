@@ -1481,7 +1481,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
       std::optional<ExpansionLambda> weight_lambda;
       std::optional<Symbol> total_weight;
 
-      if (edge->type_ == EdgeAtom::Type::WEIGHTED_SHORTEST_PATH || edge->type_ == EdgeAtom::Type::ALL_SHORTEST_PATHS) {
+      if (edge->weight_lambda_.expression) {
         weight_lambda.emplace(ExpansionLambda{.inner_edge_symbol = symbol_table.at(*edge->weight_lambda_.inner_edge),
                                               .inner_node_symbol = symbol_table.at(*edge->weight_lambda_.inner_node),
                                               .expression = edge->weight_lambda_.expression});
@@ -1567,7 +1567,6 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
             "WITH clause.");
       }
 
-      // TODO: Pass weight lambda.
       last_op = std::make_unique<ExpandVariable>(std::move(last_op),
                                                  node1_symbol,
                                                  node_symbol,

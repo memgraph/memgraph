@@ -1106,8 +1106,11 @@ uint64_t InMemoryLabelPropertyIndex::RemoveObsoleteEntries(Storage *storage, uin
 
               const bool has_next = next_it != end_it;
               if (!preserve_recent_entries || it->timestamp < oldest_active_start_timestamp) {
+                // Redundant only once the newer entry is visible to every reader; before that a reader
+                // older than it sees neither.
                 const bool redundant_duplicate =
-                    has_next && it->vertex == next_it->vertex && it->values == next_it->values;
+                    has_next && it->vertex == next_it->vertex && it->values == next_it->values &&
+                    (!preserve_recent_entries || next_it->timestamp < oldest_active_start_timestamp);
                 if (redundant_duplicate || !AnyVersionHasLabelProperties(*it->vertex,
                                                                          label_id,
                                                                          property_paths,

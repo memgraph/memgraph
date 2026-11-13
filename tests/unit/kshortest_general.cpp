@@ -48,7 +48,9 @@ class VertexDb : public Database {
       Symbol source_sym, Symbol sink_sym, Symbol edge_sym, EdgeAtom::Direction direction,
       const std::vector<memgraph::storage::EdgeTypeId> &edge_types, const std::shared_ptr<LogicalOperator> &input,
       bool existing_node, memgraph::query::Expression *lower_bound, memgraph::query::Expression *upper_bound,
-      const memgraph::query::plan::ExpansionLambda &filter_lambda, memgraph::query::Expression *limit) override {
+      const memgraph::query::plan::ExpansionLambda &filter_lambda, memgraph::query::Expression *limit,
+      std::optional<memgraph::query::plan::ExpansionLambda> weight_lambda,
+      std::optional<memgraph::query::Symbol> total_weight) override {
     return std::make_unique<ExpandVariable>(input,
                                             source_sym,
                                             sink_sym,
@@ -61,8 +63,8 @@ class VertexDb : public Database {
                                             upper_bound,
                                             existing_node,
                                             filter_lambda,
-                                            std::nullopt,
-                                            std::nullopt,
+                                            std::move(weight_lambda),
+                                            std::move(total_weight),
                                             limit);
   }
 
@@ -90,6 +92,9 @@ class VertexDb : public Database {
       auto edge = dba->InsertEdge(&from, &to, dba->NameToEdgeType(type));
       MG_ASSERT(edge->SetProperty(dba->NameToProperty("from"), memgraph::storage::PropertyValue(u)).has_value());
       MG_ASSERT(edge->SetProperty(dba->NameToProperty("to"), memgraph::storage::PropertyValue(v)).has_value());
+      // The weighted arm reads this; `EdgeWeightFor` is the same formula, so the oracle can replay it.
+      MG_ASSERT(edge->SetProperty(dba->NameToProperty("weight"), memgraph::storage::PropertyValue(EdgeWeightFor(u, v)))
+                    .has_value());
       edge_addr.push_back(*edge);
     }
 
@@ -99,6 +104,20 @@ class VertexDb : public Database {
  protected:
   memgraph::storage::Config config_;
   std::unique_ptr<memgraph::storage::Storage> db_;
+};
+
+// A suite that builds one database for all its tests.
+template <typename Storage, typename Base>
+class SharedDbTest : public Base {
+ public:
+  using StorageType = Storage;
+
+  static void SetUpTestSuite() { db_ = std::make_unique<VertexDb<Storage>>(); }
+
+  static void TearDownTestSuite() { db_ = nullptr; }
+
+ protected:
+  inline static std::unique_ptr<VertexDb<Storage>> db_;
 };
 
 class GeneralKShortestTestInMemory
@@ -196,6 +215,164 @@ TEST_F(GeneralKShortestTestInMemory, InterleavedRootsMatchOracle) {
                      kInterleavedVertexLocations,
                      kInterleavedEdges);
 }
+
+// --- weighted ---------------------------------------------------------------------------------
+
+// The weighted matrix over the default fixture: every pair, every direction, every edge-type filter,
+// with and without a length bound. Compared path for path against a brute-force enumeration, or
+// class for class under a `|k`.
+using WeightedMatrixParam = std::tuple<int, int, EdgeAtom::Direction, std::vector<std::string>, int>;
+
+// Runs one matrix cell; without a type filter or a limit the fixture's weighted order must depart
+// from the hop-count one.
+template <typename TDb>
+void RunWeightedMatrixCell(TDb *db, const WeightedMatrixParam &param) {
+  auto const [lower_bound, upper_bound, direction, edge_types, limit] = param;
+  const auto hop_inversions = db->KShortestWeightedTest(db, lower_bound, upper_bound, direction, edge_types, limit);
+  if (edge_types.empty() && limit == -1) EXPECT_GT(hop_inversions, 0U);
+}
+
+const auto kWeightedDirections =
+    testing::Values(EdgeAtom::Direction::OUT, EdgeAtom::Direction::IN, EdgeAtom::Direction::BOTH);
+const auto kWeightedMatrix = testing::Combine(
+    testing::Values(-1, 2), testing::Values(3, -1), kWeightedDirections,
+    testing::Values(std::vector<std::string>{}, std::vector<std::string>{"a"}, std::vector<std::string>{"b"}),
+    testing::Values(-1));
+// `|k` with and without a lower bound, which skips paths before the limit counts them.
+const auto kWeightedLimitMatrix = testing::Combine(testing::Values(-1, 2), testing::Values(-1), kWeightedDirections,
+                                                   testing::Values(std::vector<std::string>{}), testing::Values(1, 3));
+
+class WeightedKShortestTestInMemory
+    : public SharedDbTest<memgraph::storage::InMemoryStorage, ::testing::TestWithParam<WeightedMatrixParam>> {};
+
+TEST_P(WeightedKShortestTestInMemory, All) { RunWeightedMatrixCell(db_.get(), GetParam()); }
+
+INSTANTIATE_TEST_SUITE_P(Weighted, WeightedKShortestTestInMemory, kWeightedMatrix);
+INSTANTIATE_TEST_SUITE_P(WeightedLimit, WeightedKShortestTestInMemory, kWeightedLimitMatrix);
+
+class WeightedKShortestCasesInMemory : public SharedDbTest<memgraph::storage::InMemoryStorage, ::testing::Test> {};
+
+TEST_F(WeightedKShortestCasesInMemory, ZeroWeights) { db_->KShortestWeightedTestZeroWeights(db_.get()); }
+
+TEST_F(WeightedKShortestCasesInMemory, DurationWeights) { db_->KShortestWeightedTestDurationWeights(db_.get()); }
+
+TEST_F(WeightedKShortestCasesInMemory, MixedNumericWeights) {
+  db_->KShortestWeightedTestMixedNumericWeights(db_.get());
+}
+
+TEST_F(WeightedKShortestCasesInMemory, LowerBoundKeepsDeviations) {
+  db_->KShortestWeightedTestLowerBoundKeepsDeviations(db_.get());
+}
+
+TEST_F(WeightedKShortestCasesInMemory, ZeroWeightCycle) { db_->KShortestWeightedTestZeroWeightCycle(db_.get()); }
+
+TEST_F(WeightedKShortestCasesInMemory, UnreachableTargetDoesNotSearch) {
+  db_->KShortestWeightedTestUnreachableTargetDoesNotSearch(db_.get());
+}
+
+TEST_F(WeightedKShortestCasesInMemory, WeightErrorTexts) { db_->KShortestWeightedTestWeightErrorTexts(db_.get()); }
+
+TEST_F(WeightedKShortestCasesInMemory, IntOverflow) { db_->KShortestWeightedTestIntOverflow(db_.get()); }
+
+TEST_F(WeightedKShortestCasesInMemory, ConstantWeightValidatedAtFirstSearchedRow) {
+  db_->KShortestConstantWeightValidatedAtFirstSearchedRow(db_.get());
+}
+
+TEST_F(WeightedKShortestCasesInMemory, ConstantTotals) { db_->KShortestConstantTotals(db_.get()); }
+
+TEST_F(WeightedKShortestCasesInMemory, ConstantTotalOverflow) { db_->KShortestConstantTotalOverflow(db_.get()); }
+
+TEST_F(WeightedKShortestCasesInMemory, FilterLambda) { db_->KShortestWeightedTestFilterLambda(db_.get()); }
+
+TEST_F(WeightedKShortestCasesInMemory, UnusedArcWeightValidated) {
+  db_->KShortestWeightedTestUnusedArcWeightValidated(db_.get());
+}
+
+// The ladder drives deviation indices the 6-vertex fixture never reaches; under weights the root
+// prefix's cost has to be accumulated correctly all the way down it.
+TEST_F(WeightedKShortestCasesInMemory, LadderMatchesOracleAtDepth) {
+  db_->KShortestWeightedTest(db_.get(), -1, -1, EdgeAtom::Direction::OUT, {}, -1, kLadderVertexLocations, kLadderEdges);
+}
+
+// Random graphs at fixed seeds, every pair, against the brute-force enumeration. This is what would
+// catch a spur search that loses a path on a shape nobody thought to write down.
+class WeightedKShortestRandomInMemory
+    : public SharedDbTest<memgraph::storage::InMemoryStorage,
+                          ::testing::TestWithParam<std::tuple<uint32_t, int, double>>> {};
+
+TEST_P(WeightedKShortestRandomInMemory, MatchesOracle) {
+  auto const [seed, vertex_count, density] = GetParam();
+  auto const [locations, edges] = RandomKShortestGraph(seed, vertex_count, density);
+  SCOPED_TRACE(fmt::format("seed = {}, vertices = {}, density = {}", seed, vertex_count, density));
+  for (auto direction : {EdgeAtom::Direction::OUT, EdgeAtom::Direction::BOTH}) {
+    // Bounded and unbounded: the bound is what puts depth into the search's state key.
+    db_->KShortestWeightedTest(db_.get(), -1, -1, direction, {}, -1, locations, edges);
+    db_->KShortestWeightedTest(db_.get(), -1, 3, direction, {}, -1, locations, edges);
+  }
+}
+
+INSTANTIATE_TEST_SUITE_P(Random, WeightedKShortestRandomInMemory,
+                         testing::Combine(testing::Range(uint32_t{1}, uint32_t{13}), testing::Values(5, 6),
+                                          testing::Values(0.3, 0.5)));
+
+// Hop count and weights.
+class KShortestMemoryTest : public SharedDbTest<memgraph::storage::InMemoryStorage, ::testing::TestWithParam<bool>> {};
+
+// Found paths and candidates share one trie, so the ladder's shared prefixes are stored once and
+// the peak stays under 1.5x the bytes of the returned edge lists. A regression pin: the 3x of the
+// vector per path before it was resident memory in the benchmarks, which this counter does not see.
+TEST_P(KShortestMemoryTest, PathsShareTheTrie) {
+  constexpr int kRungs = 20;
+  const auto run = db_->KShortestLadderMemory(db_.get(), GetParam(), kRungs, {{0, 2 * kRungs - 1, 20000}});
+  ASSERT_EQ(run.rows, 20000U);
+  const auto returned_bytes = run.total_length * sizeof(EdgeAccessor);
+  EXPECT_LE(run.peak, returned_bytes * 3 / 2) << "returned " << returned_bytes << " bytes of edges";
+}
+
+// Path storage goes back when the next searched row starts: the second row serves one path
+// while holding only its own search, not the first row's 20,000.
+TEST_P(KShortestMemoryTest, ReleasesStorageBetweenRows) {
+  constexpr int kRungs = 20;
+  const auto run =
+      db_->KShortestLadderMemory(db_.get(), GetParam(), kRungs, {{0, 2 * kRungs - 1, 20000}, {0, 2 * kRungs - 1, 1}});
+  ASSERT_EQ(run.rows, 20001U);
+  EXPECT_LE(run.current_at_last_path, 1UZ << 20U);
+}
+
+// And once after the last row, which has no next search to start.
+TEST_P(KShortestMemoryTest, ReleasesStorageAfterLastRow) {
+  constexpr int kRungs = 20;
+  const auto run = db_->KShortestLadderMemory(db_.get(), GetParam(), kRungs, {{0, 2 * kRungs - 1, 20000}});
+  ASSERT_EQ(run.rows, 20000U);
+  EXPECT_LE(run.current_after_last_row, 1UZ << 20U);
+}
+
+// A BFS table past 1024 buckets goes back at the row boundary. After a row that reaches the whole
+// ladder, a one-hop row keeps the first row's adjacency cache but not its BFS tables: about 61% of the
+// first row's bytes. Keeping the tables leaves 92%.
+class KShortestTableMemoryTest : public SharedDbTest<memgraph::storage::InMemoryStorage, ::testing::Test> {};
+
+TEST_F(KShortestTableMemoryTest, ReleasesLargeBfsTablesBetweenRows) {
+  constexpr int kRungs = 2000;
+  const auto run = db_->KShortestLadderMemory(db_.get(), false, kRungs, {{0, 2 * kRungs - 1, 1}, {0, 1, 1}});
+  ASSERT_EQ(run.current_at_path.size(), 2U);
+  EXPECT_LE(run.current_at_path[1], run.current_at_path[0] * 3 / 4);
+}
+
+// Every parallel edge pushes its own frontier entry, so the pushes outnumber the live frontier by
+// far. Reusing popped slots holds about 370 bytes per edge as the path is served; keeping every
+// pushed entry held about 700.
+TEST_F(KShortestTableMemoryTest, WeightedFrontierReusesPoppedSlots) {
+  constexpr int kRungs = 500;
+  constexpr int kCopies = 16;
+  const auto run = db_->KShortestLadderMemory(db_.get(), true, kRungs, {{0, 2 * kRungs - 1, 1}}, kCopies);
+  ASSERT_EQ(run.current_at_path.size(), 1U);
+  constexpr size_t kEdges = kCopies * ((3 * kRungs) - 2);
+  EXPECT_LE(run.current_at_path[0], 512 * kEdges);
+}
+
+INSTANTIATE_TEST_SUITE_P(KShortestMemory, KShortestMemoryTest, testing::Bool(),
+                         [](const auto &info) { return info.param ? "Weighted" : "HopCount"; });
 
 TEST_F(GeneralKShortestTestInMemory, InvertedRangeDoesNotSearch) {
   db_->KShortestTestInvertedRangeDoesNotSearch(db_.get());
@@ -296,4 +473,12 @@ TEST_F(GeneralKShortestTestOnDisk, KShortestWithLimit) {
 // One filter lambda case on disk storage; the exhaustive matrix runs in memory.
 TEST_F(GeneralKShortestTestOnDisk, KShortestWithFilterLambda) {
   db_->KShortestTest(db_.get(), -1, -1, EdgeAtom::Direction::BOTH, {}, -1, FilterLambdaType::USE_CTX);
+}
+
+// One weighted case on disk storage: the weights are read through disk accessors, and the cell asserts
+// they reorder the paths. The adjacency the search walks is the one the unweighted disk matrix covers.
+class WeightedKShortestTestOnDisk : public SharedDbTest<memgraph::storage::DiskStorage, ::testing::Test> {};
+
+TEST_F(WeightedKShortestTestOnDisk, Both) {
+  RunWeightedMatrixCell(db_.get(), WeightedMatrixParam{-1, -1, EdgeAtom::Direction::BOTH, {}, -1});
 }
