@@ -70,6 +70,7 @@
 #include "license/license.hpp"
 #include "memory/global_memory_control.hpp"
 #include "memory/query_memory_control.hpp"
+#include "metrics/metric_handles.hpp"
 #include "metrics/prometheus_metrics.hpp"
 #include "parameters/parameters.hpp"
 #include "query/auth_checker.hpp"
@@ -11533,6 +11534,29 @@ auto make_commit_arg(bool is_main, dbms::DatabaseAccess const &db_acc) {
   return storage::CommitArgs::make_replica_read();
 }
 
+constexpr auto ToMetricReason(storage::ReplicaFailureReason const reason) -> metrics::ReplicationFailureReason {
+  switch (reason) {
+    case storage::ReplicaFailureReason::NOT_IN_SYNC:
+      return metrics::ReplicationFailureReason::NOT_IN_SYNC;
+    case storage::ReplicaFailureReason::RPC_ERROR:
+      return metrics::ReplicationFailureReason::RPC_ERROR;
+    case storage::ReplicaFailureReason::DIVERGED:
+      return metrics::ReplicationFailureReason::DIVERGED;
+    case storage::ReplicaFailureReason::TIMEOUT:
+      return metrics::ReplicationFailureReason::TIMEOUT;
+  }
+  std::unreachable();
+}
+
+void CountReplicationFailures(metrics::DatabaseMetricHandles *handles, storage::ReplicationError const &error) {
+  auto const &counters = handles ? handles->replication_failures : metrics::Metrics().global.replication_failures;
+  auto const outcome = error.transaction_committed ? metrics::ReplicationFailureOutcome::COMMITTED
+                                                   : metrics::ReplicationFailureOutcome::ABORTED;
+  for (auto const &failure : error.failures) {
+    counters.Increment(failure.name, outcome, ToMetricReason(failure.reason));
+  }
+}
+
 void RunTriggersAfterCommit(dbms::DatabaseAccess db_acc, InterpreterContext *interpreter_context,
                             TriggerContext original_trigger_context, std::shared_ptr<QueryUserOrRole> triggering_user) {
   // Run the triggers
@@ -11577,9 +11601,10 @@ void RunTriggersAfterCommit(dbms::DatabaseAccess db_acc, InterpreterContext *int
       const auto &error = maybe_commit_error.error();
 
       std::visit(
-          [&trigger, &db_accessor]<typename T>(T &&arg) {
+          [&trigger, &db_accessor, &db_acc]<typename T>(T &&arg) {
             using ErrorType = std::remove_cvref_t<T>;
             if constexpr (std::is_same_v<ErrorType, storage::ReplicationError>) {
+              CountReplicationFailures(db_acc->metric_handles(), arg);
               spdlog::warn("Trigger '{}' replication: {}", trigger.Name(), storage::FormatReplicationError(arg));
             } else if constexpr (std::is_same_v<ErrorType, storage::ConstraintViolation>) {
               const auto &constraint_violation = arg;
@@ -11964,10 +11989,12 @@ void Interpreter::Commit() {
 
     std::visit(
         [&execution_db_accessor = current_db_.execution_db_accessor_,
+         &db_acc = current_db_.db_acc_,
          &replication_error_msg,
          &replication_error_committed]<typename T>(const T &arg) {
           using ErrorType = std::remove_cvref_t<T>;
           if constexpr (std::is_same_v<ErrorType, storage::ReplicationError>) {
+            CountReplicationFailures(db_acc ? (*db_acc)->metric_handles() : nullptr, arg);
             replication_error_msg = storage::FormatReplicationError(arg);
             replication_error_committed = arg.transaction_committed;
           } else if constexpr (std::is_same_v<ErrorType, storage::ConstraintViolation>) {

@@ -14,6 +14,7 @@
 #include "flags/coord_flag_env_handler.hpp"
 #include "flags/replication.hpp"
 #include "memory/db_arena_fwd.hpp"
+#include "metrics/metric_handles.hpp"
 #include "metrics/prometheus_metrics.hpp"
 #include "metrics/scoped_histogram_timer.hpp"
 #include "storage/v2/durability/paths.hpp"
@@ -694,8 +695,15 @@ auto ReplicationStorageClient::FinalizeTransactionReplication(DatabaseProtector 
   }
 }
 
+ReplicationStorageClient::~ReplicationStorageClient() {
+  if (failure_counters_) failure_counters_->RemoveReplica(client_.name_);
+}
+
 void ReplicationStorageClient::Start(Storage *storage, DatabaseProtector const &protector) {
   spdlog::info("Replication client started for database \"{}\"", storage->name());
+  failure_counters_ =
+      std::make_unique<metrics::ReplicationFailureCounters>(storage->metric_handles_.replication_failures);
+  failure_counters_->AddReplica(client_.name_);
   TryCheckReplicaStateSync(storage, protector);
 }
 

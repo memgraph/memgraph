@@ -16,11 +16,13 @@
 #include <fmt/format.h>
 #include <prometheus/client_metric.h>
 #include <prometheus/detail/builder.h>
+#include <prometheus/metric_family.h>
 #include <array>
 
 #include <ranges>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 #include "dbms/constants.hpp"
@@ -81,6 +83,43 @@ prometheus::Histogram::BucketBoundaries const kLatencyBuckets{
 
 inline prometheus::Histogram::BucketBoundaries const kThroughputBuckets{1e3, 1e4, 1e5, 1e6, 1e7, 1e8, 1e9};
 
+auto ReplicationFailureSeries(prometheus::Labels series, std::string_view const replica,
+                              ReplicationFailureOutcome const outcome, ReplicationFailureReason const reason)
+    -> prometheus::Labels {
+  series.emplace("mg_instance", replica);
+  series.emplace("outcome", kReplicationFailureOutcomes[std::to_underlying(outcome)].label);
+  series.emplace("reason", kReplicationFailureReasons[std::to_underlying(reason)]);
+  return series;
+}
+
+// Calls fn(labels, value) for each series in the family that carries the counters' entry label, or no entry label
+// when the counters have none.
+template <typename Fn>
+void ForEachOwnedSeries(ReplicationFailureCounters const &counters, Fn &&fn) {
+  if (!counters.family) return;
+  auto const entry = counters.labels.find(kEntryLabel);
+  for (auto const &family : counters.family->Collect()) {
+    for (auto const &metric : family.metric) {
+      prometheus::Labels labels;
+      for (auto const &[name, value] : metric.label) labels.emplace(name, value);
+      auto const series_entry = labels.find(kEntryLabel);
+      auto const owned = entry == counters.labels.end()
+                             ? series_entry == labels.end()
+                             : series_entry != labels.end() && series_entry->second == entry->second;
+      if (owned) fn(labels, metric.counter.value);
+    }
+  }
+}
+
+template <typename Pred>
+void RemoveOwnedSeries(ReplicationFailureCounters const &counters, Pred &&pred) {
+  std::vector<prometheus::Labels> removed;
+  ForEachOwnedSeries(counters, [&](prometheus::Labels const &series, double /*value*/) {
+    if (pred(series)) removed.push_back(series);
+  });
+  for (auto const &series : removed) counters.family->Remove(&counters.family->Add(series));
+}
+
 void RemoveDurabilityThroughput(std::string_view instance_name,
                                 prometheus::Family<prometheus::Histogram> &throughput_family,
                                 DurabilityThroughput &throughput) {
@@ -104,6 +143,40 @@ void ObserveDurabilityThroughput(std::string const &instance_name, double bytes_
 }
 
 }  // namespace
+
+void ReplicationFailureCounters::AddReplica(std::string_view const replica) const {
+  if (!family) return;
+  for (auto const outcome : {ReplicationFailureOutcome::COMMITTED, ReplicationFailureOutcome::ABORTED}) {
+    for (auto const reason : {ReplicationFailureReason::NOT_IN_SYNC,
+                              ReplicationFailureReason::RPC_ERROR,
+                              ReplicationFailureReason::DIVERGED,
+                              ReplicationFailureReason::TIMEOUT}) {
+      family->Add(ReplicationFailureSeries(labels, replica, outcome, reason));
+    }
+  }
+}
+
+void ReplicationFailureCounters::RemoveReplica(std::string_view const replica) const {
+  RemoveOwnedSeries(*this, [&](prometheus::Labels const &series) { return series.at("mg_instance") == replica; });
+}
+
+void ReplicationFailureCounters::Increment(std::string_view const replica, ReplicationFailureOutcome const outcome,
+                                           ReplicationFailureReason const reason) const {
+  if (!family) return;
+  family->Add(ReplicationFailureSeries(labels, replica, outcome, reason)).Increment();
+}
+
+auto ReplicationFailureCounters::Total(std::string_view const outcome_label) const -> int64_t {
+  double total = 0;
+  ForEachOwnedSeries(*this, [&](prometheus::Labels const &series, double const value) {
+    if (series.at("outcome") == outcome_label) total += value;
+  });
+  return static_cast<int64_t>(total);
+}
+
+void ReplicationFailureCounters::RemoveAll() const {
+  RemoveOwnedSeries(*this, [](prometheus::Labels const & /*series*/) { return true; });
+}
 
 PrometheusMetrics::PrometheusMetrics()
     // Per-database families
@@ -501,6 +574,11 @@ PrometheusMetrics::PrometheusMetrics()
                                    .Name("memgraph_transient_errors_total")
                                    .Help("Total number of transient errors")
                                    .Register(registry_)},
+      replication_failures_family_{prometheus::BuildCounter()
+                                       .Name("memgraph_replication_failures_total")
+                                       .Help("Number of commits a replica did not confirm, by replica, what happened "
+                                             "to the transaction, and why; a commit counts once per such replica")
+                                       .Register(registry_)},
       unreleased_delta_objects_family_{prometheus::BuildGauge()
                                            .Name("memgraph_unreleased_delta_objects")
                                            .Help("Total number of unreleased delta objects in memory")
@@ -838,6 +916,7 @@ PrometheusMetrics::PrometheusMetrics()
   // No-db fallback counters: same family as per-db, but with no database label.
   // Incremented only when a query fires outside any database context.
   global.transient_errors = &transient_errors_family_.Add(no_labels);
+  global.replication_failures = {.family = &replication_failures_family_};
   global.failed_query = &failed_query_family_.Add(no_labels);
   global.failed_prepare = &failed_prepare_family_.Add(no_labels);
   global.failed_pull = &failed_pull_family_.Add(no_labels);
@@ -1037,6 +1116,7 @@ DatabaseMetricHandles PrometheusMetrics::CreateHandles(uint64_t entry_id) {
       .successful_query = {&successful_query_family_.Add(labels)},
       .write_write_conflicts = {&write_write_conflicts_family_.Add(labels)},
       .transient_errors = {&transient_errors_family_.Add(labels)},
+      .replication_failures = {.family = &replication_failures_family_, .labels = labels},
       .unreleased_delta_objects = {&unreleased_delta_objects_family_.Add(labels)},
       .read_query = {&read_query_family_.Add(labels)},
       .write_query = {&write_query_family_.Add(labels)},
@@ -1214,6 +1294,7 @@ void PrometheusMetrics::RemoveHandlesFromFamilies(DatabaseMetricHandles const &h
   successful_query_family_.Remove(h.successful_query.get());
   write_write_conflicts_family_.Remove(h.write_write_conflicts.get());
   transient_errors_family_.Remove(h.transient_errors.get());
+  h.replication_failures.RemoveAll();
   unreleased_delta_objects_family_.Remove(h.unreleased_delta_objects.get());
   read_query_family_.Remove(h.read_query.get());
   write_query_family_.Remove(h.write_query.get());
@@ -1691,6 +1772,10 @@ std::expected<std::vector<MetricInfo>, std::string> PrometheusMetrics::GetDbMetr
   out.push_back(
       {"WriteWriteConflicts", "Transaction", "Counter", static_cast<int64_t>(h.write_write_conflicts.Value())});
   out.push_back({"TransientErrors", "Transaction", "Counter", static_cast<int64_t>(h.transient_errors.Value())});
+  for (auto const &outcome : kReplicationFailureOutcomes) {
+    out.push_back(
+        {std::string{outcome.info_name}, "Transaction", "Counter", h.replication_failures.Total(outcome.label)});
+  }
 
   // QueryType
   out.push_back({"ReadQuery", "QueryType", "Counter", static_cast<int64_t>(h.read_query.Value())});
@@ -1815,6 +1900,7 @@ std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfoForJson() {
   int64_t total_successful_query = 0;
   int64_t total_write_write_conflicts = 0;
   int64_t total_transient_errors = 0;
+  std::array<int64_t, kReplicationFailureOutcomes.size()> total_replication_failures{};
   int64_t total_read_query = 0;
   int64_t total_write_query = 0;
   int64_t total_read_write_query = 0;
@@ -1913,6 +1999,9 @@ std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfoForJson() {
       total_successful_query += static_cast<int64_t>(h.successful_query.Value());
       total_write_write_conflicts += static_cast<int64_t>(h.write_write_conflicts.Value());
       total_transient_errors += static_cast<int64_t>(h.transient_errors.Value());
+      for (auto const &[total, outcome] : rv::zip(total_replication_failures, kReplicationFailureOutcomes)) {
+        total += h.replication_failures.Total(outcome.label);
+      }
       total_read_query += static_cast<int64_t>(h.read_query.Value());
       total_write_query += static_cast<int64_t>(h.write_query.Value());
       total_read_write_query += static_cast<int64_t>(h.read_write_query.Value());
@@ -2032,6 +2121,12 @@ std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfoForJson() {
                  "Transaction",
                  "Counter",
                  total_transient_errors + static_cast<int64_t>(global.transient_errors->Value())});
+  for (auto const &[total, outcome] : rv::zip(total_replication_failures, kReplicationFailureOutcomes)) {
+    out.push_back({std::string{outcome.info_name},
+                   "Transaction",
+                   "Counter",
+                   total + global.replication_failures.Total(outcome.label)});
+  }
   out.push_back({"FailedQuery",
                  "Transaction",
                  "Counter",

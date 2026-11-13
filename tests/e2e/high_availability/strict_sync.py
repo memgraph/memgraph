@@ -11,8 +11,10 @@
 
 
 import os
+import re
 import sys
 import time
+import urllib.request
 from functools import partial
 from multiprocessing import Pool
 
@@ -54,6 +56,10 @@ def commit_lock_narrowing_mode(request):
     _commit_lock_narrowing = request.param
     yield
     _commit_lock_narrowing = False
+
+
+REPLICATION_FAILURES = re.compile(r"^memgraph_replication_failures_total\{(.*)\} (\S+)$", re.MULTILINE)
+LABEL = re.compile(r'(\w+)="([^"]*)"')
 
 
 @pytest.fixture(autouse=True)
@@ -109,6 +115,7 @@ def get_instances_description_no_setup(test_name: str):
                 "--management-port",
                 "10013",
                 *narrowing_args,
+                "--metrics-port=9093",
             ],
             "log_file": f"{get_logs_path(file, test_name)}/instance_3.log",
             "data_directory": f"{get_data_path(file, test_name)}/instance_3",
@@ -551,6 +558,33 @@ def test_committed_txn_survives_failover(test_name):
 
     new_main_cursor = connect(host="localhost", port=new_main_port).cursor()
     mg_sleep_and_assert(1, partial(get_vertex_count, new_main_cursor))
+
+
+def replication_failures_on_main(outcome):
+    """Sums the failures for instance_1, after checking each counted series names a reason a down replica can give."""
+    with urllib.request.urlopen("http://localhost:9093/metrics") as response:
+        body = response.read().decode("utf-8")
+    total = 0
+    for labels, value in REPLICATION_FAILURES.findall(body):
+        found = dict(LABEL.findall(labels))
+        if found.get("outcome") == outcome and found.get("database") == "memgraph":
+            if float(value):
+                assert found.get("mg_instance") == "instance_1"
+                assert found.get("reason") in {"not_in_sync", "rpc_error"}
+            total += float(value)
+    return total
+
+
+def test_aborted_strict_sync_commit_counts_as_aborted_failure(test_name):
+    inner_instances_description = setup_cluster(test_name, get_default_setup_queries())
+    interactive_mg_runner.kill(inner_instances_description, "instance_1")
+    instance3_cursor = connect(host="localhost", port=7689).cursor()
+    before = replication_failures_on_main("aborted")
+
+    with pytest.raises(Exception):
+        execute_and_fetch_all(instance3_cursor, "CREATE (n:Node)")
+
+    assert replication_failures_on_main("aborted") == before + 1
 
 
 if __name__ == "__main__":

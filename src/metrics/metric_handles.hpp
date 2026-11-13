@@ -11,9 +11,15 @@
 
 #pragma once
 
+#include <array>
+#include <cstdint>
+#include <string_view>
+
 #include <prometheus/counter.h>
+#include <prometheus/family.h>
 #include <prometheus/gauge.h>
 #include <prometheus/histogram.h>
+#include <prometheus/labels.h>
 
 #include "utils/logging.hpp"
 
@@ -40,6 +46,41 @@ struct GaugeHandle {
     DMG_ASSERT(gauge);
     return gauge;
   }
+};
+
+// A value of a counter's label, and the name its counter has in SHOW METRICS INFO and the JSON endpoint.
+struct CounterLabelValue {
+  std::string_view label;
+  std::string_view info_name;
+};
+
+enum class ReplicationFailureOutcome : uint8_t { COMMITTED, ABORTED };
+
+// Indexed by ReplicationFailureOutcome.
+inline constexpr std::array<CounterLabelValue, 2> kReplicationFailureOutcomes{{
+    {.label = "committed", .info_name = "ReplicationFailuresCommitted"},
+    {.label = "aborted", .info_name = "ReplicationFailuresAborted"},
+}};
+
+enum class ReplicationFailureReason : uint8_t { NOT_IN_SYNC, RPC_ERROR, DIVERGED, TIMEOUT };
+
+// Indexed by ReplicationFailureReason.
+inline constexpr std::array<std::string_view, 4> kReplicationFailureReasons{
+    "not_in_sync", "rpc_error", "diverged", "timeout"};
+
+// Counts replication failures in one series per replica, outcome, and reason. Does nothing without a family.
+struct ReplicationFailureCounters {
+  prometheus::Family<prometheus::Counter> *family{nullptr};
+  // The database's entry label, or none for failures outside any database.
+  prometheus::Labels labels;
+
+  // Creates the replica's series at 0, so that its first failure is an increase.
+  void AddReplica(std::string_view replica) const;
+  void RemoveReplica(std::string_view replica) const;
+  void Increment(std::string_view replica, ReplicationFailureOutcome outcome, ReplicationFailureReason reason) const;
+  // Sums the outcome's series across replicas and reasons.
+  auto Total(std::string_view outcome_label) const -> int64_t;
+  void RemoveAll() const;
 };
 
 struct CounterHandle {
@@ -178,6 +219,7 @@ struct DatabaseMetricHandles {
   CounterHandle successful_query;
   CounterHandle write_write_conflicts;
   CounterHandle transient_errors;
+  ReplicationFailureCounters replication_failures;
   GaugeHandle unreleased_delta_objects;
 
   // Query type
