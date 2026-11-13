@@ -15,7 +15,9 @@
 #include <latch>
 #include <memory>
 #include <optional>
+#include <string_view>
 #include <thread>
+#include <variant>
 #include <vector>
 
 #include <fmt/format.h>
@@ -1180,9 +1182,12 @@ TEST_F(ReplicationTest, ForcedResetRunsAfterStateOverwrite) {
   ASSERT_TRUE(WaitUntil([&] { return main.db.storage()->GetReplicaState(replicas[0]) == ReplicaState::READY; }));
   ASSERT_TRUE(HasVertex(replica, replicated_gid));
 
-  auto const &metrics = memgraph::metrics::Metrics().global;
-  auto const success_before = metrics.replica_recovery_success->Value();
-  auto const skip_before = metrics.replica_recovery_skip->Value();
+  auto const recoveries = [](std::string_view name) {
+    auto const info = memgraph::metrics::Metrics().GetGlobalMetricsInfo();
+    return std::get<int64_t>(std::ranges::find(info, name, &memgraph::metrics::MetricInfo::name)->value);
+  };
+  auto const success_before = recoveries("ReplicaRecoverySuccess");
+  auto const skip_before = recoveries("ReplicaRecoverySkip");
 
   auto *client = FindReplicationClient(main, replicas[0]);
   ASSERT_NE(client, nullptr);
@@ -1205,8 +1210,8 @@ TEST_F(ReplicationTest, ForcedResetRunsAfterStateOverwrite) {
 
   EXPECT_FALSE(HasVertex(replica, canary_gid));
   EXPECT_TRUE(HasVertex(replica, replicated_gid));
-  EXPECT_EQ(metrics.replica_recovery_success->Value() - success_before, 1);
-  EXPECT_EQ(metrics.replica_recovery_skip->Value() - skip_before, 0);
+  EXPECT_EQ(recoveries("ReplicaRecoverySuccess") - success_before, 1);
+  EXPECT_EQ(recoveries("ReplicaRecoverySkip") - skip_before, 0);
 }
 
 // The frequent check re-queues a MAYBE_BEHIND replica on every tick, so a second check queued while one is
@@ -1227,13 +1232,14 @@ TEST_F(ReplicationTest, DuplicateStateChecksCoalesce) {
   // READY is set only after the registration-time check has sent its heartbeat, so the count below is settled.
   ASSERT_TRUE(WaitUntil([&] { return main.db.storage()->GetReplicaState(replicas[0]) == ReplicaState::READY; }));
 
-  auto const heartbeats = [] {
-    return memgraph::metrics::Metrics().global.heartbeat_rpc_seconds->Collect().histogram.sample_count;
+  auto *client = FindReplicationClient(main, replicas[0]);
+  ASSERT_NE(client, nullptr);
+
+  auto const heartbeats = [client] {
+    return client->metrics_.handles().heartbeat_rpc_seconds.Collect().histogram.sample_count;
   };
   auto const before = heartbeats();
 
-  auto *client = FindReplicationClient(main, replicas[0]);
-  ASSERT_NE(client, nullptr);
   MaintenancePoolHold hold{*client};
 
   auto const protector = memgraph::dbms::DatabaseProtector{main.db_acc};

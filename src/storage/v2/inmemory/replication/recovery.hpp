@@ -15,6 +15,7 @@
 #include <system_error>
 #include <type_traits>
 
+#include "metrics/metric_handles.hpp"
 #include "metrics/scoped_histogram_timer.hpp"
 #include "rpc/messages.hpp"
 #include "storage/v2/durability/durability.hpp"
@@ -23,7 +24,7 @@
 namespace memgraph::storage {
 template <rpc::IsRpc T>
 struct RpcInfo {
-  static prometheus::Histogram *histogram();
+  static prometheus::Histogram *histogram(metrics::ReplicaMetricHandles const &replica_metrics);
   static void ObserveThroughput(std::string const &instance_name, double bytes_per_second);
 };
 
@@ -118,8 +119,9 @@ template <rpc::IsRpc T, typename R, typename... Args>
 std::optional<typename T::Response> TransferDurabilityFiles(const R &files, rpc::Client &client,
                                                             std::filesystem::path const &root_data_dir,
                                                             std::string const &instance_name,
+                                                            metrics::ReplicaMetricHandles const &replica_metrics,
                                                             utils::PageCachePolicy const page_cache, Args &&...args) {
-  metrics::ScopedHistogramTimer const timer{RpcInfo<T>::histogram()};
+  metrics::ScopedHistogramTimer const timer{RpcInfo<T>::histogram(replica_metrics)};
   auto stream_result = client.Stream<T>(std::forward<Args>(args)...);
 
   // intentionally don't take into account waiting for RPC lock
