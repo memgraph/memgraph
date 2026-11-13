@@ -556,57 +556,6 @@ TEST_F(AuthLayerTest, SetProfileInstallsLimitsOnTheCanonicalEntry) {
       << "revoking through another spelling did not reset the canonical entry";
 }
 
-class LegacyRawProfileAuthLayerTest : public ::testing::Test {
- protected:
-  void SetUp() override {
-    memgraph::utils::EnsureDir(test_folder_);
-    memgraph::license::global_license_checker.EnableTesting();
-    {
-      memgraph::kvstore::KVStore store{auth_folder_};
-      ASSERT_TRUE(store.Put("user_profile:limited", R"({"limits":{"sessions":1},"usernames":["TestUser"]})"));
-    }
-    auth_.emplace(auth_folder_, Auth::Config{}, &resources_);
-    layer_.emplace(*auth_);
-  }
-
-  void TearDown() override {
-    layer_.reset();
-    auth_.reset();
-    fs::remove_all(test_folder_);
-  }
-
-  fs::path test_folder_{fs::temp_directory_path() / "MG_tests_unit_auth_layer_legacy"};
-  fs::path auth_folder_{test_folder_ / "auth"};
-  memgraph::utils::ResourceMonitoring resources_;
-  std::optional<SynchedAuth> auth_;
-  std::optional<AuthLayer> layer_;
-};
-
-TEST_F(LegacyRawProfileAuthLayerTest, LegacyRawProfileJsonFoldsOnLoadAndRestoresLimits) {
-  EXPECT_EQ(layer_->Lock()->GetProfileForUsername("testuser"), "limited");
-  EXPECT_EQ(layer_->Lock()->GetProfileForUsername("TestUser"), "limited");
-
-  auto const canonical = resources_.GetUser("testuser");
-  EXPECT_EQ(canonical->GetSessions().second, 1U) << "startup fan-out did not install the limit on the canonical entry";
-
-  ASSERT_TRUE(layer_->Lock()->SetProfile("limited", "TESTUSER").has_value());
-  {
-    const auto members = layer_->Lock()->GetUsernamesForProfile("limited");
-    EXPECT_EQ(members.size(), 1U);
-    EXPECT_TRUE(members.contains("testuser"));
-  }
-
-  layer_.reset();
-  auth_.reset();
-  memgraph::kvstore::KVStore store{auth_folder_};
-  const auto value = store.Get("user_profile:limited");
-  ASSERT_TRUE(value.has_value());
-  const auto json = nlohmann::json::parse(*value);
-  EXPECT_EQ(json.at("usernames").size(), 1U);
-  EXPECT_EQ(json.at("usernames"), nlohmann::json::array({"testuser"}));
-  EXPECT_EQ(json.at("limits").at("sessions"), 1);
-}
-
 using Users = std::set<std::string>;
 
 class LegacyDuplicateMembershipBase : public ::testing::Test {
@@ -694,6 +643,24 @@ class LegacyDuplicateMembershipBase : public ::testing::Test {
 };
 
 using LegacyDuplicateMembershipTest = LegacyDuplicateMembershipBase;
+
+TEST_F(LegacyDuplicateMembershipTest, LegacyRawProfileJsonFoldsOnLoadAndRestoresLimits) {
+  Seed({{"p1", "TestUser"}});
+  Load();
+  EXPECT_FALSE(Logged("applying profile")) << captured_.str();
+
+  EXPECT_EQ(Locked()->GetProfileForUsername("testuser"), "p1");
+  EXPECT_EQ(Locked()->GetProfileForUsername("TestUser"), "p1");
+  EXPECT_EQ(SessionsLimit("testuser"), Sessions("p1")) << "startup fan-out did not install the limit";
+
+  ASSERT_TRUE(Locked()->SetProfile("p1", "TESTUSER").has_value());
+  const auto members = Locked()->GetUsernamesForProfile("p1");
+  EXPECT_EQ((Users{members.begin(), members.end()}), Users{"testuser"});
+
+  EXPECT_EQ(Stored("p1"), Users{"testuser"});
+  Load();
+  EXPECT_EQ(SessionsLimit("testuser"), Sessions("p1")) << "durable limits were lost";
+}
 
 struct PickCase {
   std::string name;

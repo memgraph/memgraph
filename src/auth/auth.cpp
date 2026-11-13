@@ -810,8 +810,7 @@ bool Auth::CreateOrUpdateProfile(const std::string &profile_name, UserProfiles::
       }
     }
     for (const auto &user : new_users) {
-      // Any replicated write of the profile the replica already applies (SET, UPDATE PROFILE, recovery) re-sets an
-      // ambiguous user so its stale spelling is cleared; the main keeps its own until an admin SET/CLEAR there.
+      // Re-set an ambiguous user even if already a member, so a replicated write clears its stale spelling.
       if (!existing_users.contains(user) || user_profiles_.IsAmbiguous(user)) {
         SetProfile(profile_name, user, system_tx);
       }
