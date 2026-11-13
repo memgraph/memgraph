@@ -92,10 +92,10 @@ constexpr StorageAccessType ToAccessType(utils::ResourceLockGuard::Type type) {
   }
 }
 
-class SharedAccessTimeout : public utils::BasicException {
+class SharedAccessTimeout : public utils::RetryableException {
  public:
   SharedAccessTimeout()
-      : utils::BasicException(
+      : utils::RetryableException(
             "Cannot get shared access to the storage. Try stopping other parallel queries. "
             "You can increase the timeout via SET DATABASE SETTINGS 'storage.access_timeout_sec' TO 'value'; "
             "or via the --storage-access-timeout-sec flag. Run SHOW CONFIG to return the current value. "
@@ -103,10 +103,10 @@ class SharedAccessTimeout : public utils::BasicException {
   SPECIALIZE_GET_EXCEPTION_NAME(SharedAccessTimeout)
 };
 
-class UniqueAccessTimeout : public utils::BasicException {
+class UniqueAccessTimeout : public utils::RetryableException {
  public:
   UniqueAccessTimeout()
-      : utils::BasicException(
+      : utils::RetryableException(
             "Cannot get unique access to the storage. Try stopping other parallel queries. "
             "Note: Periodic snapshots also hold storage access. "
             "You can increase the timeout via SET DATABASE SETTINGS 'storage.access_timeout_sec' TO 'value'; "
@@ -115,10 +115,10 @@ class UniqueAccessTimeout : public utils::BasicException {
   SPECIALIZE_GET_EXCEPTION_NAME(UniqueAccessTimeout)
 };
 
-class ReadOnlyAccessTimeout : public utils::BasicException {
+class ReadOnlyAccessTimeout : public utils::RetryableException {
  public:
   ReadOnlyAccessTimeout()
-      : utils::BasicException(
+      : utils::RetryableException(
             "Cannot get read-only access to the storage. Try stopping other parallel queries. "
             "You can increase the timeout via SET DATABASE SETTINGS 'storage.access_timeout_sec' TO 'value'; "
             "or via the --storage-access-timeout-sec flag. Run SHOW CONFIG to return the current value. "

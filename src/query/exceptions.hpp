@@ -72,8 +72,8 @@ class PeriodicCommitException : public QueryException {
  * All exceptions derived from this one will be interpreted as TransientError-s,
  * i.e. client will be encouraged to retry the queries.
  */
-class RetryBasicException : public utils::BasicException {
-  using utils::BasicException::BasicException;
+class RetryBasicException : public utils::RetryableException {
+  using utils::RetryableException::RetryableException;
   SPECIALIZE_GET_EXCEPTION_NAME(RetryBasicException)
 };
 
@@ -305,7 +305,7 @@ class ConcurrentSystemQueriesException : public QueryRuntimeException {
   SPECIALIZE_GET_EXCEPTION_NAME(ConcurrentSystemQueriesException)
 };
 
-// This one is inherited from BasicException and will be treated as
+// This one is inherited from RetryBasicException and will be treated as
 // TransientError, i. e. client will be encouraged to retry execution because it
 // could succeed if executed again.
 class TransactionSerializationException : public RetryBasicException {

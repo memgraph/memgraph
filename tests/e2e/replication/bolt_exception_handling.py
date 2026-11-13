@@ -47,6 +47,15 @@ FILE = "bolt_exception_handling"
 MAIN_PORT = 7687
 REPLICA_PORT = 7688
 
+_INVALID_TEMPORAL = [
+    ("RETURN duration('PXYZ')", "Invalid duration string"),
+    ("RETURN duration({minutes: 1})", "Unknown key 'minutes'"),
+    ("RETURN date('not-a-date')", "Invalid year in the string"),
+    ("RETURN localtime('99:99')", "invalid hour parameter"),
+    ("RETURN localdatetime('bogus')", "Invalid LocalDateTime format"),
+]
+_PROJECT_DISTINCT = ("MATCH p=(a)-->(b) WITH DISTINCT project(p) AS g RETURN g", "Unsupported hash function for Graph")
+
 
 @pytest.fixture(autouse=True)
 def cleanup_after_test():
@@ -193,6 +202,75 @@ def test_write_on_replica_is_client_error(connection, test_name):
             assert "Write queries are forbidden on the replica instance" in str(exc_info.value)
     except TransientError:
         pytest.fail("QueryException on a replica must be reported as ClientError, not TransientError")
+    finally:
+        driver.close()
+
+
+def _start_main(test_name):
+    instances = {
+        "main": {
+            "args": ["--bolt-port", "7687", "--log-level=TRACE"],
+            "log_file": f"{get_logs_path(FILE, test_name)}/main.log",
+            "data_directory": f"{get_data_path(FILE, test_name)}/main",
+            "setup_queries": [],
+        }
+    }
+    interactive_mg_runner.start_all(instances, keep_directories=False)
+
+
+def _driver(**kwargs):
+    return GraphDatabase.driver(f"bolt://localhost:{MAIN_PORT}", auth=None, encrypted=False, **kwargs)
+
+
+def test_invalid_input_is_client_error(test_name):
+    """Permanently-invalid input is a non-retryable ClientError (a TransientError is not a ClientError, so it fails)."""
+    _start_main(test_name)
+    driver = _driver()
+    try:
+        with driver.session() as session:
+            session.run("CREATE (a:A)-[:R]->(b:B)").consume()
+            for query, message in [*_INVALID_TEMPORAL, _PROJECT_DISTINCT]:
+                with pytest.raises(ClientError, match=message) as exc_info:
+                    session.run(query).consume()
+                assert exc_info.value.code.startswith("Memgraph.ClientError"), query
+    finally:
+        driver.close()
+
+
+def test_managed_tx_invalid_temporal_fails_first_attempt(test_name):
+    """The driver must not retry an invalid temporal query inside a managed transaction."""
+    _start_main(test_name)
+    driver = _driver(max_transaction_retry_time=5.0, initial_retry_delay=1.0)
+    attempts = 0
+
+    def work(tx):
+        nonlocal attempts
+        attempts += 1
+        return list(tx.run("RETURN duration('PXYZ')"))
+
+    try:
+        with pytest.raises(ClientError):
+            with driver.session() as session:
+                session.execute_read(work)
+    finally:
+        driver.close()
+    assert attempts == 1, f"driver retried {attempts - 1} time(s); a ClientError must not be retried"
+
+
+def test_retryable_trigger_failure_stays_transient_error(test_name):
+    """A retryable before-commit trigger failure (query timeout) stays TransientError after the trigger rewrap."""
+    _start_main(test_name)
+    driver = _driver()
+    try:
+        with driver.session() as session:
+            session.run("UNWIND range(1, 20000) AS x CREATE (:Seed)").consume()
+            session.run("SET DATABASE SETTING 'query.timeout' TO '1'").consume()
+            session.run(
+                "CREATE TRIGGER slow_before_commit ON CREATE BEFORE COMMIT EXECUTE "
+                "MATCH (a:Seed), (b:Seed), (c:Seed) WITH count(*) AS cnt CREATE (:SlowTriggerResult {cnt: cnt})"
+            ).consume()
+            with pytest.raises(TransientError, match="slow_before_commit"):
+                session.run("CREATE (:TriggerSource)").consume()
     finally:
         driver.close()
 

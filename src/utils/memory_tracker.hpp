@@ -48,9 +48,9 @@ struct MemoryTrackerStatus {
 
 auto MemoryErrorStatus() -> MemoryTrackerStatus &;
 
-class OutOfMemoryException : public utils::BasicException {
+class OutOfMemoryException : public utils::RetryableException {
  public:
-  explicit OutOfMemoryException(std::string msg) : utils::BasicException(std::move(msg)) {}
+  explicit OutOfMemoryException(std::string msg) : utils::RetryableException(std::move(msg)) {}
   SPECIALIZE_GET_EXCEPTION_NAME(OutOfMemoryException)
 };
 
