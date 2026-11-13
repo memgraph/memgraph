@@ -78,6 +78,13 @@ struct DurabilityThroughput {
 /// if there is no such database.
 using StorageSnapshotResolver = std::function<std::optional<StorageSnapshot>(utils::UUID const &uuid)>;
 
+struct WorkerPoolStats {
+  uint64_t workers;
+  uint64_t busy;
+};
+
+using WorkerPoolResolver = std::function<WorkerPoolStats()>;
+
 #ifdef MG_ENTERPRISE
 using InstanceStatusResolver = std::function<std::vector<coordination::InstanceStatus>()>;
 #endif
@@ -243,6 +250,8 @@ class PrometheusMetrics {
   void RemoveReplicationThroughput(std::string_view instance_name);
 
   void SetStorageSnapshotResolver(StorageSnapshotResolver resolver);
+  /// Exports the worker pool gauges; without a resolver they are absent.
+  void SetWorkerPoolResolver(WorkerPoolResolver resolver);
 #ifdef MG_ENTERPRISE
   void SetInstanceStatusResolver(InstanceStatusResolver resolver);
 #endif
@@ -312,6 +321,9 @@ class PrometheusMetrics {
 
   std::unordered_map<std::string, int64_t> legacy_json_prev_ha_counter_values_;
   StorageSnapshotResolver storage_snapshot_resolver_;
+  WorkerPoolResolver worker_pool_resolver_;
+  prometheus::Gauge *workers_{nullptr};
+  prometheus::Gauge *workers_busy_{nullptr};
   std::optional<utils::UUID> default_db_uuid_;
 #ifdef MG_ENTERPRISE
   InstanceStatusResolver instance_status_resolver_;
@@ -452,6 +464,8 @@ class PrometheusMetrics {
   prometheus::Family<prometheus::Counter> &database_suspends_family_;
   prometheus::Family<prometheus::Counter> &database_resumes_family_;
   prometheus::Family<prometheus::Gauge> &cold_databases_family_;
+  prometheus::Family<prometheus::Gauge> &workers_family_;
+  prometheus::Family<prometheus::Gauge> &workers_busy_family_;
   prometheus::Family<prometheus::Histogram> &database_suspend_latency_family_;
   prometheus::Family<prometheus::Histogram> &database_resume_latency_family_;
 

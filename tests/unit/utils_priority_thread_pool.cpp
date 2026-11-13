@@ -242,6 +242,33 @@ TEST(PriorityThreadPool, StartupRunsInitCallbackOnEveryThread) {
 }
 
 // TaskCollection Tests
+TEST(PriorityThreadPool, BusyMixedWorkersCountsWorkersRunningATask) {
+  memgraph::utils::PriorityThreadPool pool{4, 1};
+  EXPECT_EQ(pool.GetNumBusyMixedWorkers(), 0);
+
+  std::atomic<int> started{0};
+  std::atomic<bool> release{false};
+  for (int i = 0; i < 2; ++i) {
+    pool.ScheduledAddTask(
+        [&](auto) {
+          ++started;
+          release.wait(false);
+        },
+        memgraph::utils::Priority::LOW);
+  }
+  auto const deadline = std::chrono::steady_clock::now() + 5s;
+  while (started != 2 && std::chrono::steady_clock::now() < deadline) std::this_thread::sleep_for(1ms);
+  ASSERT_EQ(started, 2);
+  EXPECT_EQ(pool.GetNumBusyMixedWorkers(), 2);
+
+  release = true;
+  release.notify_all();
+  while (pool.GetNumBusyMixedWorkers() != 0 && std::chrono::steady_clock::now() < deadline) {
+    std::this_thread::sleep_for(1ms);
+  }
+  EXPECT_EQ(pool.GetNumBusyMixedWorkers(), 0);
+}
+
 TEST(TaskCollection, BasicAddAndSize) {
   using namespace memgraph;
   memgraph::utils::TaskCollection collection;

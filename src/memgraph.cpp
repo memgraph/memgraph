@@ -1093,6 +1093,10 @@ int main(int argc, char **argv) {
                          []() {});
 #endif
     io_n_threads = 1U;
+    memgraph::metrics::Metrics().SetWorkerPoolResolver([&worker_pool_] {
+      return memgraph::metrics::WorkerPoolStats{.workers = worker_pool_->GetNumMixedWorkers(),
+                                                .busy = worker_pool_->GetNumBusyMixedWorkers()};
+    });
   }
 
   // Used by interpreter context

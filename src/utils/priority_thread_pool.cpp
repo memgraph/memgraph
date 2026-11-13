@@ -11,6 +11,7 @@
 
 #include "utils/priority_thread_pool.hpp"
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cstddef>
@@ -155,6 +156,11 @@ PriorityThreadPool::PriorityThreadPool(uint16_t mixed_work_threads_count, uint16
                       }
                     }
                   });
+}
+
+uint64_t PriorityThreadPool::GetNumBusyMixedWorkers() const {
+  return std::ranges::count_if(workers_,
+                               [](auto const &worker) { return worker->working_.load(std::memory_order_acquire); });
 }
 
 PriorityThreadPool::~PriorityThreadPool() {

@@ -545,6 +545,14 @@ PrometheusMetrics::PrometheusMetrics()
                                  .Name("memgraph_cold_databases")
                                  .Help("Current number of suspended (cold) databases")
                                  .Register(registry_)},
+      workers_family_{prometheus::BuildGauge()
+                          .Name("memgraph_workers")
+                          .Help("Worker threads that run client queries (--bolt-num-workers)")
+                          .Register(registry_)},
+      workers_busy_family_{prometheus::BuildGauge()
+                               .Name("memgraph_workers_busy")
+                               .Help("Worker threads running a query now, including queries waiting on a lock")
+                               .Register(registry_)},
       database_suspend_latency_family_{prometheus::BuildHistogram()
                                            .Name("memgraph_database_suspend_latency_seconds")
                                            .Help("Latency of a successful database SUSPEND in seconds")
@@ -907,6 +915,12 @@ PrometheusMetrics::PrometheusMetrics()
 
   // StorageInfo global/system level (no-db fallback, same family as per-db)
   global.show_storage_info = &show_storage_info_family_.Add(no_labels);
+}
+
+void PrometheusMetrics::SetWorkerPoolResolver(WorkerPoolResolver resolver) {
+  worker_pool_resolver_ = std::move(resolver);
+  workers_ = &workers_family_.Add({});
+  workers_busy_ = &workers_busy_family_.Add({});
 }
 
 void PrometheusMetrics::SetStorageSnapshotResolver(StorageSnapshotResolver resolver) {
@@ -1313,6 +1327,12 @@ void PrometheusMetrics::UpdateGauges() {
   }
 
   global.memory_res_bytes->Set(static_cast<double>(utils::GetMemoryRES()));
+
+  if (worker_pool_resolver_) {
+    auto const pool = worker_pool_resolver_();
+    workers_->Set(static_cast<double>(pool.workers));
+    workers_busy_->Set(static_cast<double>(pool.busy));
+  }
 
 #ifdef MG_ENTERPRISE
   std::vector<coordination::InstanceStatus> instances;

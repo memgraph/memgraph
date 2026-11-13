@@ -13,8 +13,10 @@
 
 #include <algorithm>
 #include <filesystem>
+#include <optional>
 #include <string_view>
 #include <variant>
+#include <vector>
 
 #include <gtest/gtest.h>
 #include <prometheus/metric_family.h>
@@ -63,6 +65,13 @@ std::optional<double> FindSampleByUuid(std::vector<prometheus::MetricFamily> con
     }
   }
   return std::nullopt;
+}
+
+std::optional<double> FindUnlabelledGauge(std::vector<prometheus::MetricFamily> const &families,
+                                          std::string_view name) {
+  auto const family = r::find(families, name, &prometheus::MetricFamily::name);
+  if (family == families.end() || family->metric.size() != 1) return std::nullopt;
+  return family->metric.front().gauge.value;
 }
 
 }  // namespace
@@ -115,6 +124,27 @@ TEST(PrometheusMetrics, UpdateGaugesSetsStorageValues) {
   EXPECT_EQ(FindSample(families, "memgraph_disk_usage_bytes", "db1"), 1024.0);
   EXPECT_EQ(FindSample(families, "memgraph_db_memory_tracked_bytes", "db1"), 4096.0);
   EXPECT_EQ(FindSample(families, "memgraph_db_peak_memory_tracked_bytes", "db1"), 8192.0);
+}
+
+TEST(PrometheusMetrics, WorkerPoolGaugesReportTheResolvedPool) {
+  memgraph::metrics::PrometheusMetrics pm;
+  pm.SetWorkerPoolResolver([] { return memgraph::metrics::WorkerPoolStats{.workers = 4, .busy = 2}; });
+
+  pm.UpdateGauges();
+
+  auto const families = pm.CollectForScrape();
+  EXPECT_EQ(FindUnlabelledGauge(families, "memgraph_workers"), 4.0);
+  EXPECT_EQ(FindUnlabelledGauge(families, "memgraph_workers_busy"), 2.0);
+}
+
+TEST(PrometheusMetrics, WorkerPoolGaugesAreAbsentWithoutAPool) {
+  memgraph::metrics::PrometheusMetrics pm;
+
+  pm.UpdateGauges();
+
+  auto const families = pm.CollectForScrape();
+  EXPECT_EQ(FindUnlabelledGauge(families, "memgraph_workers"), std::nullopt);
+  EXPECT_EQ(FindUnlabelledGauge(families, "memgraph_workers_busy"), std::nullopt);
 }
 
 TEST(PrometheusMetrics, GetGlobalMetricsInfoReportsCorrectMemoryUsage) {
