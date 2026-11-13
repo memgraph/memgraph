@@ -803,6 +803,7 @@ DbmsHandler::NewResultT DbmsHandler::New_(storage::Config storage_config, system
     if (txn) {
       txn->AddAction<CreateDatabase>(storage_config.salient, new_db.value());
     }
+    if (on_published_) on_published_(new_db.value());
   }
   return new_db;
 }
