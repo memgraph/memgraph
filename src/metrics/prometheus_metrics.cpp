@@ -20,6 +20,7 @@
 
 #include <ranges>
 #include <set>
+#include <tuple>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -1411,10 +1412,10 @@ void PrometheusMetrics::UpdateReplicationGauges(ReplicationHealth const &health)
   main_writeable_.Set(health.writeable ? 1.0 : 0.0);
   registered_replicas_.Set(static_cast<double>(health.registered_replicas));
 
-  auto const reported =
-      health.replicas |
-      rv::transform([](auto const &replica) { return std::pair{replica.replica, replica.database}; }) |
-      r::to<std::set>();
+  auto const reported = health.replicas | rv::transform([](auto const &replica) {
+                          return std::tuple{replica.replica, replica.database, std::string{replica.mode}};
+                        }) |
+                        r::to<std::set>();
 
   std::scoped_lock const lock{replica_gauges_.mutex};
   auto &entries = replica_gauges_.entries;
@@ -1429,10 +1430,11 @@ void PrometheusMetrics::UpdateReplicationGauges(ReplicationHealth const &health)
   }
 
   for (auto const &replica : health.replicas) {
-    auto [it, inserted] = entries.try_emplace({replica.replica, replica.database});
+    auto [it, inserted] = entries.try_emplace({replica.replica, replica.database, std::string{replica.mode}});
     auto &gauges = it->second;
     if (inserted) {
-      prometheus::Labels const labels{{"mg_instance", replica.replica}, {"database", replica.database}};
+      prometheus::Labels const labels{
+          {"mg_instance", replica.replica}, {"database", replica.database}, {"mode", std::string{replica.mode}}};
       gauges.txns_behind = &replica_txns_behind_family_.Add(labels);
       gauges.states = replica.states | rv::keys | rv::transform([&](auto const state) {
                         auto state_labels = labels;

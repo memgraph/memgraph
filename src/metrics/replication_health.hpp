@@ -22,6 +22,8 @@ namespace memgraph::metrics {
 struct ReplicaHealth {
   std::string replica;
   std::string database;
+  // "sync", "async" or "strict_sync".
+  std::string_view mode;
   // Every state the replica can be in, each flagged true when it is the current one.
   std::vector<std::pair<std::string_view, bool>> states;
   int64_t txns_behind;

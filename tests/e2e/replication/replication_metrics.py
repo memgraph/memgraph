@@ -31,6 +31,7 @@ file = "replication_metrics"
 BOLT_PORTS = {"main": 7687, "replica_1": 7688, "replica_2": 7689}
 METRICS_PORTS = {"main": 9091, "replica_1": 9092, "replica_2": 9093}
 REPLICATION_PORTS = {"replica_1": 10001, "replica_2": 10002}
+MODES = {"replica_1": "sync", "replica_2": "async"}
 STATES = ["ready", "replicating", "recovery", "invalid", "diverged"]
 METRIC_LINE = re.compile(r"^(\w+)(?:\{(.*)\})? (\S+)$")
 LABEL = re.compile(r'(\w+)="([^"]*)"')
@@ -60,8 +61,8 @@ def instances_description(test_name):
         "main": instance(
             "main",
             [
-                f"REGISTER REPLICA replica_1 SYNC TO '127.0.0.1:{REPLICATION_PORTS['replica_1']}';",
-                f"REGISTER REPLICA replica_2 ASYNC TO '127.0.0.1:{REPLICATION_PORTS['replica_2']}';",
+                f"REGISTER REPLICA {name} {MODES[name].upper()} TO '127.0.0.1:{REPLICATION_PORTS[name]}';"
+                for name in MODES
             ],
         ),
     }
@@ -104,7 +105,7 @@ def instance_view(instance):
 
 def replica_view(replica):
     samples = scrape("main")
-    labels = {"mg_instance": replica, "database": "memgraph"}
+    labels = {"mg_instance": replica, "database": "memgraph", "mode": MODES[replica]}
     return {
         "state": {state: sample(samples, "memgraph_replica_state", state=state, **labels) for state in STATES},
         "txns_behind": sample(samples, "memgraph_replica_txns_behind", **labels),

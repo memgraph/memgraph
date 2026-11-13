@@ -21,6 +21,7 @@
 #include <shared_mutex>
 #include <string>
 #include <string_view>
+#include <tuple>
 #include <unordered_map>
 #include <variant>
 #include <vector>
@@ -555,8 +556,8 @@ class PrometheusMetrics {
 
   struct {
     std::mutex mutex;
-    // Keyed by (replica, database).
-    std::map<std::pair<std::string, std::string>, ReplicaGauges> entries;
+    // Keyed by (replica, database, mode).
+    std::map<std::tuple<std::string, std::string, std::string>, ReplicaGauges> entries;
   } replica_gauges_;
 
   DurabilityThroughput snapshot_throughput_;

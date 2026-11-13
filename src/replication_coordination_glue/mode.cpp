@@ -27,10 +27,12 @@ constexpr std::array<std::pair<ReplicationMode, std::string_view>, 3> kModeMappi
      {ReplicationMode::STRICT_SYNC, "strict_sync"}}};
 }  // namespace
 
-void to_json(nlohmann::json &j, const ReplicationMode &mode) {
+auto ReplicationModeName(ReplicationMode const mode) -> std::string_view {
   const auto *it = ranges::find(kModeMapping, mode, &std::pair<ReplicationMode, std::string_view>::first);
-  j = std::string(it != kModeMapping.end() ? it->second : kModeMapping.front().second);
+  return it != kModeMapping.end() ? it->second : kModeMapping.front().second;
 }
+
+void to_json(nlohmann::json &j, const ReplicationMode &mode) { j = std::string(ReplicationModeName(mode)); }
 
 void from_json(const nlohmann::json &j, ReplicationMode &mode) {
   const auto value = j.get<std::string>();

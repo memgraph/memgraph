@@ -16,6 +16,7 @@
 #include "dbms/inmemory/replication_handlers.hpp"
 #include "metrics/prometheus_metrics.hpp"
 #include "replication/replication_client.hpp"
+#include "replication_coordination_glue/mode.hpp"
 #include "replication_handler/system_replication.hpp"
 #include "replication_query_handler.hpp"
 #include "storage/v2/inmemory/storage.hpp"
@@ -539,6 +540,7 @@ auto ReplicationHandler::GetReplicationHealth() const -> std::optional<metrics::
             health.replicas.push_back(
                 {.replica = client.Name(),
                  .database = db_name,
+                 .mode = replication_coordination_glue::ReplicationModeName(client.Mode()),
                  .states = storage::replication::kReplicaStates | rv::transform([state](auto const candidate) {
                              return std::pair{storage::replication::ReplicaStatusName(candidate), candidate == state};
                            }) |

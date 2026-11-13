@@ -21,6 +21,9 @@ namespace memgraph::replication_coordination_glue {
 
 enum class ReplicationMode : std::uint8_t { SYNC, ASYNC, STRICT_SYNC };
 
+/// The mode's name as SHOW REPLICAS prints it: "sync", "async" or "strict_sync".
+auto ReplicationModeName(ReplicationMode mode) -> std::string_view;
+
 void to_json(nlohmann::json &j, const ReplicationMode &e);
 void from_json(const nlohmann::json &j, ReplicationMode &e);
 
