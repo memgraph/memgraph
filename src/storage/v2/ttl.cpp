@@ -31,8 +31,7 @@
 #include "utils/temporal.hpp"
 
 namespace {
-// Upper bound on a single batch acquisition: the job abandons it on timeout when a stop is pending, so a
-// stop/join is never parked behind a lock the joining caller holds.
+// Bounds each batch acquisition so a pending stop is observed.
 constexpr auto kAccessPollSlice = std::chrono::milliseconds{100};
 
 template <typename T>
@@ -147,12 +146,6 @@ std::string TtlInfo::StringifyStartTime(std::chrono::system_clock::time_point st
 
 void TTL::SetInterval(std::optional<std::chrono::microseconds> period,
                       std::optional<std::chrono::system_clock::time_point> start_time) {
-  const std::scoped_lock lock{lifecycle_mutex_};
-  SetInterval_(period, start_time);
-}
-
-void TTL::SetInterval_(std::optional<std::chrono::microseconds> period,
-                       std::optional<std::chrono::system_clock::time_point> start_time) {
   if (!enabled_) {
     throw TtlException("TTL not enabled!");
   }
@@ -166,7 +159,6 @@ void TTL::SetInterval_(std::optional<std::chrono::microseconds> period,
   // Update the info_ with the new period and start_time
   info_.period = actual_period;
   info_.start_time = start_time;
-  schedule_epoch_ = start_time ? *start_time : std::chrono::system_clock::now();
 
   // TTL's schedule is set after the worker thread is already running (Configure() starts it first),
   // so without waking it here the worker could stay parked and TTL would silently never fire.
@@ -174,52 +166,13 @@ void TTL::SetInterval_(std::optional<std::chrono::microseconds> period,
 }
 
 void TTL::Configure(bool should_run_edge_ttl) {
-  const std::scoped_lock lock{lifecycle_mutex_};
-  const std::scoped_lock pause_lock{pause_mutex_};
-  Configure_(should_run_edge_ttl);
-  paused_ = true;
-}
-
-void TTL::RestoreWorker(const WorkerState &state) {
-  const std::scoped_lock lock{lifecycle_mutex_};
-  suspended_ = false;
-  // Nothing was running, TTL was disabled meanwhile, or a new generation already started: leave it alone.
-  if (!state.running || !state.enabled || !enabled_ || ttl_.IsRunning()) return;
-  // Serialize with role changes for the whole restore: their Pause()/Resume() updates are what we apply.
-  const std::scoped_lock pause_lock{pause_mutex_};
-  const bool resume = !paused_;
-  stop_requested_.store(false, std::memory_order_relaxed);
-  info_ = state.info;
-  Configure_(info_.should_run_edge_ttl);
-  paused_ = true;
-  ttl_.SetInterval(info_.period.value_or(std::chrono::days(1)), schedule_epoch_);
-  if (resume) {
-    paused_ = false;
-    ttl_.Resume();
-  }
-}
-
-TTL::WorkerState TTL::SuspendWorker() {
-  const std::scoped_lock lock{lifecycle_mutex_};
-  suspended_ = true;
-  const WorkerState state{.enabled = enabled_, .running = ttl_.IsRunning(), .info = info_};
-  stop_requested_.store(true, std::memory_order_relaxed);
-  ttl_.Stop();
-  return state;
-}
-
-void TTL::Configure_(bool should_run_edge_ttl) {
   if (!enabled_) {
     throw TtlException("TTL not enabled!");
-  }
-  if (suspended_) {
-    throw TtlException("TTL is suspended by a storage mode switch");
   }
   if (ttl_.IsRunning()) {
     throw TtlException("TTL already running!");
   }
 
-  stop_requested_.store(false, std::memory_order_relaxed);
   info_.should_run_edge_ttl = should_run_edge_ttl;
 
   if (info_.should_run_edge_ttl && (storage_ptr_->GetStorageMode() == StorageMode::ON_DISK_TRANSACTIONAL ||
@@ -227,6 +180,8 @@ void TTL::Configure_(bool should_run_edge_ttl) {
     spdlog::warn("Memgraph configuration doesn't support edge TTL. Edge TTL will be disabled.");
     info_.should_run_edge_ttl = false;
   }
+
+  stop_requested_.store(false, std::memory_order_release);
 
   auto ttl_job = [this]() {
     const memory::DbArenaScope db_arena_scope{storage_ptr_->DbArenaPool()};
@@ -363,10 +318,6 @@ void TTL::Configure_(bool should_run_edge_ttl) {
           DMG_ASSERT(false, "Unsupported TTL state.");
         }
 
-        // A stop that landed during this batch must retire before the protector acquisition, which
-        // blocks on the gatekeeper mutex the joining caller may hold.
-        if (StopRequested()) return;
-
         auto protector = storage_ptr_->make_database_protector();
         if (!protector) [[unlikely]] {
           // database has been dropped, we should aim to stop this worker ASAP
@@ -384,7 +335,7 @@ void TTL::Configure_(bool should_run_edge_ttl) {
         deleted_edges_.Increment(static_cast<double>(n_edges_deleted));
 
       } catch (const std::exception &e) {
-        // Abandon iff a stop is pending (the bounded acquire timed out on a lock the joiner holds).
+        // A timed-out acquisition with a pending stop retires the job.
         if (StopRequested()) return;
         spdlog::trace("TTL error; retrying later: {}", e.what());
         std::this_thread::sleep_for(std::chrono::milliseconds{10});

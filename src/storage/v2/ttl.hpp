@@ -14,7 +14,6 @@
 #include <atomic>
 #include <chrono>
 #include <functional>
-#include <mutex>
 #include <optional>
 #include <string>
 
@@ -154,13 +153,6 @@ class TTL final {
   TTL &operator=(const TTL &) = delete;
   TTL &operator=(TTL &&) = delete;
 
-  /// Snapshot of a TTL generation, so RestoreWorker() can put it back after a refused STORAGE MODE.
-  struct WorkerState {
-    bool enabled{false};
-    bool running{false};
-    TtlInfo info{};
-  };
-
   /**
    * @brief Setup and start the TTL background job
    *
@@ -182,18 +174,14 @@ class TTL final {
    *
    * @return TtlInfo
    */
-  TtlInfo Config() const {
-    std::lock_guard lock{lifecycle_mutex_};
-    return info_;
-  }
+  TtlInfo Config() const { /*TODO what is !enabled_? should we return a pair?*/ return info_; }
 
   /**
    * @brief Shutdown TTL (stop background job)
    *
    */
   void Shutdown() {
-    std::lock_guard lock{lifecycle_mutex_};
-    stop_requested_.store(true, std::memory_order_relaxed);
+    stop_requested_.store(true, std::memory_order_release);
     ttl_.Stop();
   }
 
@@ -202,45 +190,30 @@ class TTL final {
    *
    * @return true if enabled, false otherwise
    */
-  bool Enabled() const {
-    std::lock_guard lock{lifecycle_mutex_};
-    return enabled_;
-  }
+  bool Enabled() const { return enabled_; }
 
   /**
    * @brief Enable the TTL feature.
    *
    */
-  void Enable() {
-    std::lock_guard lock{lifecycle_mutex_};
-    if (suspended_) throw TtlException("TTL is suspended by a storage mode switch");
-    enabled_ = true;
-  }
+  void Enable() { enabled_ = true; }
 
   /**
    * @brief Returns whether TTL is running. @note: Paused TTL still counts as running.
    *
    */
-  bool Running() {
-    std::lock_guard lock{lifecycle_mutex_};
-    return ttl_.IsRunning();
-  }
+  bool Running() { return ttl_.IsRunning(); }
 
-  bool Paused() const {
-    std::lock_guard lock{pause_mutex_};
-    return paused_;
-  }
+  bool Paused() const { return ttl_.IsPaused(); }
 
   /**
    * @brief Disable the TTL feature.
    *
    */
   void Disable() {
-    std::lock_guard lock{lifecycle_mutex_};
     enabled_ = false;
-    stop_requested_.store(true, std::memory_order_relaxed);
+    stop_requested_.store(true, std::memory_order_release);
     ttl_.Stop();
-    // Reset the configuration only after the worker joined, so the job body never observes a torn TtlInfo.
     info_ = {};
   }
 
@@ -248,28 +221,13 @@ class TTL final {
    * @brief TTL's background job should be paused in case instance becomes a REPLICA.
    *
    */
-  /// Role changes hold the repl_state write lock, so these must not wait on lifecycle_mutex_ (held across a join).
-  void Pause() {
-    std::lock_guard lock{pause_mutex_};
-    paused_ = true;
-    ttl_.Pause();
-  }
+  void Pause() { ttl_.Pause(); }
 
   /**
    * @brief Use Resume() to restart once MAIN.
    *
    */
-  void Resume() {
-    std::lock_guard lock{pause_mutex_};
-    paused_ = false;
-    ttl_.Resume();
-  }
-
-  /// Stops the worker before the caller enters a region holding a lock the worker needs (gatekeeper).
-  WorkerState SuspendWorker();
-
-  /// Puts the generation captured by SuspendWorker() back if it was running and nothing restarted it.
-  void RestoreWorker(const WorkerState &state);
+  void Resume() { ttl_.Resume(); }
 
   /**
    * @brief Set the function to check if this is a main instance
@@ -279,21 +237,13 @@ class TTL final {
   void SetUserCheck(std::function<bool()> check_fn) { user_check_.Update(std::move(check_fn)); }
 
  private:
-  void Configure_(bool should_run_edge_ttl);
-  void SetInterval_(std::optional<std::chrono::microseconds> period,
-                    std::optional<std::chrono::system_clock::time_point> start_time);
+  utils::Scheduler ttl_;                     //!< background thread
+  TtlInfo info_{};                           //!< configuration
+  bool enabled_{false};                      //!< feature enabler
+  std::atomic<bool> stop_requested_{false};  //!< tells the job to retire so Stop() can join
 
-  bool StopRequested() const noexcept { return stop_requested_.load(std::memory_order_relaxed); }
+  bool StopRequested() const noexcept { return stop_requested_.load(std::memory_order_acquire); }
 
-  mutable std::mutex lifecycle_mutex_;  //!< serializes the TTL interface state
-  mutable std::mutex pause_mutex_;  //!< guards paused_ without lifecycle_mutex_ (role changes must not wait on a join)
-  std::atomic<bool> stop_requested_{false};  //!< polled by the job body at each batch boundary
-  bool paused_{false};                       //!< role-change pause state, applied by RestoreWorker()
-  bool suspended_{false};                    //!< a storage mode switch owns the stopped worker
-  std::optional<std::chrono::system_clock::time_point> schedule_epoch_{};  //!< phase of the run interval
-  utils::Scheduler ttl_;  //!< background thread
-  TtlInfo info_{};        //!< configuration
-  bool enabled_{false};   //!< feature enabler
   Storage *storage_ptr_{};
   metrics::CounterHandle deleted_nodes_{};
   metrics::CounterHandle deleted_edges_{};
@@ -359,8 +309,6 @@ class TTL final {
   std::optional<std::chrono::system_clock::time_point> start_time_{};
 
  public:
-  struct WorkerState {};
-
   TTL(Storage * /*storage_ptr*/, metrics::CounterHandle /*deleted_nodes*/, metrics::CounterHandle /*deleted_edges*/) {}
 
   void Shutdown() {}
@@ -391,10 +339,6 @@ class TTL final {
   void SetUserCheck(std::function<bool()>) {}
 
   bool Restore() { return false; }
-
-  WorkerState SuspendWorker() { return WorkerState{}; }
-
-  void RestoreWorker(const WorkerState & /*state*/) {}
 };
 
 }  // namespace memgraph::storage::ttl
