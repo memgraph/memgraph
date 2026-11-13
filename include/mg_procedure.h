@@ -1066,7 +1066,7 @@ enum mgp_error mgp_drop_label_index(struct mgp_graph *graph, const char *label, 
 enum mgp_error mgp_list_all_label_indices(struct mgp_graph *graph, struct mgp_memory *memory, struct mgp_list **result);
 
 /// Creates label-property index for given label and propery.
-/// mgp_error::MGP_ERROR_NO_ERROR is always returned.
+/// Return mgp_error::MGP_ERROR_INVALID_ARGUMENT if the property is covered by a vector index.
 /// if label property index already exists, result will be 0, otherwise 1.
 enum mgp_error mgp_create_label_property_index(struct mgp_graph *graph, const char *label, const char *property,
                                                int *result);
@@ -1082,7 +1082,7 @@ enum mgp_error mgp_list_all_label_property_indices(struct mgp_graph *graph, stru
                                                    struct mgp_list **result);
 
 /// Creates global vertex-property index for given property.
-/// mgp_error::MGP_ERROR_NO_ERROR is always returned.
+/// Return mgp_error::MGP_ERROR_INVALID_ARGUMENT if the property is covered by a vector index.
 /// if vertex-property index already exists, result will be 0, otherwise 1.
 enum mgp_error mgp_create_vertex_property_index(struct mgp_graph *graph, const char *property, int *result);
 
@@ -1112,7 +1112,7 @@ enum mgp_error mgp_list_all_existence_constraints(struct mgp_graph *graph, struc
                                                   struct mgp_list **result);
 
 /// Creates unique constraint for given label and properties.
-/// mgp_error::MGP_ERROR_NO_ERROR is always returned.
+/// Return mgp_error::MGP_ERROR_INVALID_ARGUMENT if one of the properties is covered by a vector index.
 /// if creating unique constraint failed, result will be 0, otherwise 1.
 enum mgp_error mgp_create_unique_constraint(struct mgp_graph *graph, const char *label, struct mgp_list *properties,
                                             int *result);
