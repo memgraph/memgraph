@@ -9,10 +9,9 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
-"""USING HOPS LIMIT on a vertex whose snapshot deltas must be replayed (concurrent commit).
+"""USING HOPS LIMIT on a vertex with snapshot deltas to replay (concurrent commit).
 
-The delta replay must run on the full edge copy before the hops budget is applied, and a bounded
-expansion must neither store into nor read from the many-deltas cache.
+The hops budget applies after the replay, and bounded expansions bypass the many-deltas cache.
 """
 
 import sys
@@ -23,7 +22,6 @@ from neo4j import GraphDatabase
 URI = "bolt://localhost:7687"
 AUTH = ("", "")
 
-# v:S with five committed out-edges.
 SETUP_FIVE_OUT = "CREATE (v:S) WITH v UNWIND range(1, 5) AS i CREATE (v)-[:E]->(:W {i: i})"
 
 DIRECTIONS = {
@@ -52,28 +50,24 @@ def _reset(driver):
 
 
 def _write(driver, query):
-    """Autocommit write on its own session, so it is a separate committed transaction."""
     with driver.session() as session:
         session.run(query).consume()
 
 
 def _bounded_read(tx, query):
-    """Run a bounded read and return (rows, metadata).
+    """Return (rows, metadata); (None, None) if the connection drops.
 
-    The pre-fix bug kills the instance inside this read, so the client sees the connection drop
-    instead of a result. Returning None there lets the test fail on its own assertion - the bounded
-    read must produce the snapshot-visible rows - rather than on the client-side exception.
+    The pre-fix bug crashes the instance mid-read; this makes the test fail on its assertion instead.
     """
     try:
         result = tx.run(query)
         rows = result.data()
         return rows, result.consume().metadata
-    except Exception:  # noqa: BLE001 - the bug under test drops the connection
+    except Exception:  # noqa: BLE001
         return None, None
 
 
 def _probe_alive(driver):
-    """A follow-up query proves the instance survived the bounded read."""
     with driver.session() as session:
         return session.run("RETURN 1 AS one").single()["one"] == 1
 
@@ -87,7 +81,6 @@ def _close(driver):
 
 @pytest.mark.parametrize("direction", ["out", "in"])
 def test_hops_limit_survives_concurrent_commit(direction):
-    """Untyped expansion after a concurrent commit: 2 snapshot edges, instance alive."""
     q = DIRECTIONS[direction]
     driver = _new_driver()
     try:
@@ -106,7 +99,6 @@ def test_hops_limit_survives_concurrent_commit(direction):
 
 
 def test_hops_limit_survives_concurrent_commit_typed():
-    """Typed out-expansion after a concurrent commit: 2 snapshot edges and a live instance."""
     q = DIRECTIONS["out"]
     driver = _new_driver()
     try:
@@ -175,7 +167,6 @@ def test_hops_limit_budget_exhausted_remove():
         with driver.session() as session_a:
             tx = session_a.begin_transaction()
             assert tx.run("MATCH (n) WHERE n:A OR n:B MATCH (n)-[r]->(w) RETURN count(*) AS c").single()["c"] == 3
-            # The only edge of b:B is deleted concurrently; its replayed undo is an addition.
             _write(driver, "MATCH (b:B)-[r]->(:W) DELETE r")
             result = tx.run(
                 "USING HOPS LIMIT 2 MATCH (a:A)-[:E]->(x) WITH a, x MATCH (b:B)-[r]->(y) RETURN count(*) AS c"
