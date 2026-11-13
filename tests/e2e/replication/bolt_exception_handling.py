@@ -49,6 +49,7 @@ REPLICA_PORT = 7688
 
 _INVALID_TEMPORAL = [
     ("RETURN duration('PXYZ')", "Invalid duration string"),
+    ("RETURN duration({minutes: 1})", "Unknown key 'minutes'"),
     ("RETURN date('not-a-date')", "Invalid year in the string"),
     ("RETURN localtime('99:99')", "invalid hour parameter"),
     ("RETURN localdatetime('bogus')", "Invalid LocalDateTime format"),
