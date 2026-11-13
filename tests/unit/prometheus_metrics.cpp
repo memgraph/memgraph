@@ -13,6 +13,8 @@
 
 #include <algorithm>
 #include <filesystem>
+#include <limits>
+#include <optional>
 #include <string_view>
 #include <variant>
 
@@ -23,12 +25,16 @@
 #include "dbms/constants.hpp"
 #include "dbms/database.hpp"
 #include "disk_test_utils.hpp"
+#include "license/license.hpp"
 #include "metrics/scoped_gauge.hpp"
 #include "metrics/scoped_histogram_timer.hpp"
 #include "storage/v2/config.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/storage.hpp"
 #include "tests/test_commit_args_helper.hpp"
+#include "utils/build_info.hpp"
+#include "utils/memory_tracker.hpp"
+#include "utils/on_scope_exit.hpp"
 
 namespace {
 
@@ -65,7 +71,77 @@ std::optional<double> FindSampleByUuid(std::vector<prometheus::MetricFamily> con
   return std::nullopt;
 }
 
+std::optional<double> FindGauge(std::vector<prometheus::MetricFamily> const &families, std::string_view name,
+                                prometheus::Labels const &labels = {}) {
+  for (auto const &family : families) {
+    if (family.name != name) continue;
+    for (auto const &metric : family.metric) {
+      prometheus::Labels actual;
+      for (auto const &label : metric.label) actual.emplace(label.name, label.value);
+      if (actual == labels) return metric.gauge.value;
+    }
+  }
+  return std::nullopt;
+}
+
 }  // namespace
+
+TEST(PrometheusMetrics, BuildInfoCarriesTheBuildAsLabels) {
+#ifdef MG_ENTERPRISE
+  constexpr auto const *kEdition = "enterprise";
+#else
+  constexpr auto const *kEdition = "community";
+#endif
+  auto const build = memgraph::utils::GetBuildInfo();
+  memgraph::metrics::PrometheusMetrics pm;
+
+  EXPECT_EQ(FindGauge(pm.CollectForScrape(),
+                      "memgraph_build_info",
+                      {{"version", build.version}, {"edition", kEdition}, {"build_type", build.build_name}}),
+            1.0);
+}
+
+TEST(PrometheusMetrics, UpdateGaugesReportsTrackedMemoryAndTheEnforcedLimit) {
+  constexpr int64_t kLimit = 64LL * 1024 * 1024 * 1024;
+  memgraph::utils::total_memory_tracker.SetHardLimit(kLimit);
+  memgraph::utils::OnScopeExit const reset_limit{[] { memgraph::utils::total_memory_tracker.ResetLimit(); }};
+  memgraph::metrics::PrometheusMetrics pm;
+
+  pm.UpdateGauges();
+
+  auto const families = pm.CollectForScrape();
+  EXPECT_EQ(FindGauge(families, "memgraph_memory_limit_bytes"), static_cast<double>(kLimit));
+  EXPECT_TRUE(FindGauge(families, "memgraph_memory_tracked_bytes").has_value());
+}
+
+namespace {
+
+std::optional<double> LicenseExpiryAfterUpdate(std::optional<int64_t> valid_until) {
+  auto &checker = memgraph::license::global_license_checker;
+  memgraph::utils::OnScopeExit const disable{[&] { checker.DisableTesting(); }};
+  if (valid_until) {
+    checker.EnableTesting();
+    checker.GetLicenseInfo().Lock()->value().license.valid_until = *valid_until;
+  }
+  memgraph::metrics::PrometheusMetrics pm;
+  pm.UpdateGauges();
+  return FindGauge(pm.CollectForScrape(), "memgraph_license_expiry_timestamp_seconds");
+}
+
+}  // namespace
+
+TEST(PrometheusMetrics, LicenseExpiryIsTheLicenceValidUntil) {
+  constexpr int64_t kValidUntil = 1'900'000'000;
+  EXPECT_EQ(LicenseExpiryAfterUpdate(kValidUntil), static_cast<double>(kValidUntil));
+}
+
+TEST(PrometheusMetrics, LicenseExpiryIsInfiniteForAPerpetualLicence) {
+  EXPECT_EQ(LicenseExpiryAfterUpdate(0), std::numeric_limits<double>::infinity());
+}
+
+TEST(PrometheusMetrics, LicenseExpiryIsAbsentWithoutALicence) {
+  EXPECT_EQ(LicenseExpiryAfterUpdate(std::nullopt), std::nullopt);
+}
 
 TEST(PrometheusMetrics, GetOrAddDatabaseRegistersMetrics) {
   memgraph::metrics::PrometheusMetrics pm;
