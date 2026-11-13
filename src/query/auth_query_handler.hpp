@@ -219,7 +219,8 @@ class AuthQueryHandler {
           &edge_type_privileges
 #endif
       ,
-      auth::UserOrRoleType type, auth::AuthTransaction *auth_tx, system::Transaction *system_tx) = 0;
+      auth::DenyStrength strength, auth::UserOrRoleType type, auth::AuthTransaction *auth_tx,
+      system::Transaction *system_tx) = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
   virtual void RevokePrivilege(
@@ -252,7 +253,8 @@ class AuthQueryHandler {
                                       const std::vector<std::string> &entity_names,
                                       auth::PropertyEntityKind entity_kind, auth::MatchingMode matching_mode,
                                       auth::UserOrRoleType type, auth::PropertyPermissionType perm_type,
-                                      auth::AuthTransaction *auth_tx, system::Transaction *system_tx) = 0;
+                                      auth::DenyStrength strength, auth::AuthTransaction *auth_tx,
+                                      system::Transaction *system_tx) = 0;
   virtual void RevokePropertyPermission(const std::string &user_or_role, const std::vector<std::string> &properties,
                                         const std::vector<std::string> &entity_names,
                                         auth::PropertyEntityKind entity_kind, auth::MatchingMode matching_mode,
