@@ -12,8 +12,11 @@
 #include <gtest/gtest-typed-test.h>
 #include <gtest/gtest.h>
 
+#include <bit>
+#include <cfloat>
 #include <cstdint>
 #include <filesystem>
+#include <limits>
 #include <map>
 #include <optional>
 #include <set>
@@ -28,6 +31,7 @@
 #include "helpers/stub_property_fga_checker.hpp"
 #include "query/auth_checker.hpp"
 #include "query/config.hpp"
+#include "query/cypher_numeric_literal.hpp"
 #include "query/dump.hpp"
 #include "query/interpreter.hpp"
 #include "query/interpreter_context.hpp"
@@ -43,6 +47,7 @@
 #include "storage/v2/temporal.hpp"
 #include "tests/test_commit_args_helper.hpp"
 #include "timezone_handler.hpp"
+#include "utils/string.hpp"
 #include "utils/temporal.hpp"
 
 namespace ms = memgraph::storage;
@@ -1152,7 +1157,7 @@ TYPED_TEST(DumpTest, VectorIndices) {
         R"(CREATE VECTOR INDEX `or_idx` ON :`Label1`|`Label 2`(`vector_property`) WITH CONFIG { "dimension": 2, "metric": "l2sq", "capacity": 10, "resize_coefficient": 2, "scalar_kind": "f32" };)",
         R"(CREATE VECTOR INDEX `and_idx` ON :`Label1`&`Label 2`(`vector_property`) WITH CONFIG { "dimension": 2, "metric": "l2sq", "capacity": 10, "resize_coefficient": 2, "scalar_kind": "f32" };)",
         kCreateInternalIndex,
-        "CREATE (:__mg_vertex__:`Label1`:`Label 2` {__mg_id__: 0, `vector_property`: [1, 1]});",
+        "CREATE (:__mg_vertex__:`Label1`:`Label 2` {__mg_id__: 0, `vector_property`: [1.0, 1.0]});",
         kDropInternalIndex,
         kRemoveInternalLabelProperty);
   }
@@ -1233,7 +1238,186 @@ TYPED_TEST(DumpTest, VectorEdgeIndices) {
         "CREATE (:__mg_vertex__ {__mg_id__: 0});",
         "CREATE (:__mg_vertex__ {__mg_id__: 1});",
         "MATCH (u:__mg_vertex__), (v:__mg_vertex__) WHERE u.__mg_id__ = 0 AND "
-        "v.__mg_id__ = 1 CREATE (u)-[:`EdgeType` {`vector_property`: [1, 1]}]->(v);",
+        "v.__mg_id__ = 1 CREATE (u)-[:`EdgeType` {`vector_property`: [1.0, 1.0]}]->(v);",
+        kDropInternalIndex,
+        kRemoveInternalLabelProperty);
+  }
+}
+
+TEST(CypherLiteralSpelling, NumericLiteralExtremesRoundTripBitExact) {
+  for (double const value : {DBL_MAX, DBL_MIN, std::numeric_limits<double>::denorm_min()}) {
+    auto const text = memgraph::query::CypherNumericLiteral(value);
+    EXPECT_EQ(text.find('+'), std::string::npos) << text;
+    EXPECT_EQ(std::bit_cast<uint64_t>(memgraph::utils::ParseDouble(text)), std::bit_cast<uint64_t>(value)) << text;
+  }
+}
+
+// Dumped floats re-parse to the same value and kind: max_digits10, integral floats keep `.0`,
+// non-finite values are written as expressions (never bare `inf`/`nan`).
+TYPED_TEST(DumpTest, FloatSpelling) {
+  {
+    auto dba = this->db->Access(memgraph::storage::WRITE);
+    auto const double_id = dba->NameToProperty("double");
+    auto const exponent_id = dba->NameToProperty("exponent");
+    auto const large_id = dba->NameToProperty("large");
+    auto const numeric_list_id = dba->NameToProperty("numeric_list");
+    auto const double_list_id = dba->NameToProperty("double_list");
+    auto const positive_id = dba->NameToProperty("positive");
+    auto const negative_id = dba->NameToProperty("negative");
+    auto const not_a_number_id = dba->NameToProperty("not_a_number");
+
+    memgraph::storage::PropertyValue::map_t finite{
+        {double_id, memgraph::storage::PropertyValue(2.0)},
+        {exponent_id, memgraph::storage::PropertyValue(1e20)},
+        {large_id, memgraph::storage::PropertyValue(3e38)},
+        {numeric_list_id,
+         memgraph::storage::PropertyValue(
+             memgraph::storage::NumericListTag{},
+             std::vector<memgraph::storage::PropertyValue>{memgraph::storage::PropertyValue(1),
+                                                           memgraph::storage::PropertyValue(1e20),
+                                                           memgraph::storage::PropertyValue(2.0)})},
+        {double_list_id,
+         memgraph::storage::PropertyValue(
+             memgraph::storage::DoubleListTag{},
+             std::vector<memgraph::storage::PropertyValue>{memgraph::storage::PropertyValue(1e20),
+                                                           memgraph::storage::PropertyValue(2.0),
+                                                           memgraph::storage::PropertyValue(3e38)})},
+    };
+    CreateVertex(dba.get(), {"Finite"}, finite, false);
+
+    auto const infinity = std::numeric_limits<double>::infinity();
+    auto const not_a_number = std::numeric_limits<double>::quiet_NaN();
+    memgraph::storage::PropertyValue::map_t non_finite{
+        {positive_id, memgraph::storage::PropertyValue(infinity)},
+        {negative_id, memgraph::storage::PropertyValue(-infinity)},
+        {not_a_number_id, memgraph::storage::PropertyValue(not_a_number)},
+        {numeric_list_id,
+         memgraph::storage::PropertyValue(
+             memgraph::storage::NumericListTag{},
+             std::vector<memgraph::storage::PropertyValue>{memgraph::storage::PropertyValue(infinity),
+                                                           memgraph::storage::PropertyValue(-infinity),
+                                                           memgraph::storage::PropertyValue(not_a_number)})},
+        {double_list_id,
+         memgraph::storage::PropertyValue(
+             memgraph::storage::DoubleListTag{},
+             std::vector<memgraph::storage::PropertyValue>{memgraph::storage::PropertyValue(infinity),
+                                                           memgraph::storage::PropertyValue(-infinity),
+                                                           memgraph::storage::PropertyValue(not_a_number)})},
+    };
+    CreateVertex(dba.get(), {"NonFinite"}, non_finite, false);
+    ASSERT_TRUE(dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  {
+    ResultStreamFaker stream(this->db->storage());
+    memgraph::query::AnyStream query_stream(&stream, memgraph::utils::NewDeleteResource());
+    {
+      auto acc = this->db->Access(memgraph::storage::WRITE);
+      memgraph::query::DbAccessor dba(acc.get());
+      memgraph::query::DumpDatabaseToCypherQueries(&dba, &query_stream, this->db);
+    }
+    VerifyQueries(stream.GetResults(),
+                  kCreateInternalIndex,
+                  "CREATE (:__mg_vertex__:`Finite` {__mg_id__: 0, `double`: 2.0, `exponent`: 1e20, "
+                  "`large`: 3.0000000000000001e38, `numeric_list`: [1, 1e20, 2.0], "
+                  "`double_list`: [1e20, 2.0, 3.0000000000000001e38]});",
+                  "CREATE (:__mg_vertex__:`NonFinite` {__mg_id__: 1, "
+                  "`numeric_list`: [(1.0/0.0), (-1.0/0.0), (0.0/0.0)], "
+                  "`double_list`: [(1.0/0.0), (-1.0/0.0), (0.0/0.0)], "
+                  "`positive`: (1.0/0.0), `negative`: (-1.0/0.0), `not_a_number`: (0.0/0.0)});",
+                  kDropInternalIndex,
+                  kRemoveInternalLabelProperty);
+  }
+}
+
+// Vector-index floats are narrowed to the index's scalar kind, so they are spelled at that
+// type's precision (non-finite after narrowing -> expression); point coordinates likewise.
+TYPED_TEST(DumpTest, VectorIndexFloatSpelling) {
+  if (this->config.salient.storage_mode == memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL) {
+    GTEST_SKIP() << "Vector index not implemented for ondisk";
+  }
+
+  const auto property = this->db->storage()->NameToProperty("v");
+  const auto label32 = this->db->storage()->NameToLabel("Vec32");
+  const auto label16 = this->db->storage()->NameToLabel("Vec16");
+
+  const std::vector<memgraph::storage::VectorIndexSpec> specs = {
+      {.index_name = "f32_index",
+       .label_filter = {memgraph::storage::VectorMatchMode::SINGLE, {label32}},
+       .property = property,
+       .metric_kind = unum::usearch::metric_kind_t::l2sq_k,
+       .dimension = 2,
+       .resize_coefficient = 2,
+       .capacity = 10,
+       .scalar_kind = unum::usearch::scalar_kind_t::f32_k},
+      {.index_name = "f16_index",
+       .label_filter = {memgraph::storage::VectorMatchMode::SINGLE, {label16}},
+       .property = property,
+       .metric_kind = unum::usearch::metric_kind_t::l2sq_k,
+       .dimension = 1,
+       .resize_coefficient = 2,
+       .capacity = 10,
+       .scalar_kind = unum::usearch::scalar_kind_t::f16_k},
+  };
+  for (const auto &spec : specs) {
+    auto unique_acc = this->db->UniqueAccess();
+    ASSERT_TRUE(unique_acc->CreateVectorIndex(spec).has_value());
+    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  {
+    auto dba = this->db->Access(memgraph::storage::WRITE);
+    auto const property_id = dba->NameToProperty("v");
+    CreateVertex(dba.get(),
+                 {"Vec32"},
+                 {{property_id,
+                   memgraph::storage::PropertyValue(std::vector<memgraph::storage::PropertyValue>{
+                       memgraph::storage::PropertyValue(123456.789), memgraph::storage::PropertyValue(0.1)})}},
+                 false);
+    CreateVertex(dba.get(),
+                 {"Vec16"},
+                 {{property_id,
+                   memgraph::storage::PropertyValue(
+                       std::vector<memgraph::storage::PropertyValue>{memgraph::storage::PropertyValue(70000.0)})}},
+                 false);
+    auto const big_id = dba->NameToProperty("big");
+    auto const positive_id = dba->NameToProperty("positive");
+    auto const negative_id = dba->NameToProperty("negative");
+    auto const not_a_number_id = dba->NameToProperty("not_a_number");
+    auto const infinity = std::numeric_limits<double>::infinity();
+    auto const not_a_number = std::numeric_limits<double>::quiet_NaN();
+    auto const cartesian = memgraph::storage::CoordinateReferenceSystem::Cartesian_2d;
+    CreateVertex(
+        dba.get(),
+        {"Points"},
+        {{big_id, memgraph::storage::PropertyValue(memgraph::storage::Point2d(cartesian, 1e20, 2))},
+         {positive_id, memgraph::storage::PropertyValue(memgraph::storage::Point2d(cartesian, infinity, 2))},
+         {negative_id, memgraph::storage::PropertyValue(memgraph::storage::Point2d(cartesian, -infinity, 2))},
+         {not_a_number_id, memgraph::storage::PropertyValue(memgraph::storage::Point2d(cartesian, not_a_number, 2))}},
+        false);
+    ASSERT_TRUE(dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  {
+    ResultStreamFaker stream(this->db->storage());
+    memgraph::query::AnyStream query_stream(&stream, memgraph::utils::NewDeleteResource());
+    {
+      auto acc = this->db->Access(memgraph::storage::WRITE);
+      memgraph::query::DbAccessor dba(acc.get());
+      memgraph::query::DumpDatabaseToCypherQueries(&dba, &query_stream, this->db);
+    }
+    VerifyQueries(
+        stream.GetResults(),
+        R"(CREATE VECTOR INDEX `f32_index` ON :`Vec32`(`v`) WITH CONFIG { "dimension": 2, "metric": "l2sq", "capacity": 10, "resize_coefficient": 2, "scalar_kind": "f32" };)",
+        R"(CREATE VECTOR INDEX `f16_index` ON :`Vec16`(`v`) WITH CONFIG { "dimension": 1, "metric": "l2sq", "capacity": 10, "resize_coefficient": 2, "scalar_kind": "f16" };)",
+        kCreateInternalIndex,
+        "CREATE (:__mg_vertex__:`Vec32` {__mg_id__: 0, `v`: [123456.789, 0.100000001]});",
+        "CREATE (:__mg_vertex__:`Vec16` {__mg_id__: 1, `v`: [(1.0/0.0)]});",
+        "CREATE (:__mg_vertex__:`Points` {__mg_id__: 2, "
+        "`big`: POINT({ x:1e20, y:2, srid: 7203 }), "
+        "`positive`: POINT({ x:(1.0/0.0), y:2, srid: 7203 }), "
+        "`negative`: POINT({ x:(-1.0/0.0), y:2, srid: 7203 }), "
+        "`not_a_number`: POINT({ x:(0.0/0.0), y:2, srid: 7203 })});",
         kDropInternalIndex,
         kRemoveInternalLabelProperty);
   }
