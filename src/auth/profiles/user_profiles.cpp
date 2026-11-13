@@ -84,7 +84,7 @@ UserProfiles::UserProfiles(Repository &durability) : durability_{&durability} {
     spdlog::error("Failed to put user profiles version");
   }
 
-  // Raw (pre-fold) spellings per folded user, as (spelling, profile name).
+  // Per folded user: (raw spelling, profile name).
   std::map<std::string, std::vector<std::pair<std::string, std::string>>> spellings;
 
   // Populate local storage
@@ -104,9 +104,8 @@ UserProfiles::UserProfiles(Repository &durability) : durability_{&durability} {
     }
   });
 
-  // Data written before usernames were folded can place spellings of one user in several profiles. Keep one in memory:
-  // the profile with the largest raw spelling (all-lowercase when present, as older binaries enforced; ties go to the
-  // smallest profile name). Durable data is left as is.
+  // Pre-fold data can put spellings of one user in several profiles; keep the one with the largest raw spelling
+  // (all-lowercase when present, as older binaries enforced; ties: smallest profile name). Durable data is untouched.
   for (const auto &[user, entries] : spellings) {
     std::set<std::string> names;
     const std::pair<std::string, std::string> *winner = nullptr;
