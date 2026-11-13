@@ -1,0 +1,20 @@
+query: >
+  MATCH (a:Node {id: 'a'})
+  MATCH (b:Node {id: 'b'})
+  CALL refactor.clone_subgraph([b, a, b], [], {skipProperties: ['name']})
+  YIELD output, error
+  RETURN output, error;
+
+output:
+  - output:
+        labels:
+          - Node
+        properties:
+          id: b
+    error: null
+  - output:
+        labels:
+          - Node
+        properties:
+          id: a
+    error: null

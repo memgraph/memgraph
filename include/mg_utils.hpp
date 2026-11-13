@@ -267,6 +267,12 @@ inline void InsertStringValueResult(mgp_result_record *record, const char *field
   InsertRecord(record, field_name, value);
 }
 
+/// Inserts a NULL to the field field_name of the record mgp_result_record record.
+inline void InsertNullValueResult(mgp_result_record *record, const char *field_name, mgp_memory *memory) {
+  auto value = mgp::value_make_null(memory);
+  InsertRecord(record, field_name, value);
+}
+
 /// Inserts an integer of value int_value to the field field_name of
 /// the record mgp_result_record record.
 inline void InsertIntValueResult(mgp_result_record *record, const char *field_name, const int int_value,

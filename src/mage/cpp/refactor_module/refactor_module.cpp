@@ -62,7 +62,7 @@ extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *mem
              Refactor::kArgumentsSkipPropClone, {mgp::Type::List, mgp::Type::String}, mgp::Value(mgp::List{}))},
         {mgp::Return(Refactor::kResultClonedNodeId, mgp::Type::Int),
          mgp::Return(Refactor::kResultNewNode, mgp::Type::Node),
-         mgp::Return(Refactor::kResultCloneNodeError, mgp::Type::String)},
+         mgp::Return(Refactor::kResultCloneNodeError, mgp::Type::String).Nullable()},
         module,
         memory);
 
@@ -74,7 +74,7 @@ extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *mem
          mgp::Parameter(Refactor::kArgumentsConfigMap, {mgp::Type::Map, mgp::Type::Any}, mgp::Value(mgp::Map{}))},
         {mgp::Return(Refactor::kResultClonedNodeId, mgp::Type::Int),
          mgp::Return(Refactor::kResultNewNode, mgp::Type::Node),
-         mgp::Return(Refactor::kResultCloneNodeError, mgp::Type::String)},
+         mgp::Return(Refactor::kResultCloneNodeError, mgp::Type::String).Nullable()},
         module,
         memory);
 
@@ -87,7 +87,7 @@ extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *mem
          mgp::Parameter(Refactor::kArgumentsConfigMap, {mgp::Type::Map, mgp::Type::Any}, mgp::Value(mgp::Map{}))},
         {mgp::Return(Refactor::kResultClonedNodeId, mgp::Type::Int),
          mgp::Return(Refactor::kResultNewNode, mgp::Type::Node),
-         mgp::Return(Refactor::kResultCloneNodeError, mgp::Type::String)},
+         mgp::Return(Refactor::kResultCloneNodeError, mgp::Type::String).Nullable()},
         module,
         memory);
 

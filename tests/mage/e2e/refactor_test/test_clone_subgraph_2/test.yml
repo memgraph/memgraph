@@ -16,19 +16,14 @@ query: >
 output:
   - output:
         labels:
-          - Person
+          - Marija
         properties:
-          id: 6
+          id: 1
   - output:
         labels:
           - Person
         properties:
-          id: 5
-  - output:
-        labels:
-          - Person
-        properties:
-          id: 4
+          id: 2
   - output:
         labels:
           - Person
@@ -38,9 +33,14 @@ output:
         labels:
           - Person
         properties:
-          id: 2
+          id: 4
   - output:
         labels:
-          - Marija
+          - Person
         properties:
-          id: 1
+          id: 5
+  - output:
+        labels:
+          - Person
+        properties:
+          id: 6
