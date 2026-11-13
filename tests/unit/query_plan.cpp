@@ -5539,12 +5539,14 @@ TEST(IndexDisjunctionClone, IsDeep) {
   FakeDbAccessor dba;
   const memgraph::query::Symbol node_symbol{"n", 0, /*user_declared=*/false};
   const memgraph::query::Symbol element_symbol{"e", 1, /*user_declared=*/false};
+  auto *element = storage.Create<memgraph::query::Identifier>("e");
+  element->MapTo(element_symbol);
   auto *bound = storage.Create<memgraph::query::PrimitiveLiteral>(1);
   auto *list = storage.Create<memgraph::query::ListLiteral>(std::vector<memgraph::query::Expression *>{bound});
   std::vector<IndexDisjunctionBranch> branches{{.label = dba.Label("A")},
                                                {.label = dba.Label("B"),
                                                 .properties = {ms::PropertyPath{dba.Property("p")}},
-                                                .expression_ranges = {ExpressionRange::Equal(bound)},
+                                                .expression_ranges = {ExpressionRange::In(element, list)},
                                                 .membership_slots = {{.list = list, .symbol = element_symbol}}}};
   ScanAllByIndexDisjunction original(std::make_shared<Once>(), node_symbol, std::move(branches));
 
@@ -5556,7 +5558,14 @@ TEST(IndexDisjunctionClone, IsDeep) {
   ASSERT_EQ(clone.branches_.size(), 2U);
   auto const &branch = clone.branches_[1];
   ASSERT_EQ(branch.expression_ranges.size(), 1U);
-  auto *cloned_bound = dynamic_cast<memgraph::query::PrimitiveLiteral *>(branch.expression_ranges[0].lower_->value());
+  auto const &range = branch.expression_ranges[0];
+  auto *cloned_element = dynamic_cast<memgraph::query::Identifier *>(range.lower_->value());
+  ASSERT_NE(cloned_element, nullptr);
+  EXPECT_NE(cloned_element, element);
+  EXPECT_EQ(cloned_element->symbol_pos_, element_symbol.position());
+  ASSERT_NE(range.membership_list_, nullptr);
+  EXPECT_NE(range.membership_list_, list);
+  auto *cloned_bound = dynamic_cast<memgraph::query::PrimitiveLiteral *>(range.membership_list_->elements_.at(0));
   ASSERT_NE(cloned_bound, nullptr);
   EXPECT_EQ(cloned_bound->value_.ValueInt(), 1);
   ASSERT_EQ(branch.membership_slots.size(), 1U);
