@@ -555,8 +555,6 @@ bolt_map_t SessionHL::Discard(std::optional<int> n, std::optional<int> qid) {
     // sent; report it as a ClientError under its own name.
     metrics::IncrementCounter(GetExceptionName(e));
     throw memgraph::communication::bolt::ClientError(e.what());
-  } catch (const utils::BasicException &) {
-    throw;
   }
 }
 
@@ -578,8 +576,6 @@ bolt_map_t SessionHL::Pull(std::optional<int> n, std::optional<int> qid) {
     // sent; report it as a ClientError under its own name.
     metrics::IncrementCounter(GetExceptionName(e));
     throw memgraph::communication::bolt::ClientError(e.what());
-  } catch (const utils::BasicException &) {
-    throw;
   }
 }
 
@@ -704,8 +700,6 @@ void SessionHL::RollbackTransaction() {
     // sent; report it as a ClientError under its own name.
     metrics::IncrementCounter(GetExceptionName(e));
     throw memgraph::communication::bolt::ClientError(e.what());
-  } catch (const utils::BasicException &) {
-    throw;
   }
 }
 
@@ -730,8 +724,6 @@ bolt_map_t SessionHL::CommitTransaction() {
     // sent; report it as a ClientError under its own name.
     metrics::IncrementCounter(GetExceptionName(e));
     throw memgraph::communication::bolt::ClientError(e.what());
-  } catch (const utils::BasicException &) {
-    throw;
   }
 }
 

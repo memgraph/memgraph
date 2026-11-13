@@ -28,6 +28,7 @@
 #include "license/license_sender.hpp"
 #include "metrics/prometheus_metrics.hpp"
 #include "storage/v2/property_value.hpp"
+#include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
 #include "utils/message.hpp"
