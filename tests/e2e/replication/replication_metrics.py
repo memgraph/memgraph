@@ -37,7 +37,7 @@ METRIC_LINE = re.compile(r"^(\w+)(?:\{(.*)\})? (\S+)$")
 LABEL = re.compile(r'(\w+)="([^"]*)"')
 
 
-def instances_description(test_name):
+def instances_description(test_name, modes=MODES):
     def instance(name, setup_queries):
         return {
             "args": [
@@ -61,8 +61,8 @@ def instances_description(test_name):
         "main": instance(
             "main",
             [
-                f"REGISTER REPLICA {name} {MODES[name].upper()} TO '127.0.0.1:{REPLICATION_PORTS[name]}';"
-                for name in MODES
+                f"REGISTER REPLICA {name} {mode.upper()} TO '127.0.0.1:{REPLICATION_PORTS[name]}';"
+                for name, mode in modes.items()
             ],
         ),
     }
@@ -103,9 +103,9 @@ def instance_view(instance):
     }
 
 
-def replica_view(replica):
+def replica_view(replica, modes=MODES):
     samples = scrape("main")
-    labels = {"mg_instance": replica, "database": "memgraph", "mode": MODES[replica]}
+    labels = {"mg_instance": replica, "database": "memgraph", "mode": modes[replica]}
     return {
         "state": {state: sample(samples, "memgraph_replica_state", state=state, **labels) for state in STATES},
         "txns_behind": sample(samples, "memgraph_replica_txns_behind", **labels),
@@ -131,6 +131,13 @@ def test_main_reports_healthy_replicas(test_name):
 
     expected_main = {"role": {"main": 1.0, "replica": 0.0}, "writeable": 1.0, "registered_replicas": 2.0}
     assert instance_view("main") == expected_main
+
+
+def test_strict_sync_replica_is_labelled(test_name):
+    modes = {"replica_1": "strict_sync", "replica_2": "async"}
+    interactive_mg_runner.start_all(instances_description(test_name, modes), keep_directories=False)
+
+    mg_sleep_and_assert(expected_replica("ready", 0), lambda: replica_view("replica_1", modes))
 
 
 def test_replica_reports_its_role(test_name):
