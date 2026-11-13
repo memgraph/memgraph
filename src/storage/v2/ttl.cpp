@@ -180,7 +180,7 @@ void TTL::Configure(bool should_run_edge_ttl) {
 
   auto ttl_job = [this]() {
     const memory::DbArenaScope db_arena_scope{storage_ptr_->DbArenaPool()};
-    // Check if we're a main instance - only main instances should run TTL
+    // Skip the run when TTL may not delete, such as on a replica or without a valid license
     if (!user_check_()) return;
 
     bool finished_vertex = false;

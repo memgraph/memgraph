@@ -16,3 +16,7 @@ workloads:
     binary: "tests/e2e/pytest_runner.sh"
     args: ["time_to_live/multitenancy.py"]
     <<: *ttl_setup
+
+  - name: "TTL without a licence"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["time_to_live/licence.py"]

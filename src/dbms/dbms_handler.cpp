@@ -798,7 +798,8 @@ DbmsHandler::NewResultT DbmsHandler::New_(storage::Config storage_config, system
   auto new_db = db_handler_.New(storage_config);
 
   if (new_db) {  // Success
-                 // Save delta
+    if (ttl_user_check_) (*new_db)->storage()->ttl_.SetUserCheck(ttl_user_check_);
+    // Save delta
     UpdateDurability(storage_config);
     if (txn) {
       txn->AddAction<CreateDatabase>(storage_config.salient, new_db.value());
@@ -1595,6 +1596,7 @@ DbmsHandler::ResumeResult DbmsHandler::Resume_(std::string_view name, system::Tr
         spdlog::info("hot/cold: database '{}' resumed (COLD -> HOT)", name);
       });
       best_effort("post-publish resume arm", [&] {
+        if (ttl_user_check_) acc->storage()->ttl_.SetUserCheck(ttl_user_check_);
         if (on_published_) on_published_(acc);
       });
       // Winner's own successful publish: a real COLD -> HOT rebuild, so already_hot is false.
