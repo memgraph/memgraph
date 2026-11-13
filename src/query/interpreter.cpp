@@ -8834,6 +8834,23 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
       .rw_type = RWType::NONE};
 }
 
+#ifdef MG_ENTERPRISE
+// Applies only to names minted by CREATE/RENAME; databases restored or replicated under older names are not checked.
+constexpr size_t kMaxDatabaseNameLength = 63;
+constexpr std::string_view kInvalidDatabaseNameMsg =
+    "Invalid database name: a name must be 1-63 bytes long, contain no control characters, and not start or end with "
+    "a space.";
+
+bool IsValidDatabaseName(std::string_view name) {
+  if (name.empty() || name.size() > kMaxDatabaseNameLength) return false;
+  if (name.front() == ' ' || name.back() == ' ') return false;
+  return std::ranges::none_of(name, [](char c) {
+    const auto u = static_cast<unsigned char>(c);
+    return u < 0x20 || u == 0x7F;
+  });
+}
+#endif
+
 PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterContext *interpreter_context,
                                         Interpreter &interpreter) {
 #ifdef MG_ENTERPRISE
@@ -8852,6 +8869,7 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
       if (is_replica) {
         throw QueryException("Query forbidden on the replica!");
       }
+      if (!IsValidDatabaseName(query->db_name_)) throw QueryRuntimeException(kInvalidDatabaseNameMsg);
       return PreparedQuery{
           .header = {"STATUS"},
           .privileges = std::move(parsed_query.required_privileges),
@@ -8983,6 +9001,7 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
       if (!query->new_db_name_) {
         throw QueryException("New database name is required for RENAME DATABASE query.");
       }
+      if (!IsValidDatabaseName(*query->new_db_name_)) throw QueryRuntimeException(kInvalidDatabaseNameMsg);
 
       return PreparedQuery{
           .header = {"STATUS"},

@@ -14,6 +14,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <thread>
+#include <vector>
 
 #include "auth/auth.hpp"
 #include "communication/bolt/v1/value.hpp"
@@ -828,6 +829,27 @@ TEST_F(MultiTenantTest, RenameDatabaseErrors) {
   UseDatabase(interpreter2, "rename_error_db2", "Using rename_error_db2");
   ASSERT_NO_THROW(RenameDatabase(
       interpreter1, "rename_error_db2", "new_name2", "Successfully renamed database rename_error_db2 to new_name2"));
+}
+
+TEST_F(MultiTenantTest, InvalidDatabaseNames) {
+  CleanupDatabases();
+  auto interpreter = this->NewInterpreter();
+  const auto quote = [](const std::string &name) { return "`" + name + "`"; };
+
+  const std::vector<std::string> invalid{
+      "", " ", " lead", "trail ", "new\nline", std::string("a\0b", 3), std::string(64, 'x')};
+  for (const auto &name : invalid) {
+    ASSERT_THROW(RunMtQuery(interpreter, "CREATE DATABASE " + quote(name)), memgraph::query::QueryRuntimeException);
+  }
+
+  ASSERT_NO_THROW(RunMtQuery(interpreter, "CREATE DATABASE " + quote(std::string(63, 'x'))));
+  ASSERT_NO_THROW(RunMtQuery(interpreter, "CREATE DATABASE " + quote("a b..c/d")));
+
+  RunMtQuery(interpreter, "CREATE DATABASE valid_src", "Successfully created database valid_src");
+  ASSERT_THROW(RenameDatabase(interpreter, "valid_src", quote("bad\nname")), memgraph::query::QueryRuntimeException);
+  UseDatabase(interpreter, "valid_src", "Using valid_src");
+  ASSERT_NO_THROW(
+      RenameDatabase(interpreter, "valid_src", "valid_dst", "Successfully renamed database valid_src to valid_dst"));
 }
 
 TEST_F(MultiTenantTest, RenameDatabaseConcurrency) {
