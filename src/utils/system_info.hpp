@@ -12,8 +12,11 @@
 #pragma once
 
 #include <cstdint>
+#include <filesystem>
 #include <nlohmann/json_fwd.hpp>
+#include <optional>
 #include <string>
+#include <string_view>
 #include <unordered_set>
 #include <vector>
 
@@ -37,6 +40,17 @@ struct CPUInfo {
 
 std::string GetMachineId();
 
+inline constexpr auto kInstallIdFileName = ".memgraph_install_id";
+
+/// Returns the UUID identifying this Memgraph installation (i.e. this data directory). It's stored in
+/// `<data_directory>/.memgraph_install_id` and reused on every start. A new one is generated if the file is missing or
+/// doesn't hold a valid UUID. If the file can't be written, the newly generated id is still returned, but it'll only
+/// last for the current run. Call it only while holding the data directory lock.
+std::string GetOrCreateInstallId(const std::filesystem::path &data_directory);
+
+/// Returns the hostname reported by gethostname(2), falling back to /etc/hostname. Returns "UNKNOWN" if neither works.
+std::string GetHostname();
+
 MemoryInfo GetMemoryInfo();
 
 CPUInfo GetCPUInfo(const std::string &machine);
@@ -52,6 +66,19 @@ std::unordered_set<std::string> ExtractCPUFlags(const std::vector<std::string> &
 std::string ExtractArmCPUVariant(const std::vector<std::string> &cpu_data);
 
 RuntimeEnv DetectRuntimeEnv();
+
+inline constexpr auto kKubernetesServiceAccountTokenPath = "/var/run/secrets/kubernetes.io/serviceaccount/token";
+
+/// Extracts the pod UID from a Kubernetes service account token (a JWT). Bound service account tokens, which are
+/// projected into pods by default, carry it in the `kubernetes.io.pod.uid` claim. Only the payload is decoded; the
+/// signature isn't verified, so never use the result for anything security-related. Returns nullopt if the token can't
+/// be parsed, doesn't have the claim (e.g. a legacy secret-based token), or the claim isn't a UUID.
+std::optional<std::string> ExtractPodUidFromServiceAccountToken(std::string_view token);
+
+/// Reads the service account token mounted into the pod and returns the pod UID from it. Returns nullopt if the token
+/// isn't mounted (e.g. not running in Kubernetes, or `automountServiceAccountToken: false`) or doesn't carry the UID.
+std::optional<std::string> GetKubernetesPodUid(
+    const std::filesystem::path &token_path = kKubernetesServiceAccountTokenPath);
 
 /**
  * Returns the number of hardware threads available, with a guaranteed

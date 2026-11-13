@@ -542,6 +542,9 @@ int main(int argc, char **argv) {
 
   spdlog::trace("Successfully acquired lock on data directory");
 
+  // Must happen while holding the data directory lock, so concurrent starts can't race on creating the file.
+  const auto install_id = memgraph::utils::GetOrCreateInstallId(data_directory);
+
   const auto memory_limit = memgraph::flags::GetMemoryLimit();
   // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
   spdlog::info("Memory limit in config is set to {}", memgraph::utils::GetReadableSize(memory_limit));
@@ -1240,6 +1243,7 @@ int main(int argc, char **argv) {
                         data_directory / "telemetry",
                         memgraph::glue::run_id_,
                         machine_id,
+                        install_id,
                         service_name == "BoltS",
                         FLAGS_data_directory,
                         std::chrono::hours(8),
