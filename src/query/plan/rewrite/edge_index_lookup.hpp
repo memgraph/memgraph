@@ -27,6 +27,7 @@
 #include "query/db_accessor.hpp"
 #include "query/plan/operator.hpp"
 #include "query/plan/preprocess.hpp"
+#include "query/plan/rewrite/filter_fence.hpp"
 #include "query/plan/rewrite/general.hpp"
 #include "query/plan/rewrite/order_by_elimination.hpp"
 #include "storage/v2/id_types.hpp"
@@ -203,6 +204,7 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(Merge &op) override {
     prev_ops_.push_back(&op);
+    fence_.Enter();
     op.input()->Accept(*this);
     RewriteBranch(&op.merge_match_);
     return false;
@@ -210,6 +212,7 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PostVisit(Merge &) override {
     prev_ops_.pop_back();
+    fence_.Exit();
     return true;
   }
 
@@ -283,21 +286,25 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(CreateNode &op) override {
     prev_ops_.push_back(&op);
+    fence_.Enter();
     return true;
   }
 
   bool PostVisit(CreateNode &) override {
     prev_ops_.pop_back();
+    fence_.Exit();
     return true;
   }
 
   bool PreVisit(CreateExpand &op) override {
     prev_ops_.push_back(&op);
+    fence_.Enter();
     return true;
   }
 
   bool PostVisit(CreateExpand &) override {
     prev_ops_.pop_back();
+    fence_.Exit();
     return true;
   }
 
@@ -429,61 +436,73 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(Delete &op) override {
     prev_ops_.push_back(&op);
+    fence_.Enter();
     return true;
   }
 
   bool PostVisit(Delete &) override {
     prev_ops_.pop_back();
+    fence_.Exit();
     return true;
   }
 
   bool PreVisit(SetProperty &op) override {
     prev_ops_.push_back(&op);
+    fence_.Enter();
     return true;
   }
 
   bool PostVisit(SetProperty &) override {
     prev_ops_.pop_back();
+    fence_.Exit();
     return true;
   }
 
   bool PreVisit(SetProperties &op) override {
     prev_ops_.push_back(&op);
+    fence_.Enter();
     return true;
   }
 
   bool PostVisit(SetProperties &) override {
     prev_ops_.pop_back();
+    fence_.Exit();
     return true;
   }
 
   bool PreVisit(SetLabels &op) override {
     prev_ops_.push_back(&op);
+    fence_.Enter();
     return true;
   }
 
   bool PostVisit(SetLabels &) override {
     prev_ops_.pop_back();
+    fence_.Exit();
     return true;
   }
 
   bool PreVisit(RemoveProperty &op) override {
     prev_ops_.push_back(&op);
+    fence_.Enter();
     return true;
   }
 
   bool PostVisit(RemoveProperty &) override {
     prev_ops_.pop_back();
+    fence_.Exit();
     return true;
   }
 
   bool PreVisit(RemoveLabels &op) override {
     prev_ops_.push_back(&op);
+    fence_.Enter();
     return true;
   }
 
   bool PostVisit(RemoveLabels &) override {
     prev_ops_.pop_back();
+    fence_.Exit();
     return true;
   }
 
@@ -499,11 +518,13 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(Accumulate &op) override {
     prev_ops_.push_back(&op);
+    fence_.Enter();
     return true;
   }
 
   bool PostVisit(Accumulate &) override {
     prev_ops_.pop_back();
+    fence_.Exit();
     return true;
   }
 
@@ -573,16 +594,19 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(CallProcedure &op) override {
     prev_ops_.push_back(&op);
+    fence_.Enter(op.graph_access_ == GraphAccess::Write);
     return true;
   }
 
   bool PostVisit(CallProcedure &) override {
     prev_ops_.pop_back();
+    fence_.Exit();
     return true;
   }
 
   bool PreVisit(Foreach &op) override {
     prev_ops_.push_back(&op);
+    fence_.Enter();
     op.input()->Accept(*this);
     RewriteBranch(&op.update_clauses_);
     return false;
@@ -590,6 +614,7 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PostVisit(Foreach &) override {
     prev_ops_.pop_back();
+    fence_.Exit();
     return true;
   }
 
@@ -698,21 +723,25 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(SetNestedProperty &op) override {
     prev_ops_.push_back(&op);
+    fence_.Enter();
     return true;
   }
 
   bool PostVisit(SetNestedProperty & /*op*/) override {
     prev_ops_.pop_back();
+    fence_.Exit();
     return true;
   }
 
   bool PreVisit(RemoveNestedProperty &op) override {
     prev_ops_.push_back(&op);
+    fence_.Enter();
     return true;
   }
 
   bool PostVisit(RemoveNestedProperty & /*op*/) override {
     prev_ops_.pop_back();
+    fence_.Exit();
     return true;
   }
 
@@ -725,6 +754,7 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
   // Collected filters, pending for examination if they can be used for advanced
   // lookup operations (by index, node ID, ...).
   Filters filters_;
+  FilterFence fence_{filters_};
   // Expressions which no longer need a plain Filter operator.
   std::unordered_set<Expression *> filter_exprs_for_removal_;
   std::vector<LogicalOperator *> prev_ops_;
@@ -738,8 +768,8 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
     ExpressionRange range;
   };
 
-  auto MakeExpressionRange(PropertyFilter const &prop_filter, std::shared_ptr<LogicalOperator> const &input)
-      -> ExpressionRangeResult {
+  auto MakeExpressionRange(PropertyFilter const &prop_filter, std::shared_ptr<LogicalOperator> const &input,
+                           storage::View view) -> ExpressionRangeResult {
     if (prop_filter.lower_bound_ || prop_filter.upper_bound_) {
       return {input, ExpressionRange::Range(prop_filter.lower_bound_, prop_filter.upper_bound_)};
     }
@@ -754,7 +784,7 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
         return {input, ExpressionRange::EndsWith(prop_filter.value_)};
       case PropertyFilter::Type::IN: {
         auto *membership_list = utils::Downcast<ListLiteral>(prop_filter.value_);
-        auto unwound = UnwindMembershipList(*symbol_table_, ast_storage_, input, prop_filter.value_);
+        auto unwound = UnwindMembershipList(*symbol_table_, ast_storage_, input, prop_filter.value_, view);
         return {std::move(unwound.op), ExpressionRange::In(unwound.element, membership_list)};
       }
       case PropertyFilter::Type::IS_NOT_NULL:
@@ -1040,7 +1070,7 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
       filter_exprs_for_removal_.insert(filter.expression);
       filters_.EraseFilter(filter);
       if (filter.id_filter->type_ == IdFilter::Type::IN) {
-        auto unwound = UnwindMembershipList(*symbol_table_, ast_storage_, input, value);
+        auto unwound = UnwindMembershipList(*symbol_table_, ast_storage_, input, value, view);
         return std::make_unique<ScanAllByEdgeId>(std::move(unwound.op),
                                                  common.edge_symbol,
                                                  common.node1_symbol,
@@ -1087,7 +1117,7 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
         filters_.EraseLabelFilter(common.edge_symbol, found_index->edge_type_from_filter.value(), &removed_expressions);
         filter_exprs_for_removal_.insert(removed_expressions.begin(), removed_expressions.end());
       }
-      auto [scan_input, range] = MakeExpressionRange(prop_filter, input);
+      auto [scan_input, range] = MakeExpressionRange(prop_filter, input, view);
       return std::make_unique<ScanAllByEdgeTypeProperty>(scan_input,
                                                          common.edge_symbol,
                                                          common.node1_symbol,
@@ -1141,7 +1171,7 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
         filter_exprs_for_removal_.insert(found_property_index->filter.expression);
       }
       filters_.EraseFilter(found_property_index->filter);
-      auto [scan_input, range] = MakeExpressionRange(prop_filter, input);
+      auto [scan_input, range] = MakeExpressionRange(prop_filter, input, view);
       return std::make_shared<ScanAllByEdgeProperty>(scan_input,
                                                      common.edge_symbol,
                                                      common.node1_symbol,
@@ -1167,6 +1197,8 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
       edge_identifier->MapTo(common.edge_symbol);
       auto *test = ast_storage_->Create<EdgeTypesTest>(edge_identifier, std::move(valid_edge_types));
       auto filter = std::make_shared<Filter>(result, std::vector<std::shared_ptr<LogicalOperator>>{}, test);
+      // The edge-type test stands in for the scan it replaces, so it reads the scan's view.
+      filter->view_ = view;
 
       // Need to populate the all_filters
       auto all_filters = Filters::FromExpression(filter->expression_, *symbol_table_, *ast_storage_);

@@ -56,6 +56,8 @@ using func_impl =
 struct func_info {
   func_impl func_;
   bool is_pure_;  // if true we can cache the result becasue result wouldn't change on 2nd evaluation
+  // Reads an entity's labels, properties or edges through `FunctionContext::view`; the planner orders it after writes.
+  bool reads_graph_{false};
 };
 
 using user_func = std::pair<func_impl, std::shared_ptr<procedure::Module>>;
@@ -90,6 +92,9 @@ auto NameToFunction(const std::string &function_name) -> std::variant<std::monos
 /// @param function_name The name of the function to check
 /// @return true if the function is a pure builtin function, false otherwise
 bool IsFunctionPure(std::string_view function_name);
+
+/// Whether a built-in function reads graph state through `FunctionContext::view`; true for an unknown name.
+bool FunctionReadsGraph(std::string_view function_name);
 
 // Returns the current hops counter if set, otherwise null.
 TypedValue GetHopsCounter(const TypedValue *args, int64_t nargs, const FunctionContext &ctx);

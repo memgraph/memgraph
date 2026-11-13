@@ -26,6 +26,7 @@
 
 #include "query/plan/operator.hpp"
 #include "query/plan/preprocess.hpp"
+#include "query/plan/rewrite/filter_fence.hpp"
 #include "query/plan/rewrite/general.hpp"
 
 namespace memgraph::query::plan {
@@ -46,6 +47,7 @@ class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(Filter &op) override {
     prev_ops_.push_back(&op);
+    filter_views_.push_back(op.view_);
     filters_.AddOperatorFilters(op.expression_, *symbol_table_, *ast_storage_);
     return true;
   }
@@ -55,6 +57,7 @@ class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
   // free the memory.
   bool PostVisit(Filter &op) override {
     prev_ops_.pop_back();
+    filter_views_.pop_back();
 
     ExpressionRemovalResult removal = RemoveExpressions(op.expression_, filter_exprs_for_removal_, ast_storage_);
     op.expression_ = removal.trimmed_expression;
@@ -188,6 +191,7 @@ class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(Merge &op) override {
     prev_ops_.push_back(&op);
+    fence_.Enter();
     op.input()->Accept(*this);
     RewriteBranch(&op.merge_match_);
     return false;
@@ -195,6 +199,7 @@ class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PostVisit(Merge &) override {
     prev_ops_.pop_back();
+    fence_.Exit();
     return true;
   }
 
@@ -265,21 +270,25 @@ class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(CreateNode &op) override {
     prev_ops_.push_back(&op);
+    fence_.Enter();
     return true;
   }
 
   bool PostVisit(CreateNode &) override {
     prev_ops_.pop_back();
+    fence_.Exit();
     return true;
   }
 
   bool PreVisit(CreateExpand &op) override {
     prev_ops_.push_back(&op);
+    fence_.Enter();
     return true;
   }
 
   bool PostVisit(CreateExpand &) override {
     prev_ops_.pop_back();
+    fence_.Exit();
     return true;
   }
 
@@ -355,61 +364,73 @@ class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(Delete &op) override {
     prev_ops_.push_back(&op);
+    fence_.Enter();
     return true;
   }
 
   bool PostVisit(Delete &) override {
     prev_ops_.pop_back();
+    fence_.Exit();
     return true;
   }
 
   bool PreVisit(SetProperty &op) override {
     prev_ops_.push_back(&op);
+    fence_.Enter();
     return true;
   }
 
   bool PostVisit(SetProperty &) override {
     prev_ops_.pop_back();
+    fence_.Exit();
     return true;
   }
 
   bool PreVisit(SetProperties &op) override {
     prev_ops_.push_back(&op);
+    fence_.Enter();
     return true;
   }
 
   bool PostVisit(SetProperties &) override {
     prev_ops_.pop_back();
+    fence_.Exit();
     return true;
   }
 
   bool PreVisit(SetLabels &op) override {
     prev_ops_.push_back(&op);
+    fence_.Enter();
     return true;
   }
 
   bool PostVisit(SetLabels &) override {
     prev_ops_.pop_back();
+    fence_.Exit();
     return true;
   }
 
   bool PreVisit(RemoveProperty &op) override {
     prev_ops_.push_back(&op);
+    fence_.Enter();
     return true;
   }
 
   bool PostVisit(RemoveProperty &) override {
     prev_ops_.pop_back();
+    fence_.Exit();
     return true;
   }
 
   bool PreVisit(RemoveLabels &op) override {
     prev_ops_.push_back(&op);
+    fence_.Enter();
     return true;
   }
 
   bool PostVisit(RemoveLabels &) override {
     prev_ops_.pop_back();
+    fence_.Exit();
     return true;
   }
 
@@ -425,11 +446,13 @@ class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(Accumulate &op) override {
     prev_ops_.push_back(&op);
+    fence_.Enter();
     return true;
   }
 
   bool PostVisit(Accumulate &) override {
     prev_ops_.pop_back();
+    fence_.Exit();
     return true;
   }
 
@@ -495,16 +518,19 @@ class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(CallProcedure &op) override {
     prev_ops_.push_back(&op);
+    fence_.Enter(op.graph_access_ == GraphAccess::Write);
     return true;
   }
 
   bool PostVisit(CallProcedure &) override {
     prev_ops_.pop_back();
+    fence_.Exit();
     return true;
   }
 
   bool PreVisit(Foreach &op) override {
     prev_ops_.push_back(&op);
+    fence_.Enter();
     op.input()->Accept(*this);
     RewriteBranch(&op.update_clauses_);
     return false;
@@ -512,6 +538,7 @@ class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PostVisit(Foreach &) override {
     prev_ops_.pop_back();
+    fence_.Exit();
     return true;
   }
 
@@ -618,21 +645,25 @@ class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(SetNestedProperty &op) override {
     prev_ops_.push_back(&op);
+    fence_.Enter();
     return true;
   }
 
   bool PostVisit(SetNestedProperty & /*op*/) override {
     prev_ops_.pop_back();
+    fence_.Exit();
     return true;
   }
 
   bool PreVisit(RemoveNestedProperty &op) override {
     prev_ops_.push_back(&op);
+    fence_.Enter();
     return true;
   }
 
   bool PostVisit(RemoveNestedProperty & /*op*/) override {
     prev_ops_.pop_back();
+    fence_.Exit();
     return true;
   }
 
@@ -645,6 +676,9 @@ class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
   // Collected filters, pending for examination if they can be used for advanced
   // lookup operations (by index, node ID, ...).
   Filters filters_;
+  FilterFence fence_{filters_};
+  /// The views of the Filters above the operator being visited, innermost last.
+  std::vector<storage::View> filter_views_;
   // Expressions which no longer need a plain Filter operator.
   std::unordered_set<Expression *> filter_exprs_for_removal_;
   std::vector<LogicalOperator *> prev_ops_;
@@ -751,7 +785,10 @@ class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
         std::swap(join_condition->expression1_, join_condition->expression2_);
       }
 
-      return std::make_unique<HashJoin>(left_op, left_symbols, right_op, right_symbols, join_condition);
+      auto hash_join = std::make_unique<HashJoin>(left_op, left_symbols, right_op, right_symbols, join_condition);
+      // The join condition comes from a Filter above; one scope's Filters share a view.
+      if (!filter_views_.empty()) hash_join->view_ = filter_views_.back();
+      return hash_join;
     }
 
     return nullptr;

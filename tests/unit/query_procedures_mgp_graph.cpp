@@ -848,3 +848,19 @@ TYPED_TEST(MgpGraphTest, GraphlessGraphStillAnswersWhatNeedsNoGraph) {
   EXPECT_SUCCESS(mgp_graph_is_transactional(&graph, &is_transactional));
   EXPECT_NE(is_transactional, 0);
 }
+
+// A vertex this command created does not exist at View::OLD; a read of it falls back to View::NEW, as a property
+// lookup does.
+TYPED_TEST(MgpGraphTest, ReadingAVertexTheCommandCreatedAtOldReadsNew) {
+  mgp_graph graph = this->CreateGraph(memgraph::storage::View::OLD);
+  auto *dba = std::get<memgraph::query::DbAccessor *>(graph.impl);
+  auto created = dba->InsertVertex();
+  ASSERT_TRUE(created.SetProperty(dba->NameToProperty("x"), memgraph::storage::PropertyValue(int64_t{7})).has_value());
+  mgp_vertex vertex{created, &graph, memgraph::utils::NewDeleteResource()};
+  mgp_value *value{nullptr};
+  ASSERT_EQ(mgp_vertex_get_property(&vertex, "x", &this->memory, &value), mgp_error::MGP_ERROR_NO_ERROR);
+  int64_t x{0};
+  EXPECT_EQ(mgp_value_get_int(value, &x), mgp_error::MGP_ERROR_NO_ERROR);
+  EXPECT_EQ(x, 7);
+  mgp_value_destroy(value);
+}

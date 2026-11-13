@@ -520,6 +520,8 @@ Feature: Merge feature
             """
         Then the result should be empty
 
+    # The second MERGE matches the 2 nodes for each of the first MERGE's 2 rows before the CREATE runs, so the CREATE
+    # adds 4 nodes; it must not see the nodes the CREATE made for earlier rows (6 nodes).
     Scenario: Merge followed by Create bounded count (issue #1333)
         Given an empty graph
         And having executed:
@@ -536,4 +538,4 @@ Feature: Merge feature
             """
         Then the result should be:
             | c |
-            | 8 |
+            | 6 |

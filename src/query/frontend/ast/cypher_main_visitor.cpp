@@ -4536,6 +4536,7 @@ antlrcpp::Any CypherMainVisitor::visitSet(MemgraphCypher::SetContext *ctx) {
   std::vector<Clause *> set_items;
   for (auto *set_item : ctx->setItem()) {
     set_items.push_back(std::any_cast<Clause *>(set_item->accept(this)));
+    set_items.back()->continues_previous_ = set_items.size() > 1;
   }
   return set_items;
 }
@@ -4575,6 +4576,7 @@ antlrcpp::Any CypherMainVisitor::visitRemove(MemgraphCypher::RemoveContext *ctx)
   std::vector<Clause *> remove_items;
   for (auto *remove_item : ctx->removeItem()) {
     remove_items.push_back(std::any_cast<Clause *>(remove_item->accept(this)));
+    remove_items.back()->continues_previous_ = remove_items.size() > 1;
   }
   return remove_items;
 }

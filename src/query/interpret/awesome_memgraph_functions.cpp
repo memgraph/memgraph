@@ -35,6 +35,7 @@
 #include "query/procedure/mg_procedure_impl.hpp"
 #include "query/procedure/module.hpp"
 #include "query/query_user.hpp"
+#include "query/read_created.hpp"
 #include "query/string_helpers.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/point_functions.hpp"
@@ -465,8 +466,13 @@ TypedValue Properties(const TypedValue *args, int64_t nargs, const FunctionConte
   auto get_properties = [&](const auto &record_accessor, auto const &is_allowed) {
     TypedValue::TMap properties(ctx.memory);
     // With lazy refs on, embeddings stay lazy VectorRefs: a retained map costs O(references), not O(N*dim) floats.
-    auto maybe_props =
-        ctx.lazy_vector_refs ? record_accessor.PropertiesCompact(ctx.view) : record_accessor.Properties(ctx.view);
+    auto view = ctx.view;
+    auto maybe_props = ReadSeeingCreated(
+        view,
+        [&](storage::View at) {
+          return ctx.lazy_vector_refs ? record_accessor.PropertiesCompact(at) : record_accessor.Properties(at);
+        },
+        &view);
     if (!maybe_props) {
       switch (maybe_props.error()) {
         case storage::Error::DELETED_OBJECT:
@@ -484,7 +490,7 @@ TypedValue Properties(const TypedValue *args, int64_t nargs, const FunctionConte
       if (is_allowed(property.first)) {
         if (ctx.lazy_vector_refs && property.second.IsVectorIndexId()) {
           properties.emplace(std::move(key),
-                             TypedValue(VectorRefValue{record_accessor.impl_, property.first, ctx.view}, ctx.memory));
+                             TypedValue(VectorRefValue{record_accessor.impl_, property.first, view}, ctx.memory));
         } else {
           auto typed_value =
               TypedValue(property.second, ctx.db_accessor->GetStorageAccessor()->GetNameIdMapper(), ctx.memory);
@@ -521,7 +527,7 @@ TypedValue Properties(const TypedValue *args, int64_t nargs, const FunctionConte
   if (value.IsVertex()) {
     auto const &vertex = value.ValueVertex();
     if (!checker) return get_properties(vertex, allow_all_properties);
-    auto maybe_labels = vertex.Labels(ctx.view);
+    auto maybe_labels = ReadSeeingCreated(ctx.view, [&](storage::View at) { return vertex.Labels(at); });
     if (!maybe_labels) {
       ThrowVertexLabelsReadFailure(maybe_labels.error());
     }
@@ -573,15 +579,28 @@ TypedValue PropertySize(const TypedValue *args, int64_t nargs, const FunctionCon
     return TypedValue(0, ctx.memory);
   }
 
-  uint64_t property_size = 0;
-  const auto &graph_entity = args[0];
-  if (graph_entity.IsVertex()) {
-    property_size = graph_entity.ValueVertex().GetPropertySize(*maybe_property_id, ctx.view).value();
-  } else if (graph_entity.IsEdge()) {
-    property_size = graph_entity.ValueEdge().GetPropertySize(*maybe_property_id, ctx.view).value();
-  }
+  auto const size_of = [&](const auto &record) -> int64_t {
+    auto size =
+        ReadSeeingCreated(ctx.view, [&](storage::View at) { return record.GetPropertySize(*maybe_property_id, at); });
+    if (!size) {
+      switch (size.error()) {
+        case storage::Error::DELETED_OBJECT:
+          throw QueryRuntimeException("Trying to get a property size from a deleted object.");
+        case storage::Error::NONEXISTENT_OBJECT:
+          throw QueryRuntimeException("Trying to get a property size from an object that doesn't exist.");
+        case storage::Error::SERIALIZATION_ERROR:
+        case storage::Error::VERTEX_HAS_EDGES:
+        case storage::Error::PROPERTIES_DISABLED:
+          throw QueryRuntimeException("Unexpected error when getting a property size.");
+      }
+    }
+    return static_cast<int64_t>(*size);
+  };
 
-  return TypedValue(static_cast<int64_t>(property_size), ctx.memory);
+  const auto &graph_entity = args[0];
+  if (graph_entity.IsVertex()) return TypedValue(size_of(graph_entity.ValueVertex()), ctx.memory);
+  if (graph_entity.IsEdge()) return TypedValue(size_of(graph_entity.ValueEdge()), ctx.memory);
+  return TypedValue(0, ctx.memory);
 }
 
 TypedValue StartNode(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
@@ -650,8 +669,10 @@ TypedValue Degree(const TypedValue *args, int64_t nargs, const FunctionContext &
   FType<Or<Null, Vertex>>("degree", args, nargs);
   if (args[0].IsNull()) return TypedValue(ctx.memory);
   const auto &vertex = args[0].ValueVertex();
-  size_t out_degree = UnwrapDegreeResult(vertex.OutDegree(ctx.view));
-  size_t in_degree = UnwrapDegreeResult(vertex.InDegree(ctx.view));
+  auto view = ctx.view;
+  size_t out_degree =
+      UnwrapDegreeResult(ReadSeeingCreated(view, [&](storage::View at) { return vertex.OutDegree(at); }, &view));
+  size_t in_degree = UnwrapDegreeResult(vertex.InDegree(view));
   return TypedValue(static_cast<int64_t>(out_degree + in_degree), ctx.memory);
 }
 
@@ -659,7 +680,8 @@ TypedValue InDegree(const TypedValue *args, int64_t nargs, const FunctionContext
   FType<Or<Null, Vertex>>("inDegree", args, nargs);
   if (args[0].IsNull()) return TypedValue(ctx.memory);
   const auto &vertex = args[0].ValueVertex();
-  size_t in_degree = UnwrapDegreeResult(vertex.InDegree(ctx.view));
+  size_t in_degree =
+      UnwrapDegreeResult(ReadSeeingCreated(ctx.view, [&](storage::View at) { return vertex.InDegree(at); }));
   return TypedValue(static_cast<int64_t>(in_degree), ctx.memory);
 }
 
@@ -667,7 +689,8 @@ TypedValue OutDegree(const TypedValue *args, int64_t nargs, const FunctionContex
   FType<Or<Null, Vertex>>("outDegree", args, nargs);
   if (args[0].IsNull()) return TypedValue(ctx.memory);
   const auto &vertex = args[0].ValueVertex();
-  size_t out_degree = UnwrapDegreeResult(vertex.OutDegree(ctx.view));
+  size_t out_degree =
+      UnwrapDegreeResult(ReadSeeingCreated(ctx.view, [&](storage::View at) { return vertex.OutDegree(at); }));
   return TypedValue(static_cast<int64_t>(out_degree), ctx.memory);
 }
 
@@ -947,7 +970,7 @@ TypedValue Keys(const TypedValue *args, int64_t nargs, const FunctionContext &ct
   auto *dba = ctx.db_accessor;
   auto get_keys = [&](const auto &record_accessor, auto const &is_allowed) {
     TypedValue::TVector keys(ctx.memory);
-    auto maybe_props = record_accessor.Properties(ctx.view);
+    auto maybe_props = ReadSeeingCreated(ctx.view, [&](storage::View at) { return record_accessor.Properties(at); });
     if (!maybe_props) {
       switch (maybe_props.error()) {
         case storage::Error::DELETED_OBJECT:
@@ -974,7 +997,7 @@ TypedValue Keys(const TypedValue *args, int64_t nargs, const FunctionContext &ct
   if (value.IsVertex()) {
     auto const &vertex = value.ValueVertex();
     if (!checker) return get_keys(vertex, allow_all_properties);
-    auto maybe_labels = vertex.Labels(ctx.view);
+    auto maybe_labels = ReadSeeingCreated(ctx.view, [&](storage::View at) { return vertex.Labels(at); });
     if (!maybe_labels) {
       ThrowVertexLabelsReadFailure(maybe_labels.error());
     }
@@ -1018,8 +1041,13 @@ TypedValue Values(const TypedValue *args, int64_t nargs, const FunctionContext &
   auto get_values = [&](const auto &record_accessor, auto const &is_allowed) {
     TypedValue::TVector values(ctx.memory);
     // Like properties(n): with lazy refs on, embeddings stay VectorRefs.
-    auto maybe_props =
-        ctx.lazy_vector_refs ? record_accessor.PropertiesCompact(ctx.view) : record_accessor.Properties(ctx.view);
+    auto view = ctx.view;
+    auto maybe_props = ReadSeeingCreated(
+        view,
+        [&](storage::View at) {
+          return ctx.lazy_vector_refs ? record_accessor.PropertiesCompact(at) : record_accessor.Properties(at);
+        },
+        &view);
     if (!maybe_props) {
       switch (maybe_props.error()) {
         case storage::Error::DELETED_OBJECT:
@@ -1035,7 +1063,7 @@ TypedValue Values(const TypedValue *args, int64_t nargs, const FunctionContext &
     for (const auto &[key, value] : *maybe_props) {
       if (is_allowed(key)) {
         if (ctx.lazy_vector_refs && value.IsVectorIndexId()) {
-          values.emplace_back(VectorRefValue{record_accessor.impl_, key, ctx.view});
+          values.emplace_back(VectorRefValue{record_accessor.impl_, key, view});
         } else {
           values.emplace_back(TypedValue(value, ctx.db_accessor->GetStorageAccessor()->GetNameIdMapper(), ctx.memory));
         }
@@ -1053,7 +1081,7 @@ TypedValue Values(const TypedValue *args, int64_t nargs, const FunctionContext &
   if (value.IsVertex()) {
     auto const &vertex = value.ValueVertex();
     if (!checker) return get_values(vertex, allow_all_properties);
-    auto maybe_labels = vertex.Labels(ctx.view);
+    auto maybe_labels = ReadSeeingCreated(ctx.view, [&](storage::View at) { return vertex.Labels(at); });
     if (!maybe_labels) {
       ThrowVertexLabelsReadFailure(maybe_labels.error());
     }
@@ -1108,7 +1136,8 @@ TypedValue Labels(const TypedValue *args, int64_t nargs, const FunctionContext &
     return TypedValue(std::move(labels));
   }
   TypedValue::TVector labels(ctx.memory);
-  auto maybe_labels = args[0].ValueVertex().Labels(ctx.view);
+  auto const &vertex = args[0].ValueVertex();
+  auto maybe_labels = ReadSeeingCreated(ctx.view, [&](storage::View at) { return vertex.Labels(at); });
   if (!maybe_labels) {
     ThrowVertexLabelsReadFailure(maybe_labels.error());
   }
@@ -2195,20 +2224,20 @@ auto BuiltinFunctions() -> boost::unordered_flat_map<std::string, func_info> con
       {"DESCRIPTION", func_info{.func_ = Description, .is_pure_ = false}},
 
       // Scalar functions
-      {"DEGREE", func_info{.func_ = Degree, .is_pure_ = true}},
-      {"INDEGREE", func_info{.func_ = InDegree, .is_pure_ = true}},
-      {"OUTDEGREE", func_info{.func_ = OutDegree, .is_pure_ = true}},
+      {"DEGREE", func_info{.func_ = Degree, .is_pure_ = true, .reads_graph_ = true}},
+      {"INDEGREE", func_info{.func_ = InDegree, .is_pure_ = true, .reads_graph_ = true}},
+      {"OUTDEGREE", func_info{.func_ = OutDegree, .is_pure_ = true, .reads_graph_ = true}},
       {"ENDNODE", func_info{.func_ = EndNode, .is_pure_ = true}},
       {"HEAD", func_info{.func_ = Head, .is_pure_ = true}},
       {kId, func_info{.func_ = Id, .is_pure_ = true}},
       {kElementId, func_info{.func_ = ElementId, .is_pure_ = true}},
       {"LAST", func_info{.func_ = Last, .is_pure_ = true}},
       {"NULLIF", func_info{.func_ = NullIf, .is_pure_ = true}},
-      {"PROPERTIES", func_info{.func_ = Properties, .is_pure_ = true}},
+      {"PROPERTIES", func_info{.func_ = Properties, .is_pure_ = true, .reads_graph_ = true}},
       {"RANDOMUUID", func_info{.func_ = RandomUuid, .is_pure_ = false}},
       {"SIZE", func_info{.func_ = Size, .is_pure_ = true}},
       {"LENGTH", func_info{.func_ = Size, .is_pure_ = true}},
-      {"PROPERTYSIZE", func_info{.func_ = PropertySize, .is_pure_ = true}},
+      {"PROPERTYSIZE", func_info{.func_ = PropertySize, .is_pure_ = true, .reads_graph_ = true}},
       {"STARTNODE", func_info{.func_ = StartNode, .is_pure_ = true}},
       {"TIMESTAMP", func_info{.func_ = Timestamp, .is_pure_ = false}},
       {"TOBOOLEAN", func_info{.func_ = ToBoolean, .is_pure_ = true}},
@@ -2224,15 +2253,15 @@ auto BuiltinFunctions() -> boost::unordered_flat_map<std::string, func_info> con
       {"VALUETYPE", func_info{.func_ = ValueType, .is_pure_ = true}},
 
       // List, map functions
-      {"KEYS", func_info{.func_ = Keys, .is_pure_ = true}},
-      {"LABELS", func_info{.func_ = Labels, .is_pure_ = true}},
+      {"KEYS", func_info{.func_ = Keys, .is_pure_ = true, .reads_graph_ = true}},
+      {"LABELS", func_info{.func_ = Labels, .is_pure_ = true, .reads_graph_ = true}},
       {"NODES", func_info{.func_ = Nodes, .is_pure_ = true}},
       {"RANGE", func_info{.func_ = Range, .is_pure_ = true}},
       {"RELATIONSHIPS", func_info{.func_ = Relationships, .is_pure_ = true}},
       {"TAIL", func_info{.func_ = Tail, .is_pure_ = true}},
       {"TOSET", func_info{.func_ = ToSet, .is_pure_ = true}},
       {"UNIFORMSAMPLE", func_info{.func_ = UniformSample, .is_pure_ = false}},
-      {"VALUES", func_info{.func_ = Values, .is_pure_ = true}},
+      {"VALUES", func_info{.func_ = Values, .is_pure_ = true, .reads_graph_ = true}},
 
       // Mathematical functions - numeric
       {"ABS", func_info{.func_ = Abs, .is_pure_ = true}},
@@ -2408,6 +2437,12 @@ bool IsFunctionPure(std::string_view function_name) {
   // This may change in the future when we have a mechanism to mark
   // user-provided functions as pure.
   return false;
+}
+
+bool FunctionReadsGraph(std::string_view function_name) {
+  auto const &functions = BuiltinFunctions();
+  auto const it = functions.find(utils::ToUpperCase(function_name));
+  return it == functions.end() || it->second.reads_graph_;
 }
 
 }  // namespace memgraph::query

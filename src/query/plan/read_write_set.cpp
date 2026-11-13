@@ -1,0 +1,464 @@
+// Copyright 2026 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
+#include "query/plan/read_write_set.hpp"
+
+#include <algorithm>
+#include <variant>
+
+#include "query/frontend/ast/ast.hpp"
+#include "query/frontend/ast/ast_visitor.hpp"
+#include "query/frontend/semantic/symbol_table.hpp"
+#include "query/interpret/awesome_memgraph_functions.hpp"
+#include "query/plan/preprocess.hpp"
+
+namespace memgraph::query::plan {
+
+namespace {
+
+bool Intersects(const std::set<std::string> &lhs, const std::set<std::string> &rhs) {
+  return std::ranges::any_of(lhs, [&rhs](const auto &key) { return rhs.contains(key); });
+}
+
+bool KeysConflict(const std::set<std::string> &read_keys, bool read_any, const std::set<std::string> &write_keys,
+                  bool write_any) {
+  if (read_any) return write_any || !write_keys.empty();
+  if (write_any) return !read_keys.empty();
+  return Intersects(read_keys, write_keys);
+}
+
+class ReadWriteCollector final : public HierarchicalTreeVisitor {
+ public:
+  ReadWriteCollector(const SymbolTable &symbol_table, const std::unordered_set<Symbol> &bound,
+                     std::unordered_set<Symbol> non_graph)
+      : symbol_table_(symbol_table), bound_(bound), non_graph_(std::move(non_graph)) {}
+
+  using HierarchicalTreeVisitor::PostVisit;
+  using HierarchicalTreeVisitor::PreVisit;
+  using HierarchicalTreeVisitor::Visit;
+
+  bool Visit(Identifier &ident) override {
+    // An identifier the symbol generator left unmapped names no variable.
+    if (ident.symbol_pos_ < 0) return true;
+    auto const &symbol = symbol_table_.at(ident);
+    if (MayHoldEntity(symbol)) result.reads.referenced.insert(symbol);
+    return true;
+  }
+
+  bool Visit(PrimitiveLiteral & /*literal*/) override { return true; }
+
+  bool Visit(ParameterLookup & /*lookup*/) override { return true; }
+
+  bool Visit(EnumValueAccess & /*access*/) override { return true; }
+
+  // ---------------------------------------------------------------- reads
+
+  bool PreVisit(PropertyLookup &lookup) override {
+    if (ReadsGraph(lookup.expression_)) result.reads.properties.insert(lookup.property_path_.front().name);
+    return true;
+  }
+
+  bool PreVisit(AllPropertiesLookup &lookup) override {
+    if (ReadsGraph(lookup.expression_)) result.reads.any_property = true;
+    return true;
+  }
+
+  bool PreVisit(SubscriptOperator &op) override {
+    if (!ReadsGraph(op.expression1_) || utils::Downcast<ListLiteral>(op.expression1_)) return true;
+    if (auto *key = utils::Downcast<PrimitiveLiteral>(op.expression2_)) {
+      if (key->value_.IsString()) result.reads.properties.insert(std::string{key->value_.ValueString()});
+      return true;
+    }
+    result.reads.any_property = true;
+    return true;
+  }
+
+  bool PreVisit(LabelsTest &test) override {
+    if (const auto *cnf = test.Cnf()) {
+      for (const auto &label : cnf->labels) result.reads.labels.insert(label.name);
+      for (const auto &group : cnf->or_labels) {
+        for (const auto &label : group) result.reads.labels.insert(label.name);
+      }
+    } else if (const auto *term = test.Term()) {
+      ReadLabelTerm(*term);
+    }
+    return true;
+  }
+
+  bool PreVisit(EdgeTypesTest &test) override {
+    for (const auto &type : test.valid_edgetypes_) result.reads.edge_types.insert(type.name);
+    return true;
+  }
+
+  bool PreVisit(Function &function) override {
+    // It reads what the planner cannot name: every label, key or edge of an entity. A built-in says whether it reads
+    // one; a module function reaches the graph only through its arguments.
+    auto const reads_graph =
+        function.is_user_defined_
+            ? std::ranges::any_of(function.arguments_, [this](Expression *arg) { return MayHoldEntity(arg); })
+            : FunctionReadsGraph(function.function_name_);
+    if (reads_graph) result.reads.everything = true;
+    return true;
+  }
+
+  bool PreVisit(NodeAtom &node) override {
+    auto const &symbol = symbol_table_.at(*node.identifier_);
+    result.reads.symbols.insert(symbol);
+    // Only a node the pattern has to find reads which nodes exist, and only when an unlabelled node can match.
+    if (node.label_term_) {
+      ReadLabelTerm(*node.label_term_);
+      if (!bound_.contains(symbol) && !IsPositive(*node.label_term_)) result.reads.nodes = true;
+    } else if (!bound_.contains(symbol)) {
+      result.reads.nodes = true;
+    }
+    ReadPropertyKeys(node.properties_);
+    return true;
+  }
+
+  bool PreVisit(EdgeAtom &edge) override {
+    result.reads.symbols.insert(symbol_table_.at(*edge.identifier_));
+    if (edge.edge_types_.empty()) result.reads.any_edge_type = true;
+    for (const auto &type : edge.edge_types_) {
+      if (const auto *name = std::get_if<EdgeTypeIx>(&type)) {
+        result.reads.edge_types.insert(name->name);
+      } else {
+        result.reads.any_edge_type = true;
+      }
+    }
+    ReadPropertyKeys(edge.properties_);
+    // EdgeAtom::Accept does not walk the lambdas.
+    for (auto *lambda : {&edge.filter_lambda_, &edge.weight_lambda_}) {
+      if (lambda->expression) lambda->expression->Accept(*this);
+    }
+    return true;
+  }
+
+  bool PreVisit(CallProcedure &call) override {
+    result.reads.everything = true;
+    if (call.graph_access_ == GraphAccess::Write) result.writes.everything = true;
+    return true;
+  }
+
+  bool PreVisit(LoadCsv &load) override { return ReadsAFileRow(*load.row_var_); }
+
+  bool PreVisit(LoadParquet &load) override { return ReadsAFileRow(*load.row_var_); }
+
+  bool PreVisit(LoadJsonl &load) override { return ReadsAFileRow(*load.row_var_); }
+
+  // ---------------------------------------------------------------- writes
+
+  bool PreVisit(Create &create) override {
+    for (auto *pattern : create.patterns_) WritePattern(*pattern);
+    return false;
+  }
+
+  bool PreVisit(Merge &merge) override {
+    // MERGE first matches its pattern, then may create it.
+    merge.pattern_->Accept(*this);
+    WritePattern(*merge.pattern_);
+    for (auto *clause : merge.on_match_) clause->Accept(*this);
+    for (auto *clause : merge.on_create_) clause->Accept(*this);
+    return false;
+  }
+
+  bool PreVisit(Delete &del) override {
+    result.writes.everything = true;
+    for (auto *expression : del.expressions_) expression->Accept(*this);
+    return false;
+  }
+
+  bool PreVisit(SetProperty &set) override {
+    result.writes.properties.insert(set.property_lookup_->property_path_.front().name);
+    set.expression_->Accept(*this);
+    return false;
+  }
+
+  bool PreVisit(SetProperties &set) override {
+    result.writes.any_property = true;
+    // `SET n = m` copies every property of an entity; any value but a map literal or a parameter may be one.
+    if (!utils::Downcast<MapLiteral>(set.expression_) && !utils::Downcast<ParameterLookup>(set.expression_) &&
+        ReadsGraph(set.expression_)) {
+      result.reads.any_property = true;
+    }
+    set.expression_->Accept(*this);
+    return false;
+  }
+
+  bool PreVisit(SetLabels &set) override {
+    WriteLabels(set.labels_);
+    ReadLabelsForAccessCheck();
+    return false;
+  }
+
+  bool PreVisit(RemoveProperty &remove) override {
+    result.writes.properties.insert(remove.property_lookup_->property_path_.front().name);
+    return false;
+  }
+
+  bool PreVisit(RemoveLabels &remove) override {
+    WriteLabels(remove.labels_);
+    ReadLabelsForAccessCheck();
+    return false;
+  }
+
+  ReadsAndWrites result;
+
+  /// Whether a value may be, or hold, a node, an edge or a path. `ReadsGraph` asks the narrower question of a lookup's
+  /// object: whether the object itself may be a node or an edge.
+  bool MayHoldEntity(Expression *value) const {
+    if (utils::Downcast<PrimitiveLiteral>(value) || utils::Downcast<ParameterLookup>(value)) return false;
+    if (auto *list = utils::Downcast<ListLiteral>(value)) {
+      return std::ranges::any_of(list->elements_, [this](Expression *element) { return MayHoldEntity(element); });
+    }
+    if (auto *map = utils::Downcast<MapLiteral>(value)) {
+      return std::ranges::any_of(map->elements_, [this](const auto &entry) { return MayHoldEntity(entry.second); });
+    }
+    if (auto *lookup = utils::Downcast<PropertyLookup>(value)) {
+      // A property of a node or an edge is never an entity; a map's may be, unless the map is a LOAD CSV row.
+      auto *object = utils::Downcast<Identifier>(lookup->expression_);
+      if (!object) return true;
+      auto const &symbol = symbol_table_.at(*object);
+      return !non_graph_.contains(symbol) && symbol.type() != Symbol::Type::VERTEX &&
+             symbol.type() != Symbol::Type::EDGE;
+    }
+    if (auto *subscript = utils::Downcast<SubscriptOperator>(value)) {
+      // A LOAD CSV row holds strings only.
+      auto *object = utils::Downcast<Identifier>(subscript->expression1_);
+      return !object || !non_graph_.contains(symbol_table_.at(*object));
+    }
+    if (auto *ident = utils::Downcast<Identifier>(value)) return MayHoldEntity(symbol_table_.at(*ident));
+    return true;
+  }
+
+ private:
+  /// Whether a lookup on @p object reads the graph: it may be a node or an edge, not a map value.
+  bool ReadsGraph(Expression *object) const {
+    if (utils::Downcast<MapLiteral>(object)) return false;
+    auto *ident = utils::Downcast<Identifier>(object);
+    if (!ident) return true;
+    auto const &symbol = symbol_table_.at(*ident);
+    if (non_graph_.contains(symbol)) return false;
+    auto const type = symbol.type();
+    return type == Symbol::Type::ANY || type == Symbol::Type::VERTEX || type == Symbol::Type::EDGE;
+  }
+
+  /// Whether a variable may be, or hold, a node, an edge, a path or an edge list.
+  bool MayHoldEntity(const Symbol &symbol) const {
+    return !non_graph_.contains(symbol) && symbol.type() != Symbol::Type::NUMBER;
+  }
+
+  /// A LOAD clause's row variable holds a file row, never a graph entity.
+  bool ReadsAFileRow(Identifier &row_var) {
+    non_graph_.insert(symbol_table_.at(row_var));
+    return true;
+  }
+
+  /// Whether every node the term matches has a label, so a created node can match it only through a label write.
+  static bool IsPositive(const LabelTerm &term) {
+    return std::visit(
+        [](const auto &node) {
+          using T = std::decay_t<decltype(node)>;
+          if constexpr (std::is_same_v<T, LabelTerm::Not>) {
+            return false;
+          } else if constexpr (std::is_same_v<T, LabelTerm::And>) {
+            return std::ranges::any_of(node.operands, IsPositive);
+          } else if constexpr (std::is_same_v<T, LabelTerm::Or>) {
+            return std::ranges::all_of(node.operands, IsPositive);
+          } else {
+            return true;
+          }
+        },
+        term.node);
+  }
+
+  void ReadLabelTerm(const LabelTerm &term) {
+    std::visit(
+        [this](const auto &node) {
+          using T = std::decay_t<decltype(node)>;
+          if constexpr (std::is_same_v<T, LabelTerm::Label>) {
+            result.reads.labels.insert(node.label.name);
+          } else if constexpr (std::is_same_v<T, LabelTerm::And> || std::is_same_v<T, LabelTerm::Or>) {
+            for (const auto &operand : node.operands) ReadLabelTerm(operand);
+          } else {
+            result.reads.any_label = true;
+            if constexpr (std::is_same_v<T, LabelTerm::Dynamic>) {
+              if (node.expression) node.expression->Accept(*this);
+            }
+          }
+        },
+        term.node);
+  }
+
+  template <class TProperties>
+  void ReadPropertyKeys(const TProperties &properties) {
+    if (const auto *map = std::get_if<std::unordered_map<PropertyIx, Expression *>>(&properties)) {
+      for (const auto &[key, value] : *map) result.reads.properties.insert(key.name);
+    } else {
+      result.reads.any_property = true;
+    }
+  }
+
+  /// A created entity's properties are reachable only through its labels or edge type, or its own symbol, which the
+  /// other conflicts cover. Counting them as property writes would make `(b:B {id})` wait for `(a:A {id})`.
+  template <class TProperties>
+  void ReadCreatedPropertyValues(const TProperties &properties) {
+    if (const auto *map = std::get_if<std::unordered_map<PropertyIx, Expression *>>(&properties)) {
+      for (const auto &[key, value] : *map) value->Accept(*this);
+    }
+  }
+
+  void WriteLabels(const std::vector<QueryLabelType> &labels) {
+    for (const auto &label : labels) {
+      if (const auto *name = std::get_if<LabelIx>(&label)) {
+        result.writes.labels.insert(name->name);
+      } else {
+        result.writes.any_label = true;
+        std::get<Expression *>(label)->Accept(*this);
+      }
+    }
+  }
+
+  /// The fine-grained access check of SET and REMOVE label reads the labels the node already has.
+  void ReadLabelsForAccessCheck() {
+#ifdef MG_ENTERPRISE
+    result.reads.access_check_labels = true;
+#endif
+  }
+
+  void WritePattern(Pattern &pattern) {
+    for (auto *atom : pattern.atoms_) {
+      auto const &symbol = symbol_table_.at(*atom->identifier_);
+      if (bound_.contains(symbol)) continue;
+      result.writes.symbols.insert(symbol);
+      if (auto *node = utils::Downcast<NodeAtom>(atom)) {
+        result.writes.nodes = true;
+        if (auto labels = node->LabelConjunction()) WriteLabels(*labels);
+        ReadCreatedPropertyValues(node->properties_);
+      } else if (auto *edge = utils::Downcast<EdgeAtom>(atom)) {
+        for (const auto &type : edge->edge_types_) {
+          if (const auto *name = std::get_if<EdgeTypeIx>(&type)) {
+            result.writes.edge_types.insert(name->name);
+          } else {
+            result.writes.any_edge_type = true;
+            std::get<Expression *>(type)->Accept(*this);
+          }
+        }
+        ReadCreatedPropertyValues(edge->properties_);
+      }
+    }
+  }
+
+  const SymbolTable &symbol_table_;
+  const std::unordered_set<Symbol> &bound_;
+  std::unordered_set<Symbol> non_graph_;
+};
+
+}  // namespace
+
+bool ReadWriteSet::Empty() const {
+  return properties.empty() && !any_property && labels.empty() && !any_label && edge_types.empty() && !any_edge_type &&
+         !nodes && !everything && symbols.empty();
+}
+
+void ReadWriteSet::Merge(const ReadWriteSet &other) {
+  properties.insert(other.properties.begin(), other.properties.end());
+  any_property |= other.any_property;
+  labels.insert(other.labels.begin(), other.labels.end());
+  any_label |= other.any_label;
+  edge_types.insert(other.edge_types.begin(), other.edge_types.end());
+  any_edge_type |= other.any_edge_type;
+  nodes |= other.nodes;
+  everything |= other.everything;
+  access_check_labels |= other.access_check_labels;
+  symbols.insert(other.symbols.begin(), other.symbols.end());
+  referenced.insert(other.referenced.begin(), other.referenced.end());
+}
+
+bool Conflicts(const ReadWriteSet &reads, const ReadWriteSet &writes) {
+  if (reads.access_check_labels && (writes.any_label || !writes.labels.empty())) return true;
+  if (reads.Empty() || writes.Empty()) return false;
+  if (reads.everything || writes.everything) return true;
+  // A pattern through a node this command created: View::OLD cannot see it at all.
+  if (std::ranges::any_of(reads.symbols, [&writes](const auto &sym) { return writes.symbols.contains(sym); })) {
+    return true;
+  }
+  return KeysConflict(reads.properties, reads.any_property, writes.properties, writes.any_property) ||
+         KeysConflict(reads.labels, reads.any_label, writes.labels, writes.any_label) ||
+         KeysConflict(reads.edge_types, reads.any_edge_type, writes.edge_types, writes.any_edge_type) ||
+         (reads.nodes && writes.nodes);
+}
+
+namespace {
+
+/// The RETURN clauses that end @p query and its UNION parts, through a final WHEN.
+void CollectReturns(CypherQuery &query, std::vector<Return *> &returns) {
+  auto const collect = [&](SingleQuery *single) {
+    if (!single || single->clauses_.empty()) return;
+    auto *last = single->clauses_.back();
+    if (auto *ret = utils::Downcast<Return>(last)) {
+      returns.push_back(ret);
+    } else if (auto *branches = utils::Downcast<ConditionalBranches>(last)) {
+      for (auto &branch : branches->branches_) CollectReturns(*branch.body, returns);
+    }
+  };
+  collect(query.single_query_);
+  for (auto *cypher_union : query.cypher_unions_) collect(cypher_union->single_query_);
+}
+
+}  // namespace
+
+bool CallResultMayBeFresh(CallSubquery &call, const Symbol &result, const SymbolTable &symbol_table,
+                          const std::unordered_set<Symbol> &fresh, const std::unordered_set<Symbol> &outer_bound,
+                          const std::unordered_set<Symbol> &non_graph) {
+  std::vector<Return *> returns;
+  CollectReturns(*call.cypher_query_, returns);
+  ReadWriteCollector collector(symbol_table, outer_bound, non_graph);
+  bool named = false;
+  for (auto *ret : returns) {
+    for (auto *named_expression : ret->body_.named_expressions) {
+      if (symbol_table.at(*named_expression) != result) continue;
+      named = true;
+      if (!collector.MayHoldEntity(named_expression->expression_)) continue;
+      UsedSymbolsCollector used(symbol_table);
+      named_expression->expression_->Accept(used);
+      if (std::ranges::any_of(used.symbols_, [&](const Symbol &symbol) {
+            return fresh.contains(symbol) || !outer_bound.contains(symbol);
+          })) {
+        return true;
+      }
+    }
+  }
+  return !named;
+}
+
+ReadsAndWrites CollectReadsAndWrites(utils::Visitable<HierarchicalTreeVisitor> &tree, const SymbolTable &symbol_table,
+                                     const std::unordered_set<Symbol> &bound,
+                                     const std::unordered_set<Symbol> &non_graph) {
+  ReadWriteCollector collector(symbol_table, bound, non_graph);
+  tree.Accept(collector);
+  return std::move(collector.result);
+}
+
+ReadWriteSet CollectReads(const Matching &matching, const SymbolTable &symbol_table,
+                          const std::unordered_set<Symbol> &bound, const std::unordered_set<Symbol> &non_graph) {
+  ReadWriteCollector collector(symbol_table, bound, non_graph);
+  for (const auto &expansion : matching.expansions) {
+    if (expansion.node1) expansion.node1->Accept(collector);
+    if (expansion.edge) expansion.edge->Accept(collector);
+    if (expansion.node2) expansion.node2->Accept(collector);
+  }
+  for (const auto &filter : matching.filters) {
+    if (filter.expression) filter.expression->Accept(collector);
+  }
+  return std::move(collector.result.reads);
+}
+
+}  // namespace memgraph::query::plan
