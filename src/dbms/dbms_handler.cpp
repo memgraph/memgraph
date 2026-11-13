@@ -25,7 +25,6 @@
 #include "dbms/constants.hpp"
 #include "dbms/global.hpp"
 #include "dbms/rpc.hpp"
-#include "license/license.hpp"
 #include "memory/global_memory_control.hpp"  // memory::PurgeUnusedMemory (synchronous reclaim on suspend)
 #include "query/db_accessor.hpp"
 #include "query/exceptions.hpp"
@@ -965,15 +964,8 @@ std::optional<memgraph::metrics::StorageSnapshot> DbmsHandler::TryGetStorageSnap
 }
 
 void DbmsHandler::RecoverStorageReplication(DatabaseAccess db_acc, replication::RoleMainData &role_main_data) {
-  auto const is_enterprise = license::global_license_checker.IsEnterpriseValidFast();
-  if (is_enterprise || db_acc->name() == dbms::kDefaultDB) {
-    // Handle global replication state
-    spdlog::info("Replication configuration will be stored and will be automatically restored in case of a crash.");
-    // RECOVER REPLICA CONNECTIONS
-    memgraph::dbms::RestoreReplication(role_main_data, db_acc);
-  } else if (!role_main_data.registered_replicas_.empty()) {
-    spdlog::warn("Multi-tenant replication is currently not supported!");
-  }
+  spdlog::info("Replication configuration will be stored and will be automatically restored in case of a crash.");
+  memgraph::dbms::RestoreReplication(role_main_data, db_acc);
 }
 
 void DbmsHandler::RestoreTriggers(query::InterpreterContext *ic) {
