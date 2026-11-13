@@ -21,42 +21,12 @@ workloads:
     args: ["hops_count/hops_count.py"]
     <<: *hops_count_cluster
 
-  - name: "Hops limit concurrent commit out"
+  - name: "Hops limit concurrent commit"
     binary: "tests/e2e/pytest_runner.sh"
-    args: ["hops_count/hops_limit_concurrent.py", "-k", "test_hops_limit_survives_concurrent_commit_out"]
+    args: ["hops_count/hops_limit_concurrent.py", "-k", "not no_cache_leak"]
     <<: *hops_count_cluster
 
-  - name: "Hops limit concurrent commit typed"
+  - name: "Hops limit no cache leak"
     binary: "tests/e2e/pytest_runner.sh"
-    args: ["hops_count/hops_limit_concurrent.py", "-k", "test_hops_limit_survives_concurrent_commit_typed"]
-    <<: *hops_count_cluster
-
-  - name: "Hops limit concurrent commit in"
-    binary: "tests/e2e/pytest_runner.sh"
-    args: ["hops_count/hops_limit_concurrent.py", "-k", "test_hops_limit_survives_concurrent_commit_in"]
-    <<: *hops_count_cluster
-
-  - name: "Hops limit own command delta"
-    binary: "tests/e2e/pytest_runner.sh"
-    args: ["hops_count/hops_limit_concurrent.py", "-k", "test_hops_limit_own_command_delta"]
-    <<: *hops_count_cluster
-
-  - name: "Hops limit no cache store"
-    binary: "tests/e2e/pytest_runner.sh"
-    args: ["hops_count/hops_limit_concurrent.py", "-k", "test_hops_limit_no_cache_store"]
+    args: ["hops_count/hops_limit_concurrent.py", "-k", "no_cache_leak"]
     <<: *hops_count_delta_cache_cluster
-
-  - name: "Hops limit no cache hit bypass"
-    binary: "tests/e2e/pytest_runner.sh"
-    args: ["hops_count/hops_limit_concurrent.py", "-k", "test_hops_limit_no_cache_hit_bypass"]
-    <<: *hops_count_delta_cache_cluster
-
-  - name: "Hops limit budget exhausted remove"
-    binary: "tests/e2e/pytest_runner.sh"
-    args: ["hops_count/hops_limit_concurrent.py", "-k", "test_hops_limit_budget_exhausted_remove"]
-    <<: *hops_count_cluster
-
-  - name: "Hops limit disk reads survive"
-    binary: "tests/e2e/pytest_runner.sh"
-    args: ["hops_count/hops_limit_concurrent.py", "-k", "test_hops_limit_disk_reads_survive"]
-    <<: *hops_count_cluster
