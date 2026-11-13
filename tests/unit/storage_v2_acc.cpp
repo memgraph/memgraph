@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -12,6 +12,7 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include "disk_test_utils.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/storage.hpp"
 
@@ -112,4 +113,22 @@ TEST(StorageV2Acc, RW) {
     ASSERT_THROW(storage->ReadOnlyAccess({}, kTimeout), memgraph::storage::ReadOnlyAccessTimeout);
     ASSERT_THROW(storage->UniqueAccess({}, kTimeout), memgraph::storage::UniqueAccessTimeout);
   }
+}
+
+/// DiskStorage must forward the caller's timeout to AcquireGuardOrThrow.
+TEST(StorageV2Acc, DiskTimeouts) {
+  using memgraph::storage::StorageAccessType;
+  constexpr auto *kSuite = "storage_v2_acc_disk_timeouts";
+  auto storage = disk_test_utils::CreateDiskStorage(disk_test_utils::GenerateOnDiskConfig(kSuite));
+  {
+    auto unique_acc = storage->UniqueAccess({}, kTimeout);
+    ASSERT_THROW(storage->Access(StorageAccessType::WRITE, {}, kTimeout), memgraph::storage::SharedAccessTimeout);
+  }
+  {
+    auto write_acc = storage->Access(StorageAccessType::WRITE, {}, kTimeout);
+    ASSERT_THROW(storage->UniqueAccess({}, kTimeout), memgraph::storage::UniqueAccessTimeout);
+    ASSERT_THROW(storage->ReadOnlyAccess({}, kTimeout), memgraph::storage::ReadOnlyAccessTimeout);
+  }
+  storage.reset();
+  disk_test_utils::RemoveRocksDbDirs(kSuite);
 }

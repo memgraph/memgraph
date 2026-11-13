@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <atomic>
 #include <chrono>
 #include <functional>
 #include <optional>
@@ -179,7 +180,10 @@ class TTL final {
    * @brief Shutdown TTL (stop background job)
    *
    */
-  void Shutdown() { ttl_.Stop(); }
+  void Shutdown() {
+    stop_requested_.store(true, std::memory_order_release);
+    ttl_.Stop();
+  }
 
   /**
    * @brief Check if TTL is enabled
@@ -208,8 +212,9 @@ class TTL final {
    */
   void Disable() {
     enabled_ = false;
-    info_ = {};
+    stop_requested_.store(true, std::memory_order_release);
     ttl_.Stop();
+    info_ = {};
   }
 
   /**
@@ -232,9 +237,13 @@ class TTL final {
   void SetUserCheck(std::function<bool()> check_fn) { user_check_.Update(std::move(check_fn)); }
 
  private:
-  utils::Scheduler ttl_;  //!< background thread
-  TtlInfo info_{};        //!< configuration
-  bool enabled_{false};   //!< feature enabler
+  utils::Scheduler ttl_;                     //!< background thread
+  TtlInfo info_{};                           //!< configuration
+  bool enabled_{false};                      //!< feature enabler
+  std::atomic<bool> stop_requested_{false};  //!< tells the job to retire so Stop() can join
+
+  bool StopRequested() const noexcept { return stop_requested_.load(std::memory_order_acquire); }
+
   Storage *storage_ptr_{};
   metrics::CounterHandle deleted_nodes_{};
   metrics::CounterHandle deleted_edges_{};

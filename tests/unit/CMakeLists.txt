@@ -862,7 +862,7 @@ add_unit_test(storage_v2_commit_lock_narrowing
 
 add_unit_test(storage_v2_acc
     SOURCES storage_v2_acc.cpp
-    LINK_TARGETS mg::storage
+    LINK_TARGETS mg::storage disk_test_utils
 )
 
 add_unit_test(storage_v2_chunk_iterator

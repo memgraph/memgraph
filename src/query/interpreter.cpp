@@ -6692,6 +6692,12 @@ Callback SwitchMemoryDevice(storage::StorageMode current_mode, storage::StorageM
                   "associated triggers. Drop all triggers and retry.");
             }
 
+            if (in.ttl().Enabled()) {
+              throw utils::BasicException(
+                  "You cannot switch from an in-memory storage mode to the on-disk storage mode while time-to-live "
+                  "is enabled. Run DISABLE TTL and retry.");
+            }
+
             std::unique_lock main_guard{in.storage()->main_lock_};  // do we need this?
             if (auto vertex_cnt_approx = in.storage()->GetBaseInfo().vertex_count; vertex_cnt_approx > 0) {
               throw utils::BasicException(

@@ -16,3 +16,7 @@ workloads:
     binary: "tests/e2e/pytest_runner.sh"
     args: ["time_to_live/multitenancy.py"]
     <<: *ttl_setup
+  - name: "TTL midrun stop"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["time_to_live/ttl_stop_midrun.py"]
+    <<: *ttl_setup

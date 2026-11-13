@@ -31,6 +31,9 @@
 #include "utils/temporal.hpp"
 
 namespace {
+// Bounds each batch acquisition so a pending stop is observed.
+constexpr auto kAccessPollSlice = std::chrono::milliseconds{100};
+
 template <typename T>
 int GetPart(auto &current) {
   const int whole_part = std::chrono::duration_cast<T>(current).count();
@@ -178,6 +181,8 @@ void TTL::Configure(bool should_run_edge_ttl) {
     info_.should_run_edge_ttl = false;
   }
 
+  stop_requested_.store(false, std::memory_order_release);
+
   auto ttl_job = [this]() {
     const memory::DbArenaScope db_arena_scope{storage_ptr_->DbArenaPool()};
     // Check if we're a main instance - only main instances should run TTL
@@ -194,7 +199,7 @@ void TTL::Configure(bool should_run_edge_ttl) {
     const auto ttl_label = storage_ptr_->NameToLabel("TTL");
     const auto ttl_property = storage_ptr_->NameToProperty("ttl");
 
-    while (!finished_vertex || !finished_edge) {
+    while ((!finished_vertex || !finished_edge) && !StopRequested()) {
       try {
         constexpr size_t batch_size = 10'000;
         size_t n_deleted = 0;
@@ -202,7 +207,7 @@ void TTL::Configure(bool should_run_edge_ttl) {
 
         // Create a new transaction for this batch
         // This ensures each batch is isolated and can be retried independently
-        auto batch_accessor = storage_ptr_->Access(storage::StorageAccessType::WRITE);
+        auto batch_accessor = storage_ptr_->Access(storage::StorageAccessType::WRITE, std::nullopt, kAccessPollSlice);
 
         // Verify required indices exist and are ready for TTL operations
         // This ensures TTL can work efficiently using range-based filtering
@@ -221,10 +226,10 @@ void TTL::Configure(bool should_run_edge_ttl) {
             mem_storage->GetAsyncIndexer().Enqueue(ttl_label, std::move(ttl_property_path));
           } else {
             batch_accessor.reset();
-            batch_accessor = storage_ptr_->UniqueAccess();  // ATM no timeout/backoff
+            batch_accessor = storage_ptr_->UniqueAccess(std::nullopt, kAccessPollSlice);
             (void)batch_accessor->CreateIndex(ttl_label, std::move(ttl_property_path));
             batch_accessor.reset();
-            batch_accessor = storage_ptr_->Access(storage::StorageAccessType::WRITE);
+            batch_accessor = storage_ptr_->Access(storage::StorageAccessType::WRITE, std::nullopt, kAccessPollSlice);
           }
         }
 
@@ -236,10 +241,10 @@ void TTL::Configure(bool should_run_edge_ttl) {
             mem_storage->GetAsyncIndexer().Enqueue(ttl_property);
           } else {
             batch_accessor.reset();
-            batch_accessor = storage_ptr_->UniqueAccess();  // ATM no timeout/backoff
+            batch_accessor = storage_ptr_->UniqueAccess(std::nullopt, kAccessPollSlice);
             (void)batch_accessor->CreateGlobalEdgeIndex(ttl_property);
             batch_accessor.reset();
-            batch_accessor = storage_ptr_->Access(storage::StorageAccessType::WRITE);
+            batch_accessor = storage_ptr_->Access(storage::StorageAccessType::WRITE, std::nullopt, kAccessPollSlice);
           }
         }
 
@@ -330,6 +335,8 @@ void TTL::Configure(bool should_run_edge_ttl) {
         deleted_edges_.Increment(static_cast<double>(n_edges_deleted));
 
       } catch (const std::exception &e) {
+        // Any failure while a stop is pending retires the job (e.g. a bounded acquisition timing out).
+        if (StopRequested()) return;
         spdlog::trace("TTL error; retrying later: {}", e.what());
         std::this_thread::sleep_for(std::chrono::milliseconds{10});
       }
