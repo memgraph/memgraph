@@ -335,7 +335,7 @@ void TTL::Configure(bool should_run_edge_ttl) {
         deleted_edges_.Increment(static_cast<double>(n_edges_deleted));
 
       } catch (const std::exception &e) {
-        // A timed-out acquisition with a pending stop retires the job.
+        // Any failure while a stop is pending retires the job (e.g. a bounded acquisition timing out).
         if (StopRequested()) return;
         spdlog::trace("TTL error; retrying later: {}", e.what());
         std::this_thread::sleep_for(std::chrono::milliseconds{10});

@@ -159,6 +159,7 @@ def test_disable_ttl_midrun_returns():
     )
 
     before = _count(database)
+    assert before > 0, "the TTL run finished before DISABLE TTL; the mid-run case was not exercised"
     time.sleep(2.0)
     after = _count(database)
     assert after == before, f"TTL kept reaping after DISABLE TTL returned: {before} -> {after}"
@@ -179,10 +180,11 @@ def test_storage_mode_refused_while_ttl_enabled():
     assert status == "ok", f"a fresh session was not served after the refusal: {status} {detail}"
 
     before = _count(database)
+    assert before > 0, "the TTL run finished before the check; reaping after the refusal was not exercised"
     deadline = time.time() + TIMEOUT
-    while before > 0 and _count(database) >= before and time.time() < deadline:
+    while _count(database) >= before and time.time() < deadline:
         time.sleep(0.2)
-    assert before == 0 or _count(database) < before, "TTL stopped deleting after the refused switch"
+    assert _count(database) < before, "TTL stopped deleting after the refused switch"
 
 
 if __name__ == "__main__":
