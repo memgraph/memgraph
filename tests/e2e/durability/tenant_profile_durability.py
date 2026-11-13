@@ -117,10 +117,6 @@ def test_user_profile_survives_restart_mixed_case():
 
     admin = connect("admin", "admin-pw")
     admin_cursor = admin.cursor()
-    try:
-        execute(admin_cursor, "GRANT ALL PRIVILEGES TO admin")
-    except Exception:  # noqa: BLE001, S110 - idempotent, the first user already holds every privilege
-        pass
     execute(admin_cursor, "CREATE PROFILE durable_one LIMIT sessions 1, transactions_memory 100MB")
     execute(admin_cursor, "CREATE USER TestUser IDENTIFIED BY 'pw'")
     execute(admin_cursor, "GRANT ALL PRIVILEGES TO TestUser")
@@ -153,13 +149,15 @@ def test_user_profile_survives_restart_mixed_case():
             if second is not None:
                 second.close()
         assert refused is not None, "the restored limit did not refuse a second session"
+        assert "sessions" in str(refused).lower(), f"unexpected refusal: {refused}"
 
-        memory_refused = False
+        memory_refused = None
         try:
             execute(session.cursor(), "UNWIND range(1, 20000000) AS i WITH collect(i) AS c RETURN size(c)")
-        except Exception:  # noqa: BLE001 - the refusal is the assertion
-            memory_refused = True
-        assert memory_refused, "the restored profile did not enforce transactions_memory after restart"
+        except Exception as exc:  # noqa: BLE001 - the refusal is the assertion
+            memory_refused = exc
+        assert memory_refused is not None, "the restored profile did not enforce transactions_memory after restart"
+        assert "user memory limit exceeded!" in str(memory_refused).lower(), f"unexpected error: {memory_refused}"
     finally:
         session.close()
         admin.close()

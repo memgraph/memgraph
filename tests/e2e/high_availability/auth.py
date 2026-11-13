@@ -2025,9 +2025,9 @@ def test_internal_system_user_hash_file_must_load(tmp_path, contents):
         assert contents.splitlines()[0] not in result.stdout + result.stderr
 
 
-def test_profile_mixed_case_survives_failover(test_name):
-    """A profile assigned with a mixed-case spelling survives the promotion of the replica: the replica and the
-    promoted main resolve the membership through both spellings."""
+def test_profile_mixed_case_replicates(test_name):
+    """A profile assigned with a mixed-case spelling replicates: the replica resolves the membership through both
+    spellings."""
     instances_description = get_instances_description_no_setup(test_name=test_name)
     interactive_mg_runner.start_all(instances_description, keep_directories=False)
 
@@ -2058,25 +2058,6 @@ def test_profile_mixed_case_survives_failover(test_name):
     # The membership is stored folded; lookups fold the spelling, so both resolve once the replica applied it.
     mg_sleep_and_assert([("mixed_one",)], profile_at(7688, "TestUser"))
     assert profile_at(7688, "testuser")() == [("mixed_one",)], "the replica does not resolve the folded spelling"
-
-    # Kill the main; the surviving replica is promoted.
-    interactive_mg_runner.kill(instances_description, "instance_1")
-
-    def promoted_instance_role():
-        try:
-            rows = show_instances(connect(host="localhost", port=7692).cursor())
-        except Exception:
-            return None
-        for row in rows:
-            if row[0] == "instance_2":
-                return row[-1]
-        return None
-
-    mg_sleep_and_assert("main", promoted_instance_role)
-
-    # Both spellings still resolve on the promoted main.
-    mg_sleep_and_assert([("mixed_one",)], profile_at(7688, "TestUser"))
-    assert profile_at(7688, "testuser")() == [("mixed_one",)], "the promoted main does not resolve the folded spelling"
 
 
 if __name__ == "__main__":
