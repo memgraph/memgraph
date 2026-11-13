@@ -50,6 +50,22 @@ static_assert(std::ranges::forward_range<ExpandedEdges>);
 static_assert(std::ranges::sized_range<ExpandedEdges>);
 
 namespace {
+const std::vector<EdgeTypeId> kNoEdgeTypes;
+
+// True if the replay for (transaction, delta, view) will undo an edge delta of direction `dir`.
+template <EdgeDirection dir>
+bool ReplaysEdgeDeltas(Transaction const *transaction, Delta const *delta, View view) {
+  bool replays = false;
+  ApplyDeltasForRead(transaction, delta, view, [&replays](const Delta &d) {
+    if constexpr (dir == EdgeDirection::IN) {
+      replays |= d.action == Delta::Action::ADD_IN_EDGE || d.action == Delta::Action::REMOVE_IN_EDGE;
+    } else {
+      replays |= d.action == Delta::Action::ADD_OUT_EDGE || d.action == Delta::Action::REMOVE_OUT_EDGE;
+    }
+  });
+  return replays;
+}
+
 void HandleTypeConstraintViolation(Storage const *storage, ConstraintViolation const &violation) {
   throw TypeConstraintViolationException("IS TYPED {} violation on {}({})",
                                          TypeConstraintKindToString(*violation.constraint_kind),
@@ -1035,17 +1051,23 @@ Result<EdgesVertexAccessorResult> VertexAccessor::InEdges(View view, const std::
   bool deleted = false;
   auto in_edges = edge_store{};
   Delta *delta = nullptr;
+  bool defer_hops = false;
   int64_t expanded_count = 0;
   VertexReadLock read_lock{vertex_};
   {
     auto const guard = read_lock.AcquireLock();
     deleted = vertex_->deleted();
-    if (edge_types.empty() && !destination) {
-      expanded_count = HandleExpansionsWithoutEdgeTypes(in_edges, hops_limit, EdgeDirection::IN);
-    } else {
-      expanded_count = HandleExpansionsWithEdgeTypes(in_edges, edge_types, destination, hops_limit, EdgeDirection::IN);
-    }
     delta = vertex_->delta();
+    // The replay mutates the list, so the hop budget and the filter must come after it, and the
+    // hops-unaware cache must not see a budget-cut list. Defer only if the replay will touch this list.
+    defer_hops = hops_limit && hops_limit->IsUsed() && ReplaysEdgeDeltas<EdgeDirection::IN>(transaction_, delta, view);
+    if (defer_hops) {
+      in_edges = vertex_->in_edges;
+    } else if (edge_types.empty() && !destination) {
+      expanded_count = HandleExpansionsWithoutEdgeTypes(in_edges, vertex_->in_edges, hops_limit);
+    } else {
+      expanded_count = HandleExpansionsWithEdgeTypes(in_edges, vertex_->in_edges, edge_types, destination, hops_limit);
+    }
   }
 
   // Checking cache has a cost, only do it if we have any deltas
@@ -1053,7 +1075,7 @@ Result<EdgesVertexAccessorResult> VertexAccessor::InEdges(View view, const std::
   if (delta && transaction_->isolation_level != IsolationLevel::READ_UNCOMMITTED) {
     // IsolationLevel::READ_COMMITTED would be tricky to propagate invalidation to
     // so for now only cache for IsolationLevel::SNAPSHOT_ISOLATION
-    auto const useCache = transaction_->UseCache();
+    auto const useCache = !(hops_limit && hops_limit->IsUsed()) && transaction_->UseCache();
     if (useCache) {
       auto const &cache = transaction_->manyDeltasCache;
       if (auto resError = HasError(view, cache, vertex_, for_deleted_); resError) return std::unexpected{*resError};
@@ -1063,16 +1085,15 @@ Result<EdgesVertexAccessorResult> VertexAccessor::InEdges(View view, const std::
             .expanded_count = expanded_count};
     }
 
+    auto const &replay_types = defer_hops ? kNoEdgeTypes : edge_types;
+    auto const *replay_dst = defer_hops ? nullptr : destination_vertex;
     auto const n_processed = ApplyDeltasForRead(
-        transaction_,
-        delta,
-        view,
-        [&exists, &deleted, &in_edges, &edge_types, &destination_vertex](const Delta &delta) {
+        transaction_, delta, view, [&exists, &deleted, &in_edges, &replay_types, &replay_dst](const Delta &delta) {
           // clang-format off
           DeltaDispatch(delta, utils::ChainedOverloaded{
             Deleted_ActionMethod(deleted),
             Exists_ActionMethod(exists),
-            Edges_ActionMethod<EdgeDirection::IN>(in_edges, edge_types, destination_vertex)
+            Edges_ActionMethod<EdgeDirection::IN>(in_edges, replay_types, replay_dst)
           });
           // clang-format on
         });
@@ -1089,6 +1110,16 @@ Result<EdgesVertexAccessorResult> VertexAccessor::InEdges(View view, const std::
     return std::unexpected{Error::NONEXISTENT_OBJECT};
   if (deleted) [[unlikely]]
     return std::unexpected{Error::DELETED_OBJECT};
+
+  if (defer_hops) {
+    edge_store projected;
+    if (edge_types.empty() && !destination) {
+      expanded_count = HandleExpansionsWithoutEdgeTypes(projected, in_edges, hops_limit);
+    } else {
+      expanded_count = HandleExpansionsWithEdgeTypes(projected, in_edges, edge_types, destination, hops_limit);
+    }
+    in_edges = std::move(projected);
+  }
 
   if (transaction_->IsDiskStorage()) [[unlikely]] {
     return EdgesVertexAccessorResult{.edges = ExpandedEdges{BuildResultWithDisk(in_edges, disk_edges, view, "IN")},
@@ -1130,18 +1161,24 @@ Result<EdgesVertexAccessorResult> VertexAccessor::OutEdges(View view, const std:
   bool deleted = false;
   auto out_edges = edge_store{};
   Delta *delta = nullptr;
+  bool defer_hops = false;
   int64_t expanded_count = 0;
   VertexReadLock read_lock{vertex_};
   {
     auto const guard = read_lock.AcquireLock();
     deleted = vertex_->deleted();
-    if (edge_types.empty() && !destination) {
-      expanded_count = HandleExpansionsWithoutEdgeTypes(out_edges, hops_limit, EdgeDirection::OUT);
+    delta = vertex_->delta();
+    // The replay mutates the list, so the hop budget and the filter must come after it, and the
+    // hops-unaware cache must not see a budget-cut list. Defer only if the replay will touch this list.
+    defer_hops = hops_limit && hops_limit->IsUsed() && ReplaysEdgeDeltas<EdgeDirection::OUT>(transaction_, delta, view);
+    if (defer_hops) {
+      out_edges = vertex_->out_edges;
+    } else if (edge_types.empty() && !destination) {
+      expanded_count = HandleExpansionsWithoutEdgeTypes(out_edges, vertex_->out_edges, hops_limit);
     } else {
       expanded_count =
-          HandleExpansionsWithEdgeTypes(out_edges, edge_types, destination, hops_limit, EdgeDirection::OUT);
+          HandleExpansionsWithEdgeTypes(out_edges, vertex_->out_edges, edge_types, destination, hops_limit);
     }
-    delta = vertex_->delta();
   }
 
   // Checking cache has a cost, only do it if we have any deltas
@@ -1149,7 +1186,7 @@ Result<EdgesVertexAccessorResult> VertexAccessor::OutEdges(View view, const std:
   if (delta && transaction_->isolation_level != IsolationLevel::READ_UNCOMMITTED) {
     // IsolationLevel::READ_COMMITTED would be tricky to propagate invalidation to
     // so for now only cache for IsolationLevel::SNAPSHOT_ISOLATION
-    auto const useCache = transaction_->UseCache();
+    auto const useCache = !(hops_limit && hops_limit->IsUsed()) && transaction_->UseCache();
     if (useCache) {
       auto const &cache = transaction_->manyDeltasCache;
       if (auto resError = HasError(view, cache, vertex_, for_deleted_); resError) return std::unexpected{*resError};
@@ -1159,13 +1196,15 @@ Result<EdgesVertexAccessorResult> VertexAccessor::OutEdges(View view, const std:
             .expanded_count = expanded_count};
     }
 
+    auto const &replay_types = defer_hops ? kNoEdgeTypes : edge_types;
+    auto const *replay_dst = defer_hops ? nullptr : dst_vertex;
     auto const n_processed = ApplyDeltasForRead(
-        transaction_, delta, view, [&exists, &deleted, &out_edges, &edge_types, &dst_vertex](const Delta &delta) {
+        transaction_, delta, view, [&exists, &deleted, &out_edges, &replay_types, &replay_dst](const Delta &delta) {
           // clang-format off
           DeltaDispatch(delta, utils::ChainedOverloaded{
             Deleted_ActionMethod(deleted),
             Exists_ActionMethod(exists),
-            Edges_ActionMethod<EdgeDirection::OUT>(out_edges, edge_types, dst_vertex)
+            Edges_ActionMethod<EdgeDirection::OUT>(out_edges, replay_types, replay_dst)
           });
           // clang-format on
         });
@@ -1182,6 +1221,16 @@ Result<EdgesVertexAccessorResult> VertexAccessor::OutEdges(View view, const std:
     return std::unexpected{Error::NONEXISTENT_OBJECT};
   if (deleted) [[unlikely]]
     return std::unexpected{Error::DELETED_OBJECT};
+
+  if (defer_hops) {
+    edge_store projected;
+    if (edge_types.empty() && !destination) {
+      expanded_count = HandleExpansionsWithoutEdgeTypes(projected, out_edges, hops_limit);
+    } else {
+      expanded_count = HandleExpansionsWithEdgeTypes(projected, out_edges, edge_types, destination, hops_limit);
+    }
+    out_edges = std::move(projected);
+  }
 
   if (transaction_->IsDiskStorage()) [[unlikely]] {
     return EdgesVertexAccessorResult{.edges = ExpandedEdges{BuildResultWithDisk(out_edges, disk_edges, view, "OUT")},
@@ -1308,9 +1357,8 @@ Result<size_t> VertexAccessor::OutDegree(View view) const {
   return degree;
 }
 
-int64_t VertexAccessor::HandleExpansionsWithoutEdgeTypes(edge_store &result_edges, HopsLimit *hops_limit,
-                                                         EdgeDirection direction) const {
-  const auto &edges = direction == EdgeDirection::IN ? vertex_->in_edges : vertex_->out_edges;
+int64_t VertexAccessor::HandleExpansionsWithoutEdgeTypes(edge_store &result_edges, const edge_store &edges,
+                                                         HopsLimit *hops_limit) {
   if (edges.empty()) return 0;
 
   uint64_t expanded_count = 0;
@@ -1326,11 +1374,9 @@ int64_t VertexAccessor::HandleExpansionsWithoutEdgeTypes(edge_store &result_edge
   return static_cast<int64_t>(expanded_count);
 }
 
-int64_t VertexAccessor::HandleExpansionsWithEdgeTypes(edge_store &result_edges,
+int64_t VertexAccessor::HandleExpansionsWithEdgeTypes(edge_store &result_edges, const edge_store &edges,
                                                       const std::vector<EdgeTypeId> &edge_types,
-                                                      const VertexAccessor *destination, HopsLimit *hops_limit,
-                                                      EdgeDirection direction) const {
-  const auto &edges = direction == EdgeDirection::IN ? vertex_->in_edges : vertex_->out_edges;
+                                                      const VertexAccessor *destination, HopsLimit *hops_limit) {
   if (edges.empty()) return 0;
 
   // Growing a doubling at a time reallocates and copies a high-degree list repeatedly, each new

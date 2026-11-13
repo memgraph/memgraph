@@ -6,8 +6,27 @@ hops_count_cluster: &hops_count_cluster
       setup_queries: []
       validation_queries: []
 
+# Same instance, but a two-delta chain is enough to make OutEdges/InEdges cache its result.
+hops_count_delta_cache_cluster: &hops_count_delta_cache_cluster
+  cluster:
+    main:
+      args: ["--bolt-port", "7687", "--log-level=TRACE", "--storage-properties-on-edges", "--query-plan-cache-max-size=0", "--delta-chain-cache-threshold=2"]
+      log_file: "hops_count_delta_cache.log"
+      setup_queries: []
+      validation_queries: []
+
 workloads:
   - name: "Count number of hops"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["hops_count/hops_count.py"]
     <<: *hops_count_cluster
+
+  - name: "Hops limit concurrent commit"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["hops_count/hops_limit_concurrent.py", "-k", "not no_cache_leak"]
+    <<: *hops_count_cluster
+
+  - name: "Hops limit no cache leak"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["hops_count/hops_limit_concurrent.py", "-k", "no_cache_leak"]
+    <<: *hops_count_delta_cache_cluster
