@@ -1292,10 +1292,40 @@ InMemoryReplicationHandlers::LoadWalStatus InMemoryReplicationHandlers::LoadWal(
   return LoadWalStatus{.success = true, .num_txns_committed = num_txns_committed};
 }
 
+#ifdef MG_ENTERPRISE
+bool InMemoryReplicationHandlers::ReplayWalFile(std::filesystem::path const &wal_path,
+                                                storage::durability::WalInfo const &wal_info,
+                                                storage::InMemoryStorage *storage,
+                                                std::function<void(uint64_t)> const &on_txn_begin) {
+  storage::durability::Decoder wal_decoder;
+  const auto version = wal_decoder.Initialize(wal_path, storage::durability::kWalMagic);
+  if (!version || !storage::durability::IsVersionSupported(*version)) {
+    spdlog::error("WAL file {} has no valid magic and version", wal_path);
+    return false;
+  }
+  wal_decoder.SetPosition(wal_info.offset_deltas);
+  rpc::ProgressHeartbeat heartbeat;  // never started: nobody to report progress to
+  uint64_t delta_idx{0};
+  while (delta_idx < wal_info.num_deltas) {
+    auto const res = ReadAndApplyDeltasSingleTxn(
+        storage, &wal_decoder, *version, heartbeat, /*two_phase_commit*/ false, /*loading_wal*/ true, &on_txn_begin);
+    if (!res) return false;
+    delta_idx += res->current_delta_idx;
+  }
+  // Same check as LoadWal: overrunning the stated count means a transaction-end marker was lost.
+  return delta_idx == wal_info.num_deltas;
+}
+#endif
+
 // The number of applied deltas also includes skipped deltas.
 std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandlers::ReadAndApplyDeltasSingleTxn(
     storage::InMemoryStorage *storage, storage::durability::BaseDecoder *decoder, const uint64_t version,
+#ifdef MG_ENTERPRISE
+    rpc::ProgressHeartbeat &heartbeat, bool const two_phase_commit, bool const loading_wal,
+    std::function<void(uint64_t)> const *const on_txn_begin) {
+#else
     rpc::ProgressHeartbeat &heartbeat, bool const two_phase_commit, bool const loading_wal) {
+#endif
   constexpr auto kSharedAccess = storage::StorageAccessType::WRITE;
   constexpr auto kUniqueAccess = storage::StorageAccessType::UNIQUE;
 
@@ -1418,6 +1448,9 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
   };
 
   decoder->ResetCrcAcc();
+#ifdef MG_ENTERPRISE
+  bool txn_begin_notified{false};
+#endif
   // A DDL delta below can occupy the handler for minutes on its own, so index population and constraint validation
   // report progress per vertex through this. Returning true also abandons that work once the main is gone, instead of
   // finishing a build whose result can no longer be delivered.
@@ -1446,6 +1479,13 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
       ++skipped_deltas;
       continue;
     }
+
+#ifdef MG_ENTERPRISE
+    if (on_txn_begin && !txn_begin_notified) {
+      txn_begin_notified = true;
+      (*on_txn_begin)(delta_timestamp);
+    }
+#endif
 
     // NOLINTNEXTLINE (google-build-using-namespace)
     using namespace storage::durability;

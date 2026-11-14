@@ -993,6 +993,11 @@ add_unit_test(versioning_bounded_recovery
     SOURCES versioning_bounded_recovery.cpp
     LINK_TARGETS mg::storage mg-dbms
 )
+
+add_unit_test(versioning_history_replay
+    SOURCES versioning_history_replay.cpp
+    LINK_TARGETS mg::storage mg-dbms storage_test_utils
+)
 endif ()
 
 add_unit_test(storage_v2_non_sequential_isolation

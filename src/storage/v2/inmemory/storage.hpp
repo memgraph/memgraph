@@ -1016,6 +1016,33 @@ class InMemoryStorage final : public Storage {
   [[nodiscard]] std::optional<durability::RecoveryTail> TakeRecoveryTail() { return std::exchange(recovery_tail_, {}); }
 #endif
 
+#ifdef MG_ENTERPRISE
+  /// While alive, commits skip the WAL append (but still advance the last durable timestamp). For replaying
+  /// transactions that are already in existing WAL files; the caller must ensure no other writer commits meanwhile.
+  class SuppressWalScope {
+   public:
+    explicit SuppressWalScope(InMemoryStorage &storage) : storage_{storage} {
+      MG_ASSERT(!storage_.suppress_wal_.exchange(true, std::memory_order_acq_rel), "WAL suppression is not nestable");
+    }
+
+    ~SuppressWalScope() { storage_.suppress_wal_.store(false, std::memory_order_release); }
+
+    SuppressWalScope(SuppressWalScope const &) = delete;
+    SuppressWalScope &operator=(SuppressWalScope const &) = delete;
+    SuppressWalScope(SuppressWalScope &&) = delete;
+    SuppressWalScope &operator=(SuppressWalScope &&) = delete;
+
+   private:
+    InMemoryStorage &storage_;
+  };
+
+  /// Moves the transaction clock to at least max(last durable timestamp + 1, `min_next`); replayed commits take local
+  /// MVCC ids but record main's durable timestamps, so the clock can trail them. Requires no transaction in flight.
+  void BumpClockPastDurable(uint64_t min_next = 0);
+
+  [[nodiscard]] uint64_t OldestActiveTimestamp();
+#endif
+
   // The highest fully-published commit timestamp; under the experiment this is what a snapshot
   // isolation reader freezes as its own boundary at BEGIN.
   [[nodiscard]] uint64_t LastCommittedMvccTimestamp() const {
@@ -1183,6 +1210,8 @@ class InMemoryStorage final : public Storage {
   uint64_t wal_unsynced_transactions_{0};
 
 #ifdef MG_ENTERPRISE
+  std::atomic<bool> suppress_wal_{false};
+
   std::optional<durability::RecoveryTail> recovery_tail_;
 #endif
 
