@@ -318,6 +318,14 @@ TEST_F(TestPrivilegeExtractor, ShowQueryCallableMappingsQuery) {
   EXPECT_THAT(GetRequiredPrivileges(query), UnorderedElementsAre(AuthQuery::Privilege::CONFIG));
 }
 
+TEST_F(TestPrivilegeExtractor, ShowBranchQueriesNeedBranchUse) {
+  for (auto const action : {VersioningQuery::Action::SHOW_BRANCH, VersioningQuery::Action::SHOW_BRANCHES}) {
+    auto *query = storage.Create<VersioningQuery>();
+    query->action_ = action;
+    EXPECT_THAT(GetRequiredPrivileges(query), UnorderedElementsAre(AuthQuery::Privilege::BRANCH_USE));
+  }
+}
+
 // The coordinator auth-query gate permits exactly CREATE/DROP/SHOW ROLE, GRANT/REVOKE of the coordinator READ/WRITE
 // privileges on a role, and SHOW PRIVILEGES FOR a role; every other auth query (and any grant of a non-coordinator
 // privilege or against a USER) is rejected on a coordinator. This exercises the predicate the interpreter gate uses.

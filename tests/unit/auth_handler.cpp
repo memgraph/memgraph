@@ -15,11 +15,13 @@
 #include <gtest/gtest.h>
 #include <openssl/x509_vfy.h>
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <cstdint>
 #include <future>
 #include <latch>
+#include <set>
 #include <thread>
 #include <variant>
 
@@ -29,6 +31,7 @@
 #include "auth/repository.hpp"
 #include "auth_test_utils.hpp"
 #include "dbms/constants.hpp"
+#include "flags/experimental.hpp"
 #include "frontend/ast/ast_visitor.hpp"
 #include "glue/auth_global.hpp"
 #include "glue/auth_handler.hpp"
@@ -3902,3 +3905,146 @@ TEST_F(AuthQueryHandlerFixture, SessionLongPolicyIsLockFreeUnderExclusiveLock) {
   EXPECT_FALSE(denied_fut.get());
   EXPECT_TRUE(anonymous_fut.get());
 }
+
+#ifdef MG_ENTERPRISE
+namespace {
+// Sets graph versioning on or off for a test and puts the default back.
+struct VersioningExperiment {
+  explicit VersioningExperiment(bool enabled) {
+    memgraph::flags::SetExperimental(enabled ? memgraph::flags::Experiments::VERSIONING
+                                             : memgraph::flags::Experiments::NONE);
+  }
+
+  ~VersioningExperiment() { memgraph::flags::SetExperimental(memgraph::flags::Experiments::NONE); }
+};
+
+using memgraph::auth::Permission;
+using memgraph::auth::PermissionLevel;
+
+constexpr std::array kBranchPermissionList = {Permission::BRANCH_USE};
+
+std::set<std::string> PrivilegeNames(const std::vector<std::vector<memgraph::query::TypedValue>> &rows) {
+  std::set<std::string> names;
+  for (const auto &row : rows) names.emplace(row[0].ValueString());
+  return names;
+}
+}  // namespace
+
+// The first user and the built-in admin role get "all privileges": graph versioning's only while it is enabled, so that
+// with it off the stored privileges are what they were before the feature existed.
+class BranchPrivilegesTest : public AuthQueryHandlerFixture {
+ protected:
+  void ExpectBuiltinAdminBranchPrivileges(bool versioning);
+  void ExpectFirstUserBranchPrivileges(bool versioning);
+};
+
+void BranchPrivilegesTest::ExpectBuiltinAdminBranchPrivileges(bool versioning) {
+  const VersioningExperiment experiment{versioning};
+  const auto level = versioning ? PermissionLevel::GRANT : PermissionLevel::NEUTRAL;
+  ASSERT_TRUE(auth_handler.CreateUser("alice", {}, nullptr, nullptr).created);
+
+  auto locked = auth->ReadLock();
+  const auto admin = locked->GetRole("admin");
+  ASSERT_TRUE(admin.has_value());
+  for (const auto permission : kBranchPermissionList) {
+    EXPECT_EQ(admin->permissions().Has(permission), level) << "versioning " << versioning;
+  }
+  EXPECT_EQ(admin->permissions().Has(Permission::MATCH), PermissionLevel::GRANT);
+}
+
+TEST_F(BranchPrivilegesTest, BuiltinAdminHasNoBranchPrivilegesWhileVersioningIsOff) {
+  ExpectBuiltinAdminBranchPrivileges(false);
+}
+
+TEST_F(BranchPrivilegesTest, BuiltinAdminHasBranchPrivilegesWhileVersioningIsOn) {
+  ExpectBuiltinAdminBranchPrivileges(true);
+}
+
+// A role that exists already stops the built-in roles, so the first user gets direct grants.
+void BranchPrivilegesTest::ExpectFirstUserBranchPrivileges(bool versioning) {
+  const VersioningExperiment experiment{versioning};
+  const auto level = versioning ? PermissionLevel::GRANT : PermissionLevel::NEUTRAL;
+  ASSERT_TRUE(auth_handler.CreateRole("somerole", nullptr, nullptr));
+  ASSERT_TRUE(auth_handler.CreateUser("bob", {}, nullptr, nullptr).created);
+
+  const auto user = auth->ReadLock()->GetUser("bob");
+  ASSERT_TRUE(user.has_value());
+  for (const auto permission : kBranchPermissionList) {
+    EXPECT_EQ(user->permissions().Has(permission), level) << "versioning " << versioning;
+  }
+  EXPECT_EQ(user->permissions().Has(Permission::MATCH), PermissionLevel::GRANT);
+}
+
+TEST_F(BranchPrivilegesTest, FirstUserHasNoBranchPrivilegesWhileVersioningIsOff) {
+  ExpectFirstUserBranchPrivileges(false);
+}
+
+TEST_F(BranchPrivilegesTest, FirstUserHasBranchPrivilegesWhileVersioningIsOn) { ExpectFirstUserBranchPrivileges(true); }
+
+// What a user already holds is never dropped; SHOW PRIVILEGES lists the branch privileges only while versioning is
+// enabled.
+TEST_F(BranchPrivilegesTest, ShowPrivilegesListsBranchPrivilegesOnlyWhileVersioningIsEnabled) {
+  perms.Grant(Permission::MATCH);
+  perms.Grant(Permission::BRANCH_USE);
+  auth.value()->SaveUser(memgraph::auth::User{user_name, std::nullopt, perms});
+  const auto db = std::optional<std::string>{std::string{memgraph::dbms::kDefaultDB}};
+
+  {
+    const VersioningExperiment experiment{false};
+    EXPECT_EQ(PrivilegeNames(auth_handler.GetPrivileges(user_name, db, nullptr)), (std::set<std::string>{"MATCH"}));
+  }
+  {
+    const VersioningExperiment experiment{true};
+    EXPECT_EQ(PrivilegeNames(auth_handler.GetPrivileges(user_name, db, nullptr)),
+              (std::set<std::string>{"MATCH", "BRANCH_USE"}));
+  }
+  const auto stored = auth->ReadLock()->GetUser(user_name);
+  ASSERT_TRUE(stored.has_value());
+  EXPECT_EQ(stored->permissions().Has(Permission::BRANCH_USE), PermissionLevel::GRANT) << "kept while hidden";
+}
+
+// DENY ALL while versioning is off denies a stored branch privilege too, invisibly, so it cannot resurface when
+// versioning is enabled again.
+TEST_F(BranchPrivilegesTest, DenyAllWhileVersioningIsOffDeniesStoredBranchPrivileges) {
+  perms.Grant(Permission::BRANCH_USE);
+  auth.value()->SaveUser(memgraph::auth::User{user_name, std::nullopt, perms});
+  const auto db = std::optional<std::string>{std::string{memgraph::dbms::kDefaultDB}};
+
+  {
+    const VersioningExperiment experiment{false};
+    auth_handler.DenyPrivilege(user_name,
+                               memgraph::query::PrivilegesDeniedOrRevokedByAll(),
+                               {},
+                               {},
+                               {},
+                               memgraph::auth::UserOrRoleType::USER,
+                               nullptr,
+                               nullptr);
+    EXPECT_EQ(PrivilegeNames(auth_handler.GetPrivileges(user_name, db, nullptr)).count("BRANCH_USE"), 0);
+  }
+  const auto stored = auth->ReadLock()->GetUser(user_name);
+  ASSERT_TRUE(stored.has_value());
+  EXPECT_EQ(stored->permissions().Has(Permission::BRANCH_USE), PermissionLevel::DENY);
+  {
+    const VersioningExperiment experiment{true};
+    EXPECT_EQ(PrivilegeNames(auth_handler.GetPrivileges(user_name, db, nullptr)).count("BRANCH_USE"), 1);
+  }
+}
+
+TEST_F(BranchPrivilegesTest, ShowRolePrivilegesListsBranchPrivilegesOnlyWhileVersioningIsEnabled) {
+  perms.Grant(Permission::MATCH);
+  perms.Deny(Permission::BRANCH_USE);
+  auth.value()->SaveRole(memgraph::auth::Role{"branch_role", perms});
+  const auto db = std::optional<std::string>{std::string{memgraph::dbms::kDefaultDB}};
+
+  {
+    const VersioningExperiment experiment{false};
+    EXPECT_EQ(PrivilegeNames(auth_handler.GetPrivileges("branch_role", db, nullptr)), (std::set<std::string>{"MATCH"}));
+  }
+  {
+    const VersioningExperiment experiment{true};
+    EXPECT_EQ(PrivilegeNames(auth_handler.GetPrivileges("branch_role", db, nullptr)),
+              (std::set<std::string>{"MATCH", "BRANCH_USE"}));
+  }
+}
+#endif

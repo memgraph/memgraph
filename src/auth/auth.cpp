@@ -22,6 +22,9 @@
 #include "auth/rules.hpp"
 #include "auth/system_user.hpp"
 #include "flags/auth.hpp"
+#ifdef MG_ENTERPRISE
+#include "flags/experimental.hpp"
+#endif
 #include "license/license.hpp"
 #include "system/action.hpp"
 #include "system/transaction.hpp"
@@ -119,6 +122,15 @@ namespace memgraph::auth {
 const Auth::Epoch Auth::kStartEpoch = 1;
 
 namespace {
+
+#ifdef MG_ENTERPRISE
+void GrantBranchPermissionsIfEnabled(Permissions &permissions) {
+  if (!flags::AreExperimentsEnabled(flags::Experiments::VERSIONING)) return;
+  for (auto const permission : kBranchPermissions) {
+    permissions.Grant(permission);
+  }
+}
+#endif
 
 /**
  * CONSTANTS
@@ -719,6 +731,9 @@ void Auth::InitialiseFirstUser(User &user, system::Transaction *system_tx) {
   for (auto const permission : kPermissionsAll) {
     user.permissions().Grant(permission);
   }
+#ifdef MG_ENTERPRISE
+  GrantBranchPermissionsIfEnabled(user.permissions());
+#endif
   SaveUser(user, system_tx);
 }
 
@@ -976,6 +991,7 @@ bool Auth::CreateBuiltinRoles(system::Transaction *system_tx) {
     for (auto permission : kPermissionsAll) {
       role.permissions().Grant(permission);
     }
+    GrantBranchPermissionsIfEnabled(role.permissions());
     grant_privileges(role, kAllLabelPermissions, kAllEdgeTypePermissions);
     grant_property_privileges(role, kAllPropertyPermissionTypes);
     role.db_access().GrantAll();

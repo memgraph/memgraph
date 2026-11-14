@@ -86,7 +86,9 @@ enum class Permission : uint64_t {
   // part of kPermissionsAll, so GRANT ALL PRIVILEGES on a data instance does not grant them. WRITE is a superset of
   // READ. Bit 25 (the removed COORDINATOR privilege) is intentionally not reused.
   COORDINATOR_READ       = 1ULL << 32ULL,
-  COORDINATOR_WRITE      = 1ULL << 33ULL
+  COORDINATOR_WRITE      = 1ULL << 33ULL,
+  // Not part of kPermissionsAll (see kBranchPermissions).
+  BRANCH_USE             = 1ULL << 34ULL
 };
 // clang-format on
 
@@ -125,6 +127,12 @@ inline constexpr std::array kPermissionsAll = {
     Permission::RELOAD_TLS
 };
 // clang-format on
+
+#ifdef MG_ENTERPRISE
+// Granted by all-privileges paths only while versioning is enabled (GrantBranchPermissionsIfEnabled); stored
+// grants and denies are kept either way.
+inline constexpr std::array kBranchPermissions = {Permission::BRANCH_USE};
+#endif
 
 // Coordinator privilege model. Coordinators enforce exactly two privileges, COORDINATOR_READ and COORDINATOR_WRITE,
 // where WRITE is a superset of READ. A session's effective mask is the union (bitwise OR) of its matched roles' masks;
