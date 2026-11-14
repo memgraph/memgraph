@@ -522,15 +522,31 @@ class EdgesChunkedIterable {
 };
 
 class EdgesIterable final {
+#ifdef MG_ENTERPRISE
+  // A branch edge index scan, streamed or a vector (full-scan fallback); its edges already carry the branch context.
+  using Materialized = BranchScan<EdgeAccessor>;
+
+  std::variant<
+      storage::EdgesIterable,
+      std::unordered_set<EdgeAccessor, std::hash<EdgeAccessor>, std::equal_to<void>, utils::Allocator<EdgeAccessor>> *,
+      std::shared_ptr<Materialized>>
+      iterable_;
+#else
   std::variant<storage::EdgesIterable, std::unordered_set<EdgeAccessor, std::hash<EdgeAccessor>, std::equal_to<void>,
                                                           utils::Allocator<EdgeAccessor>> *>
       iterable_;
+#endif
 
  public:
   class Iterator final {
     std::variant<storage::EdgesIterable::Iterator,
                  std::unordered_set<EdgeAccessor, std::hash<EdgeAccessor>, std::equal_to<void>,
-                                    utils::Allocator<EdgeAccessor>>::iterator>
+                                    utils::Allocator<EdgeAccessor>>::iterator
+#ifdef MG_ENTERPRISE
+                 ,
+                 Materialized::Iterator
+#endif
+                 >
         it_;
 
    public:
@@ -539,6 +555,10 @@ class EdgesIterable final {
     explicit Iterator(std::unordered_set<EdgeAccessor, std::hash<EdgeAccessor>, std::equal_to<void>,
                                          utils::Allocator<EdgeAccessor>>::iterator it)
         : it_(it) {}
+
+#ifdef MG_ENTERPRISE
+    explicit Iterator(Materialized::Iterator it) : it_(it) {}
+#endif
 
     EdgeAccessor operator*() const {
       return std::visit([](auto &it_) { return EdgeAccessor(*it_); }, it_);
@@ -560,10 +580,17 @@ class EdgesIterable final {
                                             utils::Allocator<EdgeAccessor>> *edges)
       : iterable_(edges) {}
 
+#ifdef MG_ENTERPRISE
+  explicit EdgesIterable(std::shared_ptr<Materialized> edges) : iterable_(std::move(edges)) {}
+#endif
+
   Iterator begin() {
     return std::visit(
         memgraph::utils::Overloaded{
             [](storage::EdgesIterable &iterable_) { return Iterator(iterable_.begin()); },
+#ifdef MG_ENTERPRISE
+            [](std::shared_ptr<Materialized> &edges) { return Iterator(edges->begin()); },
+#endif
             [](std::unordered_set<EdgeAccessor,
                                   std::hash<EdgeAccessor>,
                                   std::equal_to<void>,
@@ -575,12 +602,23 @@ class EdgesIterable final {
     return std::visit(
         memgraph::utils::Overloaded{
             [](storage::EdgesIterable &iterable_) { return Iterator(iterable_.end()); },
+#ifdef MG_ENTERPRISE
+            [](std::shared_ptr<Materialized> &edges) { return Iterator(edges->end()); },
+#endif
             [](std::unordered_set<EdgeAccessor,
                                   std::hash<EdgeAccessor>,
                                   std::equal_to<void>,
                                   utils::Allocator<EdgeAccessor>> *iterable_) { return Iterator(iterable_->end()); }},
         iterable_);
   }
+
+#ifdef MG_ENTERPRISE
+  /// Rows a branch index scan has pulled from its storage scans so far; 0 for any other iterable.
+  uint64_t BranchSourceRows() const {
+    auto const *scan = std::get_if<std::shared_ptr<Materialized>>(&iterable_);
+    return scan != nullptr ? (*scan)->SourceRows() : 0;
+  }
+#endif
 };
 
 using PointIterable = query_iterable<storage::PointIterable>;
@@ -632,6 +670,12 @@ class DbAccessor final {
                                   std::optional<utils::Bound<storage::PropertyValue>> const &upper);
   VerticesIterable BranchVertices(storage::View view, storage::PropertyId property,
                                   storage::PropertyValueRange const &range);
+  // Edge index scans: main@fork's index minus the edges the branch hid, merged with the diff engine's (native edges and
+  // fork edges the branch wrote a property on). Full scan when main@fork or the diff engine lacks the index.
+  EdgesIterable BranchEdges(storage::View view, storage::EdgeTypeId edge_type);
+  EdgesIterable BranchEdges(storage::View view, storage::EdgeTypeId edge_type, storage::PropertyId property,
+                            storage::PropertyValueRange const &range);
+  EdgesIterable BranchEdges(storage::View view, storage::PropertyId property, storage::PropertyValueRange const &range);
 
   // Per-key count on a branch: main@fork's plus the diff engine's, so fork objects the branch deleted or took out of
   // the key are not subtracted. No index on both sides: the whole branch count.
@@ -844,6 +888,10 @@ class DbAccessor final {
       -> PointIterable;
 
   EdgesIterable Edges(storage::View view, storage::EdgeTypeId edge_type) {
+#ifdef MG_ENTERPRISE
+    if (branch_ctx_ != nullptr) [[unlikely]]
+      return BranchEdges(view, edge_type);
+#endif
     return EdgesIterable(accessor_->Edges(edge_type, view));
   }
 
@@ -857,10 +905,18 @@ class DbAccessor final {
 
   EdgesIterable Edges(storage::View view, storage::EdgeTypeId edge_type, storage::PropertyId property,
                       storage::PropertyValueRange const &range) {
+#ifdef MG_ENTERPRISE
+    if (branch_ctx_ != nullptr) [[unlikely]]
+      return BranchEdges(view, edge_type, property, range);
+#endif
     return EdgesIterable(accessor_->Edges(edge_type, property, range, view));
   }
 
   EdgesIterable Edges(storage::View view, storage::PropertyId property, storage::PropertyValueRange const &range) {
+#ifdef MG_ENTERPRISE
+    if (branch_ctx_ != nullptr) [[unlikely]]
+      return BranchEdges(view, property, range);
+#endif
     return EdgesIterable(accessor_->Edges(property, range, view));
   }
 

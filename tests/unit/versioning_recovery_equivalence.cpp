@@ -435,6 +435,52 @@ TEST_P(RandomizedRecoveryTest, RecoveredBranchReadsAsTheLiveOneAndTheModelDo) {
 
 INSTANTIATE_TEST_SUITE_P(Seeds, RandomizedRecoveryTest, ::testing::Range<uint64_t>(1, 41));
 
+// A fork edge's stub records the fork edge it was created for (EdgeStubIndex::FindFork, which edge scans use to reach
+// the fork edge of a diff-index hit). Replaying the branch's WAL creates the stubs through the same resolver, so the
+// record is there after a restart and names the edge the walk of the FROM vertex's adjacency finds.
+TEST_F(VersioningRecoveryEquivalenceTest, ForkEdgeStubsRecordTheirForkEdgeLiveAndRecovered) {
+  Base base{};
+  const auto expect_fork_records = [&](mv::BranchContext &ctx) {
+    auto diff = ctx.diff_engine().Access(ms::READ);
+    ASSERT_TRUE(ctx.BeginTransaction(diff.get()).has_value());
+    for (const auto &[edge, from] : {std::pair{base.e1, base.v1}, std::pair{base.e2, base.v3}}) {
+      const auto recorded = ctx.core()->edge_stub_index().FindFork(edge.AsUint());
+      ASSERT_TRUE(recorded.has_value()) << "e" << edge.AsUint() << " has no fork record";
+      const auto walked = ctx.FindForkEdge(edge, from);
+      ASSERT_TRUE(walked.has_value());
+      EXPECT_TRUE(*recorded == walked->edge_) << "e" << edge.AsUint();
+    }
+    EXPECT_FALSE(ctx.core()->edge_stub_index().FindFork(base.e2.AsUint() + 100).has_value());
+    ctx.EndTransaction();
+  };
+  std::string live;
+  {
+    memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/false)};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+    base = CreateBase(db);
+    ASSERT_TRUE(db.version_store()->CreateBranch("b").has_value());
+    auto ctx = Checkout(db, "b");
+    ASSERT_NE(ctx, nullptr);
+    Env env{db, *ctx, base};
+    env.Txn([&](mv::BranchContext &c, auto &) {
+      auto e1 = env.ForkEdge(base.e1, base.v1);
+      ASSERT_TRUE(c.SetProperty(e1, env.Prop("w"), ms::PropertyValue(5)).has_value());
+    });
+    env.Txn([&](mv::BranchContext &c, auto &) {
+      auto e2 = env.ForkEdge(base.e2, base.v3);
+      ASSERT_TRUE(*c.DeleteForkEdge(e2));
+    });
+    expect_fork_records(*ctx);
+    live = Visible(Capture(db, *ctx, base));
+  }
+  memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/true)};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+  auto ctx = Checkout(db, "b");
+  ASSERT_NE(ctx, nullptr);
+  expect_fork_records(*ctx);
+  EXPECT_EQ(Visible(Capture(db, *ctx, base)), live);
+}
+
 // Every key-moving writer leaves the same index live and replayed: two-key map update, label-first and property-first
 // orders, init, set back to the fork value, part removal, fork label removed then re-added after a key change.
 TEST_F(VersioningRecoveryEquivalenceTest, EveryKeyChangingWriterLeavesTheSameIndexLiveAndRecovered) {
