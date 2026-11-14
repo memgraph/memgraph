@@ -625,6 +625,11 @@ antlrcpp::Any CypherMainVisitor::visitPreQueryDirectives(MemgraphCypher::PreQuer
         }
         pre_query_directives.num_threads_ = std::any_cast<Expression *>(num_threads->accept(this));
       }
+    } else if (auto *branch_directive = pre_query_directive->branchDirective()) {
+      if (pre_query_directives.branch_target_) {
+        throw SyntaxException("Branch can be set only once in the USING statement.");
+      }
+      pre_query_directives.branch_target_ = std::any_cast<Expression *>(branch_directive->branchName()->accept(this));
     } else {
       throw SyntaxException("Unknown pre query directive!");
     }
@@ -4812,6 +4817,10 @@ antlrcpp::Any CypherMainVisitor::visitCallSubquery(MemgraphCypher::CallSubqueryC
   call_subquery->cypher_query_ = ctx->conditionalQuery()
                                      ? VisitConditionalQuery(ctx->conditionalQuery()).query
                                      : std::any_cast<CypherQuery *>(ctx->cypherQuery()->accept(this));
+  // A query runs on one branch; the interpreter reads the directive of the outermost query only.
+  if (call_subquery->cypher_query_->pre_query_directives_.branch_target_ != nullptr) {
+    throw SyntaxException("USING BRANCH applies to a whole query, not to a subquery.");
+  }
 
   PreQueryDirectives pre_query_directives;
   if (auto const *periodic_commit = ctx->periodicSubquery()) {

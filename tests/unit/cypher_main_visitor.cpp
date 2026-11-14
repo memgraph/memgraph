@@ -10201,6 +10201,35 @@ TEST_P(CypherMainVisitorTest, GrantBranchPrivileges) {
                    {});
 }
 
+TEST_P(CypherMainVisitorTest, UsingBranchDirective) {
+  auto &ast_generator = *GetParam();
+
+  {
+    auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("USING BRANCH 'feature' MATCH (n) RETURN n"));
+    ASSERT_NE(query, nullptr);
+    ASSERT_NE(query->pre_query_directives_.branch_target_, nullptr);
+    EXPECT_EQ(QuotedBranchName(ast_generator, query->pre_query_directives_.branch_target_), "feature");
+  }
+  {
+    auto *query =
+        dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("USING HOPS LIMIT 5, BRANCH main MATCH (n) RETURN n"));
+    ASSERT_NE(query, nullptr);
+    ASSERT_NE(query->pre_query_directives_.hops_limit_, nullptr);
+    EXPECT_EQ(BareBranchName(ast_generator, query->pre_query_directives_.branch_target_), "main");
+  }
+  {
+    auto *query =
+        dynamic_cast<ExplainQuery *>(ast_generator.ParseQuery("EXPLAIN USING BRANCH feature MATCH (n) RETURN n"));
+    ASSERT_NE(query, nullptr);
+    EXPECT_NE(query->cypher_query_->pre_query_directives_.branch_target_, nullptr);
+  }
+  EXPECT_THROW(ast_generator.ParseQuery("USING BRANCH 'a', BRANCH 'b' MATCH (n) RETURN n"), SyntaxException);
+  // The interpreter reads the outermost query's directive only, so a subquery's would be silently ignored.
+  EXPECT_THROW(ast_generator.ParseQuery("CALL { USING BRANCH b MATCH (n) RETURN count(n) AS c } RETURN c"),
+               SyntaxException);
+  TestInvalidQuery("USING BRANCH MATCH (n) RETURN n", ast_generator);
+}
+
 TEST_P(CypherMainVisitorTest, VersioningQueryInvalidSyntax) {
   auto &ast_generator = *GetParam();
 
