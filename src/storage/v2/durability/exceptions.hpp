@@ -21,4 +21,10 @@ class RecoveryFailure : public utils::BasicException {
   SPECIALIZE_GET_EXCEPTION_NAME(RecoveryFailure)
 };
 
+/// A WAL file whose header reads but whose summary does not verify.
+class WalSummaryMismatch : public RecoveryFailure {
+  using RecoveryFailure::RecoveryFailure;
+  SPECIALIZE_GET_EXCEPTION_NAME(WalSummaryMismatch)
+};
+
 }  // namespace memgraph::storage::durability

@@ -493,6 +493,7 @@ inline bool IsWalDeltaDataTransactionEnd(const WalDeltaData &delta, const uint64
 }
 
 /// Function used to read the WAL file's header, without parsing the deltas.
+/// @throw WalSummaryMismatch when only the summary fails to verify
 /// @throw RecoveryFailure
 WalHeader ReadWalHeader(const std::filesystem::path &path);
 
