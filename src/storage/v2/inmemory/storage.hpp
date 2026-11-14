@@ -846,6 +846,12 @@ class InMemoryStorage final : public Storage {
 
     void DowngradeToReadIfValid();
 
+#ifdef MG_ENTERPRISE
+    /// Finds out-edge `edge_gid` by scanning the adjacency of `from`, for versioning stubs that live in neither
+    /// vertices_ nor edges_ and so are invisible to FindEdge. Returns nullopt if absent or properties_on_edges is off.
+    std::optional<EdgeAccessor> FindEdgeFrom(Gid edge_gid, const VertexAccessor &from, View view);
+#endif
+
    protected:
     // TODO Better naming
     /// @throw std::bad_alloc

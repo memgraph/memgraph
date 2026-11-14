@@ -105,10 +105,17 @@ namespace memgraph::versioning::stub {
 
 namespace detail {
 
+// Writes in the order the read contract of stub_merge.hpp needs: a READ_COMMITTED reader whose delta walk straddles
+// the commit sees a prefix of these writes, so a removal marker goes on before the value is dropped and comes off after
+// the value is set; mid-way a key holds both and the reader prefers the value.
 template <typename Accessor>
 std::optional<storage::Error> ApplyProperties(Accessor &stub, const StubState &before, const StubState &after) {
   auto const old_props = before.properties.Properties();
   auto const new_props = after.properties.Properties();
+  for (auto const pid : after.removed_pids) {
+    if (std::ranges::binary_search(before.removed_pids, pid)) continue;
+    if (auto r = stub.SetProperty(Mark(pid), storage::PropertyValue{true}); !r) return r.error();
+  }
   for (auto const &[pid, value] : new_props) {
     auto const it = old_props.find(pid);
     if (it != old_props.end() && it->second == value) continue;
@@ -117,10 +124,6 @@ std::optional<storage::Error> ApplyProperties(Accessor &stub, const StubState &b
   for (auto const &entry : old_props) {
     if (new_props.contains(entry.first)) continue;
     if (auto r = stub.SetProperty(entry.first, storage::PropertyValue{}); !r) return r.error();
-  }
-  for (auto const pid : after.removed_pids) {
-    if (std::ranges::binary_search(before.removed_pids, pid)) continue;
-    if (auto r = stub.SetProperty(Mark(pid), storage::PropertyValue{true}); !r) return r.error();
   }
   for (auto const pid : before.removed_pids) {
     if (std::ranges::binary_search(after.removed_pids, pid)) continue;

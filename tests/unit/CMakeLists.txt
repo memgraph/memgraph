@@ -1034,6 +1034,11 @@ add_unit_test(versioning_edge_stub_index
     LINK_TARGETS mg::versioning mg::storage
 )
 
+add_unit_test(versioning_hidden_fork_edges
+    SOURCES versioning_hidden_fork_edges.cpp
+    LINK_TARGETS mg::versioning mg::storage
+)
+
 add_unit_test(versioning_stub_index
     SOURCES versioning_stub_index.cpp
     LINK_TARGETS mg::versioning mg::storage
