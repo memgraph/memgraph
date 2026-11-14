@@ -901,6 +901,38 @@ enum mgp_error mgp_vertex_iter_in_edges(struct mgp_vertex *v, struct mgp_memory 
 enum mgp_error mgp_vertex_iter_out_edges(struct mgp_vertex *v, struct mgp_memory *memory,
                                          struct mgp_edges_iterator **result);
 
+/// Start iterating over inbound edges of the given vertex whose type is one of the `num_types` types in `types`.
+/// Like mgp_vertex_iter_in_edges, but only edges of those types are copied into the iterator, so the others
+/// are never wrapped or named. The storage still reads every edge of `v` to check its type. Use it when a vertex
+/// has many edges and only a few types matter.
+/// `types` is read only during the call. The type names are remembered for the rest of the procedure call, so
+/// passing the same types for many vertices looks each name up once.
+/// A type that no edge has matches nothing.
+/// The resulting mgp_edges_iterator needs to be deallocated with mgp_edges_iterator_destroy.
+/// Return mgp_error::MGP_ERROR_INVALID_ARGUMENT if `num_types` is 0, if `types` is NULL, or if a name in `types`
+/// is NULL.
+/// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate a mgp_edges_iterator.
+/// Return mgp_error::MGP_ERROR_DELETED_OBJECT if `v` has been deleted.
+enum mgp_error mgp_vertex_iter_in_edges_by_types(struct mgp_vertex *v, const struct mgp_edge_type *types,
+                                                 size_t num_types, struct mgp_memory *memory,
+                                                 struct mgp_edges_iterator **result);
+
+/// Start iterating over outbound edges of the given vertex whose type is one of the `num_types` types in `types`.
+/// Like mgp_vertex_iter_out_edges, but only edges of those types are copied into the iterator, so the others
+/// are never wrapped or named. The storage still reads every edge of `v` to check its type. Use it when a vertex
+/// has many edges and only a few types matter.
+/// `types` is read only during the call. The type names are remembered for the rest of the procedure call, so
+/// passing the same types for many vertices looks each name up once.
+/// A type that no edge has matches nothing.
+/// The resulting mgp_edges_iterator needs to be deallocated with mgp_edges_iterator_destroy.
+/// Return mgp_error::MGP_ERROR_INVALID_ARGUMENT if `num_types` is 0, if `types` is NULL, or if a name in `types`
+/// is NULL.
+/// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate a mgp_edges_iterator.
+/// Return mgp_error::MGP_ERROR_DELETED_OBJECT if `v` has been deleted.
+enum mgp_error mgp_vertex_iter_out_edges_by_types(struct mgp_vertex *v, const struct mgp_edge_type *types,
+                                                  size_t num_types, struct mgp_memory *memory,
+                                                  struct mgp_edges_iterator **result);
+
 /// Result is non-zero if the edges returned by this iterator can be modified.
 /// The mutability of the mgp_edges_iterator is the same as the graph which it belongs to.
 /// Current implementation always returns without errors.
