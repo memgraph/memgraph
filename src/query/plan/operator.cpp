@@ -7551,6 +7551,21 @@ std::vector<Symbol> Aggregate::ModifiedSymbols(const SymbolTable &) const {
 }
 
 namespace {
+// Finalizes a (count, M2) state: null when empty, 0 for one value, else sqrt(M2 / (sample ? n - 1 : n)).
+TypedValue MomentValue(int64_t count, double m2, bool sample, utils::MemoryResource *memory) {
+  if (count == 0) return TypedValue(memory);
+  if (count == 1) return TypedValue(0.0, memory);
+  const auto denominator = static_cast<double>(sample ? count - 1 : count);
+  return TypedValue(std::sqrt(m2 / denominator), memory);
+}
+
+// One Welford step; `n` is the count including `value`.
+void WelfordAdd(double &mean, double &m2, double n, double value) {
+  const double delta = value - mean;
+  mean += delta / n;
+  m2 += delta * (value - mean);
+}
+
 /** Returns the default TypedValue for an Aggregation element.
  * This value is valid both for returning when where are no inputs
  * to the aggregation op, and for initializing an aggregation result
@@ -7560,6 +7575,8 @@ TypedValue DefaultAggregationOpValue(const Aggregate::Element &element, utils::M
     case Aggregation::Op::MIN:
     case Aggregation::Op::MAX:
     case Aggregation::Op::AVG:
+    case Aggregation::Op::STDEV:
+    case Aggregation::Op::STDEVP:
       return TypedValue(memory);
     case Aggregation::Op::COUNT:
     case Aggregation::Op::SUM:
@@ -7681,6 +7698,9 @@ class AggregateCursor : public Cursor {
 
     // Pointers to the start of our arrays within the single memory block
     int64_t *counts_ = nullptr;
+    // Per-slot Welford state for STDEV/STDEVP.
+    double *means_ = nullptr;
+    double *m2s_ = nullptr;
     TypedValue *values_ = nullptr;
     TypedValue *remember_ = nullptr;
     TSet *unique_values_ = nullptr;
@@ -7704,6 +7724,8 @@ class AggregateCursor : public Cursor {
 
     CompactAggregationValue(CompactAggregationValue &&other) noexcept
         : counts_(std::exchange(other.counts_, nullptr)),
+          means_(std::exchange(other.means_, nullptr)),
+          m2s_(std::exchange(other.m2s_, nullptr)),
           values_(std::exchange(other.values_, nullptr)),
           remember_(std::exchange(other.remember_, nullptr)),
           unique_values_(std::exchange(other.unique_values_, nullptr)),
@@ -7722,6 +7744,8 @@ class AggregateCursor : public Cursor {
 
         // Transfer ownership
         counts_ = std::exchange(other.counts_, nullptr);
+        means_ = std::exchange(other.means_, nullptr);
+        m2s_ = std::exchange(other.m2s_, nullptr);
         values_ = std::exchange(other.values_, nullptr);
         remember_ = std::exchange(other.remember_, nullptr);
         unique_values_ = std::exchange(other.unique_values_, nullptr);
@@ -7746,6 +7770,11 @@ class AggregateCursor : public Cursor {
       offset = align_forward(offset, alignof(int64_t));
       const size_t offset_counts = offset;
       offset += sizeof(int64_t) * num_aggs_;
+      offset = align_forward(offset, alignof(double));
+      const size_t offset_means = offset;
+      offset += sizeof(double) * num_aggs_;
+      const size_t offset_m2s = offset;
+      offset += sizeof(double) * num_aggs_;
       // Values (TypedValue)
       offset = align_forward(offset, alignof(TypedValue));
       const size_t offset_values = offset;
@@ -7769,6 +7798,8 @@ class AggregateCursor : public Cursor {
 
       // Setup Pointers
       counts_ = reinterpret_cast<int64_t *>(base + offset_counts);
+      means_ = reinterpret_cast<double *>(base + offset_means);
+      m2s_ = reinterpret_cast<double *>(base + offset_m2s);
       values_ = reinterpret_cast<TypedValue *>(base + offset_values);
       remember_ = reinterpret_cast<TypedValue *>(base + offset_remember);
       unique_values_ = reinterpret_cast<TSet *>(base + offset_unique);
@@ -7777,6 +7808,8 @@ class AggregateCursor : public Cursor {
       // Construct Objects (Placement New)
       // Initialize counts to 0
       std::uninitialized_fill_n(counts_, num_aggs_, 0);
+      std::uninitialized_fill_n(means_, num_aggs_, 0.0);
+      std::uninitialized_fill_n(m2s_, num_aggs_, 0.0);
       // Initialize TypedValue arrays with Nulls so they are safe to destruct
       for (size_t i = 0UZ; i < num_aggs_; ++i) new (&values_[i]) TypedValue(mem);
       for (size_t i = 0UZ; i < num_rem_; ++i) new (&remember_[i]) TypedValue(mem);
@@ -7789,7 +7822,7 @@ class AggregateCursor : public Cursor {
 
    private:
     static constexpr size_t max_align =
-        std::max({alignof(int64_t), alignof(TypedValue), alignof(TSet), alignof(DeriveDedup)});
+        std::max({alignof(int64_t), alignof(double), alignof(TypedValue), alignof(TSet), alignof(DeriveDedup)});
 
     void free_resources() {
       if (!raw_block_) return;
@@ -7888,6 +7921,16 @@ class AggregateCursor : public Cursor {
             if (count > 0) {
               kv.second.values_[pos] = agg_value.values_[pos] / TypedValue(static_cast<double>(count), pull_memory);
             }
+          }
+          break;
+        }
+        case Aggregation::Op::STDEV:
+        case Aggregation::Op::STDEVP: {
+          const bool sample = self_.aggregations_[pos].op == Aggregation::Op::STDEV;
+          for (auto &kv : aggregation_) {
+            auto &agg_value = kv.second;
+            agg_value.values_[pos] =
+                MomentValue(agg_value.counts_[pos], agg_value.m2s_[pos], sample, context->evaluation_context.memory);
           }
           break;
         }
@@ -8026,6 +8069,12 @@ class AggregateCursor : public Cursor {
             EnsureOkForAvgSum(input_value);
             agg_value->values_[pos] = std::move(input_value);
             break;
+          case Aggregation::Op::STDEV:
+          case Aggregation::Op::STDEVP:
+            EnsureOkForAvgSum(input_value);
+            agg_value->means_[pos] = ToDouble(input_value);
+            agg_value->m2s_[pos] = 0.0;
+            break;
           case Aggregation::Op::COUNT:
             // value is deferred to post-processing
             break;
@@ -8085,6 +8134,15 @@ class AggregateCursor : public Cursor {
           EnsureOkForAvgSum(input_value);
           AddInto(agg_value->values_[pos], input_value);
           break;
+        case Aggregation::Op::STDEV:
+        case Aggregation::Op::STDEVP: {
+          // Welford's online update; counts_[pos] already includes this value.
+          EnsureOkForAvgSum(input_value);
+          const double value = ToDouble(input_value);
+          const auto n = static_cast<double>(agg_value->counts_[pos]);
+          WelfordAdd(agg_value->means_[pos], agg_value->m2s_[pos], n, value);
+          break;
+        }
         case Aggregation::Op::COLLECT_LIST:
           agg_value->values_[pos].ValueList().push_back(std::move(input_value));
           break;
@@ -8314,7 +8372,7 @@ class AggregateCursor : public Cursor {
       case TypedValue::Type::Double:
         return;
       default:
-        throw QueryRuntimeException("Only numeric values allowed in SUM and AVG aggregations.");
+        throw QueryRuntimeException("Only numeric values allowed in SUM, AVG, STDEV and STDEVP aggregations.");
     }
   }
 
@@ -12437,6 +12495,24 @@ void UnifyAggregation(auto &main_aggregation, auto &other_aggregation, const aut
         // Duplicates remain in 'other'.
         main_unique_values.merge(other_unique_values);
 
+        // A STDEV/STDEVP slot's state is a function of exactly the merged unique set, so rebuild it
+        // from that set rather than trying to subtract the duplicates.
+        if (agg_op == Aggregation::Op::STDEV || agg_op == Aggregation::Op::STDEVP) {
+          main_count = static_cast<int64_t>(main_unique_values.size());
+          double mean = 0.0;
+          double m2 = 0.0;
+          double n = 0.0;
+          for (const auto &val : main_unique_values) {
+            const double value = ToDouble(val);
+            ++n;
+            WelfordAdd(mean, m2, n, value);
+          }
+          main_agg_value.means_[pos] = mean;
+          main_agg_value.m2s_[pos] = m2;
+          main_value = MomentValue(main_count, m2, agg_op == Aggregation::Op::STDEV, main_agg_value.mem_resource_);
+          continue;
+        }
+
         // If 'other' is empty, everything was unique.
         // If 'other' still has items, those are the duplicates we must skip.
 
@@ -12553,7 +12629,28 @@ void UnifyAggregation(auto &main_aggregation, auto &other_aggregation, const aut
                             other_agg_value.derive_dedup_[pos]);
             break;
           }
+          case Aggregation::Op::STDEV:
+          case Aggregation::Op::STDEVP:
+            // Rebuilt from the merged unique set above.
+            break;
         }
+        continue;
+      }
+
+      // A STDEV/STDEVP slot merges from its raw (n, mean, M2) state, before the shared null shortcuts
+      // below, so its serial and parallel results agree even across an all-null branch.
+      if (agg_op == Aggregation::Op::STDEV || agg_op == Aggregation::Op::STDEVP) {
+        if (other_count > 0) {
+          const auto main_n = static_cast<double>(main_count);
+          const auto other_n = static_cast<double>(other_count);
+          const double total_n = main_n + other_n;
+          const double delta = other_agg_value.means_[pos] - main_agg_value.means_[pos];
+          main_agg_value.m2s_[pos] += other_agg_value.m2s_[pos] + (delta * delta * main_n * other_n / total_n);
+          main_agg_value.means_[pos] += delta * other_n / total_n;
+        }
+        main_count += other_count;
+        main_value = MomentValue(
+            main_count, main_agg_value.m2s_[pos], agg_op == Aggregation::Op::STDEV, main_agg_value.mem_resource_);
         continue;
       }
 
