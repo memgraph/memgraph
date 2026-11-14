@@ -65,6 +65,20 @@ constexpr EdgeTypeId kInvalidEdgeTypeId = EdgeTypeId::FromUint(-1);
 
 #undef STORAGE_DEFINE_ID_TYPE
 
+#ifdef MG_ENTERPRISE
+/// Branch diff markers are labels/properties/edge types with this bit set; mapper ids count from 0 and never have it.
+/// Structures indexed densely by id must skip reserved ids.
+inline constexpr uint32_t kReservedIdBit = uint32_t{1} << 31U;
+
+constexpr bool IsReservedId(uint32_t id) noexcept { return (id & kReservedIdBit) != 0; }
+
+constexpr bool IsReservedId(LabelId id) noexcept { return IsReservedId(id.AsUint()); }
+
+constexpr bool IsReservedId(PropertyId id) noexcept { return IsReservedId(id.AsUint()); }
+
+constexpr bool IsReservedId(EdgeTypeId id) noexcept { return IsReservedId(id.AsUint()); }
+#endif
+
 struct LabelPropKey {
   LabelPropKey(LabelId const &label, PropertyId const &property) : label_(label), property_(property) {}
 
