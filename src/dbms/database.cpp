@@ -22,6 +22,7 @@
 #include <ranges>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <vector>
 
 #include <fmt/format.h>
@@ -51,6 +52,7 @@
 #include "storage/v2/inmemory/storage.hpp"
 #include "utils/string.hpp"
 #include "versioning/branch_ledger.hpp"
+#include "versioning/branch_recovery.hpp"
 #include "versioning/gate.hpp"
 #include "versioning/version_store.hpp"
 #endif
@@ -190,17 +192,23 @@ std::string BranchNames(const versioning::LedgerContents &ledger) {
 }
 
 // Non-numeric entries such as the ledger file are ignored.
-uint64_t NextFreeBranchNumber(const std::filesystem::path &branches_directory) {
-  uint64_t next = 0;
+std::vector<uint64_t> BranchDirectoryNumbers(const std::filesystem::path &branches_directory) {
+  std::vector<uint64_t> numbers;
   std::error_code ec;
   for (std::filesystem::directory_iterator it{branches_directory, ec}, end; !ec && it != end; it.increment(ec)) {
     const auto name = it->path().filename().string();
     uint64_t number = 0;
     const auto [ptr, parse_ec] = std::from_chars(name.data(), name.data() + name.size(), number);
     if (parse_ec != std::errc{} || ptr != name.data() + name.size()) continue;
-    next = std::max(next, number + 1);
+    numbers.push_back(number);
   }
-  return next;
+  std::ranges::sort(numbers);
+  return numbers;
+}
+
+uint64_t NextFreeBranchNumber(const std::filesystem::path &branches_directory) {
+  const auto numbers = BranchDirectoryNumbers(branches_directory);
+  return numbers.empty() ? 0 : numbers.back() + 1;
 }
 
 // Runs before the storage exists; branches can only be rebuilt from the WAL. Never refuses the start: what cannot be
@@ -236,7 +244,18 @@ BranchRecoveryPlan PlanBranchRecovery(const storage::Config &config, const std::
     spdlog::warn("Graph Versioning: {}", *plan.ledger_unreadable);
     return plan;
   }
-  if (!read->has_value()) return plan;
+  if (!read->has_value()) {
+    if (const auto orphans = BranchDirectoryNumbers(ledger_file.parent_path()); !orphans.empty()) {
+      spdlog::warn(
+          "Graph Versioning: database '{}' has branch directories [{}] in '{}' but no branch ledger '{}'. No branch is "
+          "restored and the data in those directories is not used; restore the ledger file to get the branches back.",
+          config.salient.name.str(),
+          utils::Join(orphans | std::views::transform([](uint64_t n) { return std::to_string(n); }), ", "),
+          ledger_file.parent_path().string(),
+          ledger_file.string());
+    }
+    return plan;
+  }
 
   plan.ledger = std::move(**read);
   std::ranges::stable_sort(plan.ledger.branches, std::less{}, [](const auto &b) { return b.info.fork_ts; });
@@ -333,6 +352,7 @@ Database::Database(storage::Config config)
 
 #ifdef MG_ENTERPRISE
   auto branch_plan = PlanBranchRecovery(config, branch_ledger_file);
+  std::unordered_map<uint64_t, std::string> history_shortfalls;
   // Never reuse the number of a branch directory that is still on disk.
   branch_plan.ledger.next_number =
       std::max(branch_plan.ledger.next_number, NextFreeBranchNumber(branch_ledger_file.parent_path()));
@@ -386,7 +406,9 @@ Database::Database(storage::Config config)
       fork_ts.reserve(branch_plan.ledger.branches.size());
       for (const auto &branch : branch_plan.ledger.branches) fork_ts.push_back(branch.info.fork_ts);
       auto tail = recovered.TakeRecoveryTail().value_or(storage::durability::RecoveryTail{});
-      if (auto pins = ReplayHistoryTail(recovered, tail, fork_ts)) {
+      std::vector<uint64_t> durable_at_fork;
+      if (auto pins = ReplayHistoryTail(recovered, tail, fork_ts, &durable_at_fork)) {
+        history_shortfalls = versioning::FindHistoryShortfalls(branch_plan.ledger, durable_at_fork);
         // The ledger keeps recorded_fork_ts; the store runs on the pins taken on the rebuilt history.
         for (size_t i = 0; i < pins->size(); ++i) branch_plan.ledger.branches[i].info.fork_ts = (*pins)[i];
       } else {
@@ -422,7 +444,12 @@ Database::Database(storage::Config config)
       (versioning_enabled || !branch_plan.ledger.branches.empty())) {
     auto *in_memory_storage = static_cast<storage::InMemoryStorage *>(storage_.get());
     version_store_ = std::make_unique<versioning::VersionStore>(
-        [in_memory_storage] { return versioning::ForkPoint{.fork_ts = in_memory_storage->RegisterBranchForkPin()}; },
+        [in_memory_storage] {
+          // Read before the pin: every commit at or below it is below the fork.
+          const auto durable_ts =
+              in_memory_storage->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_;
+          return versioning::ForkPoint{.fork_ts = in_memory_storage->RegisterBranchForkPin(), .durable_ts = durable_ts};
+        },
         [in_memory_storage](uint64_t fork_ts) { in_memory_storage->ReleaseForkPin(fork_ts); });
     version_store_->SetRetentionFloorCallback(
         [in_memory_storage](std::optional<uint64_t> floor) { in_memory_storage->SetRetentionFloor(floor); });
@@ -434,17 +461,15 @@ Database::Database(storage::Config config)
       // The pin DropBranch releases; main has no replayed history to pin, so it is taken now.
       for (auto &branch : branch_plan.ledger.branches) branch.info.fork_ts = in_memory_storage->RegisterForkPin();
       version_store_->Restore(branch_plan.ledger);
-      for (const auto &branch : branch_plan.ledger.branches) {
-        version_store_->MarkUnavailable(branch.info.number, *branch_plan.set_aside);
-        spdlog::warn("Graph Versioning: branch '{}' of database '{}' is unavailable: {}.",
-                     branch.name,
-                     this->name(),
-                     *branch_plan.set_aside);
-      }
+      std::unordered_map<uint64_t, std::string> aside;
+      for (const auto &branch : branch_plan.ledger.branches) aside.emplace(branch.info.number, *branch_plan.set_aside);
+      versioning::RecoverBranches(*version_store_, *in_memory_storage, aside);
     } else if (branch_plan.bound) {
       version_store_->Restore(branch_plan.ledger);
       spdlog::info("Graph Versioning: restored branches [{}].", BranchNames(branch_plan.ledger));
+      versioning::RecoverBranches(*version_store_, *in_memory_storage, history_shortfalls);
     } else if (branch_plan.hidden) {
+      versioning::KeepMainClearOfHiddenBranches(branch_plan.ledger, *in_memory_storage);
       version_store_->RestoreHidden(branch_plan.ledger);
     } else {
       version_store_->Restore(branch_plan.ledger);

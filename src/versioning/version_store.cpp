@@ -159,6 +159,7 @@ std::expected<BranchInfo, std::string> VersionStore::CreateBranch(std::string na
           std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::system_clock::now().time_since_epoch())
               .count()),
       .fork_counts = fork.counts,
+      .fork_durable_ts = fork.durable_ts,
   };
 
   const auto release_fork = [&] {

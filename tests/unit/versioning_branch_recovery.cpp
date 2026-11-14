@@ -12,10 +12,14 @@
 // A branch comes back after a restart by replaying its diff-engine WAL: a record on a fork object is written again
 // through the BranchContext write resolver, a native one is the diff engine's stock operation. Each case runs a
 // workload, restarts, replays, and compares what a session reads and the branch's bookkeeping.
+#include <fmt/format.h>
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
+#include <spdlog/sinks/base_sink.h>
+#include <spdlog/spdlog.h>
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cstdint>
 #include <expected>
@@ -24,6 +28,7 @@
 #include <functional>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <set>
 #include <sstream>
@@ -39,8 +44,10 @@
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/view.hpp"
 #include "tests/test_commit_args_helper.hpp"
+#include "utils/exceptions.hpp"
 #include "utils/scheduler.hpp"
 #include "versioning/branch_engine.hpp"
+#include "versioning/branch_ledger.hpp"
 #include "versioning/branch_recovery.hpp"
 #include "versioning/version_store.hpp"
 
@@ -59,6 +66,7 @@ const std::filesystem::path kOtherStorageDirectory{std::filesystem::temp_directo
 struct Options {
   bool properties_on_edges{true};
   bool auto_index{false};
+  bool versioning{true};
 };
 
 ms::Config MakeConfig(bool recover_on_startup, Options options = {},
@@ -69,7 +77,7 @@ ms::Config MakeConfig(bool recover_on_startup, Options options = {},
                      .snapshot_wal_mode = ms::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
                      // Effectively disable periodic snapshotting so recovery is WAL-only.
                      .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::hours(24)}},
-      .experimental_versioning = true,
+      .experimental_versioning = options.versioning,
   };
   config.salient.items.properties_on_edges = options.properties_on_edges;
   config.salient.items.enable_label_index_auto_creation = options.auto_index;
@@ -81,6 +89,24 @@ auto *Mem(memgraph::dbms::Database &db) { return static_cast<ms::InMemoryStorage
 
 void Commit(ms::Storage::Accessor &acc) {
   ASSERT_TRUE(acc.PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+}
+
+std::optional<ms::Gid> NewMainVertex(memgraph::dbms::Database &db) {
+  auto acc = db.Access(ms::WRITE);
+  const auto gid = acc->CreateVertex().Gid();
+  if (!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value()) return std::nullopt;
+  return gid;
+}
+
+std::map<std::string, std::string> FileContents(const std::filesystem::path &directory) {
+  std::map<std::string, std::string> files;
+  for (const auto &entry : std::filesystem::recursive_directory_iterator(directory)) {
+    if (!entry.is_regular_file()) continue;
+    std::ifstream in{entry.path(), std::ios::binary};
+    files.emplace(std::filesystem::relative(entry.path(), directory).string(),
+                  std::string{std::istreambuf_iterator<char>{in}, {}});
+  }
+  return files;
 }
 
 std::filesystem::path BranchWalDir(uint64_t number, const std::filesystem::path &directory = kStorageDirectory) {
@@ -272,35 +298,13 @@ std::unique_ptr<mv::BranchContext> Checkout(memgraph::dbms::Database &db, std::s
     if (built != nullptr) *built = true;
     auto fresh = mv::BranchCore::Build(*Mem(db), info->fork_ts, info->number);
     if (!fresh) return std::unexpected(fresh.error().message);
+    (*fresh)->SetGidReserver(store->GidReserverOf(info->number));
     return std::move(*fresh);
   });
   EXPECT_TRUE(core.has_value());
   if (!core) return nullptr;
   EXPECT_TRUE(store->RecordGidFloors(info->number, (*core)->vertex_gid_floor(), (*core)->edge_gid_floor()).has_value());
   return std::make_unique<mv::BranchContext>(*core);
-}
-
-// Builds and registers `name`'s core from its recorded floors with its WAL replayed, so a later Checkout attaches to
-// it. `floor_shift` moves the recorded floors, to feed the replay a misread log.
-std::expected<void, std::string> Recover(memgraph::dbms::Database &db, std::string_view name, int64_t floor_shift = 0) {
-  auto *store = db.version_store();
-  const auto info = store->Get(name);
-  if (!info || !info->vertex_gid_floor || !info->edge_gid_floor) return std::unexpected("no recorded floors");
-  auto core = store->GetOrBuildCore(info->number, [&]() -> std::expected<std::shared_ptr<mv::BranchCore>, std::string> {
-    auto built =
-        mv::BranchCore::Build(*Mem(db),
-                              info->fork_ts,
-                              info->number,
-                              mv::BranchCore::RecordedFloors{.vertex_gid_floor = *info->vertex_gid_floor + floor_shift,
-                                                             .edge_gid_floor = *info->edge_gid_floor + floor_shift});
-    if (!built) return std::unexpected(built.error().message);
-    if (auto replayed = mv::ReplayBranchWal(*built, BranchWalDir(info->number)); !replayed) {
-      return std::unexpected(replayed.error());
-    }
-    return std::move(*built);
-  });
-  if (!core) return std::unexpected(core.error());
-  return {};
 }
 
 struct Env {
@@ -382,13 +386,10 @@ RoundTrip RunRoundTrip(const std::function<void(Env &)> &workload, Options optio
   }
   memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/true, options)};
   const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
-  const auto recovered = Recover(db, "b");
-  EXPECT_TRUE(recovered.has_value()) << recovered.error();
-  if (!recovered) return out;
   bool built = false;
   auto ctx = Checkout(db, "b", &built);
   EXPECT_NE(ctx, nullptr);
-  EXPECT_FALSE(built) << "recovery registered the core";
+  EXPECT_FALSE(built) << "startup recovery registered the core";
   if (ctx == nullptr) return out;
   out.replayed = Capture(db, *ctx, out.base);
   EXPECT_EQ(out.replayed.Render(), out.live.Render());
@@ -679,6 +680,9 @@ namespace {
 struct NativeWorkload {
   ms::Gid n1;
   ms::Gid n2;
+  // The highest native gids the workload allocated, whether or not the object survived.
+  ms::Gid last_vertex;
+  ms::Gid last_edge;
 };
 
 // Every native record kind across two transactions, with fork-object writes around them.
@@ -692,7 +696,9 @@ NativeWorkload RunNativeWorkload(Env &e) {
     auto n1 = c.CreateNativeVertex();
     auto n2 = c.CreateNativeVertex();
     n3 = c.CreateNativeVertex().Gid();
-    out = {n1.Gid(), n2.Gid()};
+    out.n1 = n1.Gid();
+    out.n2 = n2.Gid();
+    out.last_vertex = n3;
     ASSERT_TRUE(*c.AddLabel(n1, e.Label("N")));
     ASSERT_TRUE(*c.AddLabel(n1, e.Label("X")));
     ASSERT_TRUE(c.SetProperty(n1, e.Prop("a"), ms::PropertyValue(1)).has_value());
@@ -709,6 +715,7 @@ NativeWorkload RunNativeWorkload(Env &e) {
     auto stubs = c.CreateNativeEdge(s4, s3, e.EdgeType("T"));
     ASSERT_TRUE(stubs.has_value());
     between_stubs = stubs->Gid();
+    out.last_edge = between_stubs;
   });
 
   e.Txn([&](mv::BranchContext &c, auto &diff) {
@@ -772,7 +779,6 @@ TEST_F(VersioningBranchRecoveryTest, WritesAcrossTwoRestartsReplayTheWholeChain)
   {
     memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/true)};
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
-    ASSERT_TRUE(Recover(db, "b").has_value());
     bool built = false;
     auto ctx = Checkout(db, "b", &built);
     ASSERT_NE(ctx, nullptr);
@@ -793,7 +799,6 @@ TEST_F(VersioningBranchRecoveryTest, WritesAcrossTwoRestartsReplayTheWholeChain)
 
   memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/true)};
   const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
-  ASSERT_TRUE(Recover(db, "b").has_value());
   auto ctx = Checkout(db, "b");
   ASSERT_NE(ctx, nullptr);
   EXPECT_EQ(Capture(db, *ctx, base).Render(), after_second.Render());
@@ -832,8 +837,6 @@ TEST_F(VersioningBranchRecoveryTest, TwoBranchesRecoverIndependently) {
   memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/true)};
   const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
   ASSERT_EQ(db.version_store()->List().size(), 2u);
-  ASSERT_TRUE(Recover(db, "b").has_value());
-  ASSERT_TRUE(Recover(db, "c").has_value());
   auto b = Checkout(db, "b");
   auto c = Checkout(db, "c");
   ASSERT_NE(b, nullptr);
@@ -905,52 +908,406 @@ TEST_F(VersioningBranchRecoveryTest, ABuildOverAnExistingBranchDirectoryKeepsIts
   EXPECT_FALSE(std::filesystem::exists(kStorageDirectory / "branches" / std::to_string(info->number) / ".backup"));
 }
 
-// ---- Refusals
+// ---- Gids after a restart
 
-TEST_F(VersioningBranchRecoveryTest, AMissingWalFileFailsTheReplayAndKeepsTheOtherFiles) {
-  uint64_t number = 0;
+namespace {
+mv::BranchInfo LedgerInfoOf(std::string_view name) {
+  const auto contents = mv::BranchLedger{kStorageDirectory / "branches" / "ledger"}.Read();
+  EXPECT_TRUE(contents.has_value() && contents->has_value());
+  if (!contents.has_value() || !contents->has_value()) return {};
+  const auto branch = std::ranges::find((*contents)->branches, name, &mv::LedgerBranch::name);
+  EXPECT_NE(branch, (*contents)->branches.end());
+  return branch == (*contents)->branches.end() ? mv::BranchInfo{} : branch->info;
+}
+
+void ExpectMainClearOfTheLedgersGids(memgraph::dbms::Database &db, const mv::BranchInfo &ledger_info) {
+  EXPECT_GE(Mem(db)->vertex_id_.load(), mv::GidsHeldBelow(ledger_info, mv::GidKind::kVertex));
+  EXPECT_GE(Mem(db)->edge_id_.load(), mv::GidsHeldBelow(ledger_info, mv::GidKind::kEdge));
+}
+}  // namespace
+
+// A native object takes its gid from main's counters, which a restart rebuilds from main's own data: without the
+// raise to the ledger's ceilings, a create on main or on the branch gets the gid of a replayed object.
+TEST_F(VersioningBranchRecoveryTest, NewObjectsAfterARestartTakeNoReplayedGid) {
   Base base{};
   NativeWorkload workload{};
   {
     memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/false)};
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
     base = CreateBase(db);
-    auto info = db.version_store()->CreateBranch("b");
-    ASSERT_TRUE(info.has_value());
-    number = info->number;
+    ASSERT_TRUE(db.version_store()->CreateBranch("b").has_value());
     auto ctx = Checkout(db, "b");
     ASSERT_NE(ctx, nullptr);
     Env env{db, *ctx, base};
     workload = RunNativeWorkload(env);
   }
+
+  memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/true)};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+  auto ctx = Checkout(db, "b");
+  ASSERT_NE(ctx, nullptr);
+  Env env{db, *ctx, base};
+
+  const auto main_vertex = NewMainVertex(db);
+  ASSERT_TRUE(main_vertex.has_value());
+  EXPECT_GT(main_vertex->AsUint(), workload.last_vertex.AsUint());
+  uint64_t main_edge = 0;
   {
-    memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/true)};
-    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
-    ASSERT_TRUE(Recover(db, "b").has_value());
-    auto ctx = Checkout(db, "b");
-    ASSERT_NE(ctx, nullptr);
-    Env env{db, *ctx, base};
-    WriteAfterRestart(env, workload.n1, 2);
+    auto acc = db.Access(ms::WRITE);
+    auto from = acc->FindVertex(base.v1, ms::View::OLD);
+    auto to = acc->FindVertex(base.v3, ms::View::OLD);
+    ASSERT_TRUE(from.has_value() && to.has_value());
+    const auto edge = acc->CreateEdge(&*from, &*to, env.EdgeType("T"));
+    ASSERT_TRUE(edge.has_value());
+    main_edge = edge->Gid().AsUint();
+    Commit(*acc);
+  }
+  EXPECT_GT(main_edge, workload.last_edge.AsUint());
+
+  uint64_t branch_vertex = 0;
+  uint64_t branch_edge = 0;
+  env.Txn([&](mv::BranchContext &c, auto &) {
+    auto native = c.CreateNativeVertex();
+    branch_vertex = native.Gid().AsUint();
+    auto stub = env.Stub(base.v2);
+    auto edge = c.CreateNativeEdge(stub, native, env.EdgeType("T"));
+    ASSERT_TRUE(edge.has_value());
+    branch_edge = edge->Gid().AsUint();
+  });
+  EXPECT_GT(branch_vertex, workload.last_vertex.AsUint());
+  EXPECT_NE(branch_vertex, main_vertex->AsUint());
+  EXPECT_GT(branch_edge, workload.last_edge.AsUint());
+  EXPECT_NE(branch_edge, main_edge);
+
+  // The recovered branch's new native gids are reserved in the ledger too, so a crash now keeps main clear of them.
+  const auto ledger_info = LedgerInfoOf("b");
+  EXPECT_GT(mv::GidsHeldBelow(ledger_info, mv::GidKind::kVertex), branch_vertex);
+  EXPECT_GT(mv::GidsHeldBelow(ledger_info, mv::GidKind::kEdge), branch_edge);
+}
+
+namespace {
+// What a crash that hit right after the branch took its last native gids leaves of the ledger.
+struct CrashedBranch {
+  std::string ledger;
+  uint64_t last_vertex{0};
+  uint64_t last_edge{0};
+};
+
+std::string ReadLedgerFile() {
+  std::ifstream in{kStorageDirectory / "branches" / "ledger", std::ios::binary};
+  return std::string{std::istreambuf_iterator<char>{in}, {}};
+}
+
+// A branch takes more native gids than one reserved block holds. The ledger is read right after each of the last
+// creates, which is where a crash would have left it; the files of the clean close that follows are otherwise kept.
+CrashedBranch TakeMoreGidsThanOneBlock() {
+  constexpr uint64_t kCreates = mv::kGidReserveChunk + 16;
+  CrashedBranch out;
+  memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/false)};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+  const auto base = CreateBase(db);
+  EXPECT_TRUE(db.version_store()->CreateBranch("b").has_value());
+  auto ctx = Checkout(db, "b");
+  EXPECT_NE(ctx, nullptr);
+  if (ctx == nullptr) return out;
+  Env env{db, *ctx, base};
+  env.Txn([&](mv::BranchContext &c, auto &) {
+    auto first = c.CreateNativeVertex();
+    auto second = c.CreateNativeVertex();
+    for (uint64_t i = 0; i < kCreates; ++i) {
+      auto vertex = c.CreateNativeVertex();
+      out.last_vertex = vertex.Gid().AsUint();
+      const auto edge = c.CreateNativeEdge(first, second, env.EdgeType("T"));
+      EXPECT_TRUE(edge.has_value());
+      out.last_edge = edge->Gid().AsUint();
+      if (i + 8 >= kCreates) out.ledger = ReadLedgerFile();
+    }
+  });
+  return out;
+}
+
+class GidReservationTest : public VersioningBranchRecoveryTest, public ::testing::WithParamInterface<bool> {};
+}  // namespace
+
+// A crash after the branch took gids from more than one reserved block: the ledger holds every block handed out, so
+// main, with versioning on or off and without reading the branch's WAL, never reuses a native gid of the branch.
+TEST_P(GidReservationTest, MainStaysClearOfTheGidsABranchTookBeforeACrash) {
+  const auto crashed = TakeMoreGidsThanOneBlock();
+  ASSERT_FALSE(crashed.ledger.empty());
+  {
+    std::ofstream out{kStorageDirectory / "branches" / "ledger", std::ios::binary | std::ios::trunc};
+    out.write(crashed.ledger.data(), static_cast<std::streamsize>(crashed.ledger.size()));
   }
 
+  memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/true, {.versioning = GetParam()})};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+  const auto vertex = NewMainVertex(db);
+  ASSERT_TRUE(vertex.has_value());
+  EXPECT_GT(vertex->AsUint(), crashed.last_vertex);
+  auto acc = db.Access(ms::WRITE);
+  auto from = acc->CreateVertex();
+  auto to = acc->CreateVertex();
+  const auto edge = acc->CreateEdge(&from, &to, db.storage()->NameToEdgeType("T"));
+  ASSERT_TRUE(edge.has_value());
+  EXPECT_GT(edge->Gid().AsUint(), crashed.last_edge);
+  acc->Abort();
+}
+
+INSTANTIATE_TEST_SUITE_P(Versioning, GidReservationTest, ::testing::Bool(),
+                         [](const auto &info) { return info.param ? "On" : "Off"; });
+
+// A fork taken with no main commit after it sits above the durable timestamp; commits made while the branch is hidden
+// must still land above the fork point or they would show up in the branch.
+TEST_F(VersioningBranchRecoveryTest, MainCommitsWhileHiddenStayOutOfTheBranch) {
+  Base base{};
+  uint64_t fork_ts = 0;
+  {
+    memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/false)};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+    base = CreateBase(db);
+    for (int i = 0; i < 10; ++i) db.Access(ms::READ)->Abort();
+    const auto info = db.version_store()->CreateBranch("b");
+    ASSERT_TRUE(info.has_value());
+    fork_ts = info->fork_ts;
+  }
+
+  ms::Gid hidden_run_vertex;
+  {
+    memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/true, {.versioning = false})};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+    const auto vertex = NewMainVertex(db);
+    ASSERT_TRUE(vertex.has_value());
+    hidden_run_vertex = *vertex;
+    EXPECT_GE(Mem(db)->repl_storage_state_.commit_ts_info_.load().ldt_, fork_ts)
+        << "a commit made while hidden must be stamped at or above the fork point";
+  }
+
+  memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/true)};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+  const auto info = db.version_store()->Get("b");
+  ASSERT_TRUE(info.has_value());
+  auto branch = Mem(db)->HistoricalAccess(info->fork_ts);
+  ASSERT_TRUE(branch.has_value());
+  EXPECT_FALSE((*branch)->FindVertex(hidden_run_vertex, ms::View::OLD).has_value());
+  EXPECT_TRUE((*branch)->FindVertex(base.v1, ms::View::OLD).has_value());
+  EXPECT_TRUE(db.Access(ms::READ)->FindVertex(hidden_run_vertex, ms::View::OLD).has_value());
+}
+
+// ---- Branches that cannot be recovered are set aside
+
+namespace {
+class WarningCapture {
+ public:
+  WarningCapture() : sink_(std::make_shared<Sink>()), previous_(spdlog::default_logger()) {
+    auto logger = std::make_shared<spdlog::logger>("branch_recovery_test", sink_);
+    logger->set_level(spdlog::level::warn);
+    spdlog::set_default_logger(std::move(logger));
+  }
+
+  ~WarningCapture() { spdlog::set_default_logger(previous_); }
+
+  WarningCapture(const WarningCapture &) = delete;
+  WarningCapture &operator=(const WarningCapture &) = delete;
+
+  std::string Warnings() const {
+    std::string out;
+    for (const auto &message : sink_->messages) {
+      if (message.starts_with("Graph Versioning:")) out += message + "\n";
+    }
+    return out;
+  }
+
+ private:
+  struct Sink : spdlog::sinks::base_sink<std::mutex> {
+    std::vector<std::string> messages;
+
+   protected:
+    void sink_it_(const spdlog::details::log_msg &msg) override {
+      messages.emplace_back(msg.payload.data(), msg.payload.size());
+    }
+
+    void flush_() override {}
+  };
+
+  std::shared_ptr<Sink> sink_;
+  std::shared_ptr<spdlog::logger> previous_;
+};
+
+void RemoveFirstWalFile(uint64_t number) {
   auto files = WalFiles(number);
-  ASSERT_EQ(files.size(), 2u);
+  ASSERT_EQ(files.size(), 2U);
   const auto first = std::ranges::find_if(
       files, [](const auto &path) { return memgraph::storage::durability::ReadWalInfo(path).seq_num == 0; });
   ASSERT_NE(first, files.end());
   std::filesystem::remove(*first);
-  files.erase(first);
-
-  memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/true)};
-  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
-  const auto recovered = Recover(db, "b");
-  ASSERT_FALSE(recovered.has_value());
-  EXPECT_THAT(recovered.error(), HasSubstr("missing prefix WAL files"));
-  EXPECT_EQ(WalFiles(number), files) << "a failed replay leaves the branch's files as they are";
 }
 
-// A branch is only replayed over the main history it forked from: a fork vertex that history does not have is a
-// refusal, never a skipped record.
+// A branch with a native workload, written to in two lifetimes so its WAL is a chain of two files.
+struct TwoFileBranch {
+  uint64_t number{0};
+  Base base{};
+  NativeWorkload workload{};
+};
+
+TwoFileBranch CreateTwoFileBranch(std::string_view name) {
+  TwoFileBranch out;
+  {
+    memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/false)};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+    out.base = CreateBase(db);
+    auto info = db.version_store()->CreateBranch(std::string{name});
+    EXPECT_TRUE(info.has_value());
+    if (!info) return out;
+    out.number = info->number;
+    auto ctx = Checkout(db, name);
+    EXPECT_NE(ctx, nullptr);
+    if (ctx == nullptr) return out;
+    Env env{db, *ctx, out.base};
+    out.workload = RunNativeWorkload(env);
+  }
+  memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/true)};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+  auto ctx = Checkout(db, name);
+  EXPECT_NE(ctx, nullptr);
+  if (ctx == nullptr) return out;
+  Env env{db, *ctx, out.base};
+  WriteAfterRestart(env, out.workload.n1, 2);
+  return out;
+}
+}  // namespace
+
+// A branch whose WAL does not replay is set aside as unavailable with the reason and main starts; the start warns what
+// to do, no file changes, and main stays clear of the gids the branch may hold.
+TEST_F(VersioningBranchRecoveryTest, AMissingWalFileSetsTheBranchAsideAndStartsTheInstance) {
+  const auto branch = CreateTwoFileBranch("b");
+  ASSERT_NO_FATAL_FAILURE(RemoveFirstWalFile(branch.number));
+  const auto before = FileContents(kStorageDirectory / "branches");
+  const auto ledger_info = LedgerInfoOf("b");
+  ASSERT_GT(mv::GidsHeldBelow(ledger_info, mv::GidKind::kVertex), 0U);
+
+  for (int start = 0; start < 2; ++start) {
+    SCOPED_TRACE("start " + std::to_string(start));
+    WarningCapture capture;
+    memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/true)};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+    const auto info = db.version_store()->Get("b");
+    ASSERT_TRUE(info.has_value());
+    ASSERT_TRUE(info->unavailable_reason.has_value()) << "a branch that cannot be replayed is set aside";
+    EXPECT_THAT(*info->unavailable_reason, HasSubstr("missing prefix WAL files"));
+    EXPECT_EQ(DumpMain(db).empty(), false);
+
+    const auto warnings = capture.Warnings();
+    EXPECT_THAT(warnings, HasSubstr("'b'"));
+    EXPECT_THAT(warnings, HasSubstr("unavailable"));
+    EXPECT_THAT(warnings, HasSubstr("missing prefix WAL files"));
+    EXPECT_THAT(warnings, HasSubstr((kStorageDirectory / "branches" / std::to_string(branch.number)).string()));
+    EXPECT_THAT(warnings, HasSubstr(BranchWalDir(branch.number).string()));
+    EXPECT_THAT(warnings, HasSubstr((kStorageDirectory / "branches" / "ledger").string()));
+    EXPECT_THAT(warnings, HasSubstr("restore its files"));
+    EXPECT_THAT(warnings, HasSubstr("DROP BRANCH 'b'"));
+
+    EXPECT_THAT(db.version_store()->TryAcquireCheckout("b").error(), HasSubstr("is unavailable"));
+    ExpectMainClearOfTheLedgersGids(db, ledger_info);
+  }
+  EXPECT_EQ(FileContents(kStorageDirectory / "branches"), before) << "setting a branch aside changes no file";
+}
+
+// A branch set aside costs main and the other branches nothing, and has both ways out: DROP BRANCH removes it, and
+// restoring its file and restarting brings it back as it was.
+TEST_F(VersioningBranchRecoveryTest, AnUnavailableBranchLeavesMainAndTheOtherBranchIntactAndCanBeDroppedOrRestored) {
+  Base base{};
+  NativeWorkload workload{};
+  uint64_t bad = 0;
+  Captured good_before;
+  std::string bad_before;
+  std::string main_before;
+  {
+    memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/false)};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+    base = CreateBase(db);
+    const auto b = db.version_store()->CreateBranch("bad");
+    ASSERT_TRUE(b.has_value());
+    bad = b->number;
+    ASSERT_TRUE(db.version_store()->CreateBranch("good").has_value());
+    auto bad_ctx = Checkout(db, "bad");
+    auto good_ctx = Checkout(db, "good");
+    ASSERT_NE(bad_ctx, nullptr);
+    ASSERT_NE(good_ctx, nullptr);
+    Env bad_env{db, *bad_ctx, base};
+    Env good_env{db, *good_ctx, base};
+    workload = RunNativeWorkload(bad_env);
+    RunNativeWorkload(good_env);
+    good_before = Capture(db, *good_ctx, base);
+    main_before = DumpMain(db);
+  }
+  {
+    memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/true)};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+    auto ctx = Checkout(db, "bad");
+    ASSERT_NE(ctx, nullptr);
+    Env env{db, *ctx, base};
+    WriteAfterRestart(env, workload.n1, 2);
+    bad_before = Capture(db, *ctx, base).Render();
+  }
+  const auto bad_log = FileContents(BranchWalDir(bad));
+  ASSERT_NO_FATAL_FAILURE(RemoveFirstWalFile(bad));
+  const auto ledger_info = LedgerInfoOf("bad");
+
+  {
+    memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/true)};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+    auto *store = db.version_store();
+    EXPECT_TRUE(store->Get("bad")->unavailable_reason.has_value());
+    EXPECT_FALSE(store->Get("good")->unavailable_reason.has_value());
+    EXPECT_EQ(DumpMain(db), main_before);
+    bool built = false;
+    auto good = Checkout(db, "good", &built);
+    ASSERT_NE(good, nullptr);
+    EXPECT_FALSE(built) << "the good branch was recovered at startup";
+    EXPECT_EQ(Capture(db, *good, base).Render(), good_before.Render());
+    good.reset();
+
+    const auto fresh = NewMainVertex(db);
+    ASSERT_TRUE(fresh.has_value());
+    EXPECT_GT(fresh->AsUint(), workload.last_vertex.AsUint()) << "main takes no gid the branch holds";
+    ExpectMainClearOfTheLedgersGids(db, ledger_info);
+  }
+
+  // The lost file comes back: the branch is as it was.
+  for (const auto &[relative, bytes] : bad_log) {
+    const auto path = BranchWalDir(bad) / std::filesystem::path{relative}.filename();
+    if (!std::filesystem::exists(path)) std::ofstream{path, std::ios::binary} << bytes;
+  }
+  {
+    memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/true)};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+    EXPECT_FALSE(db.version_store()->Get("bad")->unavailable_reason.has_value());
+    bool built = false;
+    auto ctx = Checkout(db, "bad", &built);
+    ASSERT_NE(ctx, nullptr);
+    EXPECT_FALSE(built);
+    EXPECT_EQ(Capture(db, *ctx, base).Render(), bad_before);
+  }
+
+  // Or it is dropped: the files go, the name is free, the other branch stays.
+  ASSERT_NO_FATAL_FAILURE(RemoveFirstWalFile(bad));
+  {
+    memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/true)};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+    auto *store = db.version_store();
+    ASSERT_TRUE(store->Get("bad")->unavailable_reason.has_value());
+    ASSERT_EQ(store->DropBranch("bad"), mv::DropResult::kDropped);
+    EXPECT_FALSE(std::filesystem::exists(kStorageDirectory / "branches" / std::to_string(bad)));
+  }
+  memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/true)};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+  EXPECT_FALSE(db.version_store()->Exists("bad"));
+  EXPECT_TRUE(db.version_store()->Exists("good"));
+  EXPECT_TRUE(db.version_store()->CreateBranch("bad").has_value());
+}
+
+// A branch is only replayed over the main history it forked from: a fork vertex that history does not have is damage,
+// never a skipped record.
 TEST_F(VersioningBranchRecoveryTest, ABranchWhoseMainHistoryLacksAForkObjectIsRefused) {
   uint64_t number = 0;
   std::pair<uint64_t, uint64_t> floors{};
@@ -1024,8 +1381,9 @@ struct RefusalCase {
 };
 }  // namespace
 
-// Records are routed by the gid floors; floors that disagree with the log make a create record land on the fork side.
-TEST_F(VersioningBranchRecoveryTest, ACreateRecordBelowTheRecordedFloorIsRefused) {
+// Records are routed by the gid floors; floors that disagree with the log make a create record land on the fork side,
+// and that sets the branch aside too, with the instance up.
+TEST_F(VersioningBranchRecoveryTest, ABranchWhoseRecordedFloorsDisagreeWithItsLogIsSetAside) {
   const std::vector<RefusalCase> cases{
       {"creates vertex",
        [](Env &e) {
@@ -1049,12 +1407,25 @@ TEST_F(VersioningBranchRecoveryTest, ACreateRecordBelowTheRecordedFloorIsRefused
     SCOPED_TRACE(expected);
     std::filesystem::remove_all(kStorageDirectory);
     WriteBranch(workload);
-    memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/true)};
-    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
-    const auto recovered = Recover(db, "b", /*floor_shift=*/1000);
-    ASSERT_FALSE(recovered.has_value());
-    EXPECT_THAT(recovered.error(), HasSubstr(std::string{expected} + " "));
-    EXPECT_THAT(recovered.error(), HasSubstr("a gid of the fork state"));
+    const mv::BranchLedger ledger{kStorageDirectory / "branches" / "ledger"};
+    auto contents = ledger.Read();
+    ASSERT_TRUE(contents.has_value() && contents->has_value());
+    for (auto &branch : (*contents)->branches) {
+      *branch.info.vertex_gid_floor += 1000;
+      *branch.info.edge_gid_floor += 1000;
+    }
+    ASSERT_TRUE(ledger.Write(**contents).has_value());
+    const auto before = FileContents(kStorageDirectory / "branches");
+
+    {
+      memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/true)};
+      const auto info = db.version_store()->Get("b");
+      ASSERT_TRUE(info.has_value());
+      ASSERT_TRUE(info->unavailable_reason.has_value());
+      EXPECT_THAT(*info->unavailable_reason, HasSubstr(std::string{expected} + " "));
+      EXPECT_THAT(*info->unavailable_reason, HasSubstr("a gid of the fork state"));
+    }
+    EXPECT_EQ(FileContents(kStorageDirectory / "branches"), before);
   }
 }
 
@@ -1104,6 +1475,342 @@ TEST_F(VersioningBranchRecoveryTest, ReplayingALogOverItsOwnResultIsRefused) {
 }
 
 namespace {
+uint64_t CreateWrittenBranch() {
+  memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/false)};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+  const auto base = CreateBase(db);
+  const auto info = db.version_store()->CreateBranch("b");
+  EXPECT_TRUE(info.has_value());
+  if (!info) return 0;
+  auto ctx = Checkout(db, "b");
+  EXPECT_NE(ctx, nullptr);
+  if (ctx == nullptr) return 0;
+  Env env{db, *ctx, base};
+  env.Txn([&](mv::BranchContext &c, auto &) { [[maybe_unused]] auto vertex = c.CreateNativeVertex(); });
+  return info->number;
+}
+
+struct Started {
+  bool listed{false};
+  std::optional<std::string> reason;
+  std::string warnings;
+};
+
+Started StartedOver() {
+  WarningCapture capture;
+  memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/true)};
+  Started out;
+  const auto info = db.version_store()->Get("b");
+  out.listed = info.has_value();
+  if (info) out.reason = info->unavailable_reason;
+  out.warnings = capture.Warnings();
+  return out;
+}
+}  // namespace
+
+// ---- Main's recovered history short of a fork
+
+namespace {
+// The parameter: whether main takes a write while it runs without recovery. Such a commit is stamped above the fork, so
+// main's last durable timestamp no longer says anything about its missing history.
+class MainShortOfTheForkTest : public VersioningBranchRecoveryTest, public ::testing::WithParamInterface<bool> {};
+}  // namespace
+
+// Main restarted with versioning and recovery off starts empty while the branch stays hidden; with both back on, main's
+// history ends before the fork, so the branch is set aside with that reason, its recorded fork untouched, main starts.
+TEST_P(MainShortOfTheForkTest, AMainThatRecoveredLessThanTheBranchForkedFromSetsTheBranchAside) {
+  Base base{};
+  {
+    memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/false)};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+    base = CreateBase(db);
+    ASSERT_TRUE(db.version_store()->CreateBranch("b").has_value());
+    auto ctx = Checkout(db, "b");
+    ASSERT_NE(ctx, nullptr);
+    Env env{db, *ctx, base};
+    env.Txn([&](mv::BranchContext &c, auto &) { [[maybe_unused]] auto vertex = c.CreateNativeVertex(); });
+  }
+  const auto recorded = LedgerInfoOf("b");
+  {
+    memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/false, {.versioning = false})};
+    ASSERT_NE(db.version_store(), nullptr);
+    EXPECT_FALSE(db.version_store()->Empty());
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+    if (GetParam()) ASSERT_TRUE(NewMainVertex(db).has_value());
+  }
+
+  WarningCapture capture;
+  memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/true)};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+  const auto info = db.version_store()->Get("b");
+  ASSERT_TRUE(info.has_value());
+  ASSERT_TRUE(info->unavailable_reason.has_value()) << "the branch came back as available without its fork base";
+  EXPECT_THAT(*info->unavailable_reason, HasSubstr("before the fork"));
+  EXPECT_THAT(capture.Warnings(), HasSubstr("unavailable"));
+  EXPECT_EQ(LedgerInfoOf("b").recorded_fork_ts, recorded.recorded_fork_ts) << "the recorded fork is never rewritten";
+  EXPECT_THAT(db.version_store()->TryAcquireCheckout("b").error(), HasSubstr("is unavailable"));
+  EXPECT_FALSE(db.Access(ms::READ)->FindVertex(base.v1, ms::View::OLD).has_value()) << "main is what it recovered";
+}
+
+INSTANTIATE_TEST_SUITE_P(Versioning, MainShortOfTheForkTest, ::testing::Bool(),
+                         [](const auto &info) { return info.param ? "AfterAWriteWhileHidden" : "NoWrite"; });
+
+// Transactions that commit nothing also take timestamps, so a fork can sit above main's last durable commit; that is no
+// shortfall, nor is a later fork after main commits replayed from its WAL tail.
+TEST_F(VersioningBranchRecoveryTest, AForkAboveMainsLastCommitIsNotAShortfall) {
+  Base base{};
+  ms::Gid later_vertex;
+  {
+    memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/false)};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+    base = CreateBase(db);
+    for (int i = 0; i < 10; ++i) db.Access(ms::READ)->Abort();
+    ASSERT_TRUE(db.version_store()->CreateBranch("b").has_value());
+    const auto vertex = NewMainVertex(db);
+    ASSERT_TRUE(vertex.has_value());
+    later_vertex = *vertex;
+    ASSERT_TRUE(db.version_store()->CreateBranch("c").has_value());
+  }
+  for (const bool versioning : {true, false, true}) {
+    memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/true, {.versioning = versioning})};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+    if (!versioning) continue;
+    for (const auto *name : {"b", "c"}) {
+      const auto info = db.version_store()->Get(name);
+      ASSERT_TRUE(info.has_value()) << name;
+      EXPECT_FALSE(info->unavailable_reason.has_value()) << name << ": " << info->unavailable_reason.value_or("");
+      auto branch = Mem(db)->HistoricalAccess(info->fork_ts);
+      ASSERT_TRUE(branch.has_value()) << name;
+      EXPECT_TRUE((*branch)->FindVertex(base.v1, ms::View::OLD).has_value()) << name;
+      EXPECT_EQ((*branch)->FindVertex(later_vertex, ms::View::OLD).has_value(), std::string_view{name} == "c")
+          << name << " sees main's commit between the forks only if it forked after it";
+    }
+  }
+}
+
+// ---- Replay cost
+
+// Reading a main vertex as of the fork walks all of main's later history of it, so replay must read each fork vertex
+// once, not once per record: `kBranchTransactions` writes to v1 still read it once.
+TEST_F(VersioningBranchRecoveryTest, ReplayReadsAForkVertexOnceNotOncePerTransaction) {
+  constexpr int kBranchTransactions = 200;
+  {
+    memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/false)};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+    const auto base = CreateBase(db);
+    ASSERT_TRUE(db.version_store()->CreateBranch("b").has_value());
+    auto ctx = Checkout(db, "b");
+    ASSERT_NE(ctx, nullptr);
+    Env env{db, *ctx, base};
+    for (int i = 0; i < kBranchTransactions; ++i) {
+      env.Txn([&](mv::BranchContext &c, auto &) {
+        auto fork = env.Fork(base.v1);
+        EXPECT_TRUE(c.SetProperty(fork, env.Prop("p"), ms::PropertyValue(i)).has_value());
+        auto from = env.Stub(base.v1);
+        auto to = c.CreateNativeVertex();
+        EXPECT_TRUE(c.CreateNativeEdge(from, to, env.EdgeType("T")).has_value());
+      });
+    }
+  }
+
+  memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/true)};
+  auto ctx = Checkout(db, "b");
+  ASSERT_NE(ctx, nullptr);
+  EXPECT_EQ(ctx->core()->ForkVertexReads(), 1U) << "one fork vertex is replayed, however many records name it";
+}
+
+// ---- Damaged or missing branch files
+
+// While versioning is off a branch's WAL is never read at startup, however large it is: the branches are only hidden. A
+// WAL that no longer decodes costs the start nothing and says nothing; versioning on would set the branch aside.
+TEST_F(VersioningBranchRecoveryTest, HiddenStartupNeverReadsTheBranchWal) {
+  const auto number = CreateWrittenBranch();
+  const auto files = WalFiles(number);
+  ASSERT_FALSE(files.empty());
+  for (const auto &file : files) {
+    const auto offset = memgraph::storage::durability::ReadWalInfo(file).offset_deltas;
+    const auto size = std::filesystem::file_size(file);
+    ASSERT_GT(size, offset);
+    std::fstream out{file, std::ios::in | std::ios::out | std::ios::binary};
+    out.seekp(static_cast<std::streamoff>(offset));
+    const std::string junk(size - offset, '\xff');
+    out.write(junk.data(), static_cast<std::streamsize>(junk.size()));
+  }
+  const auto before = FileContents(kStorageDirectory / "branches");
+
+  WarningCapture capture;
+  {
+    memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/true, {.versioning = false})};
+    ASSERT_NE(db.version_store(), nullptr);
+    EXPECT_FALSE(db.version_store()->Empty());
+  }
+  EXPECT_EQ(capture.Warnings(), "");
+  EXPECT_EQ(FileContents(kStorageDirectory / "branches"), before);
+  memgraph::dbms::Database on{MakeConfig(/*recover_on_startup=*/true)};
+  EXPECT_TRUE(on.version_store()->Get("b")->unavailable_reason.has_value()) << "versioning on does read it, and sets "
+                                                                               "the branch aside";
+}
+
+// A crash while the first transaction is written tears the only file, and main skips such a file as well: with one
+// file in the directory, none of it readable, nothing can be told from a crash. The instance starts and says the
+// writes are lost.
+TEST_F(VersioningBranchRecoveryTest, AZeroLengthBranchWalStartsTheInstanceAndWarns) {
+  const auto number = CreateWrittenBranch();
+  const auto files = WalFiles(number);
+  ASSERT_EQ(files.size(), 1U);
+  std::filesystem::resize_file(files.front(), 0);
+
+  const auto started = StartedOver();
+  ASSERT_TRUE(started.listed);
+  EXPECT_FALSE(started.reason.has_value());
+  EXPECT_THAT(started.warnings, HasSubstr(BranchWalDir(number).string()));
+  EXPECT_THAT(started.warnings, HasSubstr("lost"));
+}
+
+// Several files, none readable, are not a crash's work: the branch is set aside instead of coming back without them.
+TEST_F(VersioningBranchRecoveryTest, SeveralBranchWalFilesNoneOfThemReadableSetTheBranchAside) {
+  const auto branch = CreateTwoFileBranch("b");
+  const auto files = WalFiles(branch.number);
+  ASSERT_EQ(files.size(), 2U);
+  for (const auto &file : files) std::filesystem::resize_file(file, 0);
+
+  const auto started = StartedOver();
+  ASSERT_TRUE(started.listed);
+  ASSERT_TRUE(started.reason.has_value());
+  EXPECT_THAT(*started.reason, HasSubstr("none of the 2 files"));
+  EXPECT_THAT(*started.reason, HasSubstr(BranchWalDir(branch.number).string()));
+}
+
+// A used branch's directory or log directory missing, or a path of the wrong kind there whether the branch wrote or
+// not: the instance starts, main is whole, the branch is unavailable with a reason naming the path, DROP BRANCH removes
+// it, and the name is free again.
+TEST_F(VersioningBranchRecoveryTest, AMissingOrWrongKindOfBranchDirectoryOrLogSetsTheBranchAside) {
+  struct Variant {
+    const char *what;
+    bool written;
+    // The path the damage is done to, relative to the branch directory: "" is the directory itself.
+    const char *damaged;
+    std::function<void(const std::filesystem::path &branch_dir)> damage;
+    const char *reason_part;
+  };
+
+  const auto replace_with_file = [](const auto &dir) {
+    std::filesystem::remove_all(dir);
+    std::ofstream{dir} << "x";
+  };
+  const std::vector<Variant> variants{
+      {"an empty file in place of the log directory",
+       true,
+       "wal",
+       [](const auto &dir) {
+         std::filesystem::remove_all(dir / "wal");
+         std::ofstream{dir / "wal"};
+       },
+       "is not a directory"},
+      {"a dangling link in place of the log directory",
+       true,
+       "wal",
+       [](const auto &dir) {
+         std::filesystem::remove_all(dir / "wal");
+         std::filesystem::create_directory_symlink(dir / "nowhere", dir / "wal");
+       },
+       "link to a path that does not exist"},
+      {"a file in place of the branch directory", true, "", replace_with_file, "is not a directory"},
+      {"a file in place of the directory of a branch that never wrote",
+       false,
+       "",
+       replace_with_file,
+       "is not a directory"},
+      {"a missing branch directory", true, "", [](const auto &dir) { std::filesystem::remove_all(dir); }, "is missing"},
+      {"a missing log directory",
+       true,
+       "wal",
+       [](const auto &dir) { std::filesystem::remove_all(dir / "wal"); },
+       "is missing"},
+  };
+  for (const auto &variant : variants) {
+    SCOPED_TRACE(variant.what);
+    std::filesystem::remove_all(kStorageDirectory);
+    uint64_t number = 0;
+    if (variant.written) {
+      number = CreateWrittenBranch();
+    } else {
+      memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/false)};
+      const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+      CreateBase(db);
+      number = db.version_store()->CreateBranch("b")->number;
+    }
+    const auto branch_dir = kStorageDirectory / "branches" / std::to_string(number);
+    variant.damage(branch_dir);
+    const auto damaged = std::string{variant.damaged}.empty() ? branch_dir : branch_dir / variant.damaged;
+
+    const auto started = StartedOver();
+    ASSERT_TRUE(started.listed);
+    ASSERT_TRUE(started.reason.has_value());
+    EXPECT_THAT(*started.reason, HasSubstr(variant.reason_part));
+    EXPECT_THAT(*started.reason, HasSubstr(damaged.string()));
+    EXPECT_THAT(started.warnings, HasSubstr(variant.reason_part));
+    EXPECT_THAT(started.warnings, HasSubstr("DROP BRANCH 'b'"));
+
+    memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/true)};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+    EXPECT_EQ(db.Access(ms::READ)->ApproximateVertexCount(), 4U) << "main starts whole";
+    ASSERT_EQ(db.version_store()->DropBranch("b"), mv::DropResult::kDropped);
+    EXPECT_EQ(std::filesystem::symlink_status(branch_dir).type(), std::filesystem::file_type::not_found);
+    EXPECT_TRUE(db.version_store()->CreateBranch("b").has_value()) << "the name is free again";
+  }
+}
+
+// Without the ledger no branch is restored; the directories left behind say there were some, and none of their numbers
+// is handed to a new branch.
+TEST_F(VersioningBranchRecoveryTest, ADeletedLedgerWithBranchDirectoriesStartsTheInstanceAndWarns) {
+  std::vector<uint64_t> numbers;
+  {
+    memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/false)};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+    const auto base = CreateBase(db);
+    for (const auto *name : {"b", "c"}) {
+      const auto info = db.version_store()->CreateBranch(name);
+      ASSERT_TRUE(info.has_value());
+      numbers.push_back(info->number);
+      auto ctx = Checkout(db, name);
+      ASSERT_NE(ctx, nullptr);
+      Env env{db, *ctx, base};
+      env.Txn([&](mv::BranchContext &c, auto &) { [[maybe_unused]] auto vertex = c.CreateNativeVertex(); });
+    }
+  }
+  ASSERT_EQ(numbers.size(), 2U);
+  const auto ledger = kStorageDirectory / "branches" / "ledger";
+  ASSERT_TRUE(std::filesystem::remove(ledger));
+
+  const auto started = StartedOver();
+  EXPECT_FALSE(started.listed);
+  EXPECT_THAT(started.warnings, HasSubstr(ledger.string()));
+  EXPECT_THAT(started.warnings,
+              HasSubstr(fmt::format("[{}, {}]", std::min(numbers[0], numbers[1]), std::max(numbers[0], numbers[1]))));
+
+  memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/true)};
+  const auto fresh = db.version_store()->CreateBranch("d");
+  ASSERT_TRUE(fresh.has_value());
+  EXPECT_GT(fresh->number, std::max(numbers[0], numbers[1])) << "a leftover directory's number is reused";
+}
+
+// Nothing is missing when a branch was never checked out (no directory yet) or was checked out and never written (an
+// empty WAL directory), and a database that never had branches has nothing to say.
+TEST_F(VersioningBranchRecoveryTest, BranchesThatNeverWroteAndDatabasesWithoutBranchesStartWithoutWarnings) {
+  EXPECT_THAT(StartedOver().warnings, ::testing::IsEmpty());
+  {
+    memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/false)};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+    CreateBase(db);
+    ASSERT_TRUE(db.version_store()->CreateBranch("idle").has_value());
+    ASSERT_TRUE(db.version_store()->CreateBranch("b").has_value());
+    ASSERT_NE(Checkout(db, "b"), nullptr);
+  }
+  EXPECT_THAT(StartedOver().warnings, ::testing::IsEmpty());
+}
+
+namespace {
 // The branch's only WAL file, finalized at close, after a transaction that sets a fork vertex's property.
 std::filesystem::path WriteOneFinalizedFile() {
   std::filesystem::path file;
@@ -1129,44 +1836,36 @@ std::filesystem::path WriteOneFinalizedFile() {
 // FinalizeWal renames a file only after its summary is synced, so a summary that does not verify in a file named as
 // finalized is damage, and skipping the file would drop committed transactions. A file still named as being written
 // may have been torn while it was finalized, and is skipped as main skips it.
-TEST_F(VersioningBranchRecoveryTest, ADamagedSummaryFailsTheReplayOfAFileNamedFinalized) {
+TEST_F(VersioningBranchRecoveryTest, ADamagedSummarySetsTheBranchAsideOnlyInAFileNamedFinalized) {
   const auto file = WriteOneFinalizedFile();
   ASSERT_FALSE(file.empty());
   constexpr uint64_t kSummaryBytes = 4 * (sizeof(memgraph::storage::durability::Marker) + sizeof(uint64_t));
   const auto offset = memgraph::storage::durability::ReadWalHeader(file).offset_deltas - kSummaryBytes + 1;
   OverwriteByte(file, offset, static_cast<char>(OverwriteByte(file, offset, 0) ^ 0xFF));
-  {
-    memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/true)};
-    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
-    const auto recovered = Recover(db, "b");
-    ASSERT_FALSE(recovered.has_value());
-    EXPECT_THAT(recovered.error(), HasSubstr("summary"));
-  }
+  auto started = StartedOver();
+  ASSERT_TRUE(started.reason.has_value()) << "a finalized file that fails its summary is not skipped";
+  EXPECT_THAT(*started.reason, HasSubstr("summary"));
 
   const auto name = file.filename().string();
   ASSERT_NE(name.find("_from_"), std::string::npos);
   std::filesystem::rename(file, file.parent_path() / (name.substr(0, name.find("_from_")) + "_current"));
-  memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/true)};
-  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
-  const auto recovered = Recover(db, "b");
-  EXPECT_TRUE(recovered.has_value()) << recovered.error();
+  started = StartedOver();
+  EXPECT_FALSE(started.reason.has_value()) << *started.reason;
 }
 
 // A copy of a WAL file repeats its sequence number; replaying both would apply its transactions twice.
-TEST_F(VersioningBranchRecoveryTest, TwoWalFilesWithOneSequenceNumberFailTheReplay) {
+TEST_F(VersioningBranchRecoveryTest, TwoWalFilesWithOneSequenceNumberSetTheBranchAside) {
   const auto file = WriteOneFinalizedFile();
   ASSERT_FALSE(file.empty());
   std::filesystem::copy_file(file, file.string() + "_copy");
-  memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/true)};
-  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
-  const auto recovered = Recover(db, "b");
-  ASSERT_FALSE(recovered.has_value());
-  EXPECT_THAT(recovered.error(), HasSubstr("sequence numbers 0 and 0"));
+  const auto started = StartedOver();
+  ASSERT_TRUE(started.reason.has_value());
+  EXPECT_THAT(*started.reason, HasSubstr("sequence numbers 0 and 0"));
 }
 
 // Main verifies every transaction's CRC, an uncommitted one's too: a commit flag damaged to "not committed" would
 // otherwise skip a committed transaction. The file is finalized, so nothing scans it before the replay.
-TEST_F(VersioningBranchRecoveryTest, ACommitFlagThatFailsItsTransactionCrcFailsTheReplay) {
+TEST_F(VersioningBranchRecoveryTest, ACommitFlagThatFailsItsTransactionCrcSetsTheBranchAside) {
   namespace dur = memgraph::storage::durability;
   const auto file = WriteOneFinalizedFile();
   ASSERT_FALSE(file.empty());
@@ -1176,9 +1875,7 @@ TEST_F(VersioningBranchRecoveryTest, ACommitFlagThatFailsItsTransactionCrcFailsT
   const auto offset = dur::ReadWalHeader(file).offset_deltas + kFlagValue;
   ASSERT_EQ(OverwriteByte(file, offset, static_cast<char>(dur::Marker::VALUE_FALSE)),
             static_cast<char>(dur::Marker::VALUE_TRUE));
-  memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/true)};
-  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
-  const auto recovered = Recover(db, "b");
-  ASSERT_FALSE(recovered.has_value());
-  EXPECT_THAT(recovered.error(), HasSubstr("CRC"));
+  const auto started = StartedOver();
+  ASSERT_TRUE(started.reason.has_value());
+  EXPECT_THAT(*started.reason, HasSubstr("CRC"));
 }

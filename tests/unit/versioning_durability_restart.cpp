@@ -554,6 +554,7 @@ TEST_F(VersioningDurabilityRestartTest, DroppingABranchDeletesItsDirectory) {
           store->GetOrBuildCore(info->number, [&]() -> std::expected<std::shared_ptr<mv::BranchCore>, std::string> {
             auto fresh = mv::BranchCore::Build(*Mem(db), info->fork_ts, info->number);
             if (!fresh) return std::unexpected(fresh.error().message);
+            (*fresh)->SetGidReserver(store->GidReserverOf(info->number));
             return std::move(*fresh);
           });
       ASSERT_TRUE(core.has_value());
@@ -742,6 +743,10 @@ TEST_F(VersioningDurabilityRestartTest, MainRecoveryNeverAbsorbsADiffEnginesWrit
     ASSERT_TRUE(info.has_value());
     auto ctx = memgraph::versioning::BranchContext::BuildFromFork(*storage, info->fork_ts, info->number);
     ASSERT_TRUE(ctx.has_value());
+    ASSERT_TRUE(
+        db.version_store()
+            ->RecordGidFloors(info->number, (*ctx)->core()->vertex_gid_floor(), (*ctx)->core()->edge_gid_floor())
+            .has_value());
     {
       auto diff_acc = (*ctx)->diff_engine().Access(ms::WRITE);
       ASSERT_TRUE((*ctx)->BeginTransaction(diff_acc.get()).has_value());
