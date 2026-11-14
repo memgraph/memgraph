@@ -4451,6 +4451,14 @@ antlrcpp::Any CypherMainVisitor::visitFunctionInvocation(MemgraphCypher::Functio
       return static_cast<Expression *>(
           storage_->Create<Aggregation>(expressions[0], nullptr, Aggregation::Op::AVG, is_distinct));
     }
+    if (upper_function_name == Aggregation::kStDev) {
+      return static_cast<Expression *>(
+          storage_->Create<Aggregation>(expressions[0], nullptr, Aggregation::Op::STDEV, is_distinct));
+    }
+    if (upper_function_name == Aggregation::kStDevP) {
+      return static_cast<Expression *>(
+          storage_->Create<Aggregation>(expressions[0], nullptr, Aggregation::Op::STDEVP, is_distinct));
+    }
     if (upper_function_name == Aggregation::kCollect) {
       return static_cast<Expression *>(
           storage_->Create<Aggregation>(expressions[0], nullptr, Aggregation::Op::COLLECT_LIST, is_distinct));
