@@ -404,7 +404,11 @@ mgp_value_type FromTypedValueType(memgraph::query::TypedValue::Type type) {
 
 bool IsDeleted(const mgp_vertex *vertex) {
   if (vertex->IsVirtual()) return false;
+#ifdef MG_ENTERPRISE
+  return vertex->getImpl().IsDeleted();
+#else
   return vertex->getImpl().impl_.vertex_->deleted();
+#endif
 }
 
 bool IsDeleted(const mgp_edge *edge) {
@@ -5980,6 +5984,14 @@ mgp_execution_result::mgp_execution_result(mgp_graph *graph, allocator_type allo
                                                                           graph->getImpl()->DatabaseName()
 #endif
                                                                               ));
+#ifdef MG_ENTERPRISE
+  // The caller's accessor has a branch only when its query runs on one, so under USING BRANCH main the nested query
+  // runs on main.
+  if (auto const *branch = graph->getImpl()->branch_context(); branch != nullptr) [[unlikely]] {
+    auto &current_db = pImpl->interpreter->current_db_;
+    current_db.AttachBranchOf(current_db.db_acc_->get()->version_store(), *branch);
+  }
+#endif
 }
 
 void mgp_execution_result_destroy(mgp_execution_result *exec_result) { DeleteRawMgpObject(exec_result); }
@@ -5997,11 +6009,11 @@ mgp_error mgp_execute_query(mgp_graph *graph, mgp_memory *memory, const char *qu
         auto query_string = std::string(query);
         auto &instance = memgraph::query::InterpreterContextHolder::GetInstance();
 
-        auto *result = NewRawMgpObject<mgp_execution_result>(memory->impl, graph);
+        auto result = NewMgpObject<mgp_execution_result>(memory, graph);
         result->pImpl->interpreter->SetUser(graph->ctx->user_or_role ? graph->ctx->user_or_role->clone() : nullptr);
 
         instance.interpreters.WithLock(
-            [result](auto &interpreters) { interpreters.insert(result->pImpl->interpreter.get()); });
+            [&result](auto &interpreters) { interpreters.insert(result->pImpl->interpreter.get()); });
         auto query_params_func =
             [&](memgraph::storage::Storage const *) -> memgraph::storage::ExternalPropertyValue::map_t {
           return CreateQueryParams(params);
@@ -6014,7 +6026,7 @@ mgp_error mgp_execute_query(mgp_graph *graph, mgp_memory *memory, const char *qu
         }
         result->pImpl->headers = std::make_unique<mgp_execution_headers>(std::move(headers));
 
-        return result;
+        return result.release();
       },
       result);
 }

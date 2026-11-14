@@ -3212,7 +3212,7 @@ Transaction InMemoryStorage::CreateHistoricalTransaction(uint64_t fork_ts) {
 }
 
 std::expected<std::unique_ptr<Storage::Accessor>, InMemoryStorage::HistoricalAccessError>
-InMemoryStorage::HistoricalAccess(uint64_t fork_ts) {
+InMemoryStorage::HistoricalAccess(uint64_t fork_ts, std::optional<std::chrono::milliseconds> timeout) {
   {
     // Check and self-pin in one critical section: a concurrent DROP BRANCH must not unpin fork_ts in between.
     auto pin_guard = std::scoped_lock{version_fork_pin_lock_};
@@ -3227,7 +3227,7 @@ InMemoryStorage::HistoricalAccess(uint64_t fork_ts) {
     accessor.reset(new InMemoryAccessor{Storage::Accessor::historical_access,
                                         this,
                                         [this, fork_ts] { return CreateHistoricalTransaction(fork_ts); },
-                                        std::nullopt});
+                                        timeout});
   } catch (...) {
     ReleaseForkPin(fork_ts);  // No accessor took ownership of the self-pin.
     throw;
