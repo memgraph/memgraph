@@ -170,3 +170,11 @@ add_dependencies(memgraph__benchmark ${test_prefix}usearch_index_add_simsimd)
 
 add_benchmark(memory_new_delete.cpp)
 target_link_libraries(${test_prefix}memory_new_delete mg-utils)
+
+if (MG_ENTERPRISE)
+add_benchmark(versioning_filters.cpp)
+target_link_libraries(${test_prefix}versioning_filters mg::versioning mg::storage mg-utils)
+# Built so it cannot rot, but not run by ctest: it is a by-hand comparison of the branch read path's
+# structures and nothing tracks a baseline for what it reports.
+set_tests_properties(${test_prefix}versioning_filters PROPERTIES DISABLED TRUE)
+endif()
