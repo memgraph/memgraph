@@ -169,6 +169,8 @@ jobs:
           path: |
             tests/gql_behave/gql_behave_status.csv
             tests/gql_behave/gql_behave_status.html
+            tests/gql_behave/gql_behave_status_versioned.csv
+            tests/gql_behave/gql_behave_status_versioned.html
 
       - name: Run unit tests
         run: |
@@ -638,6 +640,33 @@ jobs:
           --github-run-number ${{ github.run_number }} \
           --head-branch-name ${{ env.BRANCH_NAME }}
 
+
+      - name: Run versioning branch-read benchmark
+        timeout-minutes: 15
+        run: |
+          status=0
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          test-memgraph mgbench-versioning || status=$?
+          if [[ -f tests/mgbench/versioning_branch_reads.md ]]; then
+            cat tests/mgbench/versioning_branch_reads.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+          exit $status
+
+      - name: Save versioning branch-read results
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f  # v7.0.0
+        with:
+          name: "versioning_branch_reads${{ env.RUN_ID }}"
+          path: |
+            tests/mgbench/versioning_branch_reads.json
+            tests/mgbench/versioning_branch_reads.md
+          if-no-files-found: ignore
 
       - name: Collect core dumps
         if: failure()

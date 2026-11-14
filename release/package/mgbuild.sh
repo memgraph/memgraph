@@ -241,6 +241,10 @@ print_help () {
 
 
 
+  echo -e "\nmgbench-versioning options:"
+  echo -e "  --gate                        Fail on read-budget overruns (default: report-only, wrong results and crashes always fail)"
+  echo -e "  Other flags go to tests/mgbench/versioning_branch_reads.py. Enterprise build + license required, else SKIPPED."
+
   echo -e "\nmgbench-ha options:"
   echo -e "  --size string                 Specify dataset size: small, medium, large (default \"medium\")"
   echo -e "  --export-results-file string  Output file for results (default \"benchmark_result_ha.json\")"
@@ -2158,6 +2162,12 @@ test_memgraph() {
       docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/gql_behave && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && ./continuous_integration --parallel-execution"
       docker cp $build_container:$test_output_dir/gql_behave_status.csv $test_output_host_dest/gql_behave_status_parallel.csv
       docker cp $build_container:$test_output_dir/gql_behave_status.html $test_output_host_dest/gql_behave_status_parallel.html
+      # Run the in-memory suites again with each test query on a Graph Versioning branch (enterprise builds only)
+      if docker exec -u mg $build_container bash -c "grep -q '^MG_ENTERPRISE:BOOL=ON' $MGBUILD_ROOT_DIR/build/CMakeCache.txt"; then
+        docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/gql_behave && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && ./continuous_integration --versioned-branch"
+        docker cp $build_container:$test_output_dir/gql_behave_status.csv $test_output_host_dest/gql_behave_status_versioned.csv
+        docker cp $build_container:$test_output_dir/gql_behave_status.html $test_output_host_dest/gql_behave_status_versioned.html
+      fi
     ;;
     macro-benchmark)
       docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && export USER=mg && export LANG=$(echo $LANG) && cd $MGBUILD_ROOT_DIR/tests/macro_benchmark "'&& ./harness QuerySuite MemgraphRunner --groups aggregation 1000_create unwind_create dense_expand match --no-strict'
@@ -2277,6 +2287,40 @@ test_memgraph() {
       done
 
       docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --installation-type native $MGBENCH_CACHE_ARG --num-workers-for-benchmark 1 --export-results $EXPORT_RESULTS_FILE $NO_AUTHORIZATION supernode"
+    ;;
+    mgbench-versioning)
+      shift 1
+      # Read latency of Graph Versioning branches vs main at several change levels (pokec medium).
+      local vlevels_gate="--no-gate"
+      local vlevels_extra=""
+      while [[ $# -gt 0 ]]; do
+        case "$1" in
+          --gate)
+            vlevels_gate=""
+            shift 1
+          ;;
+          *)
+            vlevels_extra+=" $(printf '%q' "$1")"
+            shift 1
+          ;;
+        esac
+      done
+
+      if ! docker exec -u mg $build_container bash -c "grep -q '^MG_ENTERPRISE:BOOL=ON' $MGBUILD_ROOT_DIR/build/CMakeCache.txt"; then
+        echo "[vlevels] verdict=SKIPPED reason=community-build"
+      elif [[ -z "$enterprise_license" ]]; then
+        echo "[vlevels] verdict=SKIPPED reason=no-license"
+      else
+        local vlevels_dir="$MGBUILD_ROOT_DIR/tests/mgbench"
+        local vlevels_host_dest="$PROJECT_ROOT/tests/mgbench"
+        local status=0
+        docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && export PYTHONUNBUFFERED=1 && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && cd $vlevels_dir && timeout 900 ./versioning_branch_reads.py --binary $MGBUILD_ROOT_DIR/build/memgraph $MGBENCH_CACHE_ARG --out versioning_branch_reads.json --summary versioning_branch_reads.md $vlevels_gate$vlevels_extra" || status=$?
+        # Pass or fail, bring the results out; they are absent after a SKIPPED run.
+        for vlevels_file in versioning_branch_reads.json versioning_branch_reads.md; do
+          docker cp $build_container:$vlevels_dir/$vlevels_file $vlevels_host_dest/$vlevels_file 2>/dev/null || true
+        done
+        return "$status"
+      fi
     ;;
     mgbench-load-parquet)
       shift 1
