@@ -387,6 +387,9 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
     // Destroy is noexcept; deleted_edges_/graveyard are empty at recovery time
     // because the WAL edge-delete replay arm calls LightEdgePool::Destroy
     // directly without queuing).
+#ifdef MG_ENTERPRISE
+    durability::RecoveryTail recovery_tail;
+#endif
     auto info = std::invoke([&] -> std::optional<durability::RecoveryInfo> {
       try {
         return recovery_.RecoverData(
@@ -407,7 +410,13 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
             [this](Gid edge_gid) { return FindEdge(edge_gid); },
             name(),
             &ttl_,
+#ifdef MG_ENTERPRISE
+            &description_store_,
+            config_.durability.recovery_history_bound,
+            config_.durability.recovery_history_bound ? &recovery_tail : nullptr);
+#else
             &description_store_);
+#endif
       } catch (...) {
         // --storage-allow-recovery-failure: instead of crashing the process, bring this
         // database up empty and broken. RecoverData only reads durability files, so the
@@ -439,6 +448,9 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
     metric_handles_.snapshot_recovery_latency_seconds.Observe(
         std::chrono::duration<double>(recovery_timer.Elapsed()).count());
     if (info) {
+#ifdef MG_ENTERPRISE
+      if (config_.durability.recovery_history_bound) recovery_tail_ = std::move(recovery_tail);
+#endif
       vertex_id_.store(info->next_vertex_id, std::memory_order_release);
       edge_id_.store(info->next_edge_id, std::memory_order_release);
       SetTimestampQuiescent(std::max(timestamp_, info->next_timestamp));
@@ -3106,6 +3118,14 @@ uint64_t InMemoryStorage::RegisterForkPin() {
   auto pin_guard = std::scoped_lock{version_fork_pin_lock_};
   version_fork_pins_.insert(fork_ts);
   oldest_fork_pin_.store(*version_fork_pins_.begin(), std::memory_order_release);
+  return fork_ts;
+}
+
+uint64_t InMemoryStorage::RegisterBranchForkPin() {
+  auto const floor_guard = std::scoped_lock{retention_floor_mutex_};
+  auto const fork_ts = RegisterForkPin();
+  auto const floor = fork_ts == 0 ? 0 : fork_ts - 1;
+  if (!retention_floor_ || floor < *retention_floor_) retention_floor_ = floor;
   return fork_ts;
 }
 

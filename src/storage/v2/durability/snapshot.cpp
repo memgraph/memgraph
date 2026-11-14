@@ -13294,7 +13294,11 @@ using OldSnapshotFiles = std::vector<std::pair<uint64_t, std::filesystem::path>>
 
 void EnsureNecessaryWalFilesExist(const std::filesystem::path &wal_directory, const std::string &uuid,
                                   OldSnapshotFiles const &old_snapshot_files, const Transaction *const transaction,
+#ifdef MG_ENTERPRISE
+                                  utils::FileRetainer *file_retainer, std::optional<uint64_t> const retention_floor) {
+#else
                                   utils::FileRetainer *file_retainer) {
+#endif
   struct LoadWalInfo {
     uint64_t seq_num;
     uint64_t from_timestamp;
@@ -13342,6 +13346,10 @@ void EnsureNecessaryWalFilesExist(const std::filesystem::path &wal_directory, co
     MG_ASSERT(transaction->last_durable_ts_.has_value(), "Txn doesn't have ldt");
     return *transaction->last_durable_ts_;
   });
+#ifdef MG_ENTERPRISE
+  // Every kept snapshot is newer than the floor: recovery up to it replays from the very first WAL file.
+  if (retention_floor && old_durable_ts > *retention_floor) return;
+#endif
 
   auto const it = std::ranges::find_if(
       wal_files, [old_durable_ts](auto const &wal_info) { return wal_info.from_timestamp > old_durable_ts; });
@@ -13363,7 +13371,12 @@ void EnsureNecessaryWalFilesExist(const std::filesystem::path &wal_directory, co
 
 auto EnsureRetentionCountSnapshotsExist(const std::filesystem::path &snapshot_directory, const std::string &uuid,
                                         const std::string &current_snapshot_path, utils::FileRetainer *file_retainer,
+#ifdef MG_ENTERPRISE
+                                        Storage *storage, std::optional<uint64_t> const retention_floor)
+    -> OldSnapshotFiles {
+#else
                                         Storage *storage) -> OldSnapshotFiles {
+#endif
   OldSnapshotFiles old_snapshot_files;
   std::error_code error_code;
   for (const auto &item : std::filesystem::directory_iterator(snapshot_directory, error_code)) {
@@ -13391,12 +13404,38 @@ auto EnsureRetentionCountSnapshotsExist(const std::filesystem::path &snapshot_di
                                "https://memgr.ph/snapshots"));
   }
 
+#ifdef MG_ENTERPRISE
+  DeleteOldSnapshotFiles(
+      old_snapshot_files, storage->config_.durability.snapshot_retention_count, file_retainer, retention_floor);
+#else
   DeleteOldSnapshotFiles(old_snapshot_files, storage->config_.durability.snapshot_retention_count, file_retainer);
+#endif
   return old_snapshot_files;
 }
 
 void DeleteOldSnapshotFiles(OldSnapshotFiles &old_snapshot_files, uint64_t const snapshot_retention_count,
+#ifdef MG_ENTERPRISE
+                            utils::FileRetainer *file_retainer, std::optional<uint64_t> const retention_floor) {
+  // The newest snapshot at or below the floor is the recovery base; if the count would drop it, set it aside and
+  // restore it after. Timestamp 0 (corrupt/foreign) is never chosen as base.
+  std::optional<OldSnapshotFiles::value_type> floor_base;
+  if (retention_floor) {
+    auto const below_floor = [&](auto const &file) { return file.first != 0 && file.first <= *retention_floor; };
+    auto candidates = old_snapshot_files | std::views::filter(below_floor);
+    if (auto const base = std::ranges::max_element(candidates); base != candidates.end()) {
+      auto const newer = std::ranges::count_if(old_snapshot_files, [&](auto const &file) { return *base < file; });
+      if (std::cmp_greater_equal(newer, snapshot_retention_count - 1)) {
+        floor_base = std::move(*base);
+        old_snapshot_files.erase(base.base());
+      }
+    }
+  }
+  const utils::OnScopeExit restore_floor_base{[&] {
+    if (floor_base) old_snapshot_files.insert(old_snapshot_files.begin(), std::move(*floor_base));
+  }};
+#else
                             utils::FileRetainer *file_retainer) {
+#endif
   std::ranges::sort(old_snapshot_files);
 
   if (old_snapshot_files.size() < snapshot_retention_count) return;
@@ -14635,13 +14674,33 @@ std::expected<std::filesystem::path, SnapshotCreationError> CreateSnapshot(
                static_cast<double>(snapshot_size) / (1024.0 * 1024.0),
                std::chrono::duration<double>(timer.Elapsed()).count());
 
+#ifdef MG_ENTERPRISE
+  // Read the floor and delete under one lock, held for the whole pass: a fork lowering the floor waits for it, so it
+  // never pins a base this pass already decided to delete.
+  auto const floor_guard = std::scoped_lock{storage->retention_floor_mutex_};
+  auto const retention_floor = storage->retention_floor_;
+#endif
   auto const old_snapshot_files =
+#ifdef MG_ENTERPRISE
+      EnsureRetentionCountSnapshotsExist(snapshot_directory, uuid_str, path, file_retainer, storage, retention_floor);
+#else
       EnsureRetentionCountSnapshotsExist(snapshot_directory, uuid_str, path, file_retainer, storage);
+#endif
 
   // -1 needed because we skip the current snapshot
+#ifdef MG_ENTERPRISE
+  // (a floor base kept past the count adds one)
+  if (old_snapshot_files.size() >= storage->config_.durability.snapshot_retention_count - 1 &&
+#else
   if (old_snapshot_files.size() == storage->config_.durability.snapshot_retention_count - 1 &&
+#endif
       utils::DirExists(wal_directory)) {
+#ifdef MG_ENTERPRISE
+    EnsureNecessaryWalFilesExist(
+        wal_directory, uuid_str, old_snapshot_files, transaction, file_retainer, retention_floor);
+#else
     EnsureNecessaryWalFilesExist(wal_directory, uuid_str, old_snapshot_files, transaction, file_retainer);
+#endif
   }
 
   // We are not updating ldt here; we are only updating it when recovering from snapshot (because there is no other

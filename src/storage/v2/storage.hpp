@@ -299,6 +299,23 @@ class Storage {
 
   void SetBroken(bool value) noexcept { broken_.store(value, std::memory_order_release); }
 
+#ifdef MG_ENTERPRISE
+  // Durable timestamp that must stay recoverable: retention keeps the newest snapshot at or below it plus its WAL.
+  // CreateSnapshot holds `retention_floor_mutex_` across its retention pass, so lower the floor only under it.
+  [[nodiscard]] std::optional<uint64_t> RetentionFloor() const {
+    auto const guard = std::lock_guard{retention_floor_mutex_};
+    return retention_floor_;
+  }
+
+  void SetRetentionFloor(std::optional<uint64_t> floor) {
+    auto const guard = std::lock_guard{retention_floor_mutex_};
+    retention_floor_ = floor;
+  }
+
+  mutable std::mutex retention_floor_mutex_;
+  std::optional<uint64_t> retention_floor_;
+#endif
+
   memory::ArenaPool *DbArenaPool() const noexcept { return db_arena_pool_; }
 
   using Accessor = memgraph::storage::Accessor;
