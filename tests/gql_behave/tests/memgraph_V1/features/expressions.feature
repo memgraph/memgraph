@@ -141,3 +141,19 @@ Feature: Expressions
         Then the result should be:
             | result |
             | true   |
+
+    Scenario: Temporal epoch, offset and nanosecond accessors
+        Given an empty graph
+        When executing query:
+            """
+            WITH datetime('2024-01-02T03:04:05.123456-05:30') AS z,
+                 datetime('1969-12-31T23:59:59.500Z') AS before,
+                 localdatetime('2024-01-02T03:04:05.123456') AS ldt,
+                 localtime('03:04:05.123456') AS lt
+            RETURN z.epochSeconds AS secs, z.epochMillis AS millis, z.offset AS offset, before.offset AS utc,
+                   before.epochSeconds AS beforeSecs, before.epochMillis AS beforeMillis,
+                   z.nanosecond AS zNanos, ldt.nanosecond AS ldtNanos, lt.nanosecond AS ltNanos
+            """
+        Then the result should be:
+            | secs       | millis        | offset   | utc      | beforeSecs | beforeMillis | zNanos    | ldtNanos  | ltNanos   |
+            | 1704184445 | 1704184445123 | '-05:30' | '+00:00' | -1         | -500         | 123456000 | 123456000 | 123456000 |
