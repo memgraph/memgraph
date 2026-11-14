@@ -20,6 +20,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -347,6 +348,42 @@ class BranchContext {
   // branch-native edge.
   bool IsForkEdgeHidden(const storage::EdgeAccessor &fork_edge, storage::View view);
 
+  // ---- Writes of a vertex accessor
+  //
+  // A native vertex takes the stock mutator; a fork vertex is written through its stub (created on first
+  // touch) as per-key stock calls, DELETED_OBJECT if deleted on the branch. Whole-set ops decompose per key because the
+  // stock ones would wipe the stub's removal markers. A multi-key failure poisons the diff transaction: abort it.
+  storage::Result<bool> AddLabel(storage::VertexAccessor &vertex, storage::LabelId label);
+  storage::Result<bool> RemoveLabel(storage::VertexAccessor &vertex, storage::LabelId label);
+  storage::Result<storage::PropertyValue> SetProperty(storage::VertexAccessor &vertex, storage::PropertyId key,
+                                                      const storage::PropertyValue &value);
+  storage::Result<bool> InitProperties(storage::VertexAccessor &vertex,
+                                       std::map<storage::PropertyId, storage::PropertyValue> &properties);
+  // As storage's: the changes are (key, old, new), and the untouched old properties are merged into `properties`.
+  storage::Result<std::vector<std::tuple<storage::PropertyId, storage::PropertyValue, storage::PropertyValue>>>
+  UpdateProperties(storage::VertexAccessor &vertex, std::map<storage::PropertyId, storage::PropertyValue> &properties);
+  storage::Result<std::map<storage::PropertyId, storage::PropertyValue>> ClearProperties(
+      storage::VertexAccessor &vertex);
+
+  // Marks fork vertex `gid` deleted on the branch: false if already, NONEXISTENT_OBJECT if the fork state has no such
+  // vertex. Each visible incident fork edge is hidden first (HideForkEdge), as a stock DETACH DELETE writes its edges;
+  // native edges are the caller's. SERIALIZATION_ERROR (poisoning the transaction) if the vertex, an edge's other
+  // endpoint, or a branch-created edge's attach is held by a transaction this one cannot write over.
+  storage::Result<bool> DeleteForkVertex(storage::Gid gid);
+
+  // A refusal to write that the user is told about.
+  struct BranchWriteError {
+    std::string message;
+  };
+
+  // The diff engine's object for `gid`: a native vertex, or the stub of a fork vertex (created on first touch, branched
+  // bit set) to attach a native edge to. Hand a stub only to branch writers. BranchWriteError if the vertex was deleted
+  // on the branch or is not there at all.
+  std::expected<storage::VertexAccessor, BranchWriteError> EnsureDiffVertex(storage::Gid gid);
+
+  // Creates a branch-native vertex in the diff engine at a gid taken from main's counter.
+  storage::VertexAccessor CreateNativeVertex();
+
   // ---- Point lookups
 
   // The vertex `gid` as the branch holds it: a fork gid resolves to the fork accessor (main's Vertex, the historical
@@ -495,12 +532,54 @@ class BranchContext {
     return edge.storage_ == &diff_engine() && IsForkCandidateEdge(edge.Gid());
   }
 
+  bool IsNative(const storage::VertexAccessor &vertex) const { return vertex.storage_ == &diff_engine(); }
+
   // The accessor of main's fork vertex `fork` (or, when the stub index has none recorded, a lookup of `gid`).
   std::optional<storage::VertexAccessor> ForkAccessor(storage::Vertex *fork, storage::Gid gid);
 
   // `stub` as an accessor of the diff transaction. Not probed for visibility: a stub is never created or deleted by a
   // delta, and every caller reads through the accessor, which applies `view` itself.
   storage::VertexAccessor StubAccessor(storage::Vertex *stub);
+
+  // Marks main's fork vertex branched and returns its stub (created on first touch) as a diff-transaction accessor.
+  // The caller has checked the vertex is not deleted on the branch. @throw OutOfMemoryException with the stub already
+  // published (a retry finds it).
+  storage::VertexAccessor MaterializeStub(const storage::VertexAccessor &fork);
+
+  // MaterializeStub for a writer: DELETED_OBJECT if the branch deleted the vertex.
+  storage::Result<storage::VertexAccessor> StubForWrite(const storage::VertexAccessor &fork);
+
+  // Hides the fork edge from both endpoints' adjacency with a LinkEdgeMarker entry each (stub_state.hpp), making the
+  // stubs on first touch. Filters and branched bits are set before the writes. SERIALIZATION_ERROR (poisoning the
+  // transaction) if either endpoint is held by a transaction this one cannot write over, which includes one that
+  // already hid this edge since this transaction began. The caller has not hidden the edge in this transaction yet.
+  storage::Result<void> HideForkEdge(const storage::EdgeAccessor &fork_edge);
+
+  // The fork edges of `fork` the branch still shows at NEW: its fork-state edges minus those its stub's markers hide,
+  // a self-loop once.
+  std::vector<storage::EdgeAccessor> VisibleForkEdges(const storage::VertexAccessor &fork);
+
+  // For a no-op write: the stock mutators check for a conflict before finding nothing to do, so this does too. False
+  // (poisoning the transaction) on a conflict.
+  bool TouchStub(const storage::VertexAccessor &stub);
+
+  // After a delete marker was written on `stub`: false (poisoning the transaction) if a delta beneath it, e.g. from a
+  // branch-created edge, is one this transaction cannot write over (in flight, or committed after it started).
+  bool CanDeleteAnchor(const storage::VertexAccessor &stub);
+
+  // One fork vertex property written through its stub in the per-key order the reads rest on (stub_merge.hpp): the
+  // removal marker goes on before the value is dropped and off after it is set. Returns the old merged value.
+  // `copy_key_parts`: first copy the other parts of the mirrored index keys the write moves onto the stub.
+  storage::Result<storage::PropertyValue> WriteStubProperty(const storage::VertexAccessor &fork,
+                                                            storage::VertexAccessor &stub, storage::PropertyId key,
+                                                            const storage::PropertyValue &value,
+                                                            bool copy_key_parts = true);
+
+  // Records the filters a write of fork vertex `gid`'s `key` feeds (its per-key field filter and the property's touched
+  // gate), before the stub is written; the vertex-wide property filter is recorded once per primitive.
+  void RecordPropertyWrite(storage::Gid gid, storage::PropertyId key);
+
+  storage::Result<bool> ToggleLabel(storage::VertexAccessor &vertex, storage::LabelId label, bool add);
 
   // Fork vertex `gid`'s stub accessor, or null if the branch has none.
   std::optional<storage::VertexAccessor> ReadStub(storage::Gid gid);
