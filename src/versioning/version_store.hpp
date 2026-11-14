@@ -104,6 +104,10 @@ class VersionStore {
   // write). Returns the dropped names; a ledger write failure leaves the store unchanged, frozen state included.
   std::expected<std::vector<std::string>, std::string> FreezeAndDropAll();
 
+  // Freezes only if there are no branches, hidden included; nothing is dropped or written. False, store unchanged,
+  // otherwise. For a user-requested demotion that must not lose branches.
+  bool FreezeIfEmpty();
+
   void Unfreeze();
 
   bool Frozen() const;
@@ -225,5 +229,10 @@ class VersionStore {
   void Finish(Retired retired);
   static void RemoveDirectory(const std::filesystem::path &directory);
 };
+
+// FreezeAndDropAll for an instance that is or becomes a REPLICA (Graph Versioning branches are not supported with
+// replication in v1): the one automatic drop of branch data. Logs the dropped branches as a warning and a failure as an
+// error; false on failure.
+bool DropBranchesOnReplica(VersionStore &store, std::string_view database, std::string_view occasion);
 
 }  // namespace memgraph::versioning

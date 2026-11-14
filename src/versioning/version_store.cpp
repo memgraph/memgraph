@@ -17,6 +17,7 @@
 #include <mutex>
 
 #include <fmt/format.h>
+#include <fmt/ranges.h>
 #include <spdlog/spdlog.h>
 
 #include "metrics/prometheus_metrics.hpp"
@@ -247,6 +248,15 @@ std::expected<DropResult, std::string> VersionStore::DropBranchImpl(std::string_
   ledger_guard.unlock();
   Finish(std::move(retired));
   return DropResult::kDropped;
+}
+
+bool VersionStore::FreezeIfEmpty() {
+  // lock_ alone is not enough: an in-flight CreateBranch checks frozen_, drops lock_, and inserts later.
+  const std::unique_lock ledger_guard{ledger_mutex_};
+  const std::scoped_lock guard{lock_};
+  if (!branches_.empty() || !hidden_.empty()) return false;
+  frozen_ = true;
+  return true;
 }
 
 std::expected<std::vector<std::string>, std::string> VersionStore::FreezeAndDropAll() {
@@ -566,6 +576,21 @@ void VersionStore::RemoveDirectory(const std::filesystem::path &directory) {
   if (ec) {
     spdlog::warn("Graph Versioning: cannot remove branch directory {}: {}", directory.string(), ec.message());
   }
+}
+
+bool DropBranchesOnReplica(VersionStore &store, std::string_view database, std::string_view occasion) {
+  auto const dropped = store.FreezeAndDropAll();
+  if (!dropped) {
+    spdlog::error("Failed to drop the branches of database {} {}: {}", database, occasion, dropped.error());
+    return false;
+  }
+  if (!dropped->empty()) {
+    spdlog::warn("Graph Versioning: dropped branches [{}] of database {} {}; not supported with replication in v1.",
+                 fmt::join(*dropped, ", "),
+                 database,
+                 occasion);
+  }
+  return true;
 }
 
 }  // namespace memgraph::versioning
