@@ -11,6 +11,24 @@
 > apply (`ON BEHALF OF`), the resource limits (`PROFILE`) and how long it lasts. It returns a
 > **token**. The agent connects with that token and can only reach that branch, with at most that
 > user's permissions. When the sandbox expires or is dropped, the token stops working.
+>
+> The motivations are:
+>
+> - **Governance.** The rules and the authority over agents are explicit: who may start an agent,
+>   on whose behalf, on which data, with which permissions, and for how long. Agents' changes reach
+>   no one until a human reviews them and keeps or discards them.
+> - **Traceability.** What an agent did can be reconstructed afterwards. Every action is recorded
+>   in the audit log under *owner + sandbox*, and the branch keeps the agent's changes.
+> - **Control over agents.** Each agent is kept within bounds:
+>   - *cost*: sessions and memory are capped by the profile;
+>   - *blast radius*: writes stay on the branch and never reach `main`;
+>   - *scope*: one database and one branch, data queries only, no admin queries;
+>   - *time*: every sandbox expires;
+>   - *kill switch*: `DROP SANDBOX` cuts the agent off at once.
+> - **Limits as a signal.** An agent that hits a limit or runs out of time is stopped, and that
+>   is a signal. Either something is off (a loop, or work it should not be doing), or the task is
+>   bigger than expected. Either way, a human reviews the result and decides whether the work is
+>   really needed before giving the agent more.
 
 ---
 
@@ -125,8 +143,8 @@ SHOW SANDBOX <name>;
 ```
 
 Columns: `name`, `database`, `branch`, `branch_owned` (bool), `owner`, `creator`, `profile`,
-`read_only`, `created_at`, `expires_at`, `status` (`ACTIVE` | `EXPIRED`), `sessions`. The token
-is never shown.
+`read_only`, `created_at`, `expires_at`, `status` (`ACTIVE` | `EXPIRED`), `ended_reason`
+(§7.1), `sessions`. The token is never shown.
 
 Privileges: `SANDBOX_EDIT`.
 
@@ -210,7 +228,7 @@ CREATE ──► ACTIVE ──(expires_at passes)──► EXPIRED ──► DRO
 
 - **Expiry**: the token is rejected, open sandbox sessions are terminated, and their open
   transactions are rolled back. The sandbox and its branch stay in place so a human can inspect
-  the result, until `DROP SANDBOX`.
+  the result, until `DROP SANDBOX`. §7.1 describes what happens to the agent's changes.
 - The sandbox expires right away if its owner is dropped, or if its branch is dropped (for
   example with `DROP BRANCH … FORCE` on an attached branch). `DROP BRANCH` without `FORCE` is refused
   while an active sandbox uses the branch:
@@ -219,6 +237,43 @@ CREATE ──► ACTIVE ──(expires_at passes)──► EXPIRED ──► DRO
   time, so a sandbox can expire while Memgraph is down.
 - **Replication / HA**: same as branches in v1. Sandboxes live only on MAIN and are not
   replicated. Demotion or failover drops them.
+
+### 7.1 Expiry while the agent is working
+
+The rule is simple: **committed work stays, uncommitted work is rolled back.** The transaction is
+the unit. Memgraph does not know where the agent's task starts and ends, so it never keeps part of
+a transaction and never undoes a committed one.
+
+| Agent's work at `expires_at` | What happens |
+|---|---|
+| Committed transactions | Stay on the sandbox branch. They are the result a human reviews. |
+| Query or explicit transaction still running | Aborted and rolled back. The client gets `Sandbox '<name>' has expired. The transaction was rolled back.` |
+| `COMMIT` that started before `expires_at` | Completes. Expiry never interrupts a commit that has already started, so the result is never half-applied. |
+| Query or `BEGIN` sent after `expires_at` | Refused with the same error, without running. |
+| Idle session | Closed. |
+| Memgraph down at `expires_at` | Recovery restores the committed state of the branch. Uncommitted work was already lost in the crash. The sandbox comes back as `EXPIRED`. |
+
+**Enforcement.** Each sandbox transaction gets a deadline:
+`min(expires_at, the normal transaction timeout)`. This reuses the transaction-timeout path, so a
+long query is aborted at the same checks as a timed-out query, without polling. A timer that fires
+at `expires_at` closes idle sessions and rejects the token. At login, the token is rejected if
+`now ≥ expires_at`, whether or not the timer has fired.
+
+**The branch after expiry.** The branch is not frozen. Users with `BRANCH_USE` can still read it
+and write to it with `USING BRANCH`, as with any branch. A human can then:
+- discard the work: `DROP SANDBOX <name>`;
+- keep the work for later: `DROP SANDBOX <name> KEEP BRANCH`;
+- let an agent continue: `DROP SANDBOX <name> KEEP BRANCH`, then `CREATE SANDBOX <new> BRANCH <b> …`
+  to get a new token. `ALTER SANDBOX … EXPIRES IN` stays refused on an expired sandbox, so a
+  leaked token never comes back to life.
+
+**Guidance for agents.** Keep each logical step in one short transaction. Then expiry costs at most
+the step in progress, and the branch never holds a half-done step. An agent can read `expires_at`
+with `SHOW SANDBOX` and stop before it.
+
+**Audit.** Each transaction aborted by expiry is logged with the `sandbox` field and the reason
+`expired`. `SHOW SANDBOX` gets an `ended_reason` column: `EXPIRED`, `OWNER_DROPPED`,
+`BRANCH_DROPPED`, or null while the sandbox is active.
 
 ## 8. Errors
 
@@ -232,6 +287,7 @@ CREATE ──► ACTIVE ──(expires_at passes)──► EXPIRED ──► DRO
 | `BRANCH main` without `READ ONLY` | `A sandbox on 'main' must be READ ONLY.` |
 | Bad duration | `EXPIRES IN must be between 1s and <sandbox-max-ttl>.` |
 | Expired/unknown token at login | `Authentication failure` (same as a wrong password, so nothing about the sandbox is revealed) |
+| Sandbox expires during a query or transaction, or a query is sent after expiry | `Sandbox '<name>' has expired. The transaction was rolled back.` |
 | Disallowed query in a sandbox session | `Query is not allowed in a sandbox session.` |
 | Wrong `db` from a sandbox session | `This sandbox can only access '<database>@<branch>'.` |
 
@@ -284,7 +340,8 @@ CREATE SANDBOX analyst ON BEHALF OF alice BRANCH main READ ONLY EXPIRES IN '30m'
 **Definition of done (MVP)**
 - [ ] `CREATE` / `DROP` / `ALTER … EXPIRES IN` / `SHOW SANDBOX[ES]` as specified, with `SANDBOX_EDIT`
 - [ ] Bearer token login, session pinned to `<db>@<branch>`, permission check owner ∩ allowlist
-- [ ] Expiry enforced at login and on live sessions, and across restarts
+- [ ] Expiry enforced at login and on live sessions, and across restarts: committed work stays,
+      running transactions roll back, a commit already in progress completes (§7.1)
 - [ ] Profile limits applied to sandbox sessions
 - [ ] `sandbox` field in `SHOW SESSIONS` and the audit log
 - [ ] E2E tests: privilege escalation attempts, expiry during a transaction, owner revoke/drop, restart
