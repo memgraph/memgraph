@@ -419,6 +419,11 @@ bool VersionStore::Empty() const {
   return branches_.empty() && hidden_.empty() && !ledger_unreadable_;
 }
 
+bool VersionStore::HasHidden() const {
+  const std::scoped_lock guard{lock_};
+  return !hidden_.empty();
+}
+
 std::expected<BranchInfo, std::string> VersionStore::TryAcquireCheckout(std::string_view name) {
   const std::scoped_lock guard{lock_};
   if (ledger_unreadable_) return std::unexpected(*ledger_unreadable_);

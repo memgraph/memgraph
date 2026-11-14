@@ -3326,9 +3326,26 @@ mgp_error mgp_graph_get_vertex_by_id(mgp_graph *graph, mgp_vertex_id id, mgp_mem
       result);
 }
 
+#ifdef MG_ENTERPRISE
+namespace {
+// On a branch these would act on the branch's diff engine: an index lost when it is discarded, a constraint checked
+// against the branch's own objects only.
+void RejectSchemaDdlOnBranch(const mgp_graph &graph) {
+  auto *impl = graph.TryGetImpl();
+  if (impl != nullptr && impl->branch_context() != nullptr) {
+    throw ImmutableObjectException{
+        "Schema and storage-global operations are not allowed on a branch. Run USE BRANCH main first."};
+  }
+}
+}  // namespace
+
+#endif
 mgp_error mgp_create_label_index(mgp_graph *graph, const char *label, int *result) {
   return WrapExceptions(
       [graph, label]() {
+#ifdef MG_ENTERPRISE
+        RejectSchemaDdlOnBranch(*graph);
+#endif
         const auto label_id =
             std::visit([label](auto *impl) { return impl->NameToLabel(label); }, graph->CheckedImpl());
         const auto index_res = std::visit(
@@ -3350,6 +3367,9 @@ mgp_error mgp_create_label_index(mgp_graph *graph, const char *label, int *resul
 mgp_error mgp_drop_label_index(mgp_graph *graph, const char *label, int *result) {
   return WrapExceptions(
       [graph, label]() {
+#ifdef MG_ENTERPRISE
+        RejectSchemaDdlOnBranch(*graph);
+#endif
         const auto label_id =
             std::visit([label](auto *impl) { return impl->NameToLabel(label); }, graph->CheckedImpl());
         const auto index_res =
@@ -3402,6 +3422,9 @@ mgp_error mgp_list_all_label_indices(mgp_graph *graph, mgp_memory *memory, mgp_l
 mgp_error mgp_create_label_property_index(mgp_graph *graph, const char *label, const char *property, int *result) {
   return WrapExceptions(
       [graph, label, property]() {
+#ifdef MG_ENTERPRISE
+        RejectSchemaDdlOnBranch(*graph);
+#endif
         const auto label_id =
             std::visit([label](auto *impl) { return impl->NameToLabel(label); }, graph->CheckedImpl());
         const auto property_path = std::visit(
@@ -3433,6 +3456,9 @@ mgp_error mgp_create_label_property_index(mgp_graph *graph, const char *label, c
 mgp_error mgp_drop_label_property_index(mgp_graph *graph, const char *label, const char *property, int *result) {
   return WrapExceptions(
       [graph, label, property]() {
+#ifdef MG_ENTERPRISE
+        RejectSchemaDdlOnBranch(*graph);
+#endif
         const auto label_id =
             std::visit([label](auto *impl) { return impl->NameToLabel(label); }, graph->CheckedImpl());
         const auto property_path = std::visit(
@@ -3534,6 +3560,9 @@ mgp_error mgp_list_all_label_property_indices(mgp_graph *graph, mgp_memory *memo
 mgp_error mgp_create_vertex_property_index(mgp_graph *graph, const char *property, int *result) {
   return WrapExceptions(
       [graph, property]() {
+#ifdef MG_ENTERPRISE
+        RejectSchemaDdlOnBranch(*graph);
+#endif
         const auto property_id =
             std::visit([property](auto *impl) { return impl->NameToProperty(property); }, graph->CheckedImpl());
         const auto index_res = std::visit(
@@ -3556,6 +3585,9 @@ mgp_error mgp_create_vertex_property_index(mgp_graph *graph, const char *propert
 mgp_error mgp_drop_vertex_property_index(mgp_graph *graph, const char *property, int *result) {
   return WrapExceptions(
       [graph, property]() {
+#ifdef MG_ENTERPRISE
+        RejectSchemaDdlOnBranch(*graph);
+#endif
         const auto property_id =
             std::visit([property](auto *impl) { return impl->NameToProperty(property); }, graph->CheckedImpl());
         const auto index_res = std::visit(
@@ -3614,6 +3646,9 @@ mgp_error mgp_list_all_vertex_property_indices(mgp_graph *graph, mgp_memory *mem
 mgp_error mgp_create_existence_constraint(mgp_graph *graph, const char *label, const char *property, int *result) {
   return WrapExceptions(
       [graph, label, property]() {
+#ifdef MG_ENTERPRISE
+        RejectSchemaDdlOnBranch(*graph);
+#endif
         const auto label_id =
             std::visit([label](auto *impl) { return impl->NameToLabel(label); }, graph->CheckedImpl());
         const auto property_id =
@@ -3639,6 +3674,9 @@ mgp_error mgp_create_existence_constraint(mgp_graph *graph, const char *label, c
 mgp_error mgp_drop_existence_constraint(mgp_graph *graph, const char *label, const char *property, int *result) {
   return WrapExceptions(
       [graph, label, property]() {
+#ifdef MG_ENTERPRISE
+        RejectSchemaDdlOnBranch(*graph);
+#endif
         const auto label_id =
             std::visit([label](auto *impl) { return impl->NameToLabel(label); }, graph->CheckedImpl());
         const auto property_id =
@@ -3697,6 +3735,9 @@ mgp_error mgp_list_all_existence_constraints(mgp_graph *graph, mgp_memory *memor
 mgp_error mgp_create_unique_constraint(mgp_graph *graph, const char *label, mgp_list *properties, int *result) {
   return WrapExceptions(
       [graph, label, properties]() {
+#ifdef MG_ENTERPRISE
+        RejectSchemaDdlOnBranch(*graph);
+#endif
         const auto label_id =
             std::visit([label](auto *impl) { return impl->NameToLabel(label); }, graph->CheckedImpl());
         std::set<memgraph::storage::PropertyId> property_ids;
@@ -3728,6 +3769,9 @@ mgp_error mgp_create_unique_constraint(mgp_graph *graph, const char *label, mgp_
 mgp_error mgp_drop_unique_constraint(mgp_graph *graph, const char *label, mgp_list *properties, int *result) {
   return WrapExceptions(
       [graph, label, properties]() {
+#ifdef MG_ENTERPRISE
+        RejectSchemaDdlOnBranch(*graph);
+#endif
         const auto label_id =
             std::visit([label](auto *impl) { return impl->NameToLabel(label); }, graph->CheckedImpl());
         std::set<memgraph::storage::PropertyId> property_ids;
