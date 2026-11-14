@@ -20,6 +20,12 @@
 #include "storage/v2/edge_direction.hpp"
 #include "storage/v2/vertex.hpp"
 
+#ifdef MG_ENTERPRISE
+#include <span>
+
+#include "utils/logging.hpp"
+#endif
+
 namespace memgraph::storage {
 
 class Storage;
@@ -113,6 +119,27 @@ class ExpandedEdges {
   /// The edge comes back by value, because there is none to refer to until it is asked for, so
   /// `auto &edge = edges[0]` has nothing to bind to and must be `auto`.
   auto operator[](std::size_t index) const -> EdgeAccessor { return At(index); }
+
+#ifdef MG_ENTERPRISE
+  /// The stored triples themselves, for a reader that needs no accessor per edge. The in-memory form only.
+  auto Triples() const -> std::span<EdgeTriple const> {
+    DMG_ASSERT(from_triples_, "only the in-memory form holds triples.");
+    return {triples_.data(), triples_.size()};
+  }
+
+  /// Drops, in place, the edges `keep` rejects. `keep` sees each stored triple once, in order. The in-memory form only.
+  template <typename Predicate>
+  void Retain(Predicate keep) {
+    DMG_ASSERT(from_triples_, "only the in-memory form holds triples.");
+    std::size_t kept = 0;
+    for (std::size_t index = 0; index != triples_.size(); ++index) {
+      if (!keep(std::as_const(triples_[index]))) continue;
+      if (kept != index) triples_[kept] = triples_[index];
+      ++kept;
+    }
+    triples_.erase(triples_.begin() + kept, triples_.end());
+  }
+#endif
 
   /// The edges `keep` accepts, held the same way: deciding means looking at every edge, but what
   /// comes back still builds its accessors when they are looked at.

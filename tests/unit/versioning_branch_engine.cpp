@@ -1373,8 +1373,8 @@ TEST_F(VersioningBranchEngineTest, ForkEdgeReadsMergeTheEdgeStubOverTheForkEdge)
 }
 
 // Without edge properties a fork edge carries no branched bit to consult, so its hidden state is derived from its
-// endpoints on every read.
-TEST_F(VersioningBranchEngineNoEdgePropertiesTest, EdgeReadsOfAnEdgeWithADeletedEndpointReportDeleted) {
+// endpoints on every read; its property reads still answer as main's do for any edge: empty, Null, size 0.
+TEST_F(VersioningBranchEngineNoEdgePropertiesTest, EdgeWithADeletedEndpointIsHiddenAndReadsPropertyLessLikeMain) {
   auto const x = Prop("x");
   auto const v = CreateMainVertex({}, {});
   auto const w = CreateMainVertex({}, {});
@@ -1396,9 +1396,15 @@ TEST_F(VersioningBranchEngineNoEdgePropertiesTest, EdgeReadsOfAnEdgeWithADeleted
   for (auto const view : {ms::View::OLD, ms::View::NEW}) {
     for (auto const *edge : {&*fto, &*ffrom}) {
       EXPECT_TRUE(ctx.IsForkEdgeHidden(*edge, view));
-      EXPECT_EQ(ctx.Properties(*edge, view).error(), ms::Error::DELETED_OBJECT);
-      EXPECT_EQ(ctx.GetProperty(*edge, x, view).error(), ms::Error::DELETED_OBJECT);
-      EXPECT_EQ(ctx.GetPropertySize(*edge, x, view).error(), ms::Error::DELETED_OBJECT);
+      auto const properties = ctx.Properties(*edge, view);
+      ASSERT_TRUE(properties.has_value());
+      EXPECT_TRUE(properties->empty());
+      auto const value = ctx.GetProperty(*edge, x, view);
+      ASSERT_TRUE(value.has_value());
+      EXPECT_TRUE(value->IsNull());
+      auto const size = ctx.GetPropertySize(*edge, x, view);
+      ASSERT_TRUE(size.has_value());
+      EXPECT_EQ(*size, 0U);
     }
     EXPECT_FALSE(ctx.IsForkEdgeHidden(*fkept, view));
   }

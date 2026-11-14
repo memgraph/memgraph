@@ -19,16 +19,19 @@
 #include <map>
 #include <memory>
 #include <optional>
+#include <span>
 #include <string>
 #include <tuple>
 #include <utility>
 #include <vector>
 
+#include "absl/functional/function_ref.h"
 #include "memory/db_arena_fwd.hpp"
 #include "storage/v2/commit_args.hpp"
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/edge_direction.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/indices/ordered_property_paths.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/result.hpp"
@@ -312,6 +315,12 @@ class BranchContext {
 
   storage::InMemoryStorage &main() const { return core_->main(); }
 
+  // True when MAIN keeps no edge properties: writes are refused and reads answer as main does for every edge, deleted
+  // or not.
+  bool PropertyWritesDisabled(const storage::EdgeAccessor & /*edge*/) const {
+    return !main().config_.salient.items.properties_on_edges;
+  }
+
   const std::string &name() const { return name_; }
 
   storage::InMemoryStorage &diff_engine() const { return core_->diff_engine(); }
@@ -375,6 +384,11 @@ class BranchContext {
                                                       storage::View view);
   storage::Result<uint64_t> GetPropertySize(const storage::VertexAccessor &vertex, storage::PropertyId key,
                                             storage::View view);
+  // Storage's ReadPropertyValues as the branch sees the record: one slot per ordered path, each decided like
+  // GetProperty (single-property paths only, as in storage).
+  storage::Result<void> ReadPropertyValues(const storage::VertexAccessor &vertex,
+                                           const storage::OrderedPropertyPaths &ordered_properties,
+                                           std::span<storage::PropertyValue> out, storage::View view);
 
   // The same for an edge: a fork edge hidden on the branch (deleted, or an endpoint deleted) reports DELETED_OBJECT.
   storage::Result<std::map<storage::PropertyId, storage::PropertyValue>> Properties(const storage::EdgeAccessor &edge,
@@ -383,6 +397,9 @@ class BranchContext {
                                                       storage::View view);
   storage::Result<uint64_t> GetPropertySize(const storage::EdgeAccessor &edge, storage::PropertyId key,
                                             storage::View view);
+  storage::Result<void> ReadPropertyValues(const storage::EdgeAccessor &edge,
+                                           const storage::OrderedPropertyPaths &ordered_properties,
+                                           std::span<storage::PropertyValue> out, storage::View view);
 
   // ---- Deletion
 
@@ -474,6 +491,10 @@ class BranchContext {
   // gid to the diff engine's edge. Never an edge stub. An edge id says nothing of its endpoints and main keeps no
   // fork-time index by edge id, so the FROM vertex is required; finding an edge without it would scan all of main.
   std::optional<storage::EdgeAccessor> ResolveEdge(storage::Gid edge_gid, storage::Gid from_gid, storage::View view);
+
+  // `vertex` as the query layer holds it: the fork vertex when `vertex` is the diff-engine stub of one (e.g. the
+  // endpoint of a branch-native edge on a fork vertex), else `vertex` itself.
+  storage::VertexAccessor ForkIdentity(const storage::VertexAccessor &vertex);
 
   // Fork-state vertex (historical(), View::OLD). Null for a native gid and for a candidate main does not have at
   // fork_ts.
@@ -581,6 +602,27 @@ class BranchContext {
   std::vector<storage::EdgeAccessor> ResolveEdges(storage::Gid vertex_gid, storage::EdgeDirection direction,
                                                   storage::View view, bool *vertex_deleted = nullptr);
 
+  // How to expand `vertex` through its own In/OutEdges: the `view` to call it with, the fork edges the branch deleted
+  // (the caller drops them without charging a hop), and branch-native edges on a fork vertex, which come first.
+  struct DirectExpansionPlan {
+    storage::View view;
+    HiddenForkEdges hidden;
+    std::vector<storage::EdgeAccessor> natives;
+  };
+
+  // Set when `vertex`'s branch adjacency is the accessor's own less `hidden`, after `natives`: a native vertex (at
+  // `view`) or a live fork vertex (always OLD); with both empty the storage call filters by edge type and charges hops
+  // as on main. nullopt: a fork vertex the branch deleted (the merged path reports DELETED_OBJECT) or a non-diff-engine
+  // vertex whose gid is not a fork candidate.
+  std::optional<DirectExpansionPlan> DirectExpansion(const storage::VertexAccessor &vertex,
+                                                     storage::EdgeDirection direction, storage::View view);
+
+  // OutEdges/InEdges, streamed: each edge goes to `emit` (false stops) so the caller filters before copying; `reserve`
+  // gets an upper bound once. Same errors and order.
+  storage::Result<void> VisitEdges(const storage::VertexAccessor &vertex, storage::EdgeDirection direction,
+                                   storage::View view, absl::FunctionRef<void(size_t)> reserve,
+                                   absl::FunctionRef<bool(const storage::EdgeAccessor &)> emit);
+
   bool MayHaveVertexDeleted(storage::Gid gid) const noexcept { return core_->MayHaveVertexDeleted(gid); }
 
   bool MayHaveAnyVertexDeleted() const noexcept { return core_->MayHaveAnyVertexDeleted(); }
@@ -628,10 +670,6 @@ class BranchContext {
   // Whether a property write on `object` is refused: an edge's are when MAIN keeps no edge properties (the diff
   // engine always does, so a native edge would take them), a vertex's never.
   bool PropertyWritesDisabled(const storage::VertexAccessor & /*vertex*/) const { return false; }
-
-  bool PropertyWritesDisabled(const storage::EdgeAccessor & /*edge*/) const {
-    return !main().config_.salient.items.properties_on_edges;
-  }
 
   // The accessor of main's fork vertex `fork` (or, when the stub index has none recorded, a lookup of `gid`).
   std::optional<storage::VertexAccessor> ForkAccessor(storage::Vertex *fork, storage::Gid gid);
@@ -722,6 +760,12 @@ class BranchContext {
   std::optional<storage::EdgeAccessor> FindEdgeStub(const storage::EdgeAccessor &fork_edge);
 
   bool IsForkEdgeDeleted(const storage::EdgeAccessor &fork_edge, storage::View view);
+
+  // ResolveEdges' walk, edge by edge. `fork_hint`, when the caller holds the fork vertex, saves the lookup by gid.
+  void ResolveEdgesInto(storage::Gid vertex_gid, const storage::VertexAccessor *fork_hint,
+                        storage::EdgeDirection direction, storage::View view, bool *vertex_deleted,
+                        absl::FunctionRef<void(size_t)> reserve,
+                        absl::FunctionRef<bool(const storage::EdgeAccessor &)> emit);
 
   // What a branch read of a fork edge resolves to.
   struct EdgeRead {
