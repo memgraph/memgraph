@@ -242,13 +242,15 @@ inline std::map<std::string, std::string> Named(ms::Storage &st,
   return named;
 }
 
-// Fork-delete counts, touched gates of the labels and properties the workloads name, and change filters of every base
-// object. Replay records only logged changes, so it must leave the same traces as the live run.
+// The branch's counts, fork-delete counts, touched gates of the labels and properties the workloads name, and change
+// filters of every base object. Replay records only logged changes, so it must leave the same traces as the live run.
 inline std::string Bookkeeping(memgraph::dbms::Database &db, mv::BranchCore &core, const Base &base) {
   auto &st = *db.storage();
   std::ostringstream out;
   const auto deletes = core.ForkDeletes();
   out << "deletes v=" << deletes.vertices << " e=" << deletes.edges << "\n";
+  const auto counts = core.ApproximateCounts();
+  out << "counts v=" << counts.vertices << " e=" << counts.edges << "\n";
   for (const auto *name : {"L", "M", "X", "NewL", "N"}) {
     out << "label " << name << ":" << core.MayHaveLabelTouched(st.NameToLabel(name)) << "\n";
     out << "marked " << name << ":" << core.MayHaveLabelMarked(st.NameToLabel(name)) << "\n";
@@ -327,7 +329,7 @@ inline std::unique_ptr<mv::BranchContext> Checkout(memgraph::dbms::Database &db,
   if (!info) return nullptr;
   auto core = store->GetOrBuildCore(info->number, [&]() -> std::expected<std::shared_ptr<mv::BranchCore>, std::string> {
     if (built != nullptr) *built = true;
-    auto fresh = mv::BranchCore::Build(*Mem(db), info->fork_ts, info->number);
+    auto fresh = mv::BranchCore::Build(*Mem(db), info->fork_ts, info->number, std::nullopt, info->fork_counts);
     if (!fresh) return std::unexpected(fresh.error().message);
     (*fresh)->SetGidReserver(store->GidReserverOf(info->number));
     return std::move(*fresh);

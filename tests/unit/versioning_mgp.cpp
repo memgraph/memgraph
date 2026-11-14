@@ -204,6 +204,26 @@ TEST_F(VersioningMgpTest, EdgeDeletedAfterSetIsDeletedAndFoundThroughTheEdgeProp
   faker.Interpret("ROLLBACK");
 }
 
+// Main at the fork plus the branch's committed changes; main's writes after the fork do not count.
+TEST_F(VersioningMgpTest, ApproximateCountsOnABranchReflectTheBranch) {
+  faker.Interpret("CREATE (:V {id: 1})-[:E]->(:V {id: 2})-[:E]->(:V {id: 3})");
+  faker.Interpret("CREATE BRANCH b");
+  faker.Interpret("CREATE (:Later)-[:E]->(:Later)");
+  faker.Interpret("USE BRANCH b");
+  faker.Interpret("MATCH (n:V {id: 3}) DETACH DELETE n");
+  faker.Interpret("CREATE (:N)-[:E]->(:N)");
+
+  auto &graph = Begin();
+  faker.Interpret("MATCH (n:V) SET n.x = 1");
+  size_t vertices = 0;
+  size_t edges = 0;
+  ASSERT_EQ(mgp_graph_approximate_vertex_count(&graph, &vertices), mgp_error::MGP_ERROR_NO_ERROR);
+  ASSERT_EQ(mgp_graph_approximate_edge_count(&graph, &edges), mgp_error::MGP_ERROR_NO_ERROR);
+  EXPECT_EQ(vertices, 4U);
+  EXPECT_EQ(edges, 2U);
+  faker.Interpret("ROLLBACK");
+}
+
 // The outer branch transaction holds main's storage guard shared; a UNIQUE request (SetStorageMode, SET GLOBAL
 // ISOLATION LEVEL) queued behind it must make the nested session time out, as on main, not wait forever.
 TEST_F(VersioningMgpTest, NestedSessionOnABranchTimesOutBehindAQueuedUniqueRequestInsteadOfHanging) {

@@ -927,6 +927,16 @@ class InMemoryStorage final : public Storage {
   // Oldest live fork pin, or nullopt if none; mirrors the GC horizon clamp in CollectGarbage.
   std::optional<uint64_t> OldestForkPin() const;
 
+  struct ApproximateCounts {
+    uint64_t vertices;
+    uint64_t edges;
+  };
+
+  // What Accessor::ApproximateVertexCount and ApproximateEdgeCount return, read without a transaction.
+  ApproximateCounts GetApproximateCounts() const {
+    return {.vertices = vertices_.size(), .edges = edge_count_.load(std::memory_order_acquire)};
+  }
+
   enum class HistoricalAccessError : uint8_t {
     // `fork_ts` is not a live pin: never registered, or already released.
     ForkTimestampNotPinned,
