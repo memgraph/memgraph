@@ -87,17 +87,20 @@ class VersionStore {
   // ledger write failure) returns a user-facing message and changes no state (no pin held).
   std::expected<BranchInfo, std::string> CreateBranch(std::string name);
 
-  // Drops `name` unless a session is attached; `own_checkout` is the caller's own attached branch number, which does
-  // not count (it leaves afterwards). Releases the fork pin; the directory goes once no core holder or session is
-  // left. A ledger write failure drops nothing; a crash before directory removal leaves it behind, its number never
-  // reused.
+  // Drops `name` unless a session is attached; `own_checkout` (the caller's own branch number) does not count.
+  // `expected_number` (the number the caller resolved `name` to earlier) makes the drop kNotFound unless that exact
+  // branch is still live, so a branch re-created under the same name in between is never dropped by a stale caller.
+  // Releases the fork pin (a hidden branch holds none, and is droppable too); the directory goes once no core holder
+  // or session is left. A ledger write failure drops nothing; a crash before removal orphans it, number never reused.
   std::expected<DropResult, std::string> DropBranch(std::string_view name,
-                                                    std::optional<uint64_t> own_checkout = std::nullopt);
+                                                    std::optional<uint64_t> own_checkout = std::nullopt,
+                                                    std::optional<uint64_t> expected_number = std::nullopt);
 
   // As DropBranch, but drops although sessions are attached (never kInUse). Their attaches stay valid until released
   // (keyed by branch number, so a branch re-created under the same name is unaffected) and their cores live until they
   // let go.
-  std::expected<DropResult, std::string> ForceDropBranch(std::string_view name);
+  std::expected<DropResult, std::string> ForceDropBranch(std::string_view name,
+                                                         std::optional<uint64_t> expected_number = std::nullopt);
 
   // Replica demotion: refuses new branches and checkouts until Unfreeze, and durably drops every branch, hidden and
   // attached included (ReleaseCheckout stays valid). Idempotent; with nothing to drop it only freezes (no ledger
@@ -128,6 +131,9 @@ class VersionStore {
 
   // Ordered by ascending branch number (creation order).
   std::vector<std::pair<std::string, BranchInfo>> List() const;
+
+  // The hidden branches, in List's order and form.
+  std::vector<std::pair<std::string, BranchInfo>> ListHidden() const;
 
   bool Exists(std::string_view name) const;
 
@@ -212,7 +218,8 @@ class VersionStore {
   std::expected<void, std::string> WriteLedger(const LedgerContents &contents);
 
   std::expected<DropResult, std::string> DropBranchImpl(std::string_view name, bool force,
-                                                        std::optional<uint64_t> own_checkout);
+                                                        std::optional<uint64_t> own_checkout,
+                                                        std::optional<uint64_t> expected_number);
   LedgerContents SnapshotLocked() const;
   bool IsLiveNumberLocked(uint64_t number) const;
   // Moves the core slot of `number` into `retired`; it is destroyed by Finish, outside every lock.

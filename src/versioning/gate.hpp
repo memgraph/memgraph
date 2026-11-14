@@ -22,8 +22,9 @@ namespace memgraph::versioning {
 
 enum class GateError : uint8_t { kDisabled, kNoLicense, kUnsupportedStorageMode, kNotDurable };
 
-// Only kCreate needs the license and durable branches; kObserve needs neither.
-enum class GateOperation : uint8_t { kObserve, kCreate };
+// Only kCreate needs the license and durable branches. kCleanup (SHOW BRANCHES, DROP) also passes with the flag off in
+// IN_MEMORY_TRANSACTIONAL, so branches left from an earlier run can be listed and removed; kObserve does not.
+enum class GateOperation : uint8_t { kObserve, kCreate, kCleanup };
 
 struct GateState {
   bool flag_enabled;
@@ -32,8 +33,9 @@ struct GateState {
   bool durable;
 };
 
-// Returns std::nullopt when `op` is allowed. First failure wins: flag, license (kCreate only), storage mode,
-// durability (kCreate only). The caller refuses replicas afterwards. Takes primitives to stay free of Storage/license.
+// Returns std::nullopt when `op` is allowed. First failure wins: flag (kCleanup is exempt in IN_MEMORY_TRANSACTIONAL),
+// license (kCreate only), storage mode, durability (kCreate only). The caller then refuses replicas and a flag-off
+// kCleanup with no branches. Takes primitives to stay free of Storage/license.
 std::optional<GateError> CheckVersioningGate(GateOperation op, GateState const &state);
 
 std::string_view GateErrorMessage(GateError err);

@@ -311,14 +311,17 @@ TEST(AuthChecker, BranchPrivilegesAreIndependent) {
   auth->SaveUser(user);
   auto query_user = auth_checker.GenQueryUser("branch_user", {});
   EXPECT_TRUE(query_user->IsAuthorized({BRANCH_USE}, "memgraph", &policy));
+  EXPECT_FALSE(query_user->IsAuthorized({BRANCH_EDIT}, "memgraph", &policy));
   EXPECT_FALSE(query_user->IsAuthorized({MULTI_DATABASE_USE}, "memgraph", &policy));
 
   user.permissions().Revoke(memgraph::auth::Permission::BRANCH_USE);
   user.permissions().Grant(memgraph::auth::Permission::MULTI_DATABASE_USE);
+  user.permissions().Grant(memgraph::auth::Permission::MULTI_DATABASE_EDIT);
   auth->SaveUser(user);
   query_user = auth_checker.GenQueryUser("branch_user", {});
   EXPECT_FALSE(query_user->IsAuthorized({BRANCH_USE}, "memgraph", &policy));
-  EXPECT_TRUE(query_user->IsAuthorized({MULTI_DATABASE_USE}, "memgraph", &policy));
+  EXPECT_FALSE(query_user->IsAuthorized({BRANCH_EDIT}, "memgraph", &policy));
+  EXPECT_TRUE(query_user->IsAuthorized({MULTI_DATABASE_USE, MULTI_DATABASE_EDIT}, "memgraph", &policy));
 }
 
 TEST(AuthChecker, Generate) {

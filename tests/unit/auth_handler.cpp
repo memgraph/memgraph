@@ -3921,7 +3921,7 @@ struct VersioningExperiment {
 using memgraph::auth::Permission;
 using memgraph::auth::PermissionLevel;
 
-constexpr std::array kBranchPermissionList = {Permission::BRANCH_USE};
+constexpr std::array kBranchPermissionList = {Permission::BRANCH_USE, Permission::BRANCH_EDIT};
 
 std::set<std::string> PrivilegeNames(const std::vector<std::vector<memgraph::query::TypedValue>> &rows) {
   std::set<std::string> names;
@@ -3986,6 +3986,7 @@ TEST_F(BranchPrivilegesTest, FirstUserHasBranchPrivilegesWhileVersioningIsOn) { 
 TEST_F(BranchPrivilegesTest, ShowPrivilegesListsBranchPrivilegesOnlyWhileVersioningIsEnabled) {
   perms.Grant(Permission::MATCH);
   perms.Grant(Permission::BRANCH_USE);
+  perms.Deny(Permission::BRANCH_EDIT);
   auth.value()->SaveUser(memgraph::auth::User{user_name, std::nullopt, perms});
   const auto db = std::optional<std::string>{std::string{memgraph::dbms::kDefaultDB}};
 
@@ -3996,11 +3997,12 @@ TEST_F(BranchPrivilegesTest, ShowPrivilegesListsBranchPrivilegesOnlyWhileVersion
   {
     const VersioningExperiment experiment{true};
     EXPECT_EQ(PrivilegeNames(auth_handler.GetPrivileges(user_name, db, nullptr)),
-              (std::set<std::string>{"MATCH", "BRANCH_USE"}));
+              (std::set<std::string>{"MATCH", "BRANCH_USE", "BRANCH_EDIT"}));
   }
   const auto stored = auth->ReadLock()->GetUser(user_name);
   ASSERT_TRUE(stored.has_value());
   EXPECT_EQ(stored->permissions().Has(Permission::BRANCH_USE), PermissionLevel::GRANT) << "kept while hidden";
+  EXPECT_EQ(stored->permissions().Has(Permission::BRANCH_EDIT), PermissionLevel::DENY) << "kept while hidden";
 }
 
 // DENY ALL while versioning is off denies a stored branch privilege too, invisibly, so it cannot resurface when
@@ -4025,6 +4027,7 @@ TEST_F(BranchPrivilegesTest, DenyAllWhileVersioningIsOffDeniesStoredBranchPrivil
   const auto stored = auth->ReadLock()->GetUser(user_name);
   ASSERT_TRUE(stored.has_value());
   EXPECT_EQ(stored->permissions().Has(Permission::BRANCH_USE), PermissionLevel::DENY);
+  EXPECT_EQ(stored->permissions().Has(Permission::BRANCH_EDIT), PermissionLevel::DENY);
   {
     const VersioningExperiment experiment{true};
     EXPECT_EQ(PrivilegeNames(auth_handler.GetPrivileges(user_name, db, nullptr)).count("BRANCH_USE"), 1);
@@ -4033,7 +4036,7 @@ TEST_F(BranchPrivilegesTest, DenyAllWhileVersioningIsOffDeniesStoredBranchPrivil
 
 TEST_F(BranchPrivilegesTest, ShowRolePrivilegesListsBranchPrivilegesOnlyWhileVersioningIsEnabled) {
   perms.Grant(Permission::MATCH);
-  perms.Deny(Permission::BRANCH_USE);
+  perms.Grant(Permission::BRANCH_EDIT);
   auth.value()->SaveRole(memgraph::auth::Role{"branch_role", perms});
   const auto db = std::optional<std::string>{std::string{memgraph::dbms::kDefaultDB}};
 
@@ -4044,7 +4047,7 @@ TEST_F(BranchPrivilegesTest, ShowRolePrivilegesListsBranchPrivilegesOnlyWhileVer
   {
     const VersioningExperiment experiment{true};
     EXPECT_EQ(PrivilegeNames(auth_handler.GetPrivileges("branch_role", db, nullptr)),
-              (std::set<std::string>{"MATCH", "BRANCH_USE"}));
+              (std::set<std::string>{"MATCH", "BRANCH_EDIT"}));
   }
 }
 #endif
