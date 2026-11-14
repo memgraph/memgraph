@@ -335,6 +335,20 @@ DbAccessor::BranchDetachDelete(std::vector<VertexAccessor> nodes, std::vector<Ed
   return std::make_optional<ReturnType>(std::move(deleted_vertices), std::move(deleted_edges));
 }
 
+storage::Result<EdgeAccessor> DbAccessor::BranchInsertEdge(const VertexAccessor &from, const VertexAccessor &to,
+                                                           storage::EdgeTypeId edge_type) {
+  auto &ctx = *branch_ctx_;
+  // BranchWriteError's message is dropped on purpose: DELETED_OBJECT makes CreateEdge emit main's own text.
+  auto from_diff = ctx.EnsureDiffVertex(from.Gid());
+  if (!from_diff) return std::unexpected{storage::Error::DELETED_OBJECT};
+  auto to_diff = ctx.EnsureDiffVertex(to.Gid());
+  if (!to_diff) return std::unexpected{storage::Error::DELETED_OBJECT};
+
+  auto edge = ctx.CreateNativeEdge(*from_diff, *to_diff, edge_type);
+  if (!edge) return std::unexpected{edge.error()};
+  return EdgeAccessor(*edge, branch_ctx_);
+}
+
 #endif
 bool DbAccessor::TextIndexExists(const std::string &index_name) const { return accessor_->TextIndexExists(index_name); }
 
