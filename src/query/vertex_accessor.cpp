@@ -19,12 +19,16 @@
 #include <algorithm>
 #include <cstdint>
 #include <map>
+#include <optional>
 #include <tuple>
 #include <vector>
 
+#include "storage/v2/constraints/type_constraints_kind.hpp"
+#include "storage/v2/exceptions.hpp"
 #include "storage/v2/indices/active_indices.hpp"
 #include "storage/v2/indices/vector_index.hpp"
 #include "versioning/branch_engine.hpp"
+#include "versioning/main_constraints.hpp"
 #endif
 
 namespace memgraph::query {
@@ -39,6 +43,70 @@ namespace {
 auto AsQueryResult(storage::EdgesVertexAccessorResult &&result) -> ExpandedEdgesResult {
   return ExpandedEdgesResult{.edges = ExpandedEdges{std::move(result.edges)}, .expanded_count = result.expanded_count};
 }
+
+#ifdef MG_ENTERPRISE
+using PropertyMap = std::map<storage::PropertyId, storage::PropertyValue>;
+
+// Branch writes skip storage's constraint checks; same message as storage's HandleTypeConstraintViolation.
+[[noreturn]] void ThrowTypeViolation(versioning::BranchContext &ctx, storage::LabelId label,
+                                     storage::TypeConstraintKind kind, storage::PropertyId property) {
+  auto &main = ctx.core()->main();
+  throw storage::TypeConstraintViolationException("IS TYPED {} violation on {}({})",
+                                                  storage::TypeConstraintKindToString(kind),
+                                                  main.LabelToName(label),
+                                                  main.PropertyToName(property));
+}
+
+// `written(pid)`: value about to be written for `pid`, or nullptr.
+template <typename Written>
+std::optional<storage::Error> CheckTypesOnPropertyWrite(const VertexAccessor &vertex, Written &&written) {
+  auto &ctx = *vertex.branch_ctx();
+  auto const types = versioning::MainConstraints{ctx}.Types();
+  auto const checked = [&](storage::PropertyId pid) -> const storage::PropertyValue * {
+    auto const *value = written(pid);
+    return value == nullptr || value->IsNull() ? nullptr : value;
+  };
+  if (std::ranges::none_of(types, [&](auto const &c) { return checked(std::get<1>(c)) != nullptr; })) {
+    return std::nullopt;
+  }
+  auto const labels = vertex.Labels(storage::View::NEW);
+  if (!labels) return labels.error();
+  for (auto const &[label, property, kind] : types) {
+    auto const *value = checked(property);
+    if (value != nullptr && std::ranges::contains(*labels, label) &&
+        !storage::PropertyValueMatchesTypeConstraint(*value, kind)) {
+      ThrowTypeViolation(ctx, label, kind, property);
+    }
+  }
+  return std::nullopt;
+}
+
+std::optional<storage::Error> CheckTypesOnPropertiesWrite(const VertexAccessor &vertex, const PropertyMap &properties) {
+  return CheckTypesOnPropertyWrite(vertex, [&](storage::PropertyId pid) -> const storage::PropertyValue * {
+    auto const it = properties.find(pid);
+    return it == properties.end() ? nullptr : &it->second;
+  });
+}
+
+std::optional<storage::Error> CheckTypesOnAddLabel(const VertexAccessor &vertex, storage::LabelId label) {
+  auto &ctx = *vertex.branch_ctx();
+  auto const types = versioning::MainConstraints{ctx}.Types();
+  if (std::ranges::none_of(types, [&](auto const &c) { return std::get<0>(c) == label; })) return std::nullopt;
+  auto const has_label = vertex.HasLabel(storage::View::NEW, label);
+  if (!has_label) return has_label.error();
+  if (*has_label) return std::nullopt;
+  auto const props = vertex.Properties(storage::View::NEW);
+  if (!props) return props.error();
+  for (auto const &[constrained, property, kind] : types) {
+    auto const it = props->find(property);
+    if (constrained == label && it != props->end() && !storage::PropertyValueMatchesTypeConstraint(it->second, kind)) {
+      ThrowTypeViolation(ctx, label, kind, property);
+    }
+  }
+  return std::nullopt;
+}
+
+#endif
 
 }  // namespace
 
@@ -76,6 +144,7 @@ storage::Result<void> VertexAccessor::BranchReadPropertyValues(storage::OrderedP
 }
 
 storage::Result<bool> VertexAccessor::BranchAddLabel(storage::LabelId label) {
+  if (auto err = CheckTypesOnAddLabel(*this, label)) return std::unexpected{*err};
   return branch_ctx()->AddLabel(impl_, label);
 }
 
@@ -85,16 +154,21 @@ storage::Result<bool> VertexAccessor::BranchRemoveLabel(storage::LabelId label) 
 
 storage::Result<storage::PropertyValue> VertexAccessor::BranchSetProperty(storage::PropertyId key,
                                                                           const storage::PropertyValue &value) {
+  if (auto err =
+          CheckTypesOnPropertyWrite(*this, [&](storage::PropertyId pid) { return pid == key ? &value : nullptr; }))
+    return std::unexpected{*err};
   return branch_ctx()->SetProperty(impl_, key, value);
 }
 
 storage::Result<bool> VertexAccessor::BranchInitProperties(
     std::map<storage::PropertyId, storage::PropertyValue> &properties) {
+  if (auto err = CheckTypesOnPropertiesWrite(*this, properties)) return std::unexpected{*err};
   return branch_ctx()->InitProperties(impl_, properties);
 }
 
 storage::Result<std::vector<std::tuple<storage::PropertyId, storage::PropertyValue, storage::PropertyValue>>>
 VertexAccessor::BranchUpdateProperties(std::map<storage::PropertyId, storage::PropertyValue> &properties) const {
+  if (auto err = CheckTypesOnPropertiesWrite(*this, properties)) return std::unexpected{*err};
   return branch_ctx()->UpdateProperties(impl_, properties);
 }
 
