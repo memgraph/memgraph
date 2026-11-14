@@ -13,6 +13,7 @@
 #include <unistd.h>
 
 #include <fmt/format.h>
+#include <chrono>
 #include <cstdint>
 #include <expected>
 #include <filesystem>
@@ -26,7 +27,13 @@
 #include <tuple>
 #include <vector>
 
+#include "dbms/database.hpp"
+#include "memory/db_arena.hpp"
+#include "storage/v2/inmemory/storage.hpp"
+#include "tests/test_commit_args_helper.hpp"
+#include "tests/versioning_durable_files.hpp"
 #include "utils/crc_accumulator.hpp"
+#include "utils/scheduler.hpp"
 #include "utils/uuid.hpp"
 #include "versioning/branch_info.hpp"
 #include "versioning/branch_ledger.hpp"
@@ -583,4 +590,52 @@ TEST(BranchInfo, RecoverableBelowIsOneBelowTheRecordedForkClampedAtZero) {
   EXPECT_EQ(RecoverableBelow(BranchInfo{.number = 2, .parent = "main", .fork_ts = 42}), 41);
   EXPECT_EQ(RecoverableBelow(BranchInfo{.number = 2, .parent = "main", .fork_ts = 7, .recorded_fork_ts = 42}), 41)
       << "the recorded fork, not the runtime pin";
+}
+
+namespace {
+namespace ms = memgraph::storage;
+
+const fs::path kRestartDirectory{fs::temp_directory_path() / "versioning_ledger_restart"};
+
+ms::Config MakeRestartConfig(bool recover_on_startup) {
+  return ms::Config{
+      .durability = {.storage_directory = kRestartDirectory,
+                     .recover_on_startup = recover_on_startup,
+                     .snapshot_wal_mode = ms::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+                     .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::hours(24)}},
+      .experimental_versioning = true,
+  };
+}
+}  // namespace
+
+TEST(BranchLedgerRestartTest, AnUnreadableLedgerStartsMainAndLeavesEveryBranchFileAsItIs) {
+  fs::remove_all(kRestartDirectory);
+  {
+    memgraph::dbms::Database db{MakeRestartConfig(/*recover_on_startup=*/false)};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+    {
+      auto acc = db.Access(ms::WRITE);
+      acc->CreateVertex();
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    }
+    ASSERT_TRUE(db.version_store()->CreateBranch("b").has_value());
+  }
+
+  const auto ledger_file = kRestartDirectory / "branches" / "ledger";
+  auto data = Slurp(ledger_file);
+  ASSERT_FALSE(data.empty());
+  data.back() = static_cast<char>(data.back() ^ 0x5a);
+  Spit(ledger_file, data);
+  ASSERT_FALSE(BranchLedger{ledger_file}.Read().has_value()) << "the ledger must be unreadable";
+
+  const auto before = memgraph::tests::ImageDurableFiles(kRestartDirectory);
+  {
+    memgraph::dbms::Database db{MakeRestartConfig(/*recover_on_startup=*/true)};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+    EXPECT_EQ(db.Access(ms::READ)->ApproximateVertexCount(), 1U) << "main recovers";
+    ASSERT_TRUE(db.version_store()->LedgerUnreadable().has_value());
+    EXPECT_FALSE(db.version_store()->Exists("b")) << "the branches are unknown, not guessed";
+  }
+  EXPECT_EQ(memgraph::tests::ImageDurableFiles(kRestartDirectory), before) << "no branch file is touched";
+  fs::remove_all(kRestartDirectory);
 }
