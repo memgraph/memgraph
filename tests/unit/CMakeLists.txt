@@ -998,6 +998,21 @@ add_unit_test(versioning_history_replay
     SOURCES versioning_history_replay.cpp
     LINK_TARGETS mg::storage mg-dbms storage_test_utils
 )
+
+add_unit_test(versioning_name
+    SOURCES versioning_name.cpp
+    LINK_TARGETS mg::versioning
+)
+
+add_unit_test(versioning_gate
+    SOURCES versioning_gate.cpp
+    LINK_TARGETS mg::versioning mg-flags
+)
+
+add_unit_test(versioning_ledger
+    SOURCES versioning_ledger.cpp
+    LINK_TARGETS mg::versioning
+)
 endif ()
 
 add_unit_test(storage_v2_non_sequential_isolation
