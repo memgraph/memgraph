@@ -52,8 +52,8 @@ auto LocalTimeField(utils::LocalTime const &time, ValueField field) -> std::opti
     case ValueField::Microsecond:
       return PropertyValue{static_cast<int64_t>(time.microsecond)};
     case ValueField::Nanosecond:
-      return PropertyValue{static_cast<int64_t>(time.millisecond) * 1'000'000 +
-                           static_cast<int64_t>(time.microsecond) * 1'000};
+      return PropertyValue{(static_cast<int64_t>(time.millisecond) * 1'000'000) +
+                           (static_cast<int64_t>(time.microsecond) * 1'000)};
     default:
       return std::nullopt;
   }
@@ -82,10 +82,16 @@ auto DurationField(utils::Duration const &duration, ValueField field) -> std::op
   }
 }
 
-/// As `+HH:MM`, the form a zoned datetime prints its own offset in.
+/// As Neo4j's `java.time.ZoneOffset` id: `Z` for zero, otherwise `+HH:MM`.
 auto FormatOffset(std::chrono::minutes offset) -> std::string {
+  if (offset == std::chrono::minutes::zero()) return "Z";
   auto const magnitude = std::chrono::abs(offset).count();
   return std::format("{}{:02}:{:02}", offset.count() < 0 ? '-' : '+', magnitude / 60, magnitude % 60);
+}
+
+/// The containing millisecond, as `java.time.Instant::toEpochMilli`.
+auto EpochMillis(utils::ZonedDateTime const &zoned) -> int64_t {
+  return std::chrono::floor<std::chrono::milliseconds>(zoned.SysMicrosecondsSinceEpoch()).count();
 }
 
 /// Read in the zone the moment is written in, which is what makes a year a year where it was
@@ -109,17 +115,15 @@ auto ZonedField(utils::ZonedDateTime const &zoned, ValueField field) -> std::opt
     case ValueField::Microsecond:
       return PropertyValue{zoned.LocalMicrosecond()};
     case ValueField::Nanosecond:
-      return PropertyValue{zoned.LocalMillisecond() * 1'000'000 + zoned.LocalMicrosecond() * 1'000};
+      return PropertyValue{(zoned.LocalMillisecond() * 1'000'000) + (zoned.LocalMicrosecond() * 1'000)};
     case ValueField::Timezone:
       return PropertyValue{zoned.GetTimezone().ToString()};
     case ValueField::EpochSeconds:
-      // The containing second, not truncation toward zero: a pre-epoch instant such as
-      // 1969-12-31T23:59:59.500 belongs to second -1, not 0.
-      return PropertyValue{
-          static_cast<int64_t>(std::chrono::floor<std::chrono::seconds>(zoned.SysMicrosecondsSinceEpoch()).count())};
+      // As Neo4j: the floored epoch millisecond, then divided truncating toward zero, so
+      // 1969-12-31T23:59:59.500Z gives 0.
+      return PropertyValue{EpochMillis(zoned) / 1'000};
     case ValueField::EpochMillis:
-      return PropertyValue{static_cast<int64_t>(
-          std::chrono::floor<std::chrono::milliseconds>(zoned.SysMicrosecondsSinceEpoch()).count())};
+      return PropertyValue{EpochMillis(zoned)};
     case ValueField::Offset:
       return PropertyValue{FormatOffset(zoned.OffsetDuration())};
     default:

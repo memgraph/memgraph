@@ -156,4 +156,4 @@ Feature: Expressions
             """
         Then the result should be:
             | secs       | millis        | offset   | utc      | beforeSecs | beforeMillis | zNanos    | ldtNanos  | ltNanos   |
-            | 1704184445 | 1704184445123 | '-05:30' | '+00:00' | -1         | -500         | 123456000 | 123456000 | 123456000 |
+            | 1704184445 | 1704184445123 | '-05:30' | 'Z'      | 0          | -500         | 123456000 | 123456000 | 123456000 |
