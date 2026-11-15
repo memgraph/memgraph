@@ -207,7 +207,7 @@ TypedValue ExpressionEvaluator::Visit(AllPropertiesLookup &all_properties_lookup
       result.emplace(TypedValue::TString("millisecond", ctx_->memory), TypedValue(lt.millisecond, ctx_->memory));
       result.emplace(TypedValue::TString("microsecond", ctx_->memory), TypedValue(lt.microsecond, ctx_->memory));
       result.emplace(TypedValue::TString("nanosecond", ctx_->memory),
-                     TypedValue(lt.millisecond * 1'000'000 + lt.microsecond * 1'000, ctx_->memory));
+                     TypedValue((lt.millisecond * 1'000'000) + (lt.microsecond * 1'000), ctx_->memory));
       return {result, ctx_->memory};
     }
     case TypedValue::Type::LocalDateTime: {
@@ -223,7 +223,7 @@ TypedValue ExpressionEvaluator::Visit(AllPropertiesLookup &all_properties_lookup
       result.emplace(TypedValue::TString("millisecond", ctx_->memory), TypedValue(lt.millisecond, ctx_->memory));
       result.emplace(TypedValue::TString("microsecond", ctx_->memory), TypedValue(lt.microsecond, ctx_->memory));
       result.emplace(TypedValue::TString("nanosecond", ctx_->memory),
-                     TypedValue(lt.millisecond * 1'000'000 + lt.microsecond * 1'000, ctx_->memory));
+                     TypedValue((lt.millisecond * 1'000'000) + (lt.microsecond * 1'000), ctx_->memory));
       return {result, ctx_->memory};
     }
     case TypedValue::Type::ZonedDateTime: {
