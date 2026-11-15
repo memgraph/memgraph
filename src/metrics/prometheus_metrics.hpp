@@ -57,6 +57,9 @@ struct StorageSnapshot {
   int64_t db_storage_memory_tracked;
   int64_t db_embedding_memory_tracked;
   int64_t db_query_memory_tracked;
+  // Time the running snapshot or GC run has taken so far; 0 when none is running.
+  double snapshot_running_seconds;
+  double gc_running_seconds;
 };
 
 struct string_hash {
@@ -335,6 +338,8 @@ class PrometheusMetrics {
   prometheus::Family<prometheus::Gauge> &vertex_count_family_;
   prometheus::Family<prometheus::Gauge> &edge_count_family_;
   prometheus::Family<prometheus::Gauge> &disk_usage_family_;
+  prometheus::Family<prometheus::Gauge> &snapshot_running_seconds_family_;
+  prometheus::Family<prometheus::Gauge> &gc_running_seconds_family_;
   prometheus::Family<prometheus::Gauge> &db_memory_tracked_family_;
   prometheus::Family<prometheus::Gauge> &db_peak_memory_tracked_family_;
   prometheus::Family<prometheus::Gauge> &db_storage_memory_tracked_family_;

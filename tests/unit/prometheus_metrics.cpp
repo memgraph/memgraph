@@ -126,6 +126,24 @@ TEST(PrometheusMetrics, UpdateGaugesSetsStorageValues) {
   EXPECT_EQ(FindSample(families, "memgraph_db_peak_memory_tracked_bytes", "db1"), 8192.0);
 }
 
+TEST(PrometheusMetrics, UpdateGaugesSetsBackgroundWorkElapsedTimes) {
+  memgraph::metrics::PrometheusMetrics pm;
+  memgraph::metrics::StorageSnapshot snapshot{.snapshot_running_seconds = 12.5, .gc_running_seconds = 0.25};
+  memgraph::utils::UUID const db_uuid{};
+  pm.SetStorageSnapshotResolver(
+      [&](memgraph::utils::UUID const &uuid) -> std::optional<memgraph::metrics::StorageSnapshot> {
+        if (uuid == db_uuid) return snapshot;
+        return std::nullopt;
+      });
+  auto const db = pm.AddDatabase(db_uuid, "db1");
+
+  pm.UpdateGauges();
+
+  auto const families = pm.CollectForScrape();
+  EXPECT_EQ(FindSample(families, "memgraph_snapshot_running_seconds", "db1"), 12.5);
+  EXPECT_EQ(FindSample(families, "memgraph_gc_running_seconds", "db1"), 0.25);
+}
+
 TEST(PrometheusMetrics, WorkerPoolGaugesReportTheResolvedPool) {
   memgraph::metrics::PrometheusMetrics pm;
   pm.SetWorkerPoolResolver([] { return memgraph::metrics::WorkerPoolStats{.workers = 4, .busy = 2, .queued = 5}; });

@@ -119,6 +119,15 @@ PrometheusMetrics::PrometheusMetrics()
                              .Name("memgraph_disk_usage_bytes")
                              .Help("Disk usage of the database in bytes")
                              .Register(registry_)},
+      snapshot_running_seconds_family_{prometheus::BuildGauge()
+                                           .Name("memgraph_snapshot_running_seconds")
+                                           .Help("Time the running snapshot has taken so far; 0 when none is running")
+                                           .Register(registry_)},
+      gc_running_seconds_family_{
+          prometheus::BuildGauge()
+              .Name("memgraph_gc_running_seconds")
+              .Help("Time the running garbage collection has taken so far; 0 when none is running")
+              .Register(registry_)},
       db_memory_tracked_family_{prometheus::BuildGauge()
                                     .Name("memgraph_db_memory_tracked_bytes")
                                     .Help("Total tracked memory usage of the database in bytes")
@@ -972,6 +981,8 @@ DatabaseMetricHandles PrometheusMetrics::CreateHandles(uint64_t entry_id) {
       .vertex_count = {&vertex_count_family_.Add(labels)},
       .edge_count = {&edge_count_family_.Add(labels)},
       .disk_usage_bytes = {&disk_usage_family_.Add(labels)},
+      .snapshot_running_seconds = {&snapshot_running_seconds_family_.Add(labels)},
+      .gc_running_seconds = {&gc_running_seconds_family_.Add(labels)},
       .db_memory_tracked_bytes = {&db_memory_tracked_family_.Add(labels)},
       .db_peak_memory_tracked_bytes = {&db_peak_memory_tracked_family_.Add(labels)},
       .db_storage_memory_tracked_bytes = {&db_storage_memory_tracked_family_.Add(labels)},
@@ -1149,6 +1160,8 @@ void PrometheusMetrics::RemoveHandlesFromFamilies(DatabaseMetricHandles const &h
   vertex_count_family_.Remove(h.vertex_count.get());
   edge_count_family_.Remove(h.edge_count.get());
   disk_usage_family_.Remove(h.disk_usage_bytes.get());
+  snapshot_running_seconds_family_.Remove(h.snapshot_running_seconds.get());
+  gc_running_seconds_family_.Remove(h.gc_running_seconds.get());
   db_memory_tracked_family_.Remove(h.db_memory_tracked_bytes.get());
   db_peak_memory_tracked_family_.Remove(h.db_peak_memory_tracked_bytes.get());
   db_storage_memory_tracked_family_.Remove(h.db_storage_memory_tracked_bytes.get());
@@ -1323,6 +1336,8 @@ void PrometheusMetrics::UpdateGauges() {
       it->handles.vertex_count.Set(static_cast<double>(snapshot.vertex_count));
       it->handles.edge_count.Set(static_cast<double>(snapshot.edge_count));
       it->handles.disk_usage_bytes.Set(static_cast<double>(snapshot.disk_usage));
+      it->handles.snapshot_running_seconds.Set(snapshot.snapshot_running_seconds);
+      it->handles.gc_running_seconds.Set(snapshot.gc_running_seconds);
       it->handles.db_memory_tracked_bytes.Set(static_cast<double>(snapshot.db_memory_tracked));
       it->handles.db_peak_memory_tracked_bytes.Set(static_cast<double>(snapshot.db_peak_memory_tracked));
       it->handles.db_storage_memory_tracked_bytes.Set(static_cast<double>(snapshot.db_storage_memory_tracked));

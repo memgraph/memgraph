@@ -76,6 +76,33 @@ void RestoreReplication(replication::RoleMainData &mainData, DatabaseAccess db_a
   }
   spdlog::info("Replication role restored to MAIN.");
 }
+
+// Seconds since a progress tracker's steady-clock start, in milliseconds since the clock's epoch.
+double SecondsSince(int64_t start_steady_ms) {
+  auto const now_ms =
+      std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch())
+          .count();
+  return static_cast<double>(now_ms - start_steady_ms) / 1000.0;
+}
+
+metrics::StorageSnapshot MetricsSnapshot(Database &db) {
+  auto const info = db.storage()->GetBaseInfo();
+  metrics::StorageSnapshot snapshot{.vertex_count = info.vertex_count,
+                                    .edge_count = info.edge_count,
+                                    .disk_usage = info.disk_usage,
+                                    .db_memory_tracked = db.DbMemoryUsage(),
+                                    .db_peak_memory_tracked = db.DbPeakMemoryUsage(),
+                                    .db_storage_memory_tracked = db.DbStorageMemoryUsage(),
+                                    .db_embedding_memory_tracked = db.DbEmbeddingMemoryUsage(),
+                                    .db_query_memory_tracked = db.DbQueryMemoryUsage()};
+  if (auto const *mem = dynamic_cast<storage::InMemoryStorage const *>(db.storage())) {
+    if (auto const progress = mem->TryGetSnapshotProgress()) {
+      snapshot.snapshot_running_seconds = SecondsSince(progress->start_steady_ms);
+    }
+    if (auto const gc = mem->TryGetGcRunInfo()) snapshot.gc_running_seconds = SecondsSince(gc->start_steady_ms);
+  }
+  return snapshot;
+}
 }  // namespace
 
 #ifdef MG_ENTERPRISE
@@ -937,30 +964,14 @@ std::optional<memgraph::metrics::StorageSnapshot> DbmsHandler::TryGetStorageSnap
   try {
     auto rd = std::shared_lock{lock_};
     auto db = Get_(uuid);
-    auto const info = db->storage()->GetBaseInfo();
-    return memgraph::metrics::StorageSnapshot{.vertex_count = info.vertex_count,
-                                              .edge_count = info.edge_count,
-                                              .disk_usage = info.disk_usage,
-                                              .db_memory_tracked = db->DbMemoryUsage(),
-                                              .db_peak_memory_tracked = db->DbPeakMemoryUsage(),
-                                              .db_storage_memory_tracked = db->DbStorageMemoryUsage(),
-                                              .db_embedding_memory_tracked = db->DbEmbeddingMemoryUsage(),
-                                              .db_query_memory_tracked = db->DbQueryMemoryUsage()};
+    return MetricsSnapshot(*db.get());
   } catch (UnknownDatabaseException const &) {
     return std::nullopt;
   }
 #else
   auto db_opt = db_gatekeeper_.access();
   if (!db_opt) return std::nullopt;
-  auto const info = (*db_opt)->storage()->GetBaseInfo();
-  return memgraph::metrics::StorageSnapshot{.vertex_count = info.vertex_count,
-                                            .edge_count = info.edge_count,
-                                            .disk_usage = info.disk_usage,
-                                            .db_memory_tracked = (*db_opt)->DbMemoryUsage(),
-                                            .db_peak_memory_tracked = (*db_opt)->DbPeakMemoryUsage(),
-                                            .db_storage_memory_tracked = (*db_opt)->DbStorageMemoryUsage(),
-                                            .db_embedding_memory_tracked = (*db_opt)->DbEmbeddingMemoryUsage(),
-                                            .db_query_memory_tracked = (*db_opt)->DbQueryMemoryUsage()};
+  return MetricsSnapshot(*db_opt->get());
 #endif
 }
 

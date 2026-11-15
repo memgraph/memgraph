@@ -22,6 +22,8 @@ EXPECTED_OPENMETRICS_PER_DB_FAMILIES = {
     "vertex_count",
     "edge_count",
     "disk_usage_bytes",
+    "snapshot_running_seconds",
+    "gc_running_seconds",
     "db_memory_tracked_bytes",
     "db_peak_memory_tracked_bytes",
     "db_storage_memory_tracked_bytes",

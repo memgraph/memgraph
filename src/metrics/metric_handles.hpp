@@ -80,6 +80,8 @@ struct DatabaseMetricHandles {
   GaugeHandle vertex_count;
   GaugeHandle edge_count;
   GaugeHandle disk_usage_bytes;
+  GaugeHandle snapshot_running_seconds;
+  GaugeHandle gc_running_seconds;
 
   // Per-database memory tracking
   GaugeHandle db_memory_tracked_bytes;
