@@ -553,6 +553,10 @@ PrometheusMetrics::PrometheusMetrics()
                                .Name("memgraph_workers_busy")
                                .Help("Worker threads running a query now, including queries waiting on a lock")
                                .Register(registry_)},
+      worker_queue_length_family_{prometheus::BuildGauge()
+                                      .Name("memgraph_worker_queue_length")
+                                      .Help("Query tasks waiting for a free worker thread")
+                                      .Register(registry_)},
       database_suspend_latency_family_{prometheus::BuildHistogram()
                                            .Name("memgraph_database_suspend_latency_seconds")
                                            .Help("Latency of a successful database SUSPEND in seconds")
@@ -921,6 +925,7 @@ void PrometheusMetrics::SetWorkerPoolResolver(WorkerPoolResolver resolver) {
   worker_pool_resolver_ = std::move(resolver);
   workers_ = &workers_family_.Add({});
   workers_busy_ = &workers_busy_family_.Add({});
+  worker_queue_length_ = &worker_queue_length_family_.Add({});
 }
 
 void PrometheusMetrics::SetStorageSnapshotResolver(StorageSnapshotResolver resolver) {
@@ -1332,6 +1337,7 @@ void PrometheusMetrics::UpdateGauges() {
     auto const pool = worker_pool_resolver_();
     workers_->Set(static_cast<double>(pool.workers));
     workers_busy_->Set(static_cast<double>(pool.busy));
+    worker_queue_length_->Set(static_cast<double>(pool.queued));
   }
 
 #ifdef MG_ENTERPRISE

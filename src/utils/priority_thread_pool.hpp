@@ -154,6 +154,9 @@ class PriorityThreadPool {
   // Mixed workers running a task now. A task blocked on a lock still counts.
   uint64_t GetNumBusyMixedWorkers() const;
 
+  // Tasks waiting in the mixed workers' queues.
+  uint64_t GetNumQueuedTasks() const;
+
   // Single worker implementation
   class Worker {
    public:

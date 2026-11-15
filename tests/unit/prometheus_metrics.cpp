@@ -128,13 +128,14 @@ TEST(PrometheusMetrics, UpdateGaugesSetsStorageValues) {
 
 TEST(PrometheusMetrics, WorkerPoolGaugesReportTheResolvedPool) {
   memgraph::metrics::PrometheusMetrics pm;
-  pm.SetWorkerPoolResolver([] { return memgraph::metrics::WorkerPoolStats{.workers = 4, .busy = 2}; });
+  pm.SetWorkerPoolResolver([] { return memgraph::metrics::WorkerPoolStats{.workers = 4, .busy = 2, .queued = 5}; });
 
   pm.UpdateGauges();
 
   auto const families = pm.CollectForScrape();
   EXPECT_EQ(FindUnlabelledGauge(families, "memgraph_workers"), 4.0);
   EXPECT_EQ(FindUnlabelledGauge(families, "memgraph_workers_busy"), 2.0);
+  EXPECT_EQ(FindUnlabelledGauge(families, "memgraph_worker_queue_length"), 5.0);
 }
 
 TEST(PrometheusMetrics, WorkerPoolGaugesAreAbsentWithoutAPool) {
@@ -145,6 +146,7 @@ TEST(PrometheusMetrics, WorkerPoolGaugesAreAbsentWithoutAPool) {
   auto const families = pm.CollectForScrape();
   EXPECT_EQ(FindUnlabelledGauge(families, "memgraph_workers"), std::nullopt);
   EXPECT_EQ(FindUnlabelledGauge(families, "memgraph_workers_busy"), std::nullopt);
+  EXPECT_EQ(FindUnlabelledGauge(families, "memgraph_worker_queue_length"), std::nullopt);
 }
 
 TEST(PrometheusMetrics, GetGlobalMetricsInfoReportsCorrectMemoryUsage) {

@@ -269,6 +269,32 @@ TEST(PriorityThreadPool, BusyMixedWorkersCountsWorkersRunningATask) {
   EXPECT_EQ(pool.GetNumBusyMixedWorkers(), 0);
 }
 
+TEST(PriorityThreadPool, QueuedTasksCountsTasksWaitingForAMixedWorker) {
+  memgraph::utils::PriorityThreadPool pool{1, 1};
+  std::atomic<bool> started{false};
+  std::atomic<bool> release{false};
+  pool.ScheduledAddTask(
+      [&](auto) {
+        started = true;
+        release.wait(false);
+      },
+      memgraph::utils::Priority::LOW);
+  auto const deadline = std::chrono::steady_clock::now() + 5s;
+  while (!started && std::chrono::steady_clock::now() < deadline) std::this_thread::sleep_for(1ms);
+  ASSERT_TRUE(started);
+
+  // The high-priority worker steals only high-priority work, so these wait for the blocked mixed worker.
+  for (int i = 0; i < 2; ++i) pool.ScheduledAddTask([](auto) {}, memgraph::utils::Priority::LOW);
+  EXPECT_EQ(pool.GetNumQueuedTasks(), 2);
+
+  release = true;
+  release.notify_all();
+  while (pool.GetNumQueuedTasks() != 0 && std::chrono::steady_clock::now() < deadline) {
+    std::this_thread::sleep_for(1ms);
+  }
+  EXPECT_EQ(pool.GetNumQueuedTasks(), 0);
+}
+
 TEST(TaskCollection, BasicAddAndSize) {
   using namespace memgraph;
   memgraph::utils::TaskCollection collection;

@@ -81,6 +81,7 @@ using StorageSnapshotResolver = std::function<std::optional<StorageSnapshot>(uti
 struct WorkerPoolStats {
   uint64_t workers;
   uint64_t busy;
+  uint64_t queued;
 };
 
 using WorkerPoolResolver = std::function<WorkerPoolStats()>;
@@ -324,6 +325,7 @@ class PrometheusMetrics {
   WorkerPoolResolver worker_pool_resolver_;
   prometheus::Gauge *workers_{nullptr};
   prometheus::Gauge *workers_busy_{nullptr};
+  prometheus::Gauge *worker_queue_length_{nullptr};
   std::optional<utils::UUID> default_db_uuid_;
 #ifdef MG_ENTERPRISE
   InstanceStatusResolver instance_status_resolver_;
@@ -466,6 +468,7 @@ class PrometheusMetrics {
   prometheus::Family<prometheus::Gauge> &cold_databases_family_;
   prometheus::Family<prometheus::Gauge> &workers_family_;
   prometheus::Family<prometheus::Gauge> &workers_busy_family_;
+  prometheus::Family<prometheus::Gauge> &worker_queue_length_family_;
   prometheus::Family<prometheus::Histogram> &database_suspend_latency_family_;
   prometheus::Family<prometheus::Histogram> &database_resume_latency_family_;
 

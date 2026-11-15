@@ -163,6 +163,13 @@ uint64_t PriorityThreadPool::GetNumBusyMixedWorkers() const {
                                [](auto const &worker) { return worker->working_.load(std::memory_order_acquire); });
 }
 
+uint64_t PriorityThreadPool::GetNumQueuedTasks() const {
+  return std::ranges::fold_left(workers_, uint64_t{0}, [](uint64_t const total, auto const &worker) {
+    auto const lock = std::unique_lock{worker->mtx_};
+    return total + worker->work_.size();
+  });
+}
+
 PriorityThreadPool::~PriorityThreadPool() {
   if (!pool_stop_source_.stop_requested()) {
     ShutDown();
