@@ -12,8 +12,11 @@
 #include "metrics/prometheus_metrics.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <filesystem>
+#include <map>
 #include <optional>
+#include <string>
 #include <string_view>
 #include <variant>
 #include <vector>
@@ -142,6 +145,30 @@ TEST(PrometheusMetrics, UpdateGaugesSetsBackgroundWorkElapsedTimes) {
   auto const families = pm.CollectForScrape();
   EXPECT_EQ(FindSample(families, "memgraph_snapshot_running_seconds", "db1"), 12.5);
   EXPECT_EQ(FindSample(families, "memgraph_gc_running_seconds", "db1"), 0.25);
+}
+
+TEST(PrometheusMetrics, LongestTransactionIsReportedPerDatabase) {
+  memgraph::metrics::PrometheusMetrics pm;
+  pm.SetTransactionAgeResolver([] { return std::map<std::string, double, std::less<>>{{"db1", 42.0}}; });
+  auto const db1 = pm.AddDatabase(memgraph::utils::UUID{}, "db1");
+  auto const db2 = pm.AddDatabase(memgraph::utils::UUID{}, "db2");
+
+  pm.UpdateGauges();
+
+  auto const families = pm.CollectForScrape();
+  EXPECT_EQ(FindSample(families, "memgraph_longest_transaction_seconds", "db1"), 42.0);
+  EXPECT_EQ(FindSample(families, "memgraph_longest_transaction_seconds", "db2"), 0.0);
+}
+
+TEST(PrometheusMetrics, ProcessStartTimeIsSetAtConstruction) {
+  auto const before = std::chrono::duration<double>(std::chrono::system_clock::now().time_since_epoch()).count();
+  memgraph::metrics::PrometheusMetrics pm;
+  auto const after = std::chrono::duration<double>(std::chrono::system_clock::now().time_since_epoch()).count();
+
+  auto const start = FindUnlabelledGauge(pm.CollectForScrape(), "process_start_time_seconds");
+  ASSERT_TRUE(start);
+  EXPECT_GE(*start, before);
+  EXPECT_LE(*start, after);
 }
 
 TEST(PrometheusMetrics, WorkerPoolGaugesReportTheResolvedPool) {

@@ -15,6 +15,7 @@
 #include <expected>
 #include <functional>
 #include <list>
+#include <map>
 #include <mutex>
 #include <optional>
 #include <shared_mutex>
@@ -88,6 +89,9 @@ struct WorkerPoolStats {
 };
 
 using WorkerPoolResolver = std::function<WorkerPoolStats()>;
+
+/// Age in seconds of the oldest open transaction per database, keyed by database name.
+using TransactionAgeResolver = std::function<std::map<std::string, double, std::less<>>()>;
 
 #ifdef MG_ENTERPRISE
 using InstanceStatusResolver = std::function<std::vector<coordination::InstanceStatus>()>;
@@ -256,6 +260,7 @@ class PrometheusMetrics {
   void SetStorageSnapshotResolver(StorageSnapshotResolver resolver);
   /// Exports the worker pool gauges; without a resolver they are absent.
   void SetWorkerPoolResolver(WorkerPoolResolver resolver);
+  void SetTransactionAgeResolver(TransactionAgeResolver resolver);
 #ifdef MG_ENTERPRISE
   void SetInstanceStatusResolver(InstanceStatusResolver resolver);
 #endif
@@ -326,6 +331,7 @@ class PrometheusMetrics {
   std::unordered_map<std::string, int64_t> legacy_json_prev_ha_counter_values_;
   StorageSnapshotResolver storage_snapshot_resolver_;
   WorkerPoolResolver worker_pool_resolver_;
+  TransactionAgeResolver transaction_age_resolver_;
   prometheus::Gauge *workers_{nullptr};
   prometheus::Gauge *workers_busy_{nullptr};
   prometheus::Gauge *worker_queue_length_{nullptr};
@@ -340,6 +346,7 @@ class PrometheusMetrics {
   prometheus::Family<prometheus::Gauge> &disk_usage_family_;
   prometheus::Family<prometheus::Gauge> &snapshot_running_seconds_family_;
   prometheus::Family<prometheus::Gauge> &gc_running_seconds_family_;
+  prometheus::Family<prometheus::Gauge> &longest_transaction_seconds_family_;
   prometheus::Family<prometheus::Gauge> &db_memory_tracked_family_;
   prometheus::Family<prometheus::Gauge> &db_peak_memory_tracked_family_;
   prometheus::Family<prometheus::Gauge> &db_storage_memory_tracked_family_;
@@ -474,6 +481,7 @@ class PrometheusMetrics {
   prometheus::Family<prometheus::Gauge> &workers_family_;
   prometheus::Family<prometheus::Gauge> &workers_busy_family_;
   prometheus::Family<prometheus::Gauge> &worker_queue_length_family_;
+  prometheus::Family<prometheus::Gauge> &process_start_time_family_;
   prometheus::Family<prometheus::Histogram> &database_suspend_latency_family_;
   prometheus::Family<prometheus::Histogram> &database_resume_latency_family_;
 
