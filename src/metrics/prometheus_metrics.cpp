@@ -885,7 +885,6 @@ PrometheusMetrics::PrometheusMetrics()
   global.register_replica_on_main_rpc_seconds =
       &register_replica_on_main_rpc_histogram_family_.Add(no_labels, kLatencyBuckets);
   global.unregister_replica_rpc_seconds = &unregister_replica_rpc_histogram_family_.Add(no_labels, kLatencyBuckets);
-  global.state_check_rpc_seconds = &state_check_rpc_histogram_family_.Add(no_labels, kLatencyBuckets);
   global.get_database_histories_rpc_seconds =
       &get_database_histories_rpc_histogram_family_.Add(no_labels, kLatencyBuckets);
   global.update_data_instance_config_rpc_seconds =
@@ -1119,13 +1118,26 @@ auto PrometheusMetrics::AddReplicaDatabase(uint64_t entry_id, std::string_view i
   return ReplicaDatabaseRegistration{this, it->first, it->second.handles};
 }
 
-void PrometheusMetrics::ReleaseReplica(std::string const &instance_name) {
+auto PrometheusMetrics::AddInstance(std::string_view instance_name) -> InstanceRegistration {
+  std::scoped_lock const lock{replicas_.mutex};
+  auto [it, inserted] = replicas_.instances.try_emplace(std::string{instance_name});
+  if (!inserted) {
+    ++it->second.registrations;
+    return InstanceRegistration{this, it->first, it->second.handles};
+  }
+  prometheus::Labels const labels{{"mg_instance", std::string{instance_name}}};
+  it->second.handles = InstanceMetricHandles{
+      .state_check_rpc_seconds = {&state_check_rpc_histogram_family_.Add(labels, kLatencyBuckets)},
+  };
+  return InstanceRegistration{this, it->first, it->second.handles};
+}
+
+void PrometheusMetrics::Release(std::string const &instance_name, ReplicaMetricHandles const &h) {
   std::scoped_lock const lock{replicas_.mutex};
   auto const it = replicas_.entries.find(instance_name);
   DMG_ASSERT(it != replicas_.entries.end(), "Releasing replica {} that holds no registration", instance_name);
   if (--it->second.registrations > 0) return;
 
-  auto const &h = it->second.handles;
   start_txn_replication_family_.Remove(h.start_txn_replication_seconds.get());
   finalize_txn_replication_family_.Remove(h.finalize_txn_replication_seconds.get());
   replica_stream_family_.Remove(h.replica_stream_seconds.get());
@@ -1139,13 +1151,12 @@ void PrometheusMetrics::ReleaseReplica(std::string const &instance_name) {
   replicas_.entries.erase(it);
 }
 
-void PrometheusMetrics::ReleaseReplica(std::pair<uint64_t, std::string> const &key) {
+void PrometheusMetrics::Release(std::pair<uint64_t, std::string> const &key, ReplicaDatabaseMetricHandles const &h) {
   std::scoped_lock const lock{replicas_.mutex};
   auto const it = replicas_.databases.find(key);
   DMG_ASSERT(it != replicas_.databases.end(), "Releasing replica {} that holds no registration", key.second);
   if (--it->second.registrations > 0) return;
 
-  auto const &h = it->second.handles;
   for (auto const member : {&ReplicaDatabaseMetricHandles::replica_recovery_success,
                             &ReplicaDatabaseMetricHandles::replica_recovery_fail,
                             &ReplicaDatabaseMetricHandles::replica_recovery_skip}) {
@@ -1162,6 +1173,23 @@ void PrometheusMetrics::ReleaseReplica(std::pair<uint64_t, std::string> const &k
   replica_recovery_fail_family_.Remove(h.replica_recovery_fail.get());
   replica_recovery_skip_family_.Remove(h.replica_recovery_skip.get());
   replicas_.databases.erase(it);
+}
+
+void PrometheusMetrics::Release(std::string const &instance_name, InstanceMetricHandles const &h) {
+  std::scoped_lock const lock{replicas_.mutex};
+  auto const it = replicas_.instances.find(instance_name);
+  DMG_ASSERT(it != replicas_.instances.end(), "Releasing instance {} that holds no registration", instance_name);
+  if (--it->second.registrations > 0) return;
+
+  state_check_rpc_histogram_family_.Remove(h.state_check_rpc_seconds.get());
+  replicas_.instances.erase(it);
+}
+
+auto PrometheusMetrics::StateCheckHistograms() const -> std::vector<prometheus::ClientMetric::Histogram> {
+  std::scoped_lock const lock{replicas_.mutex};
+  return replicas_.instances | rv::values |
+         rv::transform([](auto const &entry) { return entry.handles.state_check_rpc_seconds.Collect().histogram; }) |
+         r::to<std::vector>();
 }
 
 auto PrometheusMetrics::ReplicaHistograms(HistogramHandle ReplicaMetricHandles::*member) const
@@ -2358,7 +2386,7 @@ std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfo() const {
   AppendHistogramPercentiles(
       out, "RegisterReplicaOnMainRpc", "HighAvailability", *global.register_replica_on_main_rpc_seconds);
   AppendHistogramPercentiles(out, "UnregisterReplicaRpc", "HighAvailability", *global.unregister_replica_rpc_seconds);
-  AppendHistogramPercentiles(out, "StateCheckRpc", "HighAvailability", *global.state_check_rpc_seconds);
+  AppendMergedHistogramPercentiles(out, "StateCheckRpc", "HighAvailability", StateCheckHistograms());
   AppendHistogramPercentiles(
       out, "GetDatabaseHistoriesRpc", "HighAvailability", *global.get_database_histories_rpc_seconds);
   AppendMergedHistogramPercentiles(

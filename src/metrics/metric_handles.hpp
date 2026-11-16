@@ -91,6 +91,11 @@ struct ReplicaMetricHandles {
   HistogramHandle system_recovery_rpc_seconds;
 };
 
+// Health checks of one data instance, as run by the coordinator leader.
+struct InstanceMetricHandles {
+  HistogramHandle state_check_rpc_seconds;
+};
+
 // Recovery outcomes of one replica for one database, as seen by the main.
 struct ReplicaDatabaseMetricHandles {
   CounterHandle replica_recovery_success;
