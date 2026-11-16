@@ -597,14 +597,26 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
               access.reads.referenced, [&](const auto &sym) { return pending_writes.symbols.contains(sym); });
           // A symbol bound by a clause that creates or reads such an entity may hold it: a path through it, a CALL
           // result whose RETURN expression may.
+          // A CREATE or MERGE binds the new symbols of its patterns, which the AST names; any other clause is
+          // diffed against a copy of the bound symbols. The copy per clause made planning quadratic in a long chain.
+          std::optional<std::vector<Symbol>> pattern_bound;
+          if (auto const patterns = PatternsOf(*clause)) {
+            pattern_bound.emplace();
+            for (auto *pattern : *patterns) {
+              if (pattern->identifier_) AddIfUnbound(*pattern->identifier_, context.bound_symbols, *pattern_bound);
+              for (auto *atom : pattern->atoms_)
+                AddIfUnbound(*atom->identifier_, context.bound_symbols, *pattern_bound);
+            }
+          }
           std::optional<std::unordered_set<Symbol>> bound_before;
-          if (reads_fresh || !access.writes.symbols.empty()) bound_before = context.bound_symbols;
+          if (!pattern_bound && (reads_fresh || !access.writes.symbols.empty())) bound_before = context.bound_symbols;
           // Set by an arm that drains and advances after its own writes.
           bool advanced_after = false;
           auto const record_writes = utils::OnScopeExit{[&] {
             if (advanced_after) return;
             pending_writes.Merge(access.writes);
             access_pending_writes.Merge(access.writes);
+            if (pattern_bound) pending_writes.symbols.insert(pattern_bound->begin(), pattern_bound->end());
             if (bound_before) {
               auto *call = utils::Downcast<query::CallSubquery>(clause);
               for (const auto &symbol : context.bound_symbols) {
@@ -1283,6 +1295,18 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
     auto produce = std::make_unique<Produce>(std::move(input_op), values);
     produce->view_ = storage::View::NEW;
     return produce;
+  }
+
+  /// The patterns a CREATE or MERGE binds, or nullopt for any other clause.
+  static std::optional<std::vector<Pattern *>> PatternsOf(Clause &clause) {
+    if (auto *create = utils::Downcast<Create>(&clause)) return create->patterns_;
+    if (auto *merge = utils::Downcast<query::Merge>(&clause)) return std::vector<Pattern *>{merge->pattern_};
+    return std::nullopt;
+  }
+
+  void AddIfUnbound(Identifier &ident, const std::unordered_set<Symbol> &bound, std::vector<Symbol> &out) const {
+    auto const &symbol = context_->symbol_table->at(ident);
+    if (!bound.contains(symbol)) out.push_back(symbol);
   }
 
   /// Items of one SET whose right-hand side a Produce before the group evaluated (`PreEvaluateSetGroup`).
