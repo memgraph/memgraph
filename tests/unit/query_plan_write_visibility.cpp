@@ -367,6 +367,16 @@ TEST_F(WriteVisibilityPlan, AnAccessCheckBarrierKeepsTheWritesPending) {
 }
 #endif
 
+// ---------------------------------------------------------------- what a MERGE binds
+
+TEST_F(WriteVisibilityPlan, MergeReportsThePatternSymbolsItBinds) {
+  auto merges = Collect<memgraph::query::plan::Merge>(Plan("UNWIND [1] AS i MERGE (a:L {id: i})-[r:R]->(b:L)"));
+  ASSERT_EQ(merges.size(), 1);
+  std::vector<std::string> names;
+  for (auto const &symbol : merges[0]->ModifiedSymbols(symbol_table_)) names.push_back(symbol.name());
+  for (auto const *name : {"i", "a", "r", "b"}) EXPECT_EQ(std::ranges::count(names, name), 1) << name;
+}
+
 // ---------------------------------------------------------------- a map row is not a graph entity
 
 // A row unwound from a literal list of literal maps, or a WITH alias of a map literal whose values hold no entity,
