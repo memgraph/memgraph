@@ -698,8 +698,7 @@ struct PatternComprehensionMatching : Matching {
   std::unordered_set<Symbol> external_symbols;
 };
 
-/// @brief Represents a read (+ write) part of a query. Parts are split on
-/// `WITH` clauses.
+/// @brief Represents a read (+ write) part of a query. Parts are split as listed below.
 ///
 /// Each part ends with either:
 ///
