@@ -44,7 +44,8 @@ class BranchLedger {
 
   BranchLedger(kvstore::KVStore &store, const utils::UUID &db_uuid);
 
-  // Refuses an invalid registry; the write is durable (WAL synced) on success.
+  // Refuses an invalid registry; the write is durable (WAL synced) on success. On error the value may still have
+  // been stored (Put succeeded, WAL sync failed), so the previous registry is not guaranteed intact.
   std::expected<void, std::string> Write(const LedgerContents &contents) const;
 
   // nullopt if the database has no branches; an error message if the stored value is unreadable or invalid.
