@@ -1188,7 +1188,7 @@ TEST_F(LockFreeReadSnapshotRecovery, BranchForkPinInsideCommitWindow_FloorIsTheW
   config.gc.type = Config::Gc::Type::NONE;
   config.experimental_commit_lock_narrowing = true;
   Gid gid;
-  std::optional<uint64_t> floor;
+  uint64_t floor{};
   {
     auto store = std::make_unique<InMemoryStorage>(config);
     gid = CreateVertexWithProp(*store, 1);
@@ -1208,14 +1208,15 @@ TEST_F(LockFreeReadSnapshotRecovery, BranchForkPinInsideCommitWindow_FloorIsTheW
   }
 
   config.durability.recover_on_startup = true;
-  auto store = std::make_unique<InMemoryStorage>(config,
-                                                 std::nullopt,
-                                                 std::make_unique<memgraph::storage::PlanInvalidatorDefault>(),
-                                                 memgraph::metrics::DatabaseMetricHandles{},
-                                                 nullptr,
-                                                 nullptr,
-                                                 nullptr,
-                                                 memgraph::storage::durability::HistoryBounds{.recovery_bound = floor});
+  auto store = std::make_unique<InMemoryStorage>(
+      config,
+      std::nullopt,
+      std::make_unique<memgraph::storage::PlanInvalidatorDefault>(),
+      memgraph::metrics::DatabaseMetricHandles{},
+      nullptr,
+      nullptr,
+      nullptr,
+      memgraph::storage::durability::HistoryBounds{.floor = floor, .recover_only_to_floor = true});
   auto acc = store->Access(memgraph::storage::READ);
   EXPECT_EQ(ReadProp(*acc, gid), 1);
 }

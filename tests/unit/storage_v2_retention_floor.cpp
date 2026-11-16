@@ -70,9 +70,9 @@ struct Db {
   ms::InMemoryStorage store;
 };
 
-md::HistoryBounds Bound(uint64_t bound) { return {.recovery_bound = bound}; }
+md::HistoryBounds Bound(uint64_t bound) { return {.floor = bound, .recover_only_to_floor = true}; }
 
-md::HistoryBounds Floor(uint64_t floor) { return {.retention_floor = floor}; }
+md::HistoryBounds Floor(uint64_t floor) { return {.floor = floor}; }
 
 auto *Mem(Db &db) { return db.storage(); }
 
@@ -193,7 +193,7 @@ TEST_P(RetainedBaseTest, FloorKeepsTheBaseRecoverable) {
   {
     Db db{MakeConfig(/*recover_on_startup=*/false, retention_count)};
     gids = CreateBase(db, snapshot_below_floor);
-    EXPECT_FALSE(Mem(db)->RetentionFloor().has_value());
+    EXPECT_EQ(Mem(db)->RetentionFloor(), ms::Storage::kNoRetentionFloor);
     floor = Mem(db)->RegisterBranchForkPin() - 1;
     EXPECT_EQ(Mem(db)->RetentionFloor(), floor);
 
@@ -282,7 +282,7 @@ TEST_F(RetentionFloorTest, RaisedFloorReleasesTheExtraBase) {
   ASSERT_EQ(names.size(), 2U);
   EXPECT_EQ(names.front(), newer_base) << "the raised floor's base replaces the old one";
 
-  Mem(db)->SetRetentionFloor(std::nullopt);
+  Mem(db)->SetRetentionFloor(ms::Storage::kNoRetentionFloor);
   SnapshotPass(db, gids, 400);
   EXPECT_EQ(SnapshotNames().size(), 1U);
 }
@@ -296,14 +296,14 @@ TEST_F(RetentionFloorTest, ClearedFloorPrunesTheWalChain) {
   SnapshotPass(db, gids, 100);
   ASSERT_TRUE(HasFirstWalFile()) << "the floor keeps the chain";
 
-  Mem(db)->SetRetentionFloor(std::nullopt);
+  Mem(db)->SetRetentionFloor(ms::Storage::kNoRetentionFloor);
   SnapshotPass(db, gids, 200);
   EXPECT_FALSE(HasFirstWalFile());
   EXPECT_EQ(CountFiles("snapshots"), 1U);
 }
 
-// Both HistoryBounds fields seed the floor of a storage start: a configured floor keeps its base through the passes of
-// that run, and a recovery bound keeps the floor it recovered at.
+// HistoryBounds::floor seeds the floor of a storage start: a plain floor keeps its base through the passes of that
+// run, and one that also stops recovery keeps the floor it recovered at.
 TEST_F(RetentionFloorTest, HistoryBoundsSeedTheFloor) {
   Gids gids{};
   uint64_t floor = 0;
@@ -324,14 +324,6 @@ TEST_F(RetentionFloorTest, HistoryBoundsSeedTheFloor) {
   Db db{MakeConfig(/*recover_on_startup=*/true, /*retention_count=*/1), Bound(floor)};
   EXPECT_EQ(Mem(db)->RetentionFloor(), floor);
   ExpectBaseState(db, gids);
-}
-
-TEST(RetentionFloorDeathTest, BoundAndFloorAreMutuallyExclusive) {
-  std::filesystem::remove_all(kStorageDirectory);
-  EXPECT_DEATH((Db{MakeConfig(/*recover_on_startup=*/false, /*retention=*/1),
-                   md::HistoryBounds{.recovery_bound = 5, .retention_floor = 5}}),
-               "mutually exclusive");
-  std::filesystem::remove_all(kStorageDirectory);
 }
 
 }  // namespace
