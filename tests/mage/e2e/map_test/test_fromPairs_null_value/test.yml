@@ -1,6 +1,10 @@
 query: >
-  CALL mg.functions() YIELD name, signature WHERE name = "map.from_pairs"
-  WITH signature WHERE signature CONTAINS "ANY?"
+  CALL mg.functions() YIELD name, signature
+  WITH name, signature WHERE name IN ["map.from_pairs", "map.remove_keys"]
+  WITH collect([name, signature]) AS sigs
+  WITH sigs
+  WHERE size([s IN sigs WHERE s[0] = "map.from_pairs" AND s[1] CONTAINS "ANY?"]) = 1
+    AND size([s IN sigs WHERE s[0] = "map.remove_keys" AND NOT s[1] CONTAINS "?"]) = 1
   RETURN map.from_pairs([["a", null]]) AS single, map.from_pairs([["a", 1], ["b", null]]) AS mixed;
 
 output:

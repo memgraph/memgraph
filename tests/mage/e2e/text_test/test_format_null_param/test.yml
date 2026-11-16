@@ -1,6 +1,10 @@
 query: >
-  CALL mg.procedures() YIELD name, signature WHERE name = "text.format"
-  WITH signature WHERE signature CONTAINS "ANY?"
+  CALL mg.procedures() YIELD name, signature
+  WITH name, signature WHERE name IN ["text.format", "text.join"]
+  WITH collect([name, signature]) AS sigs
+  WITH sigs
+  WHERE size([s IN sigs WHERE s[0] = "text.format" AND s[1] CONTAINS "ANY?"]) = 1
+    AND size([s IN sigs WHERE s[0] = "text.join" AND NOT s[1] CONTAINS "?"]) = 1
   CALL text.format("a{}b", [null]) YIELD result
   RETURN result;
 
