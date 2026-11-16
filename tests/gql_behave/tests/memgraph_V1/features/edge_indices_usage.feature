@@ -61,14 +61,11 @@ Feature: Edge Indices Usage
             """
         And having executed
             """
-            CREATE (k:MaoP {name: 'Keanu'}), (c:MaoP {name: 'Carrie'}), (h:MaoP {name: 'Hugo'}),
-                   (mx:MaoM {title: 'Matrix', v: 1}), (jw:MaoM {title: 'JW', v: 2}), (lone:MaoM {title: 'Lone', v: 3}),
-                   (k)-[:ACTED_IN]->(mx), (c)-[:ACTED_IN]->(mx), (k)-[:ACTED_IN]->(jw),
-                   (mx)-[:SEQUEL]->(jw)
+            CREATE (:M {title: 'Matrix'})-[:SEQUEL]->(:M {title: 'JW'}), (:M {title: 'Lone'})
             """
         When executing query:
             """
-            MATCH (m:MaoM) WITH m
+            MATCH (m:M) WITH m
             MATCH (m)-[:SEQUEL]->(s)
             RETURN m.title AS m, s.title AS s
             """
@@ -84,14 +81,11 @@ Feature: Edge Indices Usage
             """
         And having executed
             """
-            CREATE (k:MaoP {name: 'Keanu'}), (c:MaoP {name: 'Carrie'}), (h:MaoP {name: 'Hugo'}),
-                   (mx:MaoM {title: 'Matrix', v: 1}), (jw:MaoM {title: 'JW', v: 2}), (lone:MaoM {title: 'Lone', v: 3}),
-                   (k)-[:ACTED_IN]->(mx), (c)-[:ACTED_IN]->(mx), (k)-[:ACTED_IN]->(jw),
-                   (mx)-[:SEQUEL]->(jw)
+            CREATE (:M {title: 'Matrix'})-[:SEQUEL]->(:M {title: 'JW'}), (:M {title: 'Lone'})
             """
         When executing query:
             """
-            MATCH (m:MaoM) WITH m
+            MATCH (m:M) WITH m
             MATCH (s)-[:SEQUEL]->(m)
             RETURN m.title AS m, s.title AS s
             """
