@@ -173,20 +173,12 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
                             .edge_types = op.common_.edge_types};
     auto indexed_scan = GenScanByEdgeIndex(op, common);
     if (indexed_scan) {
-      // We know (and checked) that the input of Expand was a Scan
-      // GenScanByEdgeIndex replaced the Expand, yet maintained the input
-      // We need to remove the ScanAll
-      // We could have
-      // ScanBy... -> [ScanAll] -> input
-      // OR
-      // Filter -> ScanBy... -> [ScanAll] -> input
-      // Lets find the which operator has input of ScanAll
+      // The indexed scan keeps the ScanAll as its (possibly indirect) input: unlink it.
       auto current = indexed_scan;
-      while (current->input()->GetTypeInfo() != ScanAll::kType) {
+      while (current->input().get() != scan) {
         current = current->input();
       }
-      // Skip over the ScanAll operator
-      current->set_input(current->input()->input());
+      current->set_input(scan->input());
 
       TryRecordEdgeScan(indexed_scan.get());
       SetOnParent(std::move(indexed_scan));
