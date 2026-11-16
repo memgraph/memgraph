@@ -335,8 +335,10 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
     bool const has_periodic_commit = query_parts.commit_frequency != nullptr;
     bool const is_root_query = !query_parts.is_subquery;
     auto const restore_scope = utils::OnScopeExit{[this, saved = read_scope_] { read_scope_ = saved; }};
+    // Batching is per level: USING PERIODIC COMMIT batches the whole query, an IN TRANSACTIONS call only its body
+    // (HandleSubquery). Each index scan hides what a later batch inserted, so a root barrier may still advance.
     if (is_root_query && !context.in_subquery_body) {
-      read_scope_ = HasBatching(query_parts) ? ReadScope::kBatching : ReadScope::kRoot;
+      read_scope_ = has_periodic_commit ? ReadScope::kBatching : ReadScope::kRoot;
     }
 
     // in CALL with scoped variables, we immediately have some bound variables to work with
@@ -891,7 +893,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
     kRoot,          ///< the root query: reads use View::OLD behind a barrier
     kReadOnlyTree,  ///< a CALL body tree that writes nothing: View::OLD, it runs before any later write
     kWritingTree,   ///< a root-level CALL body tree that writes: View::NEW, to see its own earlier rows
-    kBatching,      ///< periodic commit or IN TRANSACTIONS anywhere: no barriers, reads use View::NEW
+    kBatching,      ///< periodic commit, or a read-only IN TRANSACTIONS body: no barriers, reads use View::NEW
   };
   ReadScope read_scope_{ReadScope::kRoot};
   /// Symbols that hold a row of a file, never a graph entity: a lookup on them reads nothing from the graph.
@@ -926,19 +928,6 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
     if (subquery_branch_after_write_) return storage::View::NEW;
     return read_scope_ == ReadScope::kRoot || read_scope_ == ReadScope::kReadOnlyTree ? storage::View::OLD
                                                                                       : storage::View::NEW;
-  }
-
-  static bool HasBatching(const QueryParts &query_parts) {
-    if (query_parts.commit_frequency) return true;
-    return std::ranges::any_of(query_parts.query_parts, [](const QueryPart &part) {
-      return std::ranges::any_of(part.single_query_parts,
-                                 [](const SingleQueryPart &single_part) {
-                                   return std::ranges::any_of(single_part.subqueries,
-                                                              [](const auto &sub) { return HasBatching(*sub); });
-                                 }) ||
-             (part.conditional && std::ranges::any_of(part.conditional->branches,
-                                                      [](const auto &branch) { return HasBatching(branch.body); }));
-    });
   }
 
   /// Whether the EXISTS subquery branch currently being planned is spliced after a write in its enclosing query part.
