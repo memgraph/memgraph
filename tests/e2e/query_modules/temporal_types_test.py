@@ -13,6 +13,7 @@ import datetime
 import sys
 import zoneinfo
 
+import mgclient
 import pytest
 from common import connect, execute_and_fetch_all
 
@@ -62,6 +63,43 @@ def test_datetime_without_timezone():
     cursor = connect().cursor()
     result = execute_and_fetch_all(cursor, "RETURN temporal.make_dt(2024, 1, 15, 10, 30, 45)")
     assert result == [(datetime.datetime(2024, 1, 15, 10, 30, 45, tzinfo=None),)]
+
+
+def test_temporal_string_parsing_family():
+    cursor = connect().cursor()
+
+    def to_string(cursor, value):
+        try:
+            return execute_and_fetch_all(cursor, f"RETURN temporal.to_string({value})")
+        except mgclient.DatabaseError:
+            return None
+
+    # Date-only is midnight (UTC when no designator), and every fraction of 1-9 digits is right-padded
+    # (7-9 digits truncate at microseconds). 3- and 6-digit values keep parsing to the same instant.
+    accepted = [
+        ('datetime("2024-01-02")', 'datetime("2024-01-02T00:00:00Z")'),
+        ('datetime("2024-01-02+01:00")', 'datetime("2024-01-02T00:00:00+01:00")'),
+        ('datetime("2024-01-02T03:04:05.5Z")', 'datetime("2024-01-02T03:04:05.500000Z")'),
+        ('localdatetime("2024-01-02T03:04:05.12")', 'localdatetime("2024-01-02T03:04:05.120000")'),
+        ('localtime("03:04:05.1234567")', 'localtime("03:04:05.123456")'),
+        ('localtime("03:04:05.123456789")', 'localtime("03:04:05.123456")'),
+        ('datetime("2024-01-02T03:04:05.123Z")', 'datetime("2024-01-02T03:04:05.123000Z")'),
+        ('datetime("2024-01-02T03:04:05.123456Z")', 'datetime("2024-01-02T03:04:05.123456Z")'),
+    ]
+    for value, reference in accepted:
+        actual = to_string(cursor, value)
+        expected = to_string(cursor, reference)
+        assert actual == expected, f"{value} parsed to {actual}, expected the value of {reference} ({expected})"
+
+    # Invalid strings keep being rejected with a query error.
+    for value in [
+        'datetime("2024-13-45")',
+        'localdatetime("2024-01-02.5")',
+        'localtime("03:04:05.999999999999")',
+        'localdatetime("2024-01-02T03:04:05s")',
+    ]:
+        with pytest.raises(mgclient.DatabaseError):
+            execute_and_fetch_all(cursor, f"RETURN {value}")
 
 
 if __name__ == "__main__":
