@@ -3045,7 +3045,7 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
       if (!coordinator_state->IsCoordinator()) {
         throw QueryRuntimeException("Only coordinator can run {} REGION query.", is_add ? "ADD" : "DROP");
       }
-      EvaluationContext evaluation_context{.timestamp = QueryTimestamp(), .parameters = parameters};
+      EvaluationContext const evaluation_context{.timestamp = QueryTimestamp(), .parameters = parameters};
       auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
       auto const region_name = EvaluateOptionalExpression(coordinator_query->region_name_, evaluator);
       if (!region_name.IsString()) {

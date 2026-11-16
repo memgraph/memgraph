@@ -373,7 +373,7 @@ void CoordinatorClusterState::SetRoles(std::vector<CoordinatorRole> roles) {
 }
 
 void CoordinatorClusterState::SetRegions(std::set<std::string> regions) {
-  auto lock = std::lock_guard{app_lock_};
+  auto lock = std::scoped_lock{app_lock_};
   regions_ = std::move(regions);
 }
 

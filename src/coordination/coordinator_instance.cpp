@@ -1252,7 +1252,7 @@ auto CoordinatorInstance::AddRegion(std::string_view const region_name) const ->
     return AddRegionStatus::NOT_LEADER;
   }
 
-  auto lock = std::lock_guard{coord_instance_lock_};
+  auto lock = std::scoped_lock{coord_instance_lock_};
   auto regions = raft_state_->GetRegions();
   if (!regions.emplace(region_name).second) {
     return AddRegionStatus::REGION_EXISTS;
@@ -1278,7 +1278,7 @@ auto CoordinatorInstance::DropRegion(std::string_view const region_name) const -
     return DropRegionStatus::NOT_LEADER;
   }
 
-  auto lock = std::lock_guard{coord_instance_lock_};
+  auto lock = std::scoped_lock{coord_instance_lock_};
   auto regions = raft_state_->GetRegions();
   auto const it = regions.find(std::string{region_name});
   if (it == regions.end()) {
