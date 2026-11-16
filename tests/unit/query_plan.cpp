@@ -1350,6 +1350,19 @@ TYPED_TEST(TestPlanner, MatchEdgeTypeIndex) {
   }
 }
 
+TYPED_TEST(TestPlanner, MatchEdgeTypeIndexKeepsBoundEndpoint) {
+  // MATCH (a)-[r:indexed_edgetype]->(a) RETURN r: the scan writes both endpoints, so it cannot replace an Expand
+  // into an already-bound node.
+  FakeDbAccessor dba;
+  dba.SetIndexCount(dba.EdgeType("indexed_edgetype"), 1);
+  auto *query = QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(NODE("a"), EDGE("r", memgraph::query::EdgeAtom::Direction::OUT, {"indexed_edgetype"}), NODE("a"))),
+      RETURN("r")));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectExpand(), ExpectProduce());
+}
+
 TYPED_TEST(TestPlanner, MatchEdgeTypePropertyIndexExistence) {
   FakeDbAccessor dba;
   auto edge_type = dba.EdgeType("indexed_edgetype");

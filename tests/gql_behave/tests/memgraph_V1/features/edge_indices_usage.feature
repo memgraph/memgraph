@@ -52,3 +52,44 @@ Feature: Edge Indices Usage
         Then the result should be:
             | result |
             | 1      |
+
+    Scenario: An edge-type index does not rebind a node bound by WITH
+        Given an empty graph
+        And having executed
+            """
+            CREATE EDGE INDEX ON :SEQUEL
+            """
+        And having executed
+            """
+            CREATE (k:MaoP {name: 'Keanu'}), (c:MaoP {name: 'Carrie'}), (h:MaoP {name: 'Hugo'}),
+                   (mx:MaoM {title: 'Matrix', v: 1}), (jw:MaoM {title: 'JW', v: 2}), (lone:MaoM {title: 'Lone', v: 3}),
+                   (k)-[:ACTED_IN]->(mx), (c)-[:ACTED_IN]->(mx), (k)-[:ACTED_IN]->(jw),
+                   (mx)-[:SEQUEL]->(jw)
+            """
+        When executing query:
+            """
+            MATCH (m:MaoM) WITH m
+            MATCH (m)-[:SEQUEL]->(s)
+            RETURN m.title AS m, s.title AS s
+            """
+        Then the result should be:
+            | m        | s    |
+            | 'Matrix' | 'JW' |
+
+    Scenario: An edge-type index keeps a self-loop pattern to self-loops
+        Given an empty graph
+        And having executed
+            """
+            CREATE EDGE INDEX ON :T
+            """
+        And having executed
+            """
+            CREATE (:A)-[:T]->(:B), (c:C)-[:T]->(c)
+            """
+        When executing query:
+            """
+            MATCH (a)-[:T]->(a) RETURN labels(a) AS l
+            """
+        Then the result should be:
+            | l     |
+            | ['C'] |
