@@ -623,6 +623,13 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
                 *merge, std::move(input_op), single_query_part.merge_matching[merge_id++], pending_comprehensions);
           } else if (auto *with = utils::Downcast<query::With>(clause)) {
             CheckSubqueryBodyInvariants(context, wrote_since_with, /*commit_frequency=*/nullptr);
+            // A map literal holding no entity is data: a lookup on its alias reads no graph.
+            for (auto *named : with->body_.named_expressions) {
+              if (utils::Downcast<MapLiteral>(named->expression_) &&
+                  !MayHoldEntity(named->expression_, *context.symbol_table, non_graph_symbols_)) {
+                non_graph_symbols_.insert(context.symbol_table->at(*named));
+              }
+            }
             input_op = impl::GenWith(*with,
                                      std::move(input_op),
                                      *context.symbol_table,
@@ -652,6 +659,10 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
           } else if (auto *unwind = utils::Downcast<query::Unwind>(clause)) {
             const auto &symbol = context.symbol_table->at(*unwind->named_expression_);
             context.bound_symbols.insert(symbol);
+            // UNWIND $rows or a literal list of literal maps: each row is data, so a lookup on it reads no graph.
+            if (!MayHoldEntity(unwind->named_expression_->expression_, *context.symbol_table, non_graph_symbols_)) {
+              non_graph_symbols_.insert(symbol);
+            }
             plan_and_apply_comprehensions(impl::OriginatingIn(clause, pending_comprehensions));
             input_op =
                 std::make_unique<plan::Unwind>(std::move(input_op), unwind->named_expression_->expression_, symbol);

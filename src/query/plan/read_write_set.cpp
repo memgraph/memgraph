@@ -246,6 +246,10 @@ class ReadWriteCollector final : public HierarchicalTreeVisitor {
       return !object || !non_graph_.contains(symbol_table_.at(*object));
     }
     if (auto *ident = utils::Downcast<Identifier>(value)) return MayHoldEntity(symbol_table_.at(*ident));
+    // A built-in function makes no entity out of values that hold none; a module function may look one up.
+    if (auto *function = utils::Downcast<Function>(value); function && !function->is_user_defined_) {
+      return std::ranges::any_of(function->arguments_, [this](Expression *arg) { return MayHoldEntity(arg); });
+    }
     return true;
   }
 
@@ -412,6 +416,11 @@ bool Conflicts(const ReadWriteSet &reads, const ReadWriteSet &writes) {
          KeysConflict(reads.labels, reads.any_label, writes.labels, writes.any_label) ||
          KeysConflict(reads.edge_types, reads.any_edge_type, writes.edge_types, writes.any_edge_type) ||
          (reads.nodes && writes.nodes);
+}
+
+bool MayHoldEntity(Expression *value, const SymbolTable &symbol_table, const std::unordered_set<Symbol> &non_graph) {
+  static std::unordered_set<Symbol> const kNoneBound;
+  return ReadWriteCollector(symbol_table, kNoneBound, non_graph).MayHoldEntity(value);
 }
 
 bool ConflictsOnlyInAccessCheck(const ReadWriteSet &reads, const ReadWriteSet &writes) {
