@@ -14675,10 +14675,9 @@ std::expected<std::filesystem::path, SnapshotCreationError> CreateSnapshot(
                std::chrono::duration<double>(timer.Elapsed()).count());
 
 #ifdef MG_ENTERPRISE
-  // Read the floor and delete under one lock, held for the whole pass: a fork lowering the floor waits for it, so it
-  // never pins a base this pass already decided to delete.
-  auto const floor_guard = std::scoped_lock{storage->retention_floor_mutex_};
-  auto const retention_floor = storage->retention_floor_;
+  // Read after this snapshot's transaction exists: a fork before it is visible here, a fork after it has this
+  // snapshot as a valid base.
+  auto const retention_floor = storage->RetentionFloor();
 #endif
   auto const old_snapshot_files =
 #ifdef MG_ENTERPRISE
