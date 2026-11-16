@@ -554,22 +554,23 @@ PrometheusMetrics::PrometheusMetrics()
                                           .Help("Latency of a successful database RESUME in seconds")
                                           .Register(registry_)},
 #ifdef MG_ENTERPRISE
-      // Graph versioning (global)
-      versioning_branches_created_family_{prometheus::BuildCounter()
-                                              .Name("memgraph_versioning_branches_created_total")
-                                              .Help("Number of versioning branches created")
-                                              .Register(registry_)},
-      versioning_branches_dropped_family_{prometheus::BuildCounter()
-                                              .Name("memgraph_versioning_branches_dropped_total")
-                                              .Help("Number of versioning branches dropped")
-                                              .Register(registry_)},
+      versioning_branches_created_family_{
+          prometheus::BuildCounter()
+              .Name("memgraph_versioning_branches_created_total")
+              .Help("Total number of branches created, not counting those restored at startup")
+              .Register(registry_)},
+      versioning_branches_dropped_family_{
+          prometheus::BuildCounter()
+              .Name("memgraph_versioning_branches_dropped_total")
+              .Help("Total number of branches dropped, not counting those lost to DROP DATABASE or suspend")
+              .Register(registry_)},
       versioning_active_branches_family_{prometheus::BuildGauge()
                                              .Name("memgraph_versioning_active_branches")
-                                             .Help("Current number of existing versioning branches")
+                                             .Help("Current number of branches on hot databases")
                                              .Register(registry_)},
       versioning_active_sessions_family_{prometheus::BuildGauge()
                                              .Name("memgraph_versioning_active_sessions")
-                                             .Help("Current number of sessions attached to versioning branches")
+                                             .Help("Current number of sessions checked out on a branch")
                                              .Register(registry_)},
 #endif
       // HighAvailability counters
@@ -855,7 +856,6 @@ PrometheusMetrics::PrometheusMetrics()
   global.database_suspend_latency_seconds = &database_suspend_latency_family_.Add(no_labels, kLatencyBuckets);
   global.database_resume_latency_seconds = &database_resume_latency_family_.Add(no_labels, kLatencyBuckets);
 #ifdef MG_ENTERPRISE
-
   global.versioning_branches_created = &versioning_branches_created_family_.Add(no_labels);
   global.versioning_branches_dropped = &versioning_branches_dropped_family_.Add(no_labels);
   global.versioning_active_branches = &versioning_active_branches_family_.Add(no_labels);
@@ -2151,24 +2151,23 @@ std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfo() const {
   AppendHistogramPercentiles(out, "DatabaseSuspendLatency", "HotCold", *global.database_suspend_latency_seconds);
   AppendHistogramPercentiles(out, "DatabaseResumeLatency", "HotCold", *global.database_resume_latency_seconds);
 #ifdef MG_ENTERPRISE
-
   // Graph versioning (global only)
-  out.push_back({.name = "VersioningBranchesCreated",
-                 .type = "Versioning",
-                 .metric_type = "Counter",
-                 .value = static_cast<int64_t>(global.versioning_branches_created->Value())});
-  out.push_back({.name = "VersioningBranchesDropped",
-                 .type = "Versioning",
-                 .metric_type = "Counter",
-                 .value = static_cast<int64_t>(global.versioning_branches_dropped->Value())});
-  out.push_back({.name = "VersioningActiveBranches",
-                 .type = "Versioning",
-                 .metric_type = "Gauge",
-                 .value = static_cast<int64_t>(global.versioning_active_branches->Value())});
-  out.push_back({.name = "VersioningActiveSessions",
-                 .type = "Versioning",
-                 .metric_type = "Gauge",
-                 .value = static_cast<int64_t>(global.versioning_active_sessions->Value())});
+  out.push_back({"VersioningBranchesCreated",
+                 "Versioning",
+                 "Counter",
+                 static_cast<int64_t>(global.versioning_branches_created->Value())});
+  out.push_back({"VersioningBranchesDropped",
+                 "Versioning",
+                 "Counter",
+                 static_cast<int64_t>(global.versioning_branches_dropped->Value())});
+  out.push_back({"VersioningActiveBranches",
+                 "Versioning",
+                 "Gauge",
+                 static_cast<int64_t>(global.versioning_active_branches->Value())});
+  out.push_back({"VersioningActiveSessions",
+                 "Versioning",
+                 "Gauge",
+                 static_cast<int64_t>(global.versioning_active_sessions->Value())});
 #endif
 
   // Session
