@@ -1078,11 +1078,13 @@ bool CreateExpand::CreateExpandCursor::Pull(Frame &frame, ExecutionContext &cont
 #ifdef MG_ENTERPRISE
   // Check CREATE_EDGE permission on both endpoints
   if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker) {
+    // literal-view: write
     if (!context.auth_checker->Has(
             v1, storage::View::NEW, memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_EDGE)) {
       throw QueryRuntimeException(
           "Creating edge failed: missing CREATE EDGE or UPDATE permission on source node labels.");
     }
+    // literal-view: write
     if (v1 != v2 && !context.auth_checker->Has(
                         v2, storage::View::NEW, memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_EDGE)) {
       throw QueryRuntimeException(
@@ -6056,6 +6058,7 @@ Delete::DeleteCursor::DeleteCursor(const Delete &self, utils::MemoryResource *me
 void Delete::DeleteCursor::UpdateDeleteBuffer(Frame &frame, ExecutionContext &context) {
   // Delete should get the latest information, this way it is also possible
   // to delete newly added nodes and edges.
+  // literal-view: write
   ExpressionEvaluator evaluator =
       ExpressionEvaluator{&frame, context, storage::View::NEW, nullptr, &context.number_of_hops};
 
@@ -6071,6 +6074,7 @@ void Delete::DeleteCursor::UpdateDeleteBuffer(Frame &frame, ExecutionContext &co
 
   auto vertex_auth_checker = [&context](const VertexAccessor &va) -> bool {
 #ifdef MG_ENTERPRISE
+    // literal-view: write
     return !(license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
              !context.auth_checker->Has(va, storage::View::NEW, query::AuthQuery::FineGrainedPrivilege::DELETE));
 #else
@@ -6081,6 +6085,7 @@ void Delete::DeleteCursor::UpdateDeleteBuffer(Frame &frame, ExecutionContext &co
   auto edge_auth_checker = [&context](const EdgeAccessor &ea) -> bool {
 #ifdef MG_ENTERPRISE
     if (!license::global_license_checker.IsEnterpriseValidFast() || !context.auth_checker) return true;
+    // literal-view: write
     return context.auth_checker->Has(ea, query::AuthQuery::FineGrainedPrivilege::DELETE) &&
            context.auth_checker->Has(
                ea.To(), storage::View::NEW, query::AuthQuery::FineGrainedPrivilege::DELETE_EDGE) &&
@@ -6148,6 +6153,7 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
   AbortCheck(context);
 
   if (self_.buffer_size_ != nullptr && !buffer_size_.has_value()) [[unlikely]] {
+    // literal-view: constant
     ExpressionEvaluator evaluator =
         ExpressionEvaluator{&frame, context, storage::View::OLD, nullptr, &context.number_of_hops};
 
@@ -6241,6 +6247,7 @@ namespace {
 // permissions are configured and the whole check has nothing to consult. Skipping it spares a
 // per-row label read, and where the check would go on to enumerate the properties being written,
 // a per-row read of those as well.
+// literal-view: constant
 using VertexLabels = std::remove_cvref_t<decltype(*std::declval<VertexAccessor const &>().Labels(storage::View::NEW))>;
 
 std::optional<VertexLabels> PropertyPermissionLabels(FineGrainedAuthChecker const *auth_checker,
@@ -6268,6 +6275,7 @@ bool SetProperty::SetPropertyCursor::Pull(Frame &frame, ExecutionContext &contex
   if (!input_cursor_->Pull(frame, context)) return false;
 
   // Set, just like Create needs to see the latest changes.
+  // literal-view: write
   ExpressionEvaluator evaluator =
       ExpressionEvaluator{&frame, context, storage::View::NEW, nullptr, &context.number_of_hops};
 
@@ -6278,12 +6286,14 @@ bool SetProperty::SetPropertyCursor::Pull(Frame &frame, ExecutionContext &contex
     case TypedValue::Type::Vertex: {
 #ifdef MG_ENTERPRISE
       if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker) {
+        // literal-view: write
         if (!context.auth_checker->Has(
                 lhs.ValueVertex(), storage::View::NEW, memgraph::query::AuthQuery::FineGrainedPrivilege::SET_PROPERTY))
             [[unlikely]] {
           throw QueryRuntimeException(
               "Setting node property failed: missing SET PROPERTY or UPDATE permission on labels.");
         }
+        // literal-view: write
         auto const labels = PropertyPermissionLabels(context.auth_checker, lhs.ValueVertex(), storage::View::NEW);
         if (labels && !context.auth_checker->HasPropertyPermission(
                           *labels, self_.property_, AuthQuery::PropertyPermissionType::WRITE)) [[unlikely]] {
@@ -6395,6 +6405,7 @@ bool SetNestedProperty::SetNestedPropertyCursor::Pull(Frame &frame, ExecutionCon
 
   if (!input_cursor_->Pull(frame, context)) return false;
   // Set, just like Create needs to see the latest changes.
+  // literal-view: write
   ExpressionEvaluator evaluator = ExpressionEvaluator{&frame, context, storage::View::NEW};
 
   TypedValue lhs = self_.lhs_->expression_->Accept(evaluator);
@@ -6494,12 +6505,14 @@ bool SetNestedProperty::SetNestedPropertyCursor::Pull(Frame &frame, ExecutionCon
     case TypedValue::Type::Vertex: {
 #ifdef MG_ENTERPRISE
       if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker) {
+        // literal-view: write
         if (!context.auth_checker->Has(
                 lhs.ValueVertex(), storage::View::NEW, memgraph::query::AuthQuery::FineGrainedPrivilege::SET_PROPERTY))
             [[unlikely]] {
           throw QueryRuntimeException(
               "Setting node property failed: missing SET PROPERTY or UPDATE permission on labels.");
         }
+        // literal-view: write
         auto const labels = PropertyPermissionLabels(context.auth_checker, lhs.ValueVertex(), storage::View::NEW);
         if (labels && !context.auth_checker->HasPropertyPermission(
                           *labels, self_.property_path_[0], AuthQuery::PropertyPermissionType::WRITE)) [[unlikely]] {
@@ -6615,12 +6628,14 @@ void CheckPropertyPermissionsForSetProperties(TypedValue const &rhs, SetProperti
       check_map_keys(rhs.ValueMap());
       break;
     case TypedValue::Type::Vertex: {
+      // literal-view: write
       auto maybe_props = rhs.ValueVertex().Properties(storage::View::NEW);
       if (!maybe_props) throw QueryRuntimeException("Unexpected error when checking property permissions.");
       check_property_id_keys(*maybe_props);
       break;
     }
     case TypedValue::Type::Edge: {
+      // literal-view: write
       auto maybe_props = rhs.ValueEdge().Properties(storage::View::NEW);
       if (!maybe_props) throw QueryRuntimeException("Unexpected error when checking property permissions.");
       check_property_id_keys(*maybe_props);
@@ -6631,6 +6646,7 @@ void CheckPropertyPermissionsForSetProperties(TypedValue const &rhs, SetProperti
   }
 
   if (op == SetProperties::Op::REPLACE) {
+    // literal-view: write
     auto maybe_existing = record.Properties(storage::View::NEW);
     if (!maybe_existing) throw QueryRuntimeException("Unexpected error when checking property permissions.");
     for (auto const &[prop_id, _] : *maybe_existing) {
@@ -6676,6 +6692,7 @@ void SetPropertiesOnRecord(TRecordAccessor *record, const TypedValue &rhs, SetPr
   }
 
   auto get_props = [](const auto &record) {
+    // literal-view: write
     auto maybe_props = record.Properties(storage::View::NEW);
     if (!maybe_props) {
       switch (maybe_props.error()) {
@@ -6752,6 +6769,7 @@ void SetPropertiesOnRecord(TRecordAccessor *record, const TypedValue &rhs, SetPr
     case TypedValue::Type::Vertex: {
       PropertiesMap new_properties = get_props(rhs.ValueVertex());
 #ifdef MG_ENTERPRISE
+      // literal-view: write
       if (auto const labels = PropertyPermissionLabels(context->auth_checker, rhs.ValueVertex(), storage::View::NEW)) {
         mask_denied_properties(new_properties, [&](storage::PropertyId prop_id) {
           return context->auth_checker->HasPropertyPermission(
@@ -6808,6 +6826,7 @@ bool SetProperties::SetPropertiesCursor::Pull(Frame &frame, ExecutionContext &co
   TypedValue const &lhs = frame[self_.input_symbol_];
 
   // Set, just like Create needs to see the latest changes.
+  // literal-view: write
   ExpressionEvaluator evaluator =
       ExpressionEvaluator{&frame, context, storage::View::NEW, nullptr, &context.number_of_hops};
 
@@ -6819,12 +6838,14 @@ bool SetProperties::SetPropertiesCursor::Pull(Frame &frame, ExecutionContext &co
     case TypedValue::Type::Vertex: {
 #ifdef MG_ENTERPRISE
       if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker) {
+        // literal-view: write
         if (!context.auth_checker->Has(
                 lhs.ValueVertex(), storage::View::NEW, memgraph::query::AuthQuery::FineGrainedPrivilege::SET_PROPERTY))
             [[unlikely]] {
           throw QueryRuntimeException(
               "Setting node properties failed: missing SET PROPERTY or UPDATE permission on labels.");
         }
+        // literal-view: write
         if (auto const labels = PropertyPermissionLabels(context.auth_checker, lhs.ValueVertex(), storage::View::NEW)) {
           auto check_prop = [&](storage::PropertyId prop) {
             if (!context.auth_checker->HasPropertyPermission(*labels, prop, AuthQuery::PropertyPermissionType::WRITE))
@@ -6920,6 +6941,7 @@ bool SetLabels::SetLabelsCursor::Pull(Frame &frame, ExecutionContext &context) {
 
   AbortCheck(context);
 
+  // literal-view: write
   ExpressionEvaluator evaluator =
       ExpressionEvaluator{&frame, context, storage::View::NEW, nullptr, &context.number_of_hops};
 
@@ -6944,6 +6966,7 @@ bool SetLabels::SetLabelsCursor::Pull(Frame &frame, ExecutionContext &context) {
 
 #ifdef MG_ENTERPRISE
     // Check SET_LABEL on the existing vertex (gatekeeper check)
+    // literal-view: known: item 8
     if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
         !context.auth_checker->Has(
             vertex, storage::View::OLD, memgraph::query::AuthQuery::FineGrainedPrivilege::SET_LABEL)) {
@@ -7018,6 +7041,7 @@ bool RemoveProperty::RemovePropertyCursor::Pull(Frame &frame, ExecutionContext &
   if (!input_cursor_->Pull(frame, context)) return false;
 
   // Remove, just like Delete needs to see the latest changes.
+  // literal-view: write
   ExpressionEvaluator evaluator =
       ExpressionEvaluator{&frame, context, storage::View::NEW, nullptr, &context.number_of_hops};
 
@@ -7054,12 +7078,14 @@ bool RemoveProperty::RemovePropertyCursor::Pull(Frame &frame, ExecutionContext &
     case TypedValue::Type::Vertex:
 #ifdef MG_ENTERPRISE
       if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker) {
+        // literal-view: write
         if (!context.auth_checker->Has(
                 lhs.ValueVertex(), storage::View::NEW, memgraph::query::AuthQuery::FineGrainedPrivilege::SET_PROPERTY))
             [[unlikely]] {
           throw QueryRuntimeException(
               "Removing node property failed: missing SET PROPERTY or UPDATE permission on labels.");
         }
+        // literal-view: write
         auto const labels = PropertyPermissionLabels(context.auth_checker, lhs.ValueVertex(), storage::View::NEW);
         if (labels && !context.auth_checker->HasPropertyPermission(
                           *labels, self_.property_, AuthQuery::PropertyPermissionType::WRITE)) [[unlikely]] {
@@ -7136,6 +7162,7 @@ bool RemoveNestedProperty::RemoveNestedPropertyCursor::Pull(Frame &frame, Execut
 
   if (!input_cursor_->Pull(frame, context)) return false;
 
+  // literal-view: write
   ExpressionEvaluator evaluator =
       ExpressionEvaluator{&frame, context, storage::View::NEW, nullptr, &context.number_of_hops};
 
@@ -7195,12 +7222,14 @@ bool RemoveNestedProperty::RemoveNestedPropertyCursor::Pull(Frame &frame, Execut
     case TypedValue::Type::Vertex: {
 #ifdef MG_ENTERPRISE
       if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker) {
+        // literal-view: write
         if (!context.auth_checker->Has(
                 lhs.ValueVertex(), storage::View::NEW, memgraph::query::AuthQuery::FineGrainedPrivilege::SET_PROPERTY))
             [[unlikely]] {
           throw QueryRuntimeException(
               "Removing node property failed: missing SET PROPERTY or UPDATE permission on labels.");
         }
+        // literal-view: write
         auto const labels = PropertyPermissionLabels(context.auth_checker, lhs.ValueVertex(), storage::View::NEW);
         if (labels && !context.auth_checker->HasPropertyPermission(
                           *labels, self_.property_path_[0], AuthQuery::PropertyPermissionType::WRITE)) [[unlikely]] {
@@ -7279,6 +7308,7 @@ bool RemoveLabels::RemoveLabelsCursor::Pull(Frame &frame, ExecutionContext &cont
 
   AbortCheck(context);
 
+  // literal-view: write
   ExpressionEvaluator evaluator =
       ExpressionEvaluator{&frame, context, storage::View::NEW, nullptr, &context.number_of_hops};
 
@@ -7303,6 +7333,7 @@ bool RemoveLabels::RemoveLabelsCursor::Pull(Frame &frame, ExecutionContext &cont
 
 #ifdef MG_ENTERPRISE
     // Check REMOVE_LABEL on the existing vertex (gatekeeper check)
+    // literal-view: known: item 8
     if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
         !context.auth_checker->Has(
             vertex, storage::View::OLD, memgraph::query::AuthQuery::FineGrainedPrivilege::REMOVE_LABEL)) {
@@ -8181,6 +8212,7 @@ class AggregateCursor : public Cursor {
       }
     } else {
       // no labels option -> inherit every label from the original vertex
+      // literal-view: known: item 7
       auto maybe_labels = real_vertex.Labels(storage::View::NEW);
       if (!maybe_labels) throw QueryRuntimeException("derive() could not read labels of a path vertex.");
       for (const auto label_id : *maybe_labels) {
@@ -8195,6 +8227,7 @@ class AggregateCursor : public Cursor {
         properties.insert_or_assign(id, std::move(pv));
       });
     } else {
+      // literal-view: known: item 7
       auto maybe_props = real_vertex.Properties(storage::View::NEW);
       if (!maybe_props) throw QueryRuntimeException("derive() could not read properties of a path vertex.");
       if (auth_checker_) {
@@ -9701,6 +9734,7 @@ class CallProcedureCursor : public Cursor {
       }
       result_.rows.clear();
 
+      // literal-view: write
       const auto graph_view = proc_->info.graph_access == GraphAccess::Write ? storage::View::NEW : self_->view_;
       ExpressionEvaluator evaluator =
           ExpressionEvaluator{&frame, context, graph_view, nullptr, &context.number_of_hops};
@@ -9991,6 +10025,7 @@ class LoadCsvCursor : public Cursor {
     Frame frame(0);
     ExecutionContext ctx;
     ctx.evaluation_context = *eval_context;
+    // literal-view: constant
     auto evaluator = ExpressionEvaluator{&frame, ctx, storage::View::OLD};
 
     auto maybe_file = ToOptionalString(&evaluator, self_->file_);
@@ -10030,6 +10065,7 @@ class LoadCsvCursor : public Cursor {
     Frame frame(0);
     ExecutionContext ctx;
     ctx.evaluation_context = *eval_context;
+    // literal-view: constant
     auto evaluator = ExpressionEvaluator{&frame, ctx, storage::View::OLD};
 
     return ToOptionalString(&evaluator, self_->nullif_);
@@ -10303,6 +10339,7 @@ class ForeachCursor : public Cursor {
       return false;
     }
 
+    // literal-view: write
     ExpressionEvaluator evaluator =
         ExpressionEvaluator{&frame, context, storage::View::NEW, nullptr, &context.number_of_hops};
 
@@ -11043,6 +11080,7 @@ class PeriodicCommitCursor : public Cursor {
     AbortCheck(context);
 
     if (!commit_frequency_) [[unlikely]] {
+      // literal-view: constant
       ExpressionEvaluator evaluator =
           ExpressionEvaluator{&frame, context, storage::View::OLD, nullptr, &context.number_of_hops};
 
@@ -11147,6 +11185,7 @@ class PeriodicSubqueryCursor : public Cursor {
     AbortCheck(context);
 
     if (!commit_frequency_) [[unlikely]] {
+      // literal-view: constant
       ExpressionEvaluator evaluator =
           ExpressionEvaluator{&frame, context, storage::View::OLD, nullptr, &context.number_of_hops};
 
@@ -11249,6 +11288,7 @@ std::unique_ptr<LogicalOperator> PeriodicSubquery::Clone(AstStorage *storage) co
   return object;
 }
 
+// literal-view: point-scan
 ScanAllByPointDistance::ScanAllByPointDistance(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol,
                                                storage::LabelId label, storage::PropertyId property,
                                                Expression *cmp_value, Expression *boundary_value,
@@ -11308,6 +11348,7 @@ std::unique_ptr<LogicalOperator> ScanAllByPointDistance::Clone(AstStorage *stora
   return object;
 }
 
+// literal-view: point-scan
 ScanAllByPointWithinbbox::ScanAllByPointWithinbbox(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol,
                                                    storage::LabelId label, storage::PropertyId property,
                                                    Expression *bottom_left, Expression *top_right,
@@ -13018,6 +13059,7 @@ bool Skip::SkipCursor::Pull(Frame &frame, ExecutionContext &context) {
       // First successful pull from the input, evaluate the skip expression.
       // The skip expression doesn't contain identifiers so graph view
       // parameter is not important.
+      // literal-view: constant
       ExpressionEvaluator evaluator =
           ExpressionEvaluator{&frame, context, storage::View::OLD, nullptr, &context.number_of_hops};
 
@@ -13104,6 +13146,7 @@ bool Limit::LimitCursor::Pull(Frame &frame, ExecutionContext &context) {
   if (limit_ == -1) {
     // Limit expression doesn't contain identifiers so graph view is not
     // important.
+    // literal-view: constant
     ExpressionEvaluator evaluator =
         ExpressionEvaluator{&frame, context, storage::View::OLD, nullptr, &context.number_of_hops};
 

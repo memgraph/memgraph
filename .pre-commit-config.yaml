@@ -51,3 +51,11 @@ repos:
         fail_fast: true
         require_serial: true
         pass_filenames: false
+      - id: literal-view
+        name: literal-view
+        description: Every literal storage::View in the plan operators and rewriters carries a literal-view marker
+        entry: python ./tools/pre-commit/check_literal_views.py
+        language: python
+        files: ^(src/query/plan/operator\.cpp|src/query/plan/rewrite/.*\.hpp)$
+        require_serial: true
+        pass_filenames: false
