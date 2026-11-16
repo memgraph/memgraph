@@ -120,7 +120,6 @@ struct Config {
 
     bool allow_parallel_snapshot_creation{false};  // PER DATABASE
     bool allow_parallel_schema_creation{false};    // PER DATABASE
-
     friend bool operator==(const Durability &lrh, const Durability &rhs) = default;
   } durability;
 

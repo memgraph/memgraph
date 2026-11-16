@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -20,6 +20,24 @@ T atomic_fetch_max_explicit(std::atomic<T> *current, typename std::atomic<T>::va
                             std::memory_order m_order = std::memory_order_acq_rel) noexcept {
   auto old = current->load(std::memory_order_acquire);
   while (std::max(old, value) != old) {
+    if (current->compare_exchange_weak(old, value, m_order, std::memory_order_acquire)) {
+      return old;
+    }
+  }
+  // dummy write if release operation
+  if (m_order == std::memory_order::release || m_order == std::memory_order::acq_rel ||
+      m_order == std::memory_order::seq_cst) {
+    current->fetch_add(0, m_order);
+  }
+  return old;
+}
+
+// Replace with C++26 code when available
+template <class T>
+T atomic_fetch_min_explicit(std::atomic<T> *current, typename std::atomic<T>::value_type const value,
+                            std::memory_order m_order = std::memory_order_acq_rel) noexcept {
+  auto old = current->load(std::memory_order_acquire);
+  while (std::min(old, value) != old) {
     if (current->compare_exchange_weak(old, value, m_order, std::memory_order_acquire)) {
       return old;
     }

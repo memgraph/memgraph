@@ -21,6 +21,7 @@
 #include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/durability/metadata.hpp"
 #include "storage/v2/durability/recovery_type.hpp"
+#include "storage/v2/durability/retention_floor.hpp"
 #include "storage/v2/durability/wal.hpp"
 #include "storage/v2/edge.hpp"
 #include "storage/v2/indices/indices.hpp"
@@ -126,13 +127,12 @@ struct RecoveryTail {
   uint64_t reached_timestamp{0};
 };
 
-/// Per-start history limits for one storage, computed from the branch ledger rather than configured. Mutually
-/// exclusive.
+/// Per-start history limits for one storage, computed from the branch ledger rather than configured.
 struct HistoryBounds {
-  /// Recovery stops at this durable timestamp; the rest is handed back through InMemoryStorage::TakeRecoveryTail.
-  std::optional<uint64_t> recovery_bound;
-  /// Snapshot/WAL retention keeps the state as of this durable timestamp recoverable (recovery is unaffected).
-  std::optional<uint64_t> retention_floor;
+  /// Keep main recoverable to this durable timestamp.
+  uint64_t floor{kNoRetentionFloor};
+  /// This start also stops recovery at `floor` and hands back the rest via InMemoryStorage::TakeRecoveryTail.
+  bool recover_only_to_floor{false};
 };
 #endif
 

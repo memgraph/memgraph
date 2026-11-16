@@ -505,7 +505,7 @@ TEST_F(VersioningBoundedRecoveryTest, ConfiguredBoundRecoversStateAtBoundAndHand
                           nullptr,
                           nullptr,
                           nullptr,
-                          md::HistoryBounds{.recovery_bound = bound}};
+                          md::HistoryBounds{.floor = bound, .recover_only_to_floor = true}};
     StorageReader reader{s};
     ExpectStateAsOf(reader, h, bound);
     auto tail = s.TakeRecoveryTail();
