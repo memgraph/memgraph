@@ -5431,8 +5431,10 @@ TYPED_TEST(TestPlanner, PeriodicCommitCreateCallProcedureNestedWholeQuery) {
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 
+  // A writing IN TRANSACTIONS body is a writing tree: the procedure reads everything, so a drain goes before the
+  // CREATE, as in any writing CALL body.
   std::list<BaseOpChecker *> subquery_plan{
-      new ExpectBasicCallProcedure(), new ExpectCreateNode(), new ExpectEmptyResult()};
+      new ExpectBasicCallProcedure(), new ExpectAccumulate({}), new ExpectCreateNode(), new ExpectEmptyResult()};
 
   CheckPlan(
       planner.plan(), symbol_table, ExpectPeriodicSubquery(subquery_plan), ExpectAccumulate({}), ExpectEmptyResult());
