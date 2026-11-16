@@ -19,6 +19,7 @@
 #include <memory>
 #include <optional>
 #include <regex>
+#include <set>
 #include <sstream>
 #include <string>
 #include <string_view>
@@ -375,6 +376,28 @@ TEST_F(WriteVisibilityPlan, MergeReportsThePatternSymbolsItBinds) {
   std::vector<std::string> names;
   for (auto const &symbol : merges[0]->ModifiedSymbols(symbol_table_)) names.push_back(symbol.name());
   for (auto const *name : {"i", "a", "r", "b"}) EXPECT_EQ(std::ranges::count(names, name), 1) << name;
+}
+
+// A barrier keeps only what the rest of the query reads: the strings a and b, and n, are never read after it.
+TEST_F(WriteVisibilityPlan, ABarrierKeepsOnlyTheSymbolsReadAfterIt) {
+  auto names_kept = [&](std::string_view query) {
+    std::set<std::string> names;
+    auto accumulates = Collect<Accumulate>(Plan(query));
+    EXPECT_FALSE(accumulates.empty()) << query;
+    if (!accumulates.empty()) {
+      for (auto const &symbol : accumulates.back()->symbols_) names.insert(symbol.name());
+    }
+    return names;
+  };
+  EXPECT_EQ(names_kept("UNWIND [1, 2] AS i WITH i, 'a' + toString(i) AS a, 'b' AS b MERGE (n:M {id: i}) "
+                       "MERGE (m:M {id: i + 1}) RETURN count(*) AS c"),
+            (std::set<std::string>{"i"}));
+  EXPECT_EQ(names_kept("UNWIND [1, 2] AS i WITH i, 'a' + toString(i) AS a, 'b' AS b MERGE (n:M {id: i}) "
+                       "MERGE (m:M {id: i + 1}) RETURN a, n"),
+            (std::set<std::string>{"i", "a", "n"}));
+  // RETURN * reads everything bound.
+  EXPECT_EQ(names_kept("UNWIND [1, 2] AS i WITH i, 'a' AS a MERGE (n:M {id: i}) MERGE (m:M {id: i + 1}) RETURN *"),
+            (std::set<std::string>{"i", "a", "n"}));
 }
 
 // ---------------------------------------------------------------- a map row is not a graph entity
