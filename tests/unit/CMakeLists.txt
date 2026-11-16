@@ -953,6 +953,15 @@ add_unit_test(storage_v2_edge_inmemory
     LINK_TARGETS mg::storage
 )
 
+# A reader that kept an edge's lock across a nested read of the same edge would spin against a
+# writer with nothing asserting on it, so the defect this pins wedges rather than fails. TIMEOUT
+# stops that from running to the job's own cancellation with nothing naming this test.
+add_unit_test(storage_v2_property_size
+    SOURCES storage_v2_property_size.cpp
+    LINK_TARGETS mg::storage
+    TEST_PROPERTIES TIMEOUT 120
+)
+
 add_unit_test(storage_v2_light_edges
     SOURCES storage_v2_light_edges.cpp
     LINK_TARGETS mg::storage mg-dbms
