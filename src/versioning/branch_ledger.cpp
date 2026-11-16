@@ -72,7 +72,7 @@ std::string Serialize(const LedgerContents &contents) {
                      {"number", info.number},
                      {"parent", info.parent},
                      // Persist the recorded boundary, not the runtime pin: they differ after startup restore.
-                     {"fork_ts", info.recorded_fork_ts}};
+                     {"fork_ts", info.durable_fork_ts}};
     if (info.vertex_gid_floor) b["vertex_gid_floor"] = *info.vertex_gid_floor;
     if (info.edge_gid_floor) b["edge_gid_floor"] = *info.edge_gid_floor;
     if (info.vertex_gid_ceiling) b["vertex_gid_ceiling"] = *info.vertex_gid_ceiling;
