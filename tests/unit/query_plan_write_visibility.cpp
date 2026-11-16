@@ -260,6 +260,7 @@ std::vector<std::string> Chain(LogicalOperator &plan) {
   for (auto *op = &plan; op != nullptr;) {
     std::string name{op->GetTypeInfo().name};
     if (auto *acc = dynamic_cast<Accumulate *>(op); acc && acc->advance_command_) name += "+";
+    if (auto *acc = dynamic_cast<Accumulate *>(op); acc && acc->access_check_only_) name += "(access)";
     names.push_back(std::move(name));
     if (dynamic_cast<Once *>(op) || dynamic_cast<Cartesian *>(op)) break;
     op = op->input().get();
@@ -320,6 +321,50 @@ TEST_F(WriteVisibilityPlan, BarrierBeforeExpansionFromACreatedNode) {
   EXPECT_EQ(Chain(Plan("CREATE (a)-[:R]->(b) SET a.c = size([(a)-[:S*]->(x:Q) | x])")),
             (Names{"EmptyResult", "SetProperty", "RollUpApply", "CreateExpand", "CreateNode", "Once"}));
 }
+
+#ifdef MG_ENTERPRISE
+// ---------------------------------------------------------------- barriers only the access check needs
+
+// With fine-grained access control every node read checks the node's labels, so a label write before it needs a
+// barrier; without a checker that barrier passes rows through.
+TEST_F(WriteVisibilityPlan, ANodeReadAfterALabelWriteGetsAnAccessCheckBarrier) {
+  auto &plan = Plan("MATCH (a:P) WITH a ORDER BY a.k SET a:Secret CALL () { MATCH (n) RETURN count(n) AS c } RETURN c");
+  auto applies = Collect<Apply>(plan);
+  ASSERT_EQ(applies.size(), 1);
+  auto *barrier = dynamic_cast<Accumulate *>(applies[0]->input_.get());
+  ASSERT_NE(barrier, nullptr);
+  EXPECT_TRUE(barrier->access_check_only_);
+}
+
+TEST_F(WriteVisibilityPlan, ChainedLabelSetsGetAnAccessCheckBarrier) {
+  EXPECT_EQ(Chain(Plan("MATCH (a:P) SET a:X SET a:Y")),
+            (Names{"EmptyResult", "SetLabels", "Accumulate+(access)", "SetLabels", "Filter", "ScanAll", "Once"}));
+}
+
+TEST_F(WriteVisibilityPlan, ALabelReadKeepsAFullBarrier) {
+  auto &plan = Plan("MATCH (a:P) SET a:X CALL () { MATCH (n:X) RETURN count(n) AS c } RETURN c");
+  auto applies = Collect<Apply>(plan);
+  ASSERT_EQ(applies.size(), 1);
+  auto *barrier = dynamic_cast<Accumulate *>(applies[0]->input_.get());
+  ASSERT_NE(barrier, nullptr);
+  EXPECT_FALSE(barrier->access_check_only_);
+}
+
+// Without a checker the access check barrier advances nothing, so a later read of the label still needs its own.
+TEST_F(WriteVisibilityPlan, AnAccessCheckBarrierKeepsTheWritesPending) {
+  auto &plan = Plan(
+      "MATCH (a:P) SET a:X CALL () { MATCH (n) RETURN count(n) AS c } CALL () { MATCH (m:X) RETURN count(m) AS d } "
+      "RETURN c, d");
+  auto applies = Collect<Apply>(plan);  // top first
+  ASSERT_EQ(applies.size(), 2);
+  auto *upper = dynamic_cast<Accumulate *>(applies[0]->input_.get());
+  auto *lower = dynamic_cast<Accumulate *>(applies[1]->input_.get());
+  ASSERT_NE(upper, nullptr);
+  ASSERT_NE(lower, nullptr);
+  EXPECT_FALSE(upper->access_check_only_);
+  EXPECT_TRUE(lower->access_check_only_);
+}
+#endif
 
 // ---------------------------------------------------------------- read-to-write drains after View::NEW readers
 

@@ -176,6 +176,35 @@ TYPED_TEST(QueryPlanTest, AccumulateAdvance) {
   check(true);
 }
 
+#ifdef MG_ENTERPRISE
+// A barrier planned only for the fine-grained access check passes rows through when no check runs, and drains and
+// advances like any other when one does. 'CREATE (n) <barrier> MATCH (m)': m sees n only after the advance.
+TYPED_TEST(QueryPlanTest, AccessCheckOnlyAccumulatePassesThroughWithoutAChecker) {
+  memgraph::license::global_license_checker.EnableTesting();
+  auto count = [&](bool access_check_only, bool with_checker) {
+    this->db.reset();
+    this->CleanStorageDirs();
+    this->db = std::make_unique<TypeParam>(this->config);
+    auto storage_dba = this->db->Access(memgraph::storage::WRITE);
+    memgraph::query::DbAccessor dba(storage_dba.get());
+    SymbolTable symbol_table;
+    NodeCreationInfo node;
+    node.symbol = symbol_table.CreateSymbol("n", true);
+    auto create = std::make_shared<CreateNode>(nullptr, node);
+    auto accumulate = std::make_shared<Accumulate>(create, std::vector<Symbol>{node.symbol}, true);
+    accumulate->access_check_only_ = access_check_only;
+    auto match = MakeScanAll(this->storage, symbol_table, "m", accumulate);
+    AllowEverythingFineGrainedAuthChecker auth_checker;
+    auto context = MakeContext(this->storage, symbol_table, &dba);
+    if (with_checker) context.auth_checker = &auth_checker;
+    return PullAll(*match.op_, &context);
+  };
+  EXPECT_EQ(count(true, false), 0);
+  EXPECT_EQ(count(true, true), 1);
+  EXPECT_EQ(count(false, false), 1);
+}
+#endif
+
 /** Test fixture for all the aggregation ops in one return. */
 template <typename StorageType>
 class QueryPlanAggregateOps : public QueryPlanTest<StorageType> {
