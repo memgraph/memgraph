@@ -8212,8 +8212,7 @@ class AggregateCursor : public Cursor {
       }
     } else {
       // no labels option -> inherit every label from the original vertex
-      // literal-view: known: item 7
-      auto maybe_labels = real_vertex.Labels(storage::View::NEW);
+      auto maybe_labels = ReadSeeingCreated(self_.view_, [&](storage::View at) { return real_vertex.Labels(at); });
       if (!maybe_labels) throw QueryRuntimeException("derive() could not read labels of a path vertex.");
       for (const auto label_id : *maybe_labels) {
         const auto &name = db_accessor_->LabelToName(label_id);
@@ -8227,8 +8226,7 @@ class AggregateCursor : public Cursor {
         properties.insert_or_assign(id, std::move(pv));
       });
     } else {
-      // literal-view: known: item 7
-      auto maybe_props = real_vertex.Properties(storage::View::NEW);
+      auto maybe_props = ReadSeeingCreated(self_.view_, [&](storage::View at) { return real_vertex.Properties(at); });
       if (!maybe_props) throw QueryRuntimeException("derive() could not read properties of a path vertex.");
       if (auth_checker_) {
         auto label_ids = labels | rv::transform([this](auto const &name) { return db_accessor_->NameToLabel(name); }) |
