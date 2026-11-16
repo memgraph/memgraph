@@ -1390,7 +1390,10 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
 
     // we can just perform scanning from an edge if it's a simple edge
     // we don't take into consideration path expansion as part of edge scanning
-    if (is_unseen_node && expansion.expand_from_edge && expansion.edge->type_ == EdgeAtom::Type::SINGLE) {
+    // TODO: an edge scan overwrites both endpoints. An existing-endpoint check in ScanByEdgeCommon (as Expand has)
+    // would let a bound or self-loop endpoint keep the edge index; until then fall back to ScanAll + Expand.
+    if (is_unseen_node && expansion.expand_from_edge && expansion.edge->type_ == EdgeAtom::Type::SINGLE &&
+        !bound_symbols.contains(symbol_table.at(*expansion.node2->identifier_))) {
       const auto &node2_symbol = symbol_table.at(*expansion.node2->identifier_);
       const auto &edge_symbol = symbol_table.at(*expansion.edge->identifier_);
       auto edge_types = GetEdgeTypes(expansion.edge->edge_types_);
