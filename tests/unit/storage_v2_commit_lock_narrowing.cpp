@@ -1178,7 +1178,6 @@ TEST_F(LockFreeReadSnapshotRecovery, HistoricalReadAtForkStableWhenInFlightCommi
   store->ReleaseForkPin(fork_ts);
 }
 
-
 // A branch fork inside a commit window floors retention at the watermark, not at the in-flight commit's timestamp.
 // Recovering at that floor must not see the in-flight commit.
 TEST_F(LockFreeReadSnapshotRecovery, BranchForkPinInsideCommitWindow_FloorIsTheWatermark_ON) {
@@ -1209,8 +1208,14 @@ TEST_F(LockFreeReadSnapshotRecovery, BranchForkPinInsideCommitWindow_FloorIsTheW
   }
 
   config.durability.recover_on_startup = true;
-  config.durability.recovery_history_bound = floor;
-  auto store = std::make_unique<InMemoryStorage>(config);
+  auto store = std::make_unique<InMemoryStorage>(config,
+                                                 std::nullopt,
+                                                 std::make_unique<memgraph::storage::PlanInvalidatorDefault>(),
+                                                 memgraph::metrics::DatabaseMetricHandles{},
+                                                 nullptr,
+                                                 nullptr,
+                                                 nullptr,
+                                                 memgraph::storage::durability::HistoryBounds{.recovery_bound = floor});
   auto acc = store->Access(memgraph::storage::READ);
   EXPECT_EQ(ReadProp(*acc, gid), 1);
 }

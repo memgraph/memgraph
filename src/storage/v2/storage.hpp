@@ -12,6 +12,7 @@
 #pragma once
 
 #include <atomic>
+#include <limits>
 #include <mutex>
 #include <optional>
 #include <set>
@@ -301,19 +302,25 @@ class Storage {
 
 #ifdef MG_ENTERPRISE
   // Durable timestamp that must stay recoverable: retention keeps the newest snapshot at or below it plus its WAL.
-  // CreateSnapshot holds `retention_floor_mutex_` across its retention pass, so lower the floor only under it.
+  // Lowered inside RegisterForkPin's engine_lock_ section; a snapshot's retention pass reads it after its transaction
+  // starts.
   [[nodiscard]] std::optional<uint64_t> RetentionFloor() const {
-    auto const guard = std::lock_guard{retention_floor_mutex_};
-    return retention_floor_;
+    auto const floor = retention_floor_.load(std::memory_order_acquire);
+    return floor == kNoRetentionFloor ? std::nullopt : std::optional<uint64_t>{floor};
   }
 
+  // Callers must serialize with RegisterBranchForkPin (a value computed without a concurrent fork would overwrite its
+  // lowering); the version store does this under its registry lock.
   void SetRetentionFloor(std::optional<uint64_t> floor) {
-    auto const guard = std::lock_guard{retention_floor_mutex_};
-    retention_floor_ = floor;
+    retention_floor_.store(floor.value_or(kNoRetentionFloor), std::memory_order_release);
   }
 
-  mutable std::mutex retention_floor_mutex_;
-  std::optional<uint64_t> retention_floor_;
+ protected:
+  // Floor 0 is a valid value ("base of nothing"), so "none" is the max sentinel.
+  static constexpr uint64_t kNoRetentionFloor = std::numeric_limits<uint64_t>::max();
+  std::atomic<uint64_t> retention_floor_{kNoRetentionFloor};
+
+ public:
 #endif
 
   memory::ArenaPool *DbArenaPool() const noexcept { return db_arena_pool_; }

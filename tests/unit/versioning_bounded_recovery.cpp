@@ -15,8 +15,10 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
 #include <filesystem>
 #include <memory>
@@ -53,15 +55,20 @@ namespace {
 
 const std::filesystem::path kRoot{std::filesystem::temp_directory_path() / "versioning_bounded_recovery"};
 
-ms::Config MakeConfig(bool recover, std::optional<uint64_t> bound = std::nullopt) {
+// Small WAL files rotate every few commits, so a history spans several of them.
+constexpr uint64_t kSmallWalKiB = 1;
+constexpr uint64_t kDefaultWalKiB = 20 * 1024;
+
+ms::Config MakeConfig(bool recover, uint64_t wal_kib = kDefaultWalKiB) {
   ms::Config config;
   config.gc = {.type = ms::Config::Gc::Type::PERIODIC, .interval = std::chrono::hours(24)};
   config.durability = {.storage_directory = kRoot,
                        .recover_on_startup = recover,
                        .snapshot_wal_mode = ms::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
                        .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::hours(24)},
-                       .wal_file_flush_every_n_tx = 1,
-                       .recovery_history_bound = bound};
+                       .snapshot_retention_count = 100,
+                       .wal_file_size_kibibytes = wal_kib,
+                       .wal_file_flush_every_n_tx = 1};
   config.salient.items.properties_on_edges = true;
   return config;
 }
@@ -171,6 +178,164 @@ struct Recovered {
   md::RecoveredIndicesAndConstraints tail_metadata_;
 };
 
+// kCommits transactions, each creating vertex i with p = i and setting vertex 1's p to i, plus a label index on :L
+// after commit kIndexAfter. Vertex i is therefore visible as of a bound iff its commit is at or below it, and vertex
+// 1's p says how many commits are.
+struct History {
+  static constexpr size_t kCommits = 16;
+  static constexpr size_t kIndexAfter = 4;
+
+  std::array<ms::Gid, kCommits> vertex{};
+  std::array<uint64_t, kCommits> commit_ts{};
+  uint64_t index_ts{};
+  std::vector<uint64_t> snapshot_ts;
+  uint64_t end_ts{};
+};
+
+// `snapshot_after` lists the commit numbers (1-based) after which a snapshot is taken.
+void BuildHistory(History &h, std::vector<size_t> const &snapshot_after, uint64_t wal_kib) {
+  memgraph::dbms::Database db{MakeConfig(false, wal_kib)};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+  auto *s = static_cast<ms::InMemoryStorage *>(db.storage());
+  auto const p = s->NameToProperty("p");
+  auto const pad = s->NameToProperty("pad");
+  auto const l = s->NameToLabel("L");
+
+  for (size_t i = 1; i <= History::kCommits; ++i) {
+    {
+      auto acc = db.Access(ms::WRITE);
+      auto v = acc->CreateVertex();
+      ASSERT_TRUE(v.SetProperty(p, ms::PropertyValue(static_cast<int64_t>(i))).has_value());
+      ASSERT_TRUE(v.SetProperty(pad, ms::PropertyValue(std::string(300, 'x'))).has_value());
+      h.vertex[i - 1] = v.Gid();
+      if (i > 1) {
+        auto v1 = acc->FindVertex(h.vertex[0], ms::View::OLD);
+        ASSERT_TRUE(v1.has_value());
+        ASSERT_TRUE(v1->SetProperty(p, ms::PropertyValue(static_cast<int64_t>(i))).has_value());
+      }
+      Commit(*acc);
+      h.commit_ts[i - 1] = LastDurableTs();
+    }
+    if (i == History::kIndexAfter) {
+      auto acc = db.ReadOnlyAccess();
+      ASSERT_TRUE(acc->CreateIndex(l).has_value());
+      Commit(*acc);
+      h.index_ts = LastDurableTs();
+    }
+    if (std::ranges::find(snapshot_after, i) != snapshot_after.end()) {
+      ASSERT_TRUE(s->CreateSnapshot().has_value());
+    }
+  }
+  h.end_ts = std::max(h.commit_ts.back(), h.index_ts);
+
+  auto const snapshots = md::GetSnapshotFiles(kRoot / md::kSnapshotDirectory);
+  ASSERT_TRUE(snapshots.has_value());
+  ASSERT_EQ(snapshots->size(), snapshot_after.size());
+  for (auto const &info : *snapshots) h.snapshot_ts.push_back(info.durable_timestamp);
+  std::ranges::sort(h.snapshot_ts);
+}
+
+// The WAL files on disk, in sequence order.
+std::vector<md::WalDurabilityInfo> Wals() {
+  auto wals = md::GetWalFiles(kRoot / md::kWalDirectory);
+  EXPECT_TRUE(wals.has_value());
+  if (!wals) return {};
+  std::ranges::sort(*wals, {}, &md::WalDurabilityInfo::seq_num);
+  return std::move(*wals);
+}
+
+// Removes the WAL files that recovery from the snapshot at `snapshot_ts` does not need (all but the last one starting
+// at or before it, and the ones after), so that only a recovery that really starts from that snapshot still works.
+void DropWalPrefixCoveredBy(uint64_t snapshot_ts) {
+  auto const wals = Wals();
+  auto const past = std::ranges::find_if(wals, [&](auto const &w) { return w.from_timestamp > snapshot_ts; });
+  auto const dropped = static_cast<size_t>(std::max<std::ptrdiff_t>(past - wals.begin() - 1, 0));
+  ASSERT_GT(dropped, 0U) << "the history must have WAL files before the snapshot";
+  for (size_t i = 0; i < dropped; ++i) ASSERT_TRUE(std::filesystem::remove(wals[i].path));
+}
+
+// Vertex and property reads of a recovered state, so one check serves both raw recovery and a recovered storage.
+struct StorageReader {
+  ms::Storage &storage;
+
+  size_t VertexCount() {
+    auto acc = storage.Access(ms::READ);
+    size_t count = 0;
+    for ([[maybe_unused]] auto v : acc->Vertices(ms::View::OLD)) ++count;
+    return count;
+  }
+
+  std::optional<ms::PropertyValue> Property(ms::Gid gid, std::string_view name) {
+    auto acc = storage.Access(ms::READ);
+    auto v = acc->FindVertex(gid, ms::View::OLD);
+    if (!v) return std::nullopt;
+    auto value = v->GetProperty(storage.NameToProperty(name), ms::View::OLD);
+    if (!value) return std::nullopt;
+    return *value;
+  }
+};
+
+// The recovered graph is exactly the history as of `bound`.
+template <typename Reader>
+void ExpectStateAsOf(Reader &r, History const &h, uint64_t bound) {
+  auto const visible = static_cast<size_t>(std::ranges::count_if(h.commit_ts, [&](auto ts) { return ts <= bound; }));
+  EXPECT_EQ(r.VertexCount(), visible) << "bound " << bound;
+  for (size_t i = 0; i < h.vertex.size(); ++i) {
+    std::optional<ms::PropertyValue> expected;
+    if (i < visible) expected = ms::PropertyValue(static_cast<int64_t>(i == 0 ? visible : i + 1));
+    EXPECT_EQ(r.Property(h.vertex[i], "p"), expected) << "vertex " << i + 1 << ", bound " << bound;
+  }
+}
+
+// The newest durable timestamp in the history at or below `bound`: what recovery has reached.
+uint64_t ReachedAsOf(History const &h, uint64_t bound) {
+  uint64_t reached = 0;
+  auto const note = [&](uint64_t ts) {
+    if (ts <= bound) reached = std::max(reached, ts);
+  };
+  std::ranges::for_each(h.commit_ts, note);
+  std::ranges::for_each(h.snapshot_ts, note);
+  note(h.index_ts);
+  return reached;
+}
+
+// Recovers with `bound` from the files on disk and checks everything it promises: the state as of the bound, the
+// index only if its definition is at or below it, the tail being exactly the WAL files with a delta above the bound,
+// and replaying that tail landing on the full history. Returns the tail for the caller's own checks.
+md::RecoveryTail RecoverAndCheck(History const &h, uint64_t bound) {
+  SCOPED_TRACE("bound " + std::to_string(bound));
+  Recovered r{MakeConfig(true)};
+  md::RecoveryTail tail;
+  EXPECT_TRUE(r.Recover(bound, &tail).has_value());
+
+  ExpectStateAsOf(r, h, bound);
+  EXPECT_EQ(
+      r.indices.label_index_->GetActiveIndices()->IndexExists(ms::LabelId::FromUint(r.name_id_mapper.NameToId("L"))),
+      h.index_ts <= bound);
+
+  std::vector<std::filesystem::path> expected_tail;
+  for (auto const &wal : Wals()) {
+    if (wal.to_timestamp > bound) expected_tail.push_back(wal.path);
+  }
+  EXPECT_EQ(tail.wal_files, expected_tail);
+  EXPECT_EQ(tail.reached_timestamp, ReachedAsOf(h, bound));
+
+  r.ReplayTail(tail);
+  ExpectStateAsOf(r, h, h.end_ts);
+  return tail;
+}
+
+void ExpectRecoveryFailure(std::optional<uint64_t> bound, std::string_view message_part) {
+  Recovered r{MakeConfig(true)};
+  md::RecoveryTail tail;
+  try {
+    static_cast<void>(r.Recover(bound, &tail));
+    ADD_FAILURE() << "expected RecoveryFailure";
+  } catch (const md::RecoveryFailure &e) {
+    EXPECT_NE(std::string_view{e.what()}.find(message_part), std::string_view::npos) << e.what();
+  }
+}
+
 }  // namespace
 
 class VersioningBoundedRecoveryTest : public ::testing::Test {
@@ -181,229 +346,38 @@ class VersioningBoundedRecoveryTest : public ::testing::Test {
   }
 
   void TearDown() override { std::filesystem::remove_all(kRoot); }
+
+  // Two snapshots among sixteen commits, in WAL files small enough to rotate every few of them.
+  static void BuildWithSnapshots(History &h) { BuildHistory(h, {5, 12}, kSmallWalKiB); }
 };
 
-TEST_F(VersioningBoundedRecoveryTest, RecoversStateAsOfBoundAndReportsTail) {
-  ms::Gid v1{}, v2{}, v3{};
-  uint64_t ts_c1{}, ts_c2{}, ts_c3{}, ts_c4{}, ts_c5{}, ts_c6{};
-  {
-    memgraph::dbms::Database db{MakeConfig(false)};
-    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
-    auto *s = static_cast<ms::InMemoryStorage *>(db.storage());
-    auto const l = s->NameToLabel("L");
-    auto const p = s->NameToProperty("p");
-
-    {  // c1: v1.p = 1, v2.p = 2
-      auto acc = db.Access(ms::WRITE);
-      auto a = acc->CreateVertex();
-      auto b = acc->CreateVertex();
-      ASSERT_TRUE(a.SetProperty(p, ms::PropertyValue(1)).has_value());
-      ASSERT_TRUE(b.SetProperty(p, ms::PropertyValue(2)).has_value());
-      v1 = a.Gid();
-      v2 = b.Gid();
-      Commit(*acc);
-      ts_c1 = LastDurableTs();
-    }
-    {  // c2: v1.p = 10
-      auto acc = db.Access(ms::WRITE);
-      auto a = acc->FindVertex(v1, ms::View::OLD);
-      ASSERT_TRUE(a->SetProperty(p, ms::PropertyValue(10)).has_value());
-      Commit(*acc);
-      ts_c2 = LastDurableTs();
-    }
-
-    ASSERT_TRUE(s->CreateSnapshot().has_value());
-
-    {  // c3: v1.p = 100
-      auto acc = db.Access(ms::WRITE);
-      auto a = acc->FindVertex(v1, ms::View::OLD);
-      ASSERT_TRUE(a->SetProperty(p, ms::PropertyValue(100)).has_value());
-      Commit(*acc);
-      ts_c3 = LastDurableTs();
-    }
-    {  // c4: label index on :L
-      auto acc = db.ReadOnlyAccess();
-      ASSERT_TRUE(acc->CreateIndex(l).has_value());
-      Commit(*acc);
-      ts_c4 = LastDurableTs();
-    }
-    {  // c5: v3.p = 3
-      auto acc = db.Access(ms::WRITE);
-      auto c = acc->CreateVertex();
-      ASSERT_TRUE(c.SetProperty(p, ms::PropertyValue(3)).has_value());
-      v3 = c.Gid();
-      Commit(*acc);
-      ts_c5 = LastDurableTs();
-    }
-    {  // c6: v2.p = 20
-      auto acc = db.Access(ms::WRITE);
-      auto b = acc->FindVertex(v2, ms::View::OLD);
-      ASSERT_TRUE(b->SetProperty(p, ms::PropertyValue(20)).has_value());
-      Commit(*acc);
-      ts_c6 = LastDurableTs();
-    }
-  }
-
-  ASSERT_LT(ts_c1, ts_c2);
-  ASSERT_LT(ts_c2, ts_c3);
-  ASSERT_LT(ts_c3, ts_c4);
-  ASSERT_LT(ts_c4, ts_c5);
-  ASSERT_LT(ts_c5, ts_c6);
-
-  auto const snapshots = md::GetSnapshotFiles(kRoot / md::kSnapshotDirectory);
-  ASSERT_TRUE(snapshots.has_value());
-  ASSERT_EQ(snapshots->size(), 1U);
-  auto const snapshot_ts = snapshots->front().durable_timestamp;
-  ASSERT_GE(snapshot_ts, ts_c2);
-  ASSERT_LT(snapshot_ts, ts_c3);
-
-  auto const wal_files = md::GetWalFiles(kRoot / md::kWalDirectory);
-  ASSERT_TRUE(wal_files.has_value());
-  ASSERT_FALSE(wal_files->empty());
-  ASSERT_EQ(wal_files->front().seq_num, 0U);
-
-  auto const recover = [&](std::optional<uint64_t> bound) {
-    auto r = std::make_unique<Recovered>(MakeConfig(true));
-    md::RecoveryTail tail;
-    auto const info = r->Recover(bound, &tail);
-    EXPECT_TRUE(info.has_value());
-    return std::pair{std::move(r), std::move(tail)};
-  };
-
-  {  // Between the snapshot and the end: snapshot (c1, c2) plus c3; the index and everything later are left out.
-    auto [r, tail] = recover(ts_c3);
-    EXPECT_EQ(r->VertexCount(), 2U);
-    EXPECT_EQ(r->Property(v1, "p"), ms::PropertyValue(100));
-    EXPECT_EQ(r->Property(v2, "p"), ms::PropertyValue(2));
-    EXPECT_FALSE(r->Property(v3, "p").has_value());
-    EXPECT_FALSE(r->indices.label_index_->GetActiveIndices()->IndexExists(
-        ms::LabelId::FromUint(r->name_id_mapper.NameToId("L"))));
-    EXPECT_EQ(tail.reached_timestamp, ts_c3);
-    ASSERT_FALSE(tail.wal_files.empty());
-    EXPECT_EQ(tail.wal_files.back(), wal_files->back().path);
-  }
-  {  // The index definition is at the bound.
-    auto [r, tail] = recover(ts_c4);
-    EXPECT_EQ(r->VertexCount(), 2U);
-    EXPECT_TRUE(r->indices.label_index_->GetActiveIndices()->IndexExists(
-        ms::LabelId::FromUint(r->name_id_mapper.NameToId("L"))));
-    EXPECT_EQ(tail.reached_timestamp, ts_c4);
-    EXPECT_EQ(tail.wal_files.back(), wal_files->back().path);
-  }
-  {  // Before the snapshot: it is not usable, the WAL chain from sequence 0 is.
-    auto [r, tail] = recover(ts_c1);
-    EXPECT_EQ(r->VertexCount(), 2U);
-    EXPECT_EQ(r->Property(v1, "p"), ms::PropertyValue(1));
-    EXPECT_EQ(r->Property(v2, "p"), ms::PropertyValue(2));
-    EXPECT_EQ(tail.reached_timestamp, ts_c1);
-    ASSERT_FALSE(tail.wal_files.empty());
-    EXPECT_EQ(tail.wal_files.back(), wal_files->back().path);
-  }
-  {  // At the end: nothing is left to replay.
-    auto [r, tail] = recover(ts_c6);
-    EXPECT_EQ(r->VertexCount(), 3U);
-    EXPECT_EQ(r->Property(v2, "p"), ms::PropertyValue(20));
-    EXPECT_EQ(r->Property(v3, "p"), ms::PropertyValue(3));
-    EXPECT_EQ(tail.reached_timestamp, ts_c6);
-    EXPECT_TRUE(tail.wal_files.empty());
-  }
-  {  // Past the last commit: the tail reports what was recovered, not the bound.
-    auto [r, tail] = recover(ts_c6 + 100);
-    EXPECT_EQ(r->VertexCount(), 3U);
-    EXPECT_EQ(tail.reached_timestamp, ts_c6);
-    EXPECT_TRUE(tail.wal_files.empty());
-  }
-  {  // No bound: full recovery, and no tail is reported.
-    auto r = std::make_unique<Recovered>(MakeConfig(true));
-    md::RecoveryTail tail;
-    ASSERT_TRUE(r->Recover(std::nullopt, &tail).has_value());
-    EXPECT_EQ(r->VertexCount(), 3U);
-    EXPECT_EQ(r->Property(v1, "p"), ms::PropertyValue(100));
-    EXPECT_TRUE(tail.wal_files.empty());
-  }
-  {  // Replaying the returned tail must land on the state an unbounded recovery produces.
-    auto [r, tail] = recover(ts_c3);
-    ASSERT_FALSE(tail.wal_files.empty());
-    r->ReplayTail(tail);
-    EXPECT_EQ(r->VertexCount(), 3U);
-    EXPECT_EQ(r->Property(v1, "p"), ms::PropertyValue(100));
-    EXPECT_EQ(r->Property(v2, "p"), ms::PropertyValue(20));
-    EXPECT_EQ(r->Property(v3, "p"), ms::PropertyValue(3));
-  }
-  {  // Exactly at the snapshot: the snapshot is the base and no WAL delta is applied on top of it.
-    auto [r, tail] = recover(snapshot_ts);
-    EXPECT_EQ(r->VertexCount(), 2U);
-    EXPECT_EQ(r->Property(v1, "p"), ms::PropertyValue(10));
-    EXPECT_EQ(r->Property(v2, "p"), ms::PropertyValue(2));
-    EXPECT_EQ(tail.reached_timestamp, snapshot_ts);
-    r->ReplayTail(tail);
-    EXPECT_EQ(r->VertexCount(), 3U);
-    EXPECT_EQ(r->Property(v1, "p"), ms::PropertyValue(100));
-    EXPECT_EQ(r->Property(v2, "p"), ms::PropertyValue(20));
-  }
-
-  // An eligible snapshot that fails to load is fatal, not a reason to fall back to the WAL chain; a snapshot past
-  // the bound is never read (last block).
-  CorruptSnapshot(snapshots->front().path);
-  for (auto const bound : {snapshot_ts, ts_c6}) {
-    Recovered r{MakeConfig(true)};
-    md::RecoveryTail tail;
-    EXPECT_THROW(r.Recover(bound, &tail), md::RecoveryFailure) << "bound " << bound;
-  }
-  {
-    auto [r, tail] = recover(ts_c1);
-    EXPECT_EQ(r->Property(v1, "p"), ms::PropertyValue(1));
-  }
+// No snapshot at all: the WAL chain from sequence 0 rebuilds the state. The bound is the index definition itself.
+TEST_F(VersioningBoundedRecoveryTest, NoSnapshotRecoversFromTheWalChain) {
+  History h;
+  ASSERT_NO_FATAL_FAILURE(BuildHistory(h, {}, kSmallWalKiB));
+  ASSERT_GE(Wals().size(), 4U);
+  RecoverAndCheck(h, h.index_ts);
 }
 
-// The storage configuration drives bounded recovery and hands the tail out exactly once.
-TEST_F(VersioningBoundedRecoveryTest, ConfiguredBoundRecoversStateAtBoundAndHandsOutTail) {
-  ms::Gid v1{};
-  uint64_t ts_c2{};
-  {
-    memgraph::dbms::Database db{MakeConfig(false)};
-    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
-    auto const p = db.storage()->NameToProperty("p");
-    for (int value = 1; value <= 3; ++value) {
-      auto acc = db.Access(ms::WRITE);
-      auto v = value == 1 ? acc->CreateVertex() : *acc->FindVertex(v1, ms::View::OLD);
-      ASSERT_TRUE(v.SetProperty(p, ms::PropertyValue(value)).has_value());
-      v1 = v.Gid();
-      Commit(*acc);
-      if (value == 2) ts_c2 = LastDurableTs();
-    }
-  }
-  auto const read_p = [&](memgraph::dbms::Database &db) {
-    auto acc = db.Access(ms::READ);
-    auto v = acc->FindVertex(v1, ms::View::OLD);
-    EXPECT_TRUE(v.has_value());
-    return *v->GetProperty(db.storage()->NameToProperty("p"), ms::View::OLD);
-  };
-  auto const wal_files = md::GetWalFiles(kRoot / md::kWalDirectory);
-  ASSERT_TRUE(wal_files.has_value() && !wal_files->empty());
-
-  {
-    memgraph::dbms::Database db{MakeConfig(true, ts_c2)};
-    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
-    auto *s = static_cast<ms::InMemoryStorage *>(db.storage());
-    EXPECT_EQ(read_p(db), ms::PropertyValue(2));
-    auto tail = s->TakeRecoveryTail();
-    ASSERT_TRUE(tail.has_value());
-    EXPECT_EQ(tail->reached_timestamp, ts_c2);
-    ASSERT_FALSE(tail->wal_files.empty());
-    EXPECT_EQ(tail->wal_files.back(), wal_files->back().path);
-    EXPECT_FALSE(s->TakeRecoveryTail().has_value()) << "the tail is moved out";
-  }
-  {
-    memgraph::dbms::Database db{MakeConfig(true)};
-    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
-    EXPECT_EQ(read_p(db), ms::PropertyValue(3));
-    EXPECT_FALSE(static_cast<ms::InMemoryStorage *>(db.storage())->TakeRecoveryTail().has_value());
-  }
+// The newest snapshot at or below the bound is the base: with the WAL before it gone, only that snapshot (not an
+// older one, not the WAL chain) can serve.
+TEST_F(VersioningBoundedRecoveryTest, NewestSnapshotBelowTheBoundIsTheBase) {
+  History h;
+  ASSERT_NO_FATAL_FAILURE(BuildWithSnapshots(h));
+  ASSERT_EQ(h.snapshot_ts.size(), 2U);
+  ASSERT_NO_FATAL_FAILURE(DropWalPrefixCoveredBy(h.snapshot_ts[1]));
+  RecoverAndCheck(h, h.commit_ts[13]);
 }
 
-// Every snapshot past the bound and no WAL to rebuild from: recovery fails instead of coming up empty.
-TEST_F(VersioningBoundedRecoveryTest, SnapshotsPastTheBoundWithoutWalFail) {
+// Every snapshot is past the bound: the WAL chain from sequence 0 rebuilds the state.
+TEST_F(VersioningBoundedRecoveryTest, AllSnapshotsPastTheBoundRecoverFromTheWalChain) {
+  History h;
+  ASSERT_NO_FATAL_FAILURE(BuildWithSnapshots(h));
+  RecoverAndCheck(h, h.commit_ts[1]);
+}
+
+// Every snapshot is past the bound and there is no WAL to rebuild from: recovery fails instead of coming up empty.
+TEST_F(VersioningBoundedRecoveryTest, AllSnapshotsPastTheBoundWithoutWalFail) {
   {
     auto config = MakeConfig(false);
     config.durability.snapshot_wal_mode = ms::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT;
@@ -417,13 +391,134 @@ TEST_F(VersioningBoundedRecoveryTest, SnapshotsPastTheBoundWithoutWalFail) {
   auto const snapshots = md::GetSnapshotFiles(kRoot / md::kSnapshotDirectory);
   ASSERT_TRUE(snapshots.has_value() && snapshots->size() == 1U);
 
-  Recovered r{MakeConfig(true)};
-  md::RecoveryTail tail;
-  try {
-    r.Recover(snapshots->front().durable_timestamp - 1, &tail);
-    ADD_FAILURE() << "expected RecoveryFailure";
-  } catch (const md::RecoveryFailure &e) {
-    EXPECT_NE(std::string_view{e.what()}.find("No snapshot at or below the recovery bound"), std::string_view::npos)
-        << e.what();
+  ExpectRecoveryFailure(snapshots->front().durable_timestamp - 1,
+                        "No snapshot at or below the recovery bound and no WAL files to recover from!");
+}
+
+// Every snapshot is past the bound and the WAL chain does not start at sequence 0: the existing missing-prefix
+// failure, not a partial recovery.
+TEST_F(VersioningBoundedRecoveryTest, AllSnapshotsPastTheBoundWithMissingWalPrefixFail) {
+  History h;
+  ASSERT_NO_FATAL_FAILURE(BuildWithSnapshots(h));
+  auto const wals = Wals();
+  ASSERT_GE(wals.size(), 2U);
+  ASSERT_EQ(wals.front().seq_num, 0U);
+  ASSERT_TRUE(std::filesystem::remove(wals.front().path));
+  ExpectRecoveryFailure(h.commit_ts[1], "There are missing prefix WAL files");
+}
+
+// A WAL file with deltas on both sides of the bound is loaded up to it and also tailed first; replaying the tail from
+// the reached timestamp (RecoverAndCheck) completes it without double-applying.
+TEST_F(VersioningBoundedRecoveryTest, WalFileStraddlingTheBoundIsLoadedAndTailed) {
+  History h;
+  ASSERT_NO_FATAL_FAILURE(BuildHistory(h, {}, kSmallWalKiB));
+  auto const wals = Wals();
+  ASSERT_GE(wals.size(), 3U);
+  auto const &straddling = wals[1];
+  ASSERT_LT(straddling.from_timestamp, straddling.to_timestamp);
+
+  auto const tail = RecoverAndCheck(h, straddling.from_timestamp);
+  ASSERT_FALSE(tail.wal_files.empty());
+  EXPECT_EQ(tail.wal_files.front(), straddling.path);
+}
+
+// The bound is exactly a snapshot's durable timestamp: that snapshot is eligible (with the WAL before it gone, an
+// older snapshot could not serve).
+TEST_F(VersioningBoundedRecoveryTest, BoundEqualToSnapshotTimestampUsesThatSnapshot) {
+  History h;
+  ASSERT_NO_FATAL_FAILURE(BuildWithSnapshots(h));
+  ASSERT_NO_FATAL_FAILURE(DropWalPrefixCoveredBy(h.snapshot_ts[1]));
+  RecoverAndCheck(h, h.snapshot_ts[1]);
+}
+
+// The bound is exactly the last delta of a WAL file: that file is complete in the recovered state and not tailed, the
+// next one is tail-only.
+TEST_F(VersioningBoundedRecoveryTest, BoundEqualToWalFileEndLeavesTheNextFileAsTheTail) {
+  History h;
+  ASSERT_NO_FATAL_FAILURE(BuildHistory(h, {}, kSmallWalKiB));
+  auto const wals = Wals();
+  ASSERT_GE(wals.size(), 3U);
+  ASSERT_GT(wals[2].from_timestamp, wals[1].to_timestamp);
+
+  auto const tail = RecoverAndCheck(h, wals[1].to_timestamp);
+  ASSERT_FALSE(tail.wal_files.empty());
+  EXPECT_EQ(tail.wal_files.front(), wals[2].path);
+}
+
+// A bound at or past the end of the history recovers everything and leaves nothing to replay; the tail reports what was
+// recovered, not the bound.
+TEST_F(VersioningBoundedRecoveryTest, BoundAtOrPastTheEndLeavesNoTail) {
+  History h;
+  ASSERT_NO_FATAL_FAILURE(BuildWithSnapshots(h));
+  for (auto const bound : {h.end_ts, h.end_ts + 100}) {
+    auto const tail = RecoverAndCheck(h, bound);
+    EXPECT_TRUE(tail.wal_files.empty());
+    EXPECT_EQ(tail.reached_timestamp, h.end_ts);
+  }
+}
+
+// A missing file inside the WAL chain is fatal even though a bound is set.
+TEST_F(VersioningBoundedRecoveryTest, GapInTheWalSequenceFails) {
+  History h;
+  ASSERT_NO_FATAL_FAILURE(BuildHistory(h, {}, kSmallWalKiB));
+  auto const wals = Wals();
+  ASSERT_GE(wals.size(), 3U);
+  ASSERT_TRUE(std::filesystem::remove(wals[1].path));
+  ExpectRecoveryFailure(h.end_ts,
+                        "You are missing a WAL file with the sequence number " + std::to_string(wals[1].seq_num));
+}
+
+// An eligible snapshot that fails to load is fatal, not a reason to fall back to the WAL chain; one past the bound is
+// never read.
+TEST_F(VersioningBoundedRecoveryTest, CorruptSnapshotIsFatalOnlyWhenEligible) {
+  History h;
+  ASSERT_NO_FATAL_FAILURE(BuildHistory(h, {8}, kSmallWalKiB));
+  auto const snapshots = md::GetSnapshotFiles(kRoot / md::kSnapshotDirectory);
+  ASSERT_TRUE(snapshots.has_value() && snapshots->size() == 1U);
+  ASSERT_NO_FATAL_FAILURE(CorruptSnapshot(snapshots->front().path));
+
+  for (auto const bound : {h.snapshot_ts.front(), h.end_ts}) {
+    Recovered r{MakeConfig(true)};
+    md::RecoveryTail tail;
+    EXPECT_THROW(r.Recover(bound, &tail), md::RecoveryFailure) << "bound " << bound;
+  }
+  RecoverAndCheck(h, h.commit_ts[1]);
+}
+
+// The storage configuration drives bounded recovery and hands the tail out exactly once; a start without a bound
+// recovers everything and has no tail.
+TEST_F(VersioningBoundedRecoveryTest, ConfiguredBoundRecoversStateAtBoundAndHandsOutTail) {
+  History h;
+  ASSERT_NO_FATAL_FAILURE(BuildHistory(h, {}, kSmallWalKiB));
+  auto const bound = h.commit_ts[9];
+  std::vector<std::filesystem::path> expected_tail;
+  for (auto const &wal : Wals()) {
+    if (wal.to_timestamp > bound) expected_tail.push_back(wal.path);
+  }
+  ASSERT_FALSE(expected_tail.empty());
+
+  {
+    ms::InMemoryStorage s{MakeConfig(true),
+                          std::nullopt,
+                          std::make_unique<ms::PlanInvalidatorDefault>(),
+                          memgraph::metrics::DatabaseMetricHandles{},
+                          nullptr,
+                          nullptr,
+                          nullptr,
+                          md::HistoryBounds{.recovery_bound = bound}};
+    StorageReader reader{s};
+    ExpectStateAsOf(reader, h, bound);
+    auto tail = s.TakeRecoveryTail();
+    ASSERT_TRUE(tail.has_value());
+    EXPECT_EQ(tail->reached_timestamp, bound);
+    EXPECT_EQ(tail->wal_files, expected_tail);
+    EXPECT_FALSE(s.TakeRecoveryTail().has_value()) << "the tail is moved out";
+  }
+  {
+    memgraph::dbms::Database db{MakeConfig(true)};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+    StorageReader reader{*db.storage()};
+    ExpectStateAsOf(reader, h, h.end_ts);
+    EXPECT_FALSE(static_cast<ms::InMemoryStorage *>(db.storage())->TakeRecoveryTail().has_value());
   }
 }
