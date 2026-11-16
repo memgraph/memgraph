@@ -1035,6 +1035,18 @@ TEST_F(WriteVisibilityPlan, AWritingCallBodySeeksNoPointIndex) {
 
 // ---------------------------------------------------------------- every reader of a writing CALL body reads View::NEW
 
+// Batching is per level: the root of a query with an IN TRANSACTIONS call keeps its advancing barriers.
+TEST_F(WriteVisibilityPlan, ARootWithAnInTransactionsCallKeepsItsBarriers) {
+  auto &plan = Plan(
+      "UNWIND [1, 2] AS i CREATE (:L) MERGE (m:L) WITH count(*) AS n CALL () { CREATE (:Z) } IN TRANSACTIONS OF 10 "
+      "ROWS MATCH (k:L) RETURN n, count(k) AS c");
+  auto merges = Collect<memgraph::query::plan::Merge>(plan);
+  ASSERT_EQ(merges.size(), 1);
+  auto *barrier = dynamic_cast<Accumulate *>(merges[0]->input_.get());
+  ASSERT_NE(barrier, nullptr);
+  EXPECT_TRUE(barrier->advance_command_);
+}
+
 // A writing IN TRANSACTIONS body is a writing tree: its cursor runs the body to the end for each input row before it
 // commits, so a barrier inside it drains without advancing, and its readers read NEW.
 TEST_F(WriteVisibilityPlan, AWritingInTransactionsBodyIsAWritingTree) {
@@ -1351,8 +1363,9 @@ class ViewOracle {
     return std::ranges::any_of(Children(op), [](auto const &child) { return ContainsWrite(*child.first); });
   }
 
+  /// USING PERIODIC COMMIT keeps master's views throughout; an IN TRANSACTIONS call is batching for its body only.
   static bool ContainsBatching(LogicalOperator &op) {
-    if (Is<plan::PeriodicCommit>(op) || Is<plan::PeriodicSubquery>(op)) return true;
+    if (Is<plan::PeriodicCommit>(op)) return true;
     return std::ranges::any_of(Children(op), [](auto const &child) { return ContainsBatching(*child.first); });
   }
 
@@ -1374,6 +1387,8 @@ class ViewOracle {
           Walk(*child, reads_new, is_rollup ? consumer_reads_new : ReadsNewClause(op), IsSetGroupProduce(op));
           break;
         case Edge::kBody:
+          // A read-only IN TRANSACTIONS body keeps master's views.
+          if (Is<plan::PeriodicSubquery>(op) && !ContainsWrite(*child)) break;
           Walk(*child, reads_new || ContainsWrite(*child));
           break;
         case Edge::kWritingClause:

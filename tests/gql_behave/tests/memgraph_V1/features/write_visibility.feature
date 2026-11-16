@@ -2715,3 +2715,17 @@ Feature: Write visibility inside one query
         Then the result should be:
             | n |
             | 6 |
+
+    Scenario: A MERGE before an IN TRANSACTIONS call sees every row's CREATE before it
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:WvIr)
+            """
+        When executing query:
+            """
+            UNWIND [1, 2] AS i CREATE (:WvIr) MERGE (m:WvIr) WITH count(*) AS n CALL () { CREATE (:WvIz) } IN TRANSACTIONS OF 10 ROWS MATCH (k:WvIr) RETURN n, count(k) AS c
+            """
+        Then the result should be:
+            | n | c |
+            | 6 | 3 |
