@@ -1985,12 +1985,17 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
 
     auto const restore_scope = utils::OnScopeExit{[this, saved = read_scope_] { read_scope_ = saved; }};
     bool const from_root = read_scope_ == ReadScope::kRoot;
-    if (commit_frequency != nullptr) {
+    // A writing IN TRANSACTIONS body is a writing tree: its cursor runs the body to the end for each input row before
+    // it commits, so the body's barriers drain without advancing.
+    bool const batched_writing_body = commit_frequency != nullptr && subquery->writes;
+    if (batched_writing_body) {
+      read_scope_ = ReadScope::kWritingTree;
+    } else if (commit_frequency != nullptr) {
       read_scope_ = ReadScope::kBatching;
     } else if (read_scope_ == ReadScope::kRoot) {
       read_scope_ = subquery->writes ? ReadScope::kWritingTree : ReadScope::kReadOnlyTree;
     }
-    bool const enters_writing_tree = from_root && read_scope_ == ReadScope::kWritingTree;
+    bool const enters_writing_tree = (from_root || batched_writing_body) && read_scope_ == ReadScope::kWritingTree;
     auto subquery_op = Plan(*subquery);
     if (enters_writing_tree) impl::ReadNewThroughout(*subquery_op);
     auto subquery_bound_symbols = subquery_op->OutputSymbols(*context_->symbol_table);
