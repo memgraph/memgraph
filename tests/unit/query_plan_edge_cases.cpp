@@ -247,6 +247,17 @@ TYPED_TEST(QueryExecution, MatchOnBoundNodeIsNotANode) {
   EXPECT_EQ(results[0][0].ValueInt(), 2);
 }
 
+TYPED_TEST(QueryExecution, AnEdgeTypeIndexScanKeepsABoundEndpoint) {
+  // An edge scan writes both endpoints, so a plan that starts at the edge must not overwrite a bound node.
+  if constexpr (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) GTEST_SKIP() << "no edge-type index on disk";
+  FLAGS_query_cost_planner = true;
+  this->Execute("CREATE EDGE INDEX ON :T");
+  this->Execute("CREATE (:A)-[:T]->(:B), (c:C)-[:T]->(c)");
+
+  EXPECT_EQ(this->Execute("MATCH (a)-[:T]->(a) RETURN a").size(), 1U);
+  EXPECT_EQ(this->Execute("MATCH (m:B) WITH m MATCH (s)-[:T]->(m) RETURN s").size(), 1U);
+}
+
 TYPED_TEST(QueryExecution, SubqueryBodyCorrelatesAcrossSeparatePatterns) {
   // Two patterns in a body reach each other's variables through what the body's first operator says it modifies.
   // The caller's variables have to be among them, or a filter naming one of them together with a variable of the
