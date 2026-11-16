@@ -342,10 +342,7 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
             "Light edges require properties on edges (--storage-light-edge implies "
             "--storage-properties-on-edges=true).");
 #ifdef MG_ENTERPRISE
-  MG_ASSERT(!history_bounds.recovery_bound || !history_bounds.retention_floor,
-            "recovery_bound and retention_floor are mutually exclusive");
-  // The bound seeds the floor: what was just recovered must stay recoverable.
-  SetRetentionFloor(history_bounds.recovery_bound ? history_bounds.recovery_bound : history_bounds.retention_floor);
+  SetRetentionFloor(history_bounds.floor);
 #endif
   if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::DISABLED ||
       config_.durability.snapshot_on_exit || config_.durability.recover_on_startup) {
@@ -422,8 +419,8 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
             &ttl_,
 #ifdef MG_ENTERPRISE
             &description_store_,
-            history_bounds.recovery_bound,
-            history_bounds.recovery_bound ? &recovery_tail : nullptr);
+            history_bounds.recover_only_to_floor ? std::optional{history_bounds.floor} : std::nullopt,
+            history_bounds.recover_only_to_floor ? &recovery_tail : nullptr);
 #else
             &description_store_);
 #endif
@@ -459,7 +456,7 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
         std::chrono::duration<double>(recovery_timer.Elapsed()).count());
     if (info) {
 #ifdef MG_ENTERPRISE
-      if (history_bounds.recovery_bound) recovery_tail_ = std::move(recovery_tail);
+      if (history_bounds.recover_only_to_floor) recovery_tail_ = std::move(recovery_tail);
 #endif
       vertex_id_.store(info->next_vertex_id, std::memory_order_release);
       edge_id_.store(info->next_edge_id, std::memory_order_release);
@@ -3177,10 +3174,7 @@ uint64_t InMemoryStorage::RegisterForkPinImpl(bool lower_retention_floor) {
     // CAS-min, still under engine_lock_: a snapshot whose transaction predates this fork sees the lowered floor, and
     // one that starts later has its own durable ts <= fork_ts - 1 as a valid base.
     auto const floor = fork_ts == 0 ? 0 : fork_ts - 1;
-    auto current = retention_floor_.load(std::memory_order_acquire);
-    while (floor < current && !retention_floor_.compare_exchange_weak(
-                                  current, floor, std::memory_order_acq_rel, std::memory_order_acquire)) {
-    }
+    atomic_fetch_min_explicit(&retention_floor_, floor);
   }
   return fork_ts;
 }
