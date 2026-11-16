@@ -241,4 +241,36 @@ TEST_F(PointerPackTest, RelaxedReaderVsLockedWriters) {
   auto guard = std::lock_guard{lock};
   EXPECT_TRUE(pp.GetRelaxed<2>());
 }
+
+// The lock-free RMW helpers (fast-discard cleanup) must never lose a concurrently set bit.
+TEST_F(PointerPackTest, AtomicRmwNeverLosesConcurrentBit) {
+  constexpr int kIterations = 50'000;
+
+  for (int round = 0; round < 20; ++round) {
+    PointerPack<Dummy, 3> pp(&a);
+    std::atomic<bool> go{false};
+
+    std::thread setter([&] {
+      while (!go.load(std::memory_order_acquire)) {
+      }
+      pp.AtomicSetBit<2>();
+    });
+    std::thread cleaner([&] {
+      while (!go.load(std::memory_order_acquire)) {
+      }
+      for (int i = 0; i < kIterations; ++i) {
+        pp.AtomicSetPtr((i & 1) != 0 ? &a : &b);
+        pp.AtomicClearBit<1>();
+        pp.AtomicSetBit<0>();
+      }
+    });
+    go.store(true, std::memory_order_release);
+    setter.join();
+    cleaner.join();
+
+    EXPECT_TRUE(pp.GetRelaxed<2>());
+    EXPECT_TRUE(pp.Get<0>() != 0);
+    EXPECT_EQ(pp.Get<1>(), 0u);
+  }
+}
 #endif

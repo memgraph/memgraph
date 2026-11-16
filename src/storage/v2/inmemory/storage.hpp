@@ -862,8 +862,11 @@ class InMemoryStorage final : public Storage {
   // Call exactly once per RegisterForkPin (unregistered fork_ts MG_ASSERTs); removes one equal pin, not all.
   void ReleaseForkPin(uint64_t fork_ts);
 
-  // Oldest live fork pin, or nullopt if none; mirrors the GC horizon clamp in CollectGarbage.
-  std::optional<uint64_t> OldestForkPin() const;
+  // Min of version_fork_pins_ (kNoForkPin when empty); written under the lock so readers skip it.
+  static constexpr uint64_t kNoForkPin = std::numeric_limits<uint64_t>::max();
+
+  // Oldest live fork pin, or kNoForkPin if none; mirrors the GC horizon clamp in CollectGarbage.
+  uint64_t OldestForkPin() const;
 #endif
 
   utils::FileRetainer::FileLockerAccessor::ret_type IsPathLocked();
@@ -1261,8 +1264,6 @@ class InMemoryStorage final : public Storage {
   // Live branch fork points (multiset: pins may share a fork_ts); GC's horizon is clamped to the oldest.
   utils::SpinLock version_fork_pin_lock_;
   std::multiset<uint64_t> version_fork_pins_;
-  // Min of version_fork_pins_ (kNoForkPin when empty); written under the lock so readers skip it.
-  static constexpr uint64_t kNoForkPin = std::numeric_limits<uint64_t>::max();
   std::atomic<uint64_t> oldest_fork_pin_{kNoForkPin};
 #endif
 };
