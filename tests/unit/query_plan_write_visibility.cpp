@@ -400,6 +400,41 @@ TEST_F(WriteVisibilityPlan, ABarrierKeepsOnlyTheSymbolsReadAfterIt) {
             (std::set<std::string>{"i", "a", "n"}));
 }
 
+// ---------------------------------------------------------------- a row-unique node needs no barrier
+
+// Every row holds a different n, and both SETs reach the key through n only: no row can see another row's write,
+// so the barrier between them is not needed.
+TEST_F(WriteVisibilityPlan, ARowUniqueNodeNeedsNoBarrierBetweenItsOwnKeys) {
+  for (auto const *query : {
+           "MATCH (n:L) SET n.x = n.x + 1 SET n.y = n.x",
+           "MATCH (n:L) SET n.y = n.x SET n.x = 1",
+           "MATCH (n:L)--() WITH n, count(*) AS c SET n.x = n.x + c SET n.y = n.x",
+           "MATCH (n:L) WITH DISTINCT n SET n.x = n.x + 1 SET n.y = n.x",
+       }) {
+    EXPECT_TRUE(Collect<Accumulate>(Plan(query)).empty()) << query;
+  }
+}
+
+// Negative twins: each keeps its barrier.
+TEST_F(WriteVisibilityPlan, ANodeThatMayRepeatKeepsItsBarrier) {
+  for (auto const *query : {
+           // An expand repeats n once per relationship.
+           "MATCH (n:L)--() SET n.x = n.x + 1 SET n.y = n.x",
+           // The scan of n runs once per a.
+           "MATCH (a:K), (n:L) SET n.x = n.x + 1 SET n.y = n.x",
+           // The UNWIND repeats every n.
+           "UNWIND [1, 2] AS i MATCH (n:L) SET n.x = n.x + i SET n.y = n.x",
+           // Grouped on n and c, so n may repeat.
+           "MATCH (n:L)--(m) WITH n, m.k AS k, count(*) AS c SET n.x = n.x + c SET n.y = n.x",
+           // The key is read through another variable.
+           "MATCH (n:L) WITH n, n AS m SET n.x = 1 SET n.y = m.x",
+           // Something else conflicts too: labels() reads every label.
+           "MATCH (n:L) SET n.x = 1, n:Q SET n.y = size(labels(n)) + n.x",
+       }) {
+    EXPECT_FALSE(Collect<Accumulate>(Plan(query)).empty()) << query;
+  }
+}
+
 // ---------------------------------------------------------------- a map row is not a graph entity
 
 // A row unwound from a literal list of literal maps, or a WITH alias of a map literal whose values hold no entity,
