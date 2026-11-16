@@ -17,10 +17,12 @@
 #include <exception>
 #include <functional>
 #include <limits>
+#include <mutex>
 
 #include <fmt/format.h>
 
 #include "dbms/inmemory/replication_handlers.hpp"
+#include "memory/db_arena_fwd.hpp"
 #include "storage/v2/durability/wal.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/transaction_constants.hpp"
@@ -28,7 +30,10 @@
 namespace memgraph::dbms {
 
 namespace {
-void RecordWalEpoch(storage::ReplicationStorageState &state, std::string const &epoch_id, uint64_t ldt) {
+void RecordWalEpoch(storage::InMemoryStorage &storage, std::string const &epoch_id, uint64_t ldt) {
+  // CreateSnapshot reads the epoch and history under engine_lock_, and its runner starts with the storage.
+  auto const engine_guard = std::scoped_lock{storage.engine_lock_};
+  auto &state = storage.repl_storage_state_;
   if (!state.history.empty() && state.history.back().first == epoch_id) {
     state.history.back().second = ldt;
   } else {
@@ -46,7 +51,7 @@ std::expected<std::vector<uint64_t>, std::string> ReplayHistoryTail(storage::InM
                                                                     const storage::durability::RecoveryTail &tail,
                                                                     std::span<const uint64_t> fork_ts) {
   // Pins are taken positionally as replay crosses each fork: unsorted input would pin a later fork too late.
-  if (!std::ranges::is_sorted(fork_ts)) return std::unexpected("fork timestamps must be ascending");
+  DMG_ASSERT(std::ranges::is_sorted(fork_ts), "fork timestamps come from the ledger and must be ascending");
   // The recovered state already holds the commit at reached_timestamp, which such a fork must not see. Commit
   // timestamps start at 1, so 0 means no commit and a fork at 0 is past it.
   if (!fork_ts.empty() && tail.reached_timestamp != storage::kTimestampInitialId &&
@@ -54,6 +59,8 @@ std::expected<std::vector<uint64_t>, std::string> ReplayHistoryTail(storage::InM
     return std::unexpected(
         fmt::format("fork at {} is not past the recovered state at {}", fork_ts.front(), tail.reached_timestamp));
   }
+
+  const memory::DbArenaScope db_arena_scope{storage.DbArenaPool()};
 
   std::vector<uint64_t> pins;
   pins.reserve(fork_ts.size());
@@ -81,7 +88,7 @@ std::expected<std::vector<uint64_t>, std::string> ReplayHistoryTail(storage::InM
           return failed(fmt::format("replaying WAL file '{}' failed", file.string()));
         }
         if (const auto ldt_after = LastDurableTimestamp(storage); ldt_after != ldt_before) {
-          RecordWalEpoch(storage.repl_storage_state_, info.epoch_id, ldt_after);
+          RecordWalEpoch(storage, info.epoch_id, ldt_after);
         }
       }
     }

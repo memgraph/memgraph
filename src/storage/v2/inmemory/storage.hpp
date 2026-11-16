@@ -1076,10 +1076,11 @@ class InMemoryStorage final : public Storage {
   class SuppressWalScope {
    public:
     explicit SuppressWalScope(InMemoryStorage &storage) : storage_{storage} {
-      MG_ASSERT(!storage_.suppress_wal_.exchange(true, std::memory_order_acq_rel), "WAL suppression is not nestable");
+      MG_ASSERT(!storage_.suppress_wal_, "WAL suppression is not nestable");
+      storage_.suppress_wal_ = true;
     }
 
-    ~SuppressWalScope() { storage_.suppress_wal_.store(false, std::memory_order_release); }
+    ~SuppressWalScope() { storage_.suppress_wal_ = false; }
 
     SuppressWalScope(SuppressWalScope const &) = delete;
     SuppressWalScope &operator=(SuppressWalScope const &) = delete;
@@ -1092,9 +1093,9 @@ class InMemoryStorage final : public Storage {
 
   /// Moves the transaction clock to at least max(last durable timestamp + 1, `min_next`); replayed commits take local
   /// MVCC ids but record main's durable timestamps, so the clock can trail them. Requires no transaction in flight.
+  /// Mirrors the clock move on promotion in replication_handler.cpp (MarkFinishedInRange +
+  /// SetTimestampQuiescent(ldt + 1)).
   void BumpClockPastDurable(uint64_t min_next = 0);
-
-  [[nodiscard]] uint64_t OldestActiveTimestamp();
 #endif
 
   // The highest fully-published commit timestamp; under the experiment this is what a snapshot
@@ -1270,7 +1271,7 @@ class InMemoryStorage final : public Storage {
   uint64_t wal_unsynced_transactions_{0};
 
 #ifdef MG_ENTERPRISE
-  std::atomic<bool> suppress_wal_{false};
+  bool suppress_wal_{false};  // startup replay is single-threaded; no concurrent writers
 
   std::optional<durability::RecoveryTail> recovery_tail_;
 #endif
