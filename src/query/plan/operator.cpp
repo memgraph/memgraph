@@ -7529,6 +7529,8 @@ class AccumulateCursor : public Cursor {
     OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP("Accumulate");
 
+    if (self_.access_check_only_ && !ChecksAccess(context)) return input_cursor_->Pull(frame, context);
+
     auto &dba = *context.db_accessor;
     // cache all the input
     if (!pulled_all_input_) {
@@ -7555,6 +7557,15 @@ class AccumulateCursor : public Cursor {
   }
 
   void Shutdown() override { input_cursor_->Shutdown(); }
+
+  /// Whether a fine-grained access check runs in this query.
+  static bool ChecksAccess(ExecutionContext const &context) {
+#ifdef MG_ENTERPRISE
+    return context.auth_checker != nullptr && license::global_license_checker.IsEnterpriseValidFast();
+#else
+    return false;
+#endif
+  }
 
   void Reset() override {
     input_cursor_->Reset();

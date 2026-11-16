@@ -356,9 +356,12 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
       // What its View::NEW readers read since the last barrier; a write that meets it gets a drain first, or the
       // reader would see that write for its earlier rows.
       ReadWriteSet pending_new_reads;
+      // What this UNION part wrote since the last barrier of either kind: an access check barrier covers only this.
+      ReadWriteSet access_pending_writes;
       auto forget_pending = [&] {
         pending_writes.Clear();
         pending_new_reads.Clear();
+        access_pending_writes.Clear();
       };
       // Ends the command here: drains every row through the clauses so far, so a read above sees all their writes.
       auto plan_barrier = [&]() {
@@ -370,11 +373,33 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
         forget_pending();
         wrote_since_with = false;
       };
+      // A barrier only a fine-grained access check needs passes rows through when no check runs, so it ends nothing:
+      // the writes stay pending for a later read that conflicts for real.
+      auto plan_access_check_barrier = [&]() {
+        if (input_op) {
+          std::vector<Symbol> symbols(context.bound_symbols.begin(), context.bound_symbols.end());
+          auto barrier = std::make_unique<Accumulate>(std::move(input_op), symbols, read_scope_ == ReadScope::kRoot);
+          barrier->access_check_only_ = true;
+          input_op = std::move(barrier);
+        }
+        access_pending_writes.Clear();
+        pending_new_reads.access_check_labels = false;
+      };
       auto barrier_before = [&](const ReadWriteSet &reads) {
-        if (BarriersOn() && Conflicts(reads, pending_writes)) plan_barrier();
+        if (!BarriersOn() || !Conflicts(reads, pending_writes)) return;
+        if (!ConflictsOnlyInAccessCheck(reads, pending_writes)) {
+          plan_barrier();
+        } else if (Conflicts(reads, access_pending_writes)) {
+          plan_access_check_barrier();
+        }
       };
       auto drain_before = [&](const ReadWriteSet &writes) {
-        if (BarriersOn() && Conflicts(pending_new_reads, writes)) plan_barrier();
+        if (!BarriersOn() || !Conflicts(pending_new_reads, writes)) return;
+        if (ConflictsOnlyInAccessCheck(pending_new_reads, writes)) {
+          plan_access_check_barrier();
+        } else {
+          plan_barrier();
+        }
       };
       for (const auto &single_query_part : query_part.single_query_parts) {
         // Installed before HandleMatching, which plans MATCH-clause comprehensions through the same member.
@@ -542,6 +567,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
           auto const record_writes = utils::OnScopeExit{[&] {
             if (advanced_after) return;
             pending_writes.Merge(access.writes);
+            access_pending_writes.Merge(access.writes);
             if (bound_before) {
               auto *call = utils::Downcast<query::CallSubquery>(clause);
               for (const auto &symbol : context.bound_symbols) {

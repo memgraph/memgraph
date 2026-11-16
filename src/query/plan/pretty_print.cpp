@@ -135,7 +135,14 @@ PRE_VISIT(SetProperties);
 PRE_VISIT(SetLabels);
 PRE_VISIT(RemoveProperty);
 PRE_VISIT(RemoveLabels);
-PRE_VISIT(Accumulate);
+
+bool PlanPrinter::PreVisit(Accumulate &op) {
+  WithPrintLn(op, [this, &op](auto &out) {
+    out << StartSymbol() << " Accumulate" << (op.access_check_only_ ? " (access check only)" : "");
+  });
+  return true;
+}
+
 PRE_VISIT(EmptyResult);
 PRE_VISIT(EvaluatePatternFilter);
 

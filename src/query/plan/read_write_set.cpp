@@ -62,7 +62,11 @@ class ReadWriteCollector final : public HierarchicalTreeVisitor {
   // ---------------------------------------------------------------- reads
 
   bool PreVisit(PropertyLookup &lookup) override {
-    if (ReadsGraph(lookup.expression_)) result.reads.properties.insert(lookup.property_path_.front().name);
+    if (ReadsGraph(lookup.expression_)) {
+      result.reads.properties.insert(lookup.property_path_.front().name);
+      // A node's property permission depends on its labels.
+      if (!IsEdge(lookup.expression_)) ReadLabelsForAccessCheck();
+    }
     return true;
   }
 
@@ -112,6 +116,8 @@ class ReadWriteCollector final : public HierarchicalTreeVisitor {
   bool PreVisit(NodeAtom &node) override {
     auto const &symbol = symbol_table_.at(*node.identifier_);
     result.reads.symbols.insert(symbol);
+    // The fine-grained access check of every node a pattern reads looks at its labels.
+    ReadLabelsForAccessCheck();
     // Only a node the pattern has to find reads which nodes exist, and only when an unlabelled node can match.
     if (node.label_term_) {
       ReadLabelTerm(*node.label_term_);
@@ -196,6 +202,7 @@ class ReadWriteCollector final : public HierarchicalTreeVisitor {
 
   bool PreVisit(SetLabels &set) override {
     WriteLabels(set.labels_);
+    result.writes.relabels = true;
     ReadLabelsForAccessCheck();
     return false;
   }
@@ -208,6 +215,7 @@ class ReadWriteCollector final : public HierarchicalTreeVisitor {
 
   bool PreVisit(RemoveLabels &remove) override {
     WriteLabels(remove.labels_);
+    result.writes.relabels = true;
     ReadLabelsForAccessCheck();
     return false;
   }
@@ -251,6 +259,12 @@ class ReadWriteCollector final : public HierarchicalTreeVisitor {
     if (non_graph_.contains(symbol)) return false;
     auto const type = symbol.type();
     return type == Symbol::Type::ANY || type == Symbol::Type::VERTEX || type == Symbol::Type::EDGE;
+  }
+
+  /// Whether a lookup's object is an edge variable, whose access check reads its type, not labels.
+  bool IsEdge(Expression *object) const {
+    auto *ident = utils::Downcast<Identifier>(object);
+    return ident && symbol_table_.at(*ident).type() == Symbol::Type::EDGE;
   }
 
   /// Whether a variable may be, or hold, a node, an edge, a path or an edge list.
@@ -329,7 +343,7 @@ class ReadWriteCollector final : public HierarchicalTreeVisitor {
     }
   }
 
-  /// The fine-grained access check of SET and REMOVE label reads the labels the node already has.
+  /// A fine-grained access check reads the labels a node already has: of SET and REMOVE label, and of a node read.
   void ReadLabelsForAccessCheck() {
 #ifdef MG_ENTERPRISE
     result.reads.access_check_labels = true;
@@ -381,12 +395,13 @@ void ReadWriteSet::Merge(const ReadWriteSet &other) {
   nodes |= other.nodes;
   everything |= other.everything;
   access_check_labels |= other.access_check_labels;
+  relabels |= other.relabels;
   symbols.insert(other.symbols.begin(), other.symbols.end());
   referenced.insert(other.referenced.begin(), other.referenced.end());
 }
 
 bool Conflicts(const ReadWriteSet &reads, const ReadWriteSet &writes) {
-  if (reads.access_check_labels && (writes.any_label || !writes.labels.empty())) return true;
+  if (reads.access_check_labels && writes.relabels) return true;
   if (reads.Empty() || writes.Empty()) return false;
   if (reads.everything || writes.everything) return true;
   // A pattern through a node this command created: View::OLD cannot see it at all.
@@ -397,6 +412,13 @@ bool Conflicts(const ReadWriteSet &reads, const ReadWriteSet &writes) {
          KeysConflict(reads.labels, reads.any_label, writes.labels, writes.any_label) ||
          KeysConflict(reads.edge_types, reads.any_edge_type, writes.edge_types, writes.any_edge_type) ||
          (reads.nodes && writes.nodes);
+}
+
+bool ConflictsOnlyInAccessCheck(const ReadWriteSet &reads, const ReadWriteSet &writes) {
+  if (!reads.access_check_labels || !Conflicts(reads, writes)) return false;
+  auto without_check = reads;
+  without_check.access_check_labels = false;
+  return !Conflicts(without_check, writes);
 }
 
 namespace {

@@ -40,9 +40,12 @@ struct ReadWriteSet {
   bool nodes{false};
   /// A procedure, a DELETE or a graph-reading function: conflicts with any non-empty set.
   bool everything{false};
-  /// Reads only: the fine-grained access check of a label write reads the node's labels. It conflicts with a label
-  /// write and nothing else, so a DELETE before it changes nothing.
+  /// Reads only: a fine-grained access check reads the node's labels (of a label write, and of every node read). It
+  /// conflicts with a label write and nothing else, so a DELETE before it changes nothing.
   bool access_check_labels{false};
+  /// Writes only: a SET or REMOVE label changed the labels of a node that already existed, the one write an access
+  /// check can see. A created node's labels are not one: whether a read finds that node at all is a real conflict.
+  bool relabels{false};
   /// Reads: the symbols a pattern expands from or through. Writes: the symbols a CREATE or MERGE first binds, which
   /// View::OLD cannot see until the command advances.
   std::unordered_set<Symbol> symbols;
@@ -61,6 +64,10 @@ struct ReadWriteSet {
 /// Whether @p reads can observe any of @p writes. A pattern through a symbol @p writes binds conflicts too, which
 /// matters only to a View::OLD reader: clear `reads.symbols` for a View::NEW one.
 bool Conflicts(const ReadWriteSet &reads, const ReadWriteSet &writes);
+
+/// Whether the reads conflict with the writes only through `access_check_labels`: a barrier for that conflict is
+/// needed only while a fine-grained access check runs.
+bool ConflictsOnlyInAccessCheck(const ReadWriteSet &reads, const ReadWriteSet &writes);
 
 struct ReadsAndWrites {
   ReadWriteSet reads;
