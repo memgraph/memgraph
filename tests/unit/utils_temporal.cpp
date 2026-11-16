@@ -602,6 +602,16 @@ TEST(TemporalTest, LocalTimeParsing) {
   ASSERT_THROW(memgraph::utils::ParseLocalTimeParameters("1920:21"), memgraph::utils::BasicException);
   ASSERT_THROW(memgraph::utils::ParseLocalTimeParameters("19:20:21.999999999999"),
                memgraph::utils::temporal::InvalidArgumentException);
+
+  // The help text is user-visible and must document the accepted fraction widths (A4).
+  try {
+    static_cast<void>(memgraph::utils::ParseLocalTimeParameters("19:20:21s"));
+    FAIL() << "a non-fraction suffix must be rejected";
+  } catch (const memgraph::utils::temporal::InvalidArgumentException &e) {
+    const std::string message{e.what()};
+    EXPECT_NE(message.find("1 to 9 digits after the decimal point"), std::string::npos) << message;
+    EXPECT_NE(message.find("more than 9 digits is invalid"), std::string::npos) << message;
+  }
 }
 
 void test_LocalDateTimeParsing() {
@@ -632,6 +642,16 @@ void test_LocalDateTimeParsing() {
                memgraph::utils::temporal::InvalidArgumentException);
   EXPECT_THROW(memgraph::utils::ParseLocalDateTimeParameters("2024-13-45"),
                memgraph::utils::temporal::InvalidArgumentException);
+
+  // The help text is user-visible and must document the date-only form (A4).
+  try {
+    static_cast<void>(memgraph::utils::ParseLocalDateTimeParameters("2024-01-02T"));
+    FAIL() << "an empty time part must be rejected";
+  } catch (const memgraph::utils::temporal::InvalidArgumentException &e) {
+    const std::string message{e.what()};
+    EXPECT_NE(message.find("A date without a time part is parsed as midnight"), std::string::npos) << message;
+    EXPECT_NE(message.find("1 to 9 digits after the decimal point"), std::string::npos) << message;
+  }
 }
 
 TEST(TemporalTest, LocalDateTimeParsing) { test_LocalDateTimeParsing(); }

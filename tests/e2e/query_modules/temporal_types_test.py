@@ -101,6 +101,32 @@ def test_temporal_string_parsing_family():
         with pytest.raises(mgclient.DatabaseError):
             execute_and_fetch_all(cursor, f"RETURN {value}")
 
+    # The help text is user-visible and must document the widened forms (A4).
+    with pytest.raises(mgclient.DatabaseError) as exc_info:
+        execute_and_fetch_all(cursor, 'RETURN localtime("03:04:05s")')
+    assert "1 to 9 digits after the decimal point" in str(exc_info.value), str(exc_info.value)
+
+    with pytest.raises(mgclient.DatabaseError) as exc_info:
+        execute_and_fetch_all(cursor, 'RETURN localdatetime("2024-01-02T")')
+    assert "A date without a time part is parsed as midnight" in str(exc_info.value), str(exc_info.value)
+
+
+def test_trigger_reparses_widened_temporal_strings():
+    # A trigger statement is parsed and executed when it fires; it must accept the widened forms too (A13).
+    cursor = connect().cursor()
+    execute_and_fetch_all(
+        cursor,
+        "CREATE TRIGGER temporal_parse_trigger ON CREATE BEFORE COMMIT EXECUTE "
+        'UNWIND createdVertices AS n SET n.parsed = datetime("2024-01-02")',
+    )
+    try:
+        execute_and_fetch_all(cursor, "CREATE (n:TemporalParseTrigger)")
+        parsed = execute_and_fetch_all(cursor, "MATCH (n:TemporalParseTrigger) RETURN temporal.to_string(n.parsed)")
+        assert parsed == [("2024-01-02 00:00:00+00:00",)], parsed
+    finally:
+        execute_and_fetch_all(cursor, "DROP TRIGGER temporal_parse_trigger")
+        execute_and_fetch_all(cursor, "MATCH (n:TemporalParseTrigger) DELETE n")
+
 
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))
