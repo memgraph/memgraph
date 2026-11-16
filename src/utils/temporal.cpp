@@ -251,7 +251,7 @@ Symbol table:
 |---|---------|
 
 Additionally, seconds can be defined as decimal fractions with 1 to 9 digits after the decimal point.
-The digits are right-padded to microseconds; more than 9 digits is invalid.)help";
+Fractions shorter than 6 digits are right-padded with zeros and digits beyond microseconds are truncated; more than 9 digits is invalid.)help";
 
 struct DateTimeLayout {
   std::string_view date_time;
@@ -523,7 +523,7 @@ Symbol table:
 |---|---------|
 
 Additionally, seconds can be defined as decimal fractions with 1 to 9 digits after the decimal point.
-The digits are right-padded to microseconds; more than 9 digits is invalid.
+Fractions shorter than 6 digits are right-padded with zeros and digits beyond microseconds are truncated; more than 9 digits is invalid.
 
 A date without a time part is parsed as midnight at the start of that day.
 
@@ -729,7 +729,7 @@ Symbol table:
 ZoneName is a standardized timezone name from the IANA time zone database, given without quote marks.
 
 Additionally, seconds can be defined as decimal fractions with 1 to 9 digits after the decimal point.
-The digits are right-padded to microseconds; more than 9 digits is invalid.
+Fractions shorter than 6 digits are right-padded with zeros and digits beyond microseconds are truncated; more than 9 digits is invalid.
 
 A date without a time part is parsed as midnight at the start of that day.
 
