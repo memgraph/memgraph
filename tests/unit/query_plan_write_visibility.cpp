@@ -252,7 +252,7 @@ TEST_F(WriteVisibilityPlan, CreateReadingAnyOtherEntityReadsOld) {
   EXPECT_EQ(Views<CreateNode>(Plan("MERGE (a {id: 1}) CREATE (b {r: a.id})")).front(), View::OLD);
   EXPECT_EQ(Views<CreateNode>(Plan("UNWIND [1, 2] AS i CREATE (a {id: i}) WITH a CREATE (b {r: a.id})")),
             (std::vector{View::OLD, View::OLD}));
-  EXPECT_EQ(Views<CreateNode>(Plan("CREATE (a {id: 1}) CREATE (b {r: a.id, e: exists((a)-[:R]->())})")),
+  EXPECT_EQ(Views<CreateNode>(Plan("CREATE (a {id: 1}) CREATE (b {r: a.id, e: size([(a)-[:R]->(x) | x])})")),
             (std::vector{View::OLD, View::OLD}));
 }
 
