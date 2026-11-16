@@ -225,8 +225,7 @@ void UnlinkDeltasAndCollectDeleted(delta_container &deltas, BatchedList<Edge *> 
         break;
       case PreviousPtr::Type::VERTEX: {
         auto &vertex = *prev.vertex;
-        vertex.SetDelta(nullptr);
-        vertex.set_has_uncommitted_non_sequential_deltas(false);
+        vertex.ClearDeltaUnlocked();
         if (vertex.deleted()) {
           DMG_ASSERT(delta.action == Delta::Action::RECREATE_OBJECT);
           current_deleted_vertices.push_back(vertex.gid);
@@ -235,7 +234,7 @@ void UnlinkDeltasAndCollectDeleted(delta_container &deltas, BatchedList<Edge *> 
       }
       case PreviousPtr::Type::EDGE: {
         auto &edge = *prev.edge;
-        edge.SetDelta(nullptr);
+        edge.ClearDeltaUnlocked();
         if (edge.deleted()) {
           DMG_ASSERT(delta.action == Delta::Action::RECREATE_OBJECT);
           current_deleted_edges.push_back(prev.edge);
@@ -3091,11 +3090,7 @@ void InMemoryStorage::ReleaseForkPin(uint64_t fork_ts) {
                          std::memory_order_release);
 }
 
-std::optional<uint64_t> InMemoryStorage::OldestForkPin() const {
-  auto const oldest = oldest_fork_pin_.load(std::memory_order_acquire);
-  if (oldest == kNoForkPin) return std::nullopt;
-  return oldest;
-}
+uint64_t InMemoryStorage::OldestForkPin() const { return oldest_fork_pin_.load(std::memory_order_acquire); }
 #endif
 
 void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode) {

@@ -1979,7 +1979,7 @@ TEST_F(StorageV2GcMetricsTest, ForkPin_BlocksFastDiscardUpToTheCommitTimestamp) 
 // The GC floor is the oldest live pin: releasing a newer pin or one of several same-timestamp pins must not move it.
 TEST_F(StorageV2GcMetricsTest, ForkPin_GcFloorIsOldestLivePin) {
   auto *mem_storage = static_cast<memgraph::storage::InMemoryStorage *>(storage.get());
-  EXPECT_FALSE(mem_storage->OldestForkPin().has_value());
+  EXPECT_EQ(mem_storage->OldestForkPin(), memgraph::storage::InMemoryStorage::kNoForkPin);
 
   const auto commit_label = [&](memgraph::storage::Gid gid, const std::string &name) {
     auto acc = storage->Access(memgraph::storage::WRITE);
@@ -2004,25 +2004,25 @@ TEST_F(StorageV2GcMetricsTest, ForkPin_GcFloorIsOldestLivePin) {
   commit_label(v_gid, "Mid");
   const uint64_t ts_newer = mem_storage->RegisterForkPin();
   ASSERT_LT(ts_a, ts_newer);
-  EXPECT_EQ(mem_storage->OldestForkPin(), std::optional<uint64_t>{ts_a});
+  EXPECT_EQ(mem_storage->OldestForkPin(), ts_a);
 
   for (int i = 0; i < 5; ++i) commit_label(v_gid, "L" + std::to_string(i));
   ASSERT_EQ(6, handles().unreleased_delta_objects.Value());
 
   mem_storage->ReleaseForkPin(ts_newer);
-  EXPECT_EQ(mem_storage->OldestForkPin(), std::optional<uint64_t>{ts_a});
+  EXPECT_EQ(mem_storage->OldestForkPin(), ts_a);
   RunGc(*storage);
   EXPECT_EQ(6, handles().unreleased_delta_objects.Value())
       << "releasing the newer pin must not let GC advance past the still-live older pins";
 
   mem_storage->ReleaseForkPin(ts_a);
-  EXPECT_EQ(mem_storage->OldestForkPin(), std::optional<uint64_t>{ts_b});
+  EXPECT_EQ(mem_storage->OldestForkPin(), ts_b);
   RunGc(*storage);
   EXPECT_EQ(6, handles().unreleased_delta_objects.Value())
       << "the second pin at the same timestamp must keep the deltas alive";
 
   mem_storage->ReleaseForkPin(ts_b);
-  EXPECT_FALSE(mem_storage->OldestForkPin().has_value());
+  EXPECT_EQ(mem_storage->OldestForkPin(), memgraph::storage::InMemoryStorage::kNoForkPin);
   RunGc(*storage);
   EXPECT_EQ(0, handles().unreleased_delta_objects.Value());
 }
@@ -2069,6 +2069,6 @@ TEST_F(StorageV2GcMetricsTest, ForkPin_ConcurrentPinChurnWriterAndGc) {
   mem_storage->ReleaseForkPin(floor_ts);
   RunGc(*storage);
   EXPECT_EQ(0, handles().unreleased_delta_objects.Value());
-  EXPECT_FALSE(mem_storage->OldestForkPin().has_value());
+  EXPECT_EQ(mem_storage->OldestForkPin(), memgraph::storage::InMemoryStorage::kNoForkPin);
 }
 #endif  // MG_ENTERPRISE
