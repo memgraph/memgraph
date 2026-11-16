@@ -3473,10 +3473,16 @@ Callback HandleSettingQuery(SettingQuery *setting_query, const Parameters &param
 
 #ifdef MG_ENTERPRISE
 namespace {
-// Whether a tenant without a valid license accepts a query that the planner does not type as a read or a write: one
-// that leaves the tenant's data alone, reads it, or copies it out. The planner types any Cypher plan that touches the
-// graph as a read or a write, so a Cypher or PROFILE query typed neither touches no data.
+// Whether a tenant without a valid license accepts the query before it is planned: one that leaves the tenant's data
+// and durable state alone, reads them, or copies them out. A Cypher, PROFILE or EXPLAIN query is accepted here and
+// refused after planning if the planner types it as a write.
 bool AllowedOnUnlicensedTenant(Query *query) {
+  if (auto const *parameter_query = utils::Downcast<ParameterQuery>(query)) {
+    return parameter_query->is_global_scope_;
+  }
+  if (auto const *isolation_level_query = utils::Downcast<IsolationLevelQuery>(query)) {
+    return isolation_level_query->isolation_level_scope_ != IsolationLevelQuery::IsolationLevelScope::GLOBAL;
+  }
   if (!query->Traits().operates_on_graph_data) return true;
   if (auto const *trigger_query = utils::Downcast<TriggerQuery>(query)) {
     return trigger_query->action_ == TriggerQuery::Action::SHOW_TRIGGERS;
@@ -3490,8 +3496,8 @@ bool AllowedOnUnlicensedTenant(Query *query) {
   return utils::Downcast<CypherQuery>(query) || utils::Downcast<ProfileQuery>(query) ||
          utils::Downcast<ExplainQuery>(query) || utils::Downcast<DatabaseInfoQuery>(query) ||
          utils::Downcast<ShowEnumsQuery>(query) || utils::Downcast<ShowSnapshotsQuery>(query) ||
-         utils::Downcast<ShowNextSnapshotQuery>(query) || utils::Downcast<IsolationLevelQuery>(query) ||
-         utils::Downcast<CreateSnapshotQuery>(query);
+         utils::Downcast<ShowNextSnapshotQuery>(query) || utils::Downcast<CreateSnapshotQuery>(query) ||
+         utils::Downcast<DumpQuery>(query) || utils::Downcast<ShowSchemaInfoQuery>(query);
 }
 
 // Whether an unlicensed instance in FIPS mode accepts the query: SHOW LICENSE INFO, so a client can tell why it is
@@ -10795,6 +10801,16 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     query_execution->query_string = parse_info.parsed_query.query_string;
     memgraph::logging::EmitSessionTraceEvent("Query parsing time: {}", parse_info.parsing_time);
 
+#ifdef MG_ENTERPRISE
+    // Without a license, databases other than the default are read-only. A query the allowlist refuses is refused
+    // before it waits for storage access; a Cypher write is refused once planning has typed it.
+    bool const on_unlicensed_tenant = current_db_.db_acc_ && current_db_.db_acc_->get()->name() != dbms::kDefaultDB &&
+                                      !license::global_license_checker.IsEnterpriseValidFast();
+    if (on_unlicensed_tenant && !AllowedOnUnlicensedTenant(parsed_query.query)) {
+      throw WriteQueryOnUnlicensedTenantException(current_db_.db_acc_->get()->name());
+    }
+#endif
+
     // The first statement fixes the transaction's mode, and the two are mutually exclusive: an auth transaction
     // releases the accessor BEGIN opened (see PrepareAuthQuery), so a later data query would have none to run
     // against. A refusal fails the transaction like any other error in this block.
@@ -10977,8 +10993,6 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
       // the session's next real query pay for the rebuild.
       cached_fga_->Reset();
     }
-    // Decided before the query moves into its Prepare function.
-    bool const allowed_on_unlicensed_tenant = AllowedOnUnlicensedTenant(parsed_query.query);
 #endif
 
     if (utils::Downcast<CypherQuery>(parsed_query.query)) {
@@ -11313,12 +11327,8 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
 #endif
     }
 #ifdef MG_ENTERPRISE
-    if (current_db_.db_acc_ && !license::global_license_checker.IsEnterpriseValidFast()) {
-      auto const &db_name = current_db_.db_acc_->get()->name();
-      bool const allowed = rw_type == RWType::R || (rw_type == RWType::NONE && allowed_on_unlicensed_tenant);
-      if (db_name != dbms::kDefaultDB && !allowed) {
-        throw WriteQueryOnUnlicensedTenantException(db_name);
-      }
+    if (on_unlicensed_tenant && IsQueryWrite(rw_type)) {
+      throw WriteQueryOnUnlicensedTenantException(current_db_.db_acc_->get()->name());
     }
 #endif
 

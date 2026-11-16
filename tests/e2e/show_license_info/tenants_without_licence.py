@@ -90,6 +90,9 @@ def test_tenant_read_only_without_licence(request):
         "STORAGE MODE IN_MEMORY_ANALYTICAL;",
         "DROP GRAPH;",
         "CREATE TRIGGER trigger ON () CREATE AFTER COMMIT EXECUTE RETURN 1;",
+        'SET PARAMETER tenant_parameter = "value";',
+        "UNSET PARAMETER tenant_parameter;",
+        "SET GLOBAL TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;",
     ]:
         with pytest.raises(mgclient.DatabaseError, match="read-only without a valid license"):
             execute(cursor, write)
@@ -98,8 +101,26 @@ def test_tenant_read_only_without_licence(request):
     )
     with open(glob.glob(f"{log_dir}/main*.log")[0]) as log:
         assert 'query="CREATE INDEX ON :Label;"' in log.read()
-    for read in ["SHOW TRIGGERS;", "SHOW STREAMS;", "RETURN 1;", "PROFILE RETURN 1;", "CREATE SNAPSHOT;"]:
+    for read in [
+        "SHOW TRIGGERS;",
+        "SHOW STREAMS;",
+        "RETURN 1;",
+        "PROFILE RETURN 1;",
+        "CREATE SNAPSHOT;",
+        "DUMP DATABASE;",
+        'SET GLOBAL PARAMETER global_parameter = "value";',
+        "SET SESSION TRANSACTION ISOLATION LEVEL READ COMMITTED;",
+    ]:
         execute(cursor, read)
+    reader = mgclient.connect(host="localhost", port=7687)
+    reader.autocommit = True
+    reader_cursor = reader.cursor()
+    execute(reader_cursor, "USE DATABASE tenant;")
+    reader.autocommit = False
+    execute(reader_cursor, "MATCH (n) RETURN count(n);")
+    with pytest.raises(mgclient.DatabaseError, match="read-only without a valid license"):
+        execute(cursor, "CREATE INDEX ON :Label;")
+    reader.rollback()
     with GraphDatabase.driver("bolt://localhost:7687", auth=("", "")) as driver:
         with driver.session(database="tenant") as session:
             assert session.run("MATCH (n) RETURN count(n) AS count;").single()["count"] == 10
