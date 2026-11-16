@@ -24,11 +24,12 @@ struct BranchInfo {
   // Never reused, even across drops; main is implicit version 1, the first branch is 2.
   uint64_t number;
   std::string parent;
-  // GC fork-pin timestamp, held until the branch is dropped; drives visibility.
+  // This process's MVCC fork-pin timestamp, held until the branch is dropped; drives visibility and GC.
   uint64_t fork_ts;
-  // fork_ts as persisted in the ledger; differs from fork_ts only after startup restore, where fork_ts is the pin
-  // taken on the rebuilt history. Defaults to fork_ts so an omitted initializer cannot persist 0.
-  uint64_t recorded_fork_ts{fork_ts};
+  // The fork point in main's durable timestamps; the ledger persists only this. Equal to fork_ts until a restart:
+  // replay recommits main's tail at fresh MVCC timestamps, so the rebuilt history's pin differs. Defaults to fork_ts
+  // so an omitted initializer cannot persist 0.
+  uint64_t durable_fork_ts{fork_ts};
   // Unset until the branch's core is first built.
   std::optional<uint64_t> vertex_gid_floor;
   std::optional<uint64_t> edge_gid_floor;

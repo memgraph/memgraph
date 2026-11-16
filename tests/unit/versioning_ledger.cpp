@@ -86,7 +86,7 @@ TEST_F(BranchLedgerTest, RoundTrip) {
   in.branches[0].info.edge_gid_ceiling = 70'013;
   in.branches[0].info.created_at_us = 1'700'000'000'123'456;
   // The persisted fork_ts is the durable recorded one, not the runtime pin.
-  in.branches.push_back({"b", {.number = 4, .parent = "a", .fork_ts = 100, .recorded_fork_ts = 20}});
+  in.branches.push_back({"b", {.number = 4, .parent = "a", .fork_ts = 100, .durable_fork_ts = 20}});
 
   BranchLedger ledger{*store_, uuid_};
   ASSERT_TRUE(ledger.Write(in).has_value());
@@ -100,9 +100,9 @@ TEST_F(BranchLedgerTest, RoundTrip) {
   EXPECT_EQ(out.branches[0].info.number, 2);
   EXPECT_EQ(out.branches[0].info.parent, "main");
   EXPECT_EQ(out.branches[0].info.fork_ts, 10);
-  EXPECT_EQ(out.branches[0].info.recorded_fork_ts, 10);
+  EXPECT_EQ(out.branches[0].info.durable_fork_ts, 10);
   EXPECT_EQ(out.branches[1].info.fork_ts, 20);
-  EXPECT_EQ(out.branches[1].info.recorded_fork_ts, 20);
+  EXPECT_EQ(out.branches[1].info.durable_fork_ts, 20);
   EXPECT_EQ(out.branches[0].info.vertex_gid_floor, 11);
   EXPECT_EQ(out.branches[0].info.edge_gid_floor, 13);
   EXPECT_EQ(out.branches[0].info.vertex_gid_ceiling, 70'011);
