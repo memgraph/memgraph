@@ -4684,6 +4684,11 @@ std::expected<std::filesystem::path, InMemoryStorage::CreateSnapshotError> InMem
   DMG_ASSERT(transaction->last_durable_ts_.has_value());
   auto const &storage_uuid = uuid();
 
+  auto const mark_snapshot_current = [this] {
+    metric_handles_.last_snapshot_timestamp_seconds.Set(
+        std::chrono::duration<double>(std::chrono::system_clock::now().time_since_epoch()).count());
+  };
+
   SnapshotDigest current_digest;
   // In memory analytical doesn't update last_durable_ts so digest isn't valid
   if (transaction->storage_mode == StorageMode::IN_MEMORY_TRANSACTIONAL) {
@@ -4692,8 +4697,10 @@ std::expected<std::filesystem::path, InMemoryStorage::CreateSnapshotError> InMem
                                     .storage_uuid_ = storage_uuid,
                                     .last_durable_ts_ = *transaction->last_durable_ts_};
 
-    if (!force && last_snapshot_digest_ == current_digest)
+    if (!force && last_snapshot_digest_ == current_digest) {
+      mark_snapshot_current();
       return std::unexpected{CreateSnapshotError::NothingNewToWrite};
+    }
   }
 
   const auto snapshot_path = durability::CreateSnapshot(this,
@@ -4710,9 +4717,13 @@ std::expected<std::filesystem::path, InMemoryStorage::CreateSnapshotError> InMem
                                                         &snapshot_progress_,
                                                         trigger);
   if (!snapshot_path) {
-    return std::unexpected{snapshot_path.error() == durability::SnapshotCreationError::kNoSpaceLeft
-                               ? CreateSnapshotError::NoSpaceLeft
-                               : CreateSnapshotError::AbortSnapshot};
+    if (snapshot_path.error() == durability::SnapshotCreationError::kNoSpaceLeft) {
+      metric_handles_.snapshot_failures_no_space.Increment();
+      return std::unexpected{CreateSnapshotError::NoSpaceLeft};
+    }
+    // kAborted covers both a requested abort and a failed write; only the latter is a failure.
+    if (!abort_snapshot_.load(std::memory_order_acquire)) metric_handles_.snapshot_failures_write_error.Increment();
+    return std::unexpected{CreateSnapshotError::AbortSnapshot};
   }
 
   // Update digest only after the file has been created. Only in transaction because digests are used only in
@@ -4725,6 +4736,7 @@ std::expected<std::filesystem::path, InMemoryStorage::CreateSnapshotError> InMem
     auto snapshot_elapsed = std::chrono::duration<double>(timer.Elapsed());
     metric_handles_.snapshot_creation_latency_seconds.Observe(snapshot_elapsed.count());
   }
+  mark_snapshot_current();
 
   return *snapshot_path;
 }

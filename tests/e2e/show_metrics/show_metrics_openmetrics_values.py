@@ -11,6 +11,7 @@
 
 import re
 import sys
+import time
 import urllib.request
 
 import mgclient
@@ -25,6 +26,8 @@ EXPECTED_OPENMETRICS_PER_DB_FAMILIES = {
     "snapshot_running_seconds",
     "gc_running_seconds",
     "longest_transaction_seconds",
+    "last_snapshot_timestamp_seconds",
+    "snapshot_failures_total",
     "db_memory_tracked_bytes",
     "db_peak_memory_tracked_bytes",
     "db_storage_memory_tracked_bytes",
@@ -292,6 +295,15 @@ def test_openmetrics_per_db_transaction_counters(populated_databases):
     m = parse_openmetrics(scrape_openmetrics())
     assert om_get(m, "memgraph_committed_transactions_total", "memgraph") > 0
     assert om_get(m, "memgraph_committed_transactions_total", "db2") > 0
+
+
+def test_openmetrics_last_snapshot_timestamp(populated_databases):
+    conn = mgclient.connect(host="localhost", port=7687)
+    conn.autocommit = True
+    before = time.time()
+    execute(conn.cursor(), "CREATE SNAPSHOT")
+    m = parse_openmetrics(scrape_openmetrics())
+    assert om_get(m, "memgraph_last_snapshot_timestamp_seconds", "memgraph") >= before
 
 
 if __name__ == "__main__":

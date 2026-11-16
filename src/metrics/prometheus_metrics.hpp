@@ -347,6 +347,8 @@ class PrometheusMetrics {
   prometheus::Family<prometheus::Gauge> &snapshot_running_seconds_family_;
   prometheus::Family<prometheus::Gauge> &gc_running_seconds_family_;
   prometheus::Family<prometheus::Gauge> &longest_transaction_seconds_family_;
+  prometheus::Family<prometheus::Gauge> &last_snapshot_timestamp_seconds_family_;
+  prometheus::Family<prometheus::Counter> &snapshot_failures_family_;
   prometheus::Family<prometheus::Gauge> &db_memory_tracked_family_;
   prometheus::Family<prometheus::Gauge> &db_peak_memory_tracked_family_;
   prometheus::Family<prometheus::Gauge> &db_storage_memory_tracked_family_;

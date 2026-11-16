@@ -83,6 +83,10 @@ struct DatabaseMetricHandles {
   GaugeHandle snapshot_running_seconds;
   GaugeHandle gc_running_seconds;
   GaugeHandle longest_transaction_seconds;
+  // Unix time the database was last confirmed snapshot-current; 0 until then.
+  GaugeHandle last_snapshot_timestamp_seconds;
+  CounterHandle snapshot_failures_no_space;
+  CounterHandle snapshot_failures_write_error;
 
   // Per-database memory tracking
   GaugeHandle db_memory_tracked_bytes;

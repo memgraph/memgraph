@@ -135,6 +135,16 @@ PrometheusMetrics::PrometheusMetrics()
                                               .Name("memgraph_longest_transaction_seconds")
                                               .Help("Age of the oldest open transaction; 0 when none is open")
                                               .Register(registry_)},
+      last_snapshot_timestamp_seconds_family_{
+          prometheus::BuildGauge()
+              .Name("memgraph_last_snapshot_timestamp_seconds")
+              .Help("Unix time of the last snapshot, or of the last check that found nothing new to write; 0 until "
+                    "then")
+              .Register(registry_)},
+      snapshot_failures_family_{prometheus::BuildCounter()
+                                    .Name("memgraph_snapshot_failures_total")
+                                    .Help("Snapshots that failed, by reason: no_space or write_error")
+                                    .Register(registry_)},
       db_memory_tracked_family_{prometheus::BuildGauge()
                                     .Name("memgraph_db_memory_tracked_bytes")
                                     .Help("Total tracked memory usage of the database in bytes")
@@ -1001,6 +1011,11 @@ DatabaseMetricHandles PrometheusMetrics::CreateHandles(uint64_t entry_id) {
       .snapshot_running_seconds = {&snapshot_running_seconds_family_.Add(labels)},
       .gc_running_seconds = {&gc_running_seconds_family_.Add(labels)},
       .longest_transaction_seconds = {&longest_transaction_seconds_family_.Add(labels)},
+      .last_snapshot_timestamp_seconds = {&last_snapshot_timestamp_seconds_family_.Add(labels)},
+      .snapshot_failures_no_space = {&snapshot_failures_family_.Add(
+          {{kEntryLabel, std::to_string(entry_id)}, {"reason", "no_space"}})},
+      .snapshot_failures_write_error = {&snapshot_failures_family_.Add(
+          {{kEntryLabel, std::to_string(entry_id)}, {"reason", "write_error"}})},
       .db_memory_tracked_bytes = {&db_memory_tracked_family_.Add(labels)},
       .db_peak_memory_tracked_bytes = {&db_peak_memory_tracked_family_.Add(labels)},
       .db_storage_memory_tracked_bytes = {&db_storage_memory_tracked_family_.Add(labels)},
@@ -1181,6 +1196,9 @@ void PrometheusMetrics::RemoveHandlesFromFamilies(DatabaseMetricHandles const &h
   snapshot_running_seconds_family_.Remove(h.snapshot_running_seconds.get());
   gc_running_seconds_family_.Remove(h.gc_running_seconds.get());
   longest_transaction_seconds_family_.Remove(h.longest_transaction_seconds.get());
+  last_snapshot_timestamp_seconds_family_.Remove(h.last_snapshot_timestamp_seconds.get());
+  snapshot_failures_family_.Remove(h.snapshot_failures_no_space.get());
+  snapshot_failures_family_.Remove(h.snapshot_failures_write_error.get());
   db_memory_tracked_family_.Remove(h.db_memory_tracked_bytes.get());
   db_peak_memory_tracked_family_.Remove(h.db_peak_memory_tracked_bytes.get());
   db_storage_memory_tracked_family_.Remove(h.db_storage_memory_tracked_bytes.get());
