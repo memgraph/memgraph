@@ -218,8 +218,8 @@ def test_coordinator_reports_raft_progress(test_name):
 
     assert raft.get("has_leader") == 1
     assert raft.get("term", 0) >= 1
-    assert raft.get("committed_log_index", 0) > 0
-    assert raft.get("leader_committed_log_index") == raft.get("committed_log_index")
+    # A single coordinator has no followers to report.
+    assert not re.search(r"^memgraph_raft_follower_", scrape_metrics(), re.MULTILINE)
 
 
 if __name__ == "__main__":

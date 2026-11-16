@@ -21,6 +21,7 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <utility>
 #include <variant>
 #include <vector>
 
@@ -544,9 +545,15 @@ class PrometheusMetrics {
 
   // Global metric families — this coordinator's Raft progress
   prometheus::Family<prometheus::Gauge> &raft_term_family_;
-  prometheus::Family<prometheus::Gauge> &raft_committed_log_index_family_;
-  prometheus::Family<prometheus::Gauge> &raft_leader_committed_log_index_family_;
   prometheus::Family<prometheus::Gauge> &raft_has_leader_family_;
+  prometheus::Family<prometheus::Gauge> &raft_follower_lag_entries_family_;
+  prometheus::Family<prometheus::Gauge> &raft_follower_last_response_seconds_family_;
+
+  struct {
+    std::mutex mutex;
+    // Lag and last-response gauges of each follower, while this coordinator is the leader.
+    std::unordered_map<std::string, std::pair<prometheus::Gauge *, prometheus::Gauge *>> gauges;
+  } raft_followers_;
 
   struct {
     std::mutex mutex;

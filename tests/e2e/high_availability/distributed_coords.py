@@ -151,6 +151,7 @@ def get_instances_description_no_setup(test_name: str):
 
 
 RAFT_GAUGE = re.compile(r"^memgraph_raft_(\w+) (\S+)$", re.MULTILINE)
+RAFT_FOLLOWER = re.compile(r'^memgraph_raft_follower_lag_entries\{mg_instance="(\w+)"\}', re.MULTILINE)
 
 
 def raft_gauges(port):
@@ -355,6 +356,12 @@ def test_global_edge_index_drop_replication(test_name):
     mg_sleep_and_assert(0, partial(get_num_indices, instance_1_cursor))
 
 
+def raft_followers(port):
+    """Coordinators the given coordinator reports follower lag for; only the leader reports any."""
+    with urllib.request.urlopen(f"http://localhost:{port}/metrics") as response:
+        return set(RAFT_FOLLOWER.findall(response.read().decode("utf-8")))
+
+
 def test_raft_term_rises_when_the_leader_dies(test_name):
     inner_instances_description = get_instances_description_no_setup(test_name=test_name)
     interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
@@ -363,6 +370,7 @@ def test_raft_term_rises_when_the_leader_dies(test_name):
         execute_and_fetch_all(coord_cursor_3, query)
     term_before = raft_gauges(9097).get("term")
     assert term_before is not None
+    assert raft_followers(9097) == {"coordinator_1", "coordinator_2"}
 
     interactive_mg_runner.kill(inner_instances_description, "coordinator_3", keep_directories=False)
 

@@ -14,14 +14,22 @@
 #ifdef MG_ENTERPRISE
 
 #include <cstdint>
+#include <string>
+#include <vector>
 
 namespace memgraph::coordination {
 
+struct RaftFollower {
+  std::string name;
+  uint64_t lag_entries;
+  double last_response_seconds;
+};
+
 struct RaftStatus {
   uint64_t term;
-  uint64_t committed_log_index;
-  uint64_t leader_committed_log_index;
   bool has_leader;
+  // Empty unless this coordinator is the leader: only the leader tracks its followers' progress.
+  std::vector<RaftFollower> followers;
 };
 
 }  // namespace memgraph::coordination
