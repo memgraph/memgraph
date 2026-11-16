@@ -15,6 +15,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <memory>
 #include <optional>
@@ -593,7 +594,8 @@ TEST_F(VersioningHistoricalAccessTest, IndexVisibilityAtForkTimestampBoundary) {
   Mem()->ReleaseForkPin(fork_ts);
 }
 
-// Writes through a historical accessor are refused (MVCC writes at the first delta, metadata writes at commit) and
+// Writes through a historical accessor are refused (MVCC writes at the first delta, metadata writes at their entry
+// points) and
 // every accessor releases its self-pin exactly once, including a read-only commit followed by Abort.
 TEST_F(VersioningHistoricalAccessTest, RefusesWritesAndReleasesSelfPin) {
   const auto label = storage->NameToLabel("L");
@@ -616,12 +618,15 @@ TEST_F(VersioningHistoricalAccessTest, RefusesWritesAndReleasesSelfPin) {
                  ms::WriteInHistoricalAccessorException);
     EXPECT_THROW((void)(*historical)->DeleteLabelIndexStats(label), ms::WriteInHistoricalAccessorException);
     EXPECT_THROW((void)(*historical)->DropIndex(label), ms::WriteInHistoricalAccessorException);
+    const std::array<std::string, 1> enum_values{"a"};
+    EXPECT_THROW((void)(*historical)->CreateEnum("E", enum_values), ms::WriteInHistoricalAccessorException);
   }
   EXPECT_EQ(Mem()->OldestForkPin(), fork_ts);
   {
     auto acc = storage->Access(ms::READ);
     EXPECT_TRUE(acc->LabelIndexReady(label)) << "a refused historical drop must not drop main's index";
     EXPECT_FALSE(acc->GetIndexStats(label).has_value()) << "a refused historical stats write must not reach main";
+    EXPECT_TRUE(acc->ShowEnums().empty()) << "a refused historical enum write must not reach main";
     EXPECT_EQ(CountVertices(*acc, ms::View::OLD), 1U);
     auto v = acc->FindVertex(gid, ms::View::OLD);
     ASSERT_TRUE(v.has_value());
@@ -638,6 +643,22 @@ TEST_F(VersioningHistoricalAccessTest, RefusesWritesAndReleasesSelfPin) {
   }
   EXPECT_EQ(Mem()->OldestForkPin(), memgraph::storage::InMemoryStorage::kNoForkPin)
       << "a refused historical accessor leaked its self-pin";
+}
+
+// A historical open that cannot get the shared lock in time throws and leaves the pins untouched.
+TEST_F(VersioningHistoricalAccessTest, TimeoutThrowsAndKeepsPins) {
+  const uint64_t fork_ts = Mem()->RegisterForkPin();
+  {
+    auto unique = storage->UniqueAccess();
+    EXPECT_THROW((void)Mem()->HistoricalAccess(fork_ts, std::chrono::milliseconds{10}), ms::SharedAccessTimeout);
+  }
+  EXPECT_EQ(Mem()->OldestForkPin(), fork_ts) << "the failed open must release its self-pin";
+  {
+    auto historical = Mem()->HistoricalAccess(fork_ts, std::chrono::milliseconds{10});
+    ASSERT_TRUE(historical.has_value());
+  }
+  Mem()->ReleaseForkPin(fork_ts);
+  EXPECT_EQ(Mem()->OldestForkPin(), memgraph::storage::InMemoryStorage::kNoForkPin);
 }
 
 // Only IN_MEMORY_TRANSACTIONAL keeps MVCC history; elsewhere a historical read would silently see live data.

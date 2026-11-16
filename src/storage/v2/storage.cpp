@@ -695,6 +695,9 @@ void Storage::Accessor::MarkEdgeAsDeleted(Edge *edge) {
 
 std::expected<void, storage::StorageIndexDefinitionError> Storage::Accessor::CreateTextIndex(
     const TextIndexSpec &text_index_info, ProgressCallback const &on_progress) {
+#ifdef MG_ENTERPRISE
+  ThrowIfHistorical();
+#endif
   MG_ASSERT(type() == UNIQUE, "Creating a text index requires unique access to storage!");
 
   // Check for name conflicts with existing text edge indexes
@@ -732,6 +735,9 @@ std::expected<void, storage::StorageIndexDefinitionError> Storage::Accessor::Cre
 
 std::expected<void, storage::StorageIndexDefinitionError> Storage::Accessor::CreateTextEdgeIndex(
     const TextEdgeIndexSpec &text_edge_index_info, ProgressCallback const &on_progress) {
+#ifdef MG_ENTERPRISE
+  ThrowIfHistorical();
+#endif
   MG_ASSERT(type() == UNIQUE, "Creating a text edge index requires unique access to storage!");
 
   // Check for name conflicts with existing text node indexes
@@ -766,6 +772,9 @@ std::expected<void, storage::StorageIndexDefinitionError> Storage::Accessor::Cre
 
 std::expected<void, storage::StorageIndexDefinitionError> Storage::Accessor::DropTextIndex(
     const std::string &index_name) {
+#ifdef MG_ENTERPRISE
+  ThrowIfHistorical();
+#endif
   MG_ASSERT(type() == UNIQUE, "Dropping a text index requires unique access to storage!");
   auto updater = storage_->indices_.MakeUpdater();
   auto &metric_handles = storage_->metric_handles_;
