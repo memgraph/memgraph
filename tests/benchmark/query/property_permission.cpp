@@ -26,10 +26,12 @@
 
 #include <optional>
 #include <string>
+#include <vector>
 
 #include "auth/models.hpp"
 #include "glue/auth_checker.hpp"
 #include "license/license.hpp"
+#include "query/auth_checker.hpp"
 #include "query/context.hpp"
 #include "query/db_accessor.hpp"
 #include "query/frontend/ast/ast.hpp"
@@ -138,6 +140,72 @@ void ReadOneProperty(benchmark::State &state, bool attach_checker, Restriction r
   memgraph::license::global_license_checker.DisableTesting();
 }
 
+/// A vertex carrying `labels` labels and `properties` properties, with the ids to ask about.
+struct GroupFixture {
+  std::unique_ptr<memgraph::storage::Storage> db = std::make_unique<memgraph::storage::InMemoryStorage>();
+  std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba = db->Access(memgraph::storage::WRITE);
+  DbAccessor dba{storage_dba.get()};
+  std::vector<memgraph::storage::PropertyId> ids;
+
+  GroupFixture(std::size_t properties, std::size_t labels) {
+    auto vertex = dba.InsertVertex();
+    MG_ASSERT(vertex.AddLabel(dba.NameToLabel(kLabel)).has_value());
+    for (auto extra = std::size_t{1}; extra < labels; ++extra) {
+      MG_ASSERT(vertex.AddLabel(dba.NameToLabel("Extra" + std::to_string(extra))).has_value());
+    }
+    for (auto index = std::size_t{0}; index != properties; ++index) {
+      auto const id = dba.NameToProperty("p" + std::to_string(index));
+      ids.push_back(id);
+      MG_ASSERT(vertex.SetProperty(id, memgraph::storage::PropertyValue(static_cast<int64_t>(index))).has_value());
+    }
+    dba.AdvanceCommand();
+    vertex_ = vertex;
+  }
+
+  memgraph::query::VertexAccessor Vertex() const { return *vertex_; }
+
+ private:
+  std::optional<memgraph::query::VertexAccessor> vertex_;
+};
+
+/// What deciding a whole group of properties costs, once per group as a row pays it. A vertex's
+/// permissions are decided from its labels, so the two arms differ only in how often the labels
+/// are read: once for each property, or once for the group.
+void DecideGroup(benchmark::State &state, bool from_one_label_read) {
+  memgraph::license::global_license_checker.EnableTesting();
+
+  auto const properties = static_cast<std::size_t>(state.range(0));
+  auto const labels = static_cast<std::size_t>(state.range(1));
+  GroupFixture fixture{properties, labels};
+
+  // Restricted elsewhere, so the check is live and this group is allowed. A caller who restricts
+  // nothing answers before reading any labels, which is neither arm.
+  auto checker = memgraph::glue::FineGrainedAuthChecker{MakeUser(fixture.dba.DatabaseName(), Restriction::kElsewhere),
+                                                        &fixture.dba};
+  auto const vertex = fixture.Vertex();
+
+  for (auto _ : state) {
+    if (from_one_label_read) {
+      auto const read = vertex.Labels(memgraph::storage::View::NEW);
+      for (auto const id : fixture.ids) {
+        benchmark::DoNotOptimize(memgraph::query::PropertyReadAllowed(&checker, *read, id));
+      }
+    } else {
+      for (auto const id : fixture.ids) {
+        benchmark::DoNotOptimize(
+            memgraph::query::PropertyReadAllowed(&checker, vertex, memgraph::storage::View::NEW, id));
+      }
+    }
+  }
+  state.SetItemsProcessed(state.iterations() * static_cast<int64_t>(properties));
+
+  memgraph::license::global_license_checker.DisableTesting();
+}
+
+void LabelReadPerProperty(benchmark::State &state) { DecideGroup(state, false); }
+
+void LabelReadPerGroup(benchmark::State &state) { DecideGroup(state, true); }
+
 void NoChecker(benchmark::State &state) { ReadOneProperty(state, false, Restriction::kNone); }
 
 void Unrestricted(benchmark::State &state) { ReadOneProperty(state, true, Restriction::kNone); }
@@ -145,6 +213,23 @@ void Unrestricted(benchmark::State &state) { ReadOneProperty(state, true, Restri
 void RestrictedElsewhere(benchmark::State &state) { ReadOneProperty(state, true, Restriction::kElsewhere); }
 
 void Denied(benchmark::State &state) { ReadOneProperty(state, true, Restriction::kOnTheProperty); }
+
+// Properties in the group, then labels on the record. The label vector holds two without
+// allocating, so a third label is what makes each read allocate.
+BENCHMARK(LabelReadPerProperty)
+    ->Args({1, 1})
+    ->Args({4, 1})
+    ->Args({8, 1})
+    ->Args({4, 3})
+    ->Args({8, 3})
+    ->Unit(benchmark::kNanosecond);
+BENCHMARK(LabelReadPerGroup)
+    ->Args({1, 1})
+    ->Args({4, 1})
+    ->Args({8, 1})
+    ->Args({4, 3})
+    ->Args({8, 3})
+    ->Unit(benchmark::kNanosecond);
 
 BENCHMARK(NoChecker)->Unit(benchmark::kNanosecond);
 BENCHMARK(Unrestricted)->Unit(benchmark::kNanosecond);
