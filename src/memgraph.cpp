@@ -84,6 +84,7 @@
 #include "utils/file.hpp"
 #include "utils/logging.hpp"
 #include "utils/nofile_limit.hpp"
+#include "utils/on_scope_exit.hpp"
 #include "utils/page_cache_releaser.hpp"
 #include "utils/readable_size.hpp"
 #include "utils/resource_monitoring.hpp"
@@ -560,6 +561,8 @@ int main(int argc, char **argv) {
   }
 
   memgraph::license::global_license_checker.StartBackgroundLicenseChecker(settings);
+  // Stopped before the globals its validity listeners use are destroyed.
+  memgraph::utils::OnScopeExit const stop_license_checker{[] { memgraph::license::global_license_checker.Finalize(); }};
 
 #ifdef MG_ENTERPRISE
   // FIPS mode engages much earlier (it has to precede the first SSL context and

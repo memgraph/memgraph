@@ -5147,6 +5147,10 @@ void InMemoryStorage::CreateSnapshotHandler(
   });
 }
 
+void InMemoryStorage::RefreshSnapshotSchedule() {
+  flags::run_time::SnapshotPeriodicRefresh(snapshot_periodic_observer_);
+}
+
 EdgeInfo ExtractEdgeInfo(Vertex *from_vertex, const Edge *edge_ptr) {
   std::shared_lock const guard{from_vertex->lock};
   for (const auto &out_edge : from_vertex->out_edges) {

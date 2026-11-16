@@ -885,6 +885,9 @@ class InMemoryStorage final : public Storage {
   void CreateSnapshotHandler(
       std::function<std::expected<void, InMemoryStorage::CreateSnapshotError>(std::string_view)> cb);
 
+  // The schedule in effect can change while the storage is built, after its configuration was copied.
+  void RefreshSnapshotSchedule();
+
   Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode) override;
 
   void SetStorageMode(StorageMode storage_mode);

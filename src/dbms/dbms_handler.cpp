@@ -31,6 +31,7 @@
 #include "query/exceptions.hpp"
 #include "spdlog/spdlog.h"
 #include "storage/v2/inmemory/storage.hpp"
+#include "storage/v2/storage_mode.hpp"
 #include "utils/enum.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
@@ -44,6 +45,11 @@
 namespace memgraph::dbms {
 
 namespace {
+void RefreshSnapshotSchedule(DatabaseAccess &db) {
+  if (db->GetStorageMode() == storage::StorageMode::ON_DISK_TRANSACTIONAL) return;
+  static_cast<storage::InMemoryStorage *>(db->storage())->RefreshSnapshotSchedule();
+}
+
 #ifdef MG_ENTERPRISE
 constexpr std::string_view kDBPrefix = "database:";  // Key prefix for database durability
 constexpr std::string_view kUuidKey = "uuid";        // JSON key for a durable entry's tenant uuid
@@ -798,7 +804,8 @@ DbmsHandler::NewResultT DbmsHandler::New_(storage::Config storage_config, system
   auto new_db = db_handler_.New(storage_config);
 
   if (new_db) {  // Success
-                 // Save delta
+    RefreshSnapshotSchedule(*new_db);
+    // Save delta
     UpdateDurability(storage_config);
     if (txn) {
       txn->AddAction<CreateDatabase>(storage_config.salient, new_db.value());
@@ -1474,6 +1481,7 @@ DbmsHandler::ResumeResult DbmsHandler::Resume_(std::string_view name, system::Tr
       storage::UpdatePaths(cfg, default_config_.durability.storage_directory / rel_dir);
       auto fresh = db_handler_.BuildDetached(std::move(cfg));  // Database ctor recovers from disk
       DatabaseAccess acc = fresh.access().value();             // fresh gk is HOT => has_value
+      RefreshSnapshotSchedule(acc);
       // Roll a failed pre-publish rebuild back to COLD (retriable). CRITICAL ORDERING: fully tear down
       // `fresh` (its InMemoryStorage closes WAL/snapshot fds; ~Database -> RemoveDatabase deregisters the
       // uuid-keyed prometheus metrics) BEFORE abort_resume() releases the single-flight RESUMING token.

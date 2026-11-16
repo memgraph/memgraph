@@ -21,6 +21,8 @@
 #include <expected>
 #include <functional>
 #include <iostream>
+#include <memory>
+#include <mutex>
 #include <optional>
 #include <ranges>
 #include <stdexcept>
@@ -270,11 +272,20 @@ class PeriodicObservable : public memgraph::utils::Observable<memgraph::utils::S
 
   // A cron schedule is an enterprise feature: without a valid license, snapshots have no schedule.
   memgraph::utils::SchedulerInterval Effective() const {
-    if (IsCron() && !memgraph::license::global_license_checker.IsEnterpriseValidFast()) return {};
-    return *periodic_.ReadLock();
+    auto periodic = *periodic_.ReadLock();
+    if (std::holds_alternative<std::string>(periodic.period_or_cron) &&
+        !memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
+      return {};
+    }
+    return periodic;
   }
 
   void Republish() { Notify(); }
+
+  void Refresh(std::shared_ptr<memgraph::utils::Observer<memgraph::utils::SchedulerInterval>> const &observer) {
+    auto const lock = std::unique_lock{mtx_};
+    Accept(observer);
+  }
 
   void Modify(std::chrono::seconds pause) {
     *periodic_.Lock() = memgraph::utils::SchedulerInterval(pause, std::nullopt);
@@ -623,12 +634,15 @@ void Initialize(utils::Settings &settings) {
           return {};
         },
         /*validate_startup_value=*/false);
-    license::global_license_checker.OnEnterpriseValidityChange([] {
-      if (!snapshot_periodic_.IsCron()) return;
-      if (!license::global_license_checker.IsEnterpriseValidFast()) {
-        spdlog::error("{} {}", kCronSnapshotNeedsLicense, kCronSnapshotsSkipped);
-      }
-      snapshot_periodic_.Republish();
+    static std::once_flag listener_registered;
+    std::call_once(listener_registered, [] {
+      license::global_license_checker.OnEnterpriseValidityChange([] {
+        if (!snapshot_periodic_.IsCron()) return;
+        if (!license::global_license_checker.IsEnterpriseValidFast()) {
+          spdlog::error("{} {}", kCronSnapshotNeedsLicense, kCronSnapshotsSkipped);
+        }
+        snapshot_periodic_.Republish();
+      });
     });
   }
 
@@ -772,6 +786,10 @@ void SnapshotPeriodicAttach(std::shared_ptr<utils::Observer<utils::SchedulerInte
 
 void SnapshotPeriodicDetach(std::shared_ptr<utils::Observer<utils::SchedulerInterval>> observer) {
   snapshot_periodic_.Detach(observer);
+}
+
+void SnapshotPeriodicRefresh(std::shared_ptr<utils::Observer<utils::SchedulerInterval>> const &observer) {
+  snapshot_periodic_.Refresh(observer);
 }
 
 auto GetEffectiveSnapshotInterval() -> utils::SchedulerInterval { return snapshot_periodic_.Effective(); }

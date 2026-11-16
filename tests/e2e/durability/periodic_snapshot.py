@@ -353,6 +353,7 @@ def test_cron_flag_without_license(test_name):
     with writing_in_the_background():
         time.sleep(3)
         assert number_of_snapshots(snapshots_dir) == 0
+        assert execute_and_fetch_all(cursor, "SHOW NEXT SNAPSHOT;") == []
 
         execute_and_fetch_all(cursor, f"SET DATABASE SETTING 'organization.name' TO '{organization_name}';")
         execute_and_fetch_all(cursor, f"SET DATABASE SETTING 'enterprise.license' TO '{license_key}';")
@@ -442,10 +443,12 @@ def test_cron_skips_after_license_lost(test_name):
         execute_and_fetch_all(cursor, "SET DATABASE SETTING 'enterprise.license' TO '';")
         assert execute_and_fetch_all(cursor, "SHOW NEXT SNAPSHOT;") == []
         # A snapshot already being written when the licence is cleared still lands; sample once the count settles.
-        before = -1
-        while (count := number_of_snapshots(snapshots_dir)) != before:
-            before = count
+        before = number_of_snapshots(snapshots_dir)
+        for _ in range(4):
             time.sleep(2)
+            if (count := number_of_snapshots(snapshots_dir)) == before:
+                break
+            before = count
         time.sleep(3)
         assert number_of_snapshots(snapshots_dir) == before
 
@@ -528,22 +531,23 @@ def test_resumed_database_follows_runtime_interval(test_name):
     ), "The resumed database kept the startup interval"
 
 
-def test_negative_interval_flag_refused(test_name):
-    """A negative snapshot interval stops startup instead of scheduling snapshots back to back."""
+@pytest.mark.parametrize("interval", ["-1", "604801"])
+def test_out_of_range_interval_flag_refused(interval, test_name):
+    """A snapshot interval outside the allowed range stops startup."""
     instance = {
-        "negative_interval_flag": {
+        "out_of_range_interval_flag": {
             "args": [
                 "--log-level=TRACE",
                 "--also-log-to-stderr",
                 "--storage-snapshot-interval-sec=0",
-                "--storage-snapshot-interval=-1",
+                f"--storage-snapshot-interval={interval}",
             ],
-            "log_file": f"{get_logs_path(FILE, test_name)}/negative_interval_flag.log",
+            "log_file": f"{get_logs_path(FILE, test_name)}/out_of_range_interval_flag.log",
             "data_directory": get_data_path(FILE, test_name),
         }
     }
     with pytest.raises(AssertionError, match="failed to start"):
-        interactive_mg_runner.start(instance, "negative_interval_flag")
+        interactive_mg_runner.start(instance, "out_of_range_interval_flag")
     logs_dir = os.path.join(interactive_mg_runner.BUILD_DIR, "e2e", "logs", get_logs_path(FILE, test_name))
     logs = "".join(open(os.path.join(logs_dir, name)).read() for name in os.listdir(logs_dir))
     assert "Snapshot interval must be between 0 and 604800 seconds." in logs
