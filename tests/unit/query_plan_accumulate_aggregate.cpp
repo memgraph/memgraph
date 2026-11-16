@@ -1532,6 +1532,44 @@ TYPED_TEST(QueryPlanTest, CachePropertiesDeniedPropertyIsNull) {
   EXPECT_TRUE(results[0][1].IsNull());
 }
 
+TYPED_TEST(QueryPlanTest, CachePropertiesWholeGroupDeniedIsNull) {
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
+  memgraph::query::DbAccessor dba(storage_dba.get());
+  auto label = dba.NameToLabel("Person");
+  auto prop_name = dba.NameToProperty("name");
+  auto prop_ssn = dba.NameToProperty("ssn");
+
+  auto v = dba.InsertVertex();
+  ASSERT_TRUE(v.AddLabel(label).has_value());
+  ASSERT_TRUE(v.SetProperty(prop_name, memgraph::storage::PropertyValue("Alice")).has_value());
+  ASSERT_TRUE(v.SetProperty(prop_ssn, memgraph::storage::PropertyValue("secret")).has_value());
+  dba.AdvanceCommand();
+
+  SymbolTable symbol_table;
+  auto n = MakeScanAll(this->storage, symbol_table, "n");
+  auto cached_name_sym = symbol_table.CreateSymbol("cached_name", true);
+  auto cached_ssn_sym = symbol_table.CreateSymbol("cached_ssn", true);
+  auto cache = std::make_shared<CacheProperties>(
+      n.op_, n.sym_, std::vector<CachedProperty>{{prop_name, cached_name_sym}, {prop_ssn, cached_ssn_sym}});
+
+  auto name_ne =
+      NEXPR("name", IDENT("cached_name")->MapTo(cached_name_sym))->MapTo(symbol_table.CreateSymbol("name_ne", true));
+  auto ssn_ne =
+      NEXPR("ssn", IDENT("cached_ssn")->MapTo(cached_ssn_sym))->MapTo(symbol_table.CreateSymbol("ssn_ne", true));
+  auto produce = MakeProduce(cache, name_ne, ssn_ne);
+
+  // Every property of the group denied answers Null for each of them, and the row still arrives.
+  memgraph::tests::StubPropertyFGAChecker<memgraph::query::DbAccessor> checker(&dba,
+                                                                               {{"Person", "name"}, {"Person", "ssn"}});
+  auto context = MakeContext(this->storage, symbol_table, &dba);
+  context.auth_checker = &checker;
+  auto results = CollectProduce(*produce, &context);
+  ASSERT_EQ(results.size(), 1);
+  ASSERT_EQ(results[0].size(), 2);
+  EXPECT_TRUE(results[0][0].IsNull());
+  EXPECT_TRUE(results[0][1].IsNull());
+}
+
 TYPED_TEST(QueryPlanTest, CachePropertiesDeniedEdgePropertyIsNull) {
   auto storage_dba = this->db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());

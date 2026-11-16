@@ -5958,18 +5958,38 @@ bool CacheProperties::CachePropertiesCursor::Pull(Frame &frame, ExecutionContext
     // so a group of nothing but denied properties must not read one either: doing so would report a
     // deleted or missing record for a read the query was never allowed to make.
     allowed_.assign(group.properties().size(), true);
-    auto any_allowed = false;
-    for (std::size_t slot = 0; slot != group.properties().size(); ++slot) {
-      auto const &cached = group.properties()[group.ordered().position_lookup()[slot]];
-      allowed_[slot] =
-          reads_a_vertex ? PropertyReadAllowed(
-                               context.auth_checker, input_value.ValueVertex(), storage::View::NEW, cached.property_id)
-                         : PropertyReadAllowed(context.auth_checker, input_value.ValueEdge(), cached.property_id);
-      any_allowed = any_allowed || allowed_[slot];
-    }
-    if (!any_allowed) {
-      answer_with_null(group);
-      continue;
+    if (context.auth_checker && context.auth_checker->HasPropertyRestrictions()) {
+      auto any_allowed = false;
+      auto const decide = [&](auto const &allows) {
+        for (std::size_t slot = 0; slot != group.properties().size(); ++slot) {
+          auto const &cached = group.properties()[group.ordered().position_lookup()[slot]];
+          allowed_[slot] = allows(cached.property_id);
+          any_allowed = any_allowed || allowed_[slot];
+        }
+      };
+
+      if (reads_a_vertex) {
+        // A vertex's permissions are decided from its labels, and reading those takes the record's
+        // lock, so the group reads them once and decides every property against that one read.
+        auto const maybe_labels = input_value.ValueVertex().Labels(storage::View::NEW);
+        if (!maybe_labels) {
+          // A record whose labels cannot be read permits none of its properties.
+          answer_with_null(group);
+          continue;
+        }
+        decide([&](storage::PropertyId property) {
+          return PropertyReadAllowed(context.auth_checker, *maybe_labels, property);
+        });
+      } else {
+        decide([&](storage::PropertyId property) {
+          return PropertyReadAllowed(context.auth_checker, input_value.ValueEdge(), property);
+        });
+      }
+
+      if (!any_allowed) {
+        answer_with_null(group);
+        continue;
+      }
     }
 #endif
 
