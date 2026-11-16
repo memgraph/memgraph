@@ -42,6 +42,7 @@
 #include "query/frontend/ast/query/user_profile.hpp"
 #include "query/frontend/opencypher/parser.hpp"
 #include "query/frontend/semantic/rw_checker.hpp"
+#include "query/frontend/semantic/symbol_generator.hpp"
 #include "query/frontend/stripped.hpp"
 #include "query/parameters.hpp"
 #include "query/procedure/cypher_types.hpp"
@@ -2440,6 +2441,38 @@ TEST_P(CypherMainVisitorTest, WithAnonymousVariableCapture) {
   CheckRWType(query, kRead);
 }
 
+TEST_P(CypherMainVisitorTest, MatchAfterOptionalMatch) {
+  auto &ast_generator = *GetParam();
+  CypherQuery *query = nullptr;
+  ASSERT_NO_THROW(
+      query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("OPTIONAL MATCH (n) MATCH (n)-[r]->(m) RETURN m")));
+  ASSERT_TRUE(query);
+  const auto &clauses = query->single_query_->clauses_;
+  ASSERT_EQ(clauses.size(), 3U);
+  auto *optional_match = dynamic_cast<Match *>(clauses[0]);
+  auto *match = dynamic_cast<Match *>(clauses[1]);
+  ASSERT_TRUE(optional_match);
+  ASSERT_TRUE(match);
+  EXPECT_TRUE(optional_match->optional_);
+  EXPECT_FALSE(match->optional_);
+  CheckRWType(query, kRead);
+
+  // A clause between the pair that is not WITH used to keep the refusal too.
+  for (const auto *between :
+       {"UNWIND [1] AS x", "CALL mg.procedures() YIELD name", R"(LOAD CSV FROM "file.csv" WITH HEADER AS row)"}) {
+    EXPECT_NO_THROW(ast_generator.ParseQuery(fmt::format("OPTIONAL MATCH (n) {} MATCH (m) RETURN n, m", between)))
+        << between;
+  }
+}
+
+TEST_P(CypherMainVisitorTest, MatchAfterOptionalMatchRedeclaresItsRelationship) {
+  // A later MATCH cannot reuse a bound relationship variable, whatever separates it from the optional.
+  auto &ast_generator = *GetParam();
+  EXPECT_THROW(memgraph::query::MakeSymbolTable(dynamic_cast<CypherQuery *>(
+                   ast_generator.ParseQuery("OPTIONAL MATCH (a)-[r]->() MATCH ()-[r]->(b) RETURN a, b"))),
+               RedeclareVariableError);
+}
+
 TEST_P(CypherMainVisitorTest, ClausesOrdering) {
   // Obviously some of the ridiculous combinations don't fail here, but they
   // will fail in semantic analysis or they make perfect sense as a part of
@@ -2453,7 +2486,7 @@ TEST_P(CypherMainVisitorTest, ClausesOrdering) {
   ASSERT_THROW(ast_generator.ParseQuery("RETURN 1 WITH n AS m RETURN 1"), SemanticException);
   ASSERT_THROW(ast_generator.ParseQuery("RETURN 1 AS n UNWIND n AS x RETURN x"), SemanticException);
 
-  ASSERT_THROW(ast_generator.ParseQuery("OPTIONAL MATCH (n) MATCH (m) RETURN n, m"), SemanticException);
+  ASSERT_NO_THROW(ast_generator.ParseQuery("OPTIONAL MATCH (n) MATCH (m) RETURN n, m"));
 
   CheckRWType(ast_generator.ParseQuery("OPTIONAL MATCH (n) WITH n MATCH (m) RETURN n, m"), kRead);
   CheckRWType(ast_generator.ParseQuery("OPTIONAL MATCH (n) OPTIONAL MATCH (m) RETURN n, m"), kRead);
