@@ -158,9 +158,11 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PostVisit(Expand &op) override {
     prev_ops_.pop_back();
-    const bool is_child_sequential_scan = op.input()->GetTypeInfo() == ScanAll::kType;
-    // An edge scan writes both endpoints, so it would overwrite a node the Expand only checks.
-    if (!is_child_sequential_scan || op.common_.existing_node) {
+    // The edge scan replaces the ScanAll and writes both endpoints: the ScanAll must bind the Expand's start node,
+    // and the Expand's end node must be free.
+    const auto *scan =
+        op.input()->GetTypeInfo() == ScanAll::kType ? static_cast<const ScanAll *>(op.input().get()) : nullptr;
+    if (!scan || scan->output_symbol_ != op.input_symbol_ || op.common_.existing_node) {
       return true;
     }
 
