@@ -929,6 +929,20 @@ TEST_F(WriteVisibilityPlan, WritesAgreeWithRwCheckerAndQueryParts) {
   EXPECT_GT(checked, 150);
 }
 
+// One SET evaluates every right-hand side before its first write when a later item reads what an earlier item
+// writes: a Produce of the right-hand sides goes before the group. Independent items keep their plan.
+TEST_F(WriteVisibilityPlan, OneSetEvaluatesItsRightHandSidesFirst) {
+  EXPECT_EQ(Chain(Plan("MATCH (a) SET a.x = 1, a.y = a.x + 1")),
+            (Names{"EmptyResult", "SetProperty", "SetProperty", "Produce", "ScanAll", "Once"}));
+  EXPECT_EQ(Chain(Plan("MATCH (a) SET a.x = a.y, a.y = a.x")),
+            (Names{"EmptyResult", "SetProperty", "SetProperty", "Produce", "ScanAll", "Once"}));
+  EXPECT_EQ(Chain(Plan("MATCH (a) SET a.x = 1, a.y = a.z + 1")),
+            (Names{"EmptyResult", "SetProperty", "SetProperty", "ScanAll", "Once"}));
+  EXPECT_FALSE(Collect<Produce>(Plan("MATCH (a) FOREACH (i IN [1] | SET a.x = i, a.y = a.x)")).empty());
+  EXPECT_FALSE(Collect<Produce>(Plan("MERGE (a:L {k: 1}) ON CREATE SET a.x = 1, a.y = a.x")).empty());
+  EXPECT_FALSE(Collect<Produce>(Plan("MERGE (a:L {k: 1}) ON MATCH SET a.x = 1, a.y = a.x")).empty());
+}
+
 // ---------------------------------------------------------------- each write fences a filter on its own
 
 // Under batching no barrier is planned, so a CALL ... YIELD WHERE sits directly on the write before it, and the write's

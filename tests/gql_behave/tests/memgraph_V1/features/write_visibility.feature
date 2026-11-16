@@ -2673,3 +2673,31 @@ Feature: Write visibility inside one query
             | i | sx |
             | 1 | 0  |
             | 2 | 0  |
+
+    Scenario: A SET item reads the value a property had before an earlier item of the same SET
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:WvS {id: 1, x: 0, k: 1}), (:WvS {id: 2, x: 0, k: 1})
+            """
+        When executing query:
+            """
+            MATCH (a:WvS {id: 1}) SET a.x = a.k, a.y = a.x + a.k RETURN a.x AS x, a.y AS y
+            """
+        Then the result should be:
+            | x | y |
+            | 1 | 1 |
+
+    Scenario: One SET swaps two properties of the same node
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:WvU {x: 1, y: 2})
+            """
+        When executing query:
+            """
+            MATCH (a:WvU) SET a.x = a.y, a.y = a.x RETURN a.x AS x, a.y AS y
+            """
+        Then the result should be:
+            | x | y |
+            | 2 | 1 |
