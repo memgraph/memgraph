@@ -1032,9 +1032,9 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
 
     for (const auto &filter : filters_.IdFilters(common.edge_symbol)) {
       if (filter.id_filter->is_symbol_in_value_ || !are_bound(filter.used_symbols)) continue;
-      // ScanAllByEdgeId carries no edge types and no node identity, and we erase the id filter below,
-      // so a pattern constraining either must keep its Expand instead of matching the wrong edge.
-      if (!common.edge_types.empty() || common.node1_symbol == common.node2_symbol) continue;
+      // ScanAllByEdgeId carries no edge types, and we erase the id filter below,
+      // so a typed pattern must keep its Expand instead of matching the wrong edge.
+      if (!common.edge_types.empty()) continue;
       auto *value = filter.id_filter->value_;
       filter_exprs_for_removal_.insert(filter.expression);
       filters_.EraseFilter(filter);
