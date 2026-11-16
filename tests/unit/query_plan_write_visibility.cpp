@@ -348,6 +348,13 @@ TEST_F(WriteVisibilityPlan, BarrierBeforeExpansionFromACreatedNode) {
             (Names{"EmptyResult", "SetProperty", "RollUpApply", "CreateExpand", "CreateNode", "Once"}));
 }
 
+TEST_F(WriteVisibilityPlan, ACreateThatReadsNewDrainsBeforeALaterWriteOfWhatItRead) {
+  // `startNode(r)` is the matched `m`: at View::NEW the CREATE map would see an earlier row's SET without the drain.
+  EXPECT_EQ(
+      Chain(Plan("UNWIND [1, 2] AS i MATCH (m) CREATE (m)-[r:R]->(b), (c {x: startNode(r).x}) SET m.x = i")),
+      (Names{"EmptyResult", "SetProperty", "Accumulate+", "CreateNode", "CreateExpand", "ScanAll", "Unwind", "Once"}));
+}
+
 #ifdef MG_ENTERPRISE
 // ---------------------------------------------------------------- barriers only the access check needs
 
@@ -1529,10 +1536,13 @@ class ViewOracle {
   /// that uses this one's rows is a clause that reads NEW; it decides a comprehension branch, whose list RollUpApply
   /// passes up to the operator above it (a SET right-hand side, a FOREACH list).
   void Walk(LogicalOperator &op, bool reads_new, bool consumer_reads_new = false, bool under_set_values = false) {
-    auto const expected = reads_new || IsSetGroupProduce(op) || (Is<plan::CacheProperties>(op) && under_set_values)
+    auto const create_reads = CreateReads(op);
+    auto const expected = reads_new || IsSetGroupProduce(op) || (Is<plan::CacheProperties>(op) && under_set_values) ||
+                                  create_reads == CreateRead::kOnlyCreated
                               ? View::NEW
                               : View::OLD;
-    if (auto const actual = op.ReadView(); actual && *actual != expected) {
+    // A CREATE that names no variable reads the graph at neither view; it takes its clause's view.
+    if (auto const actual = op.ReadView(); actual && *actual != expected && create_reads != CreateRead::kNothing) {
       mismatches_.push_back({std::string{op.GetTypeInfo().name}, expected, *actual});
     }
     auto const is_rollup = Is<plan::RollUpApply>(op);
@@ -1556,6 +1566,96 @@ class ViewOracle {
           break;
       }
     }
+  }
+
+  /// Collects the symbol positions an expression names.
+  class IdentifierCollector final : public HierarchicalTreeVisitor {
+   public:
+    using HierarchicalTreeVisitor::PostVisit;
+    using HierarchicalTreeVisitor::PreVisit;
+    using HierarchicalTreeVisitor::Visit;
+
+    bool Visit(Identifier &ident) override {
+      positions.insert(ident.symbol_pos_);
+      return true;
+    }
+
+    // A module function can walk from its argument to entities this command did not create.
+    bool PreVisit(Function &function) override {
+      reads_graph = reads_graph || function.is_user_defined_ || FunctionReadsGraph(function.function_name_);
+      return true;
+    }
+
+    bool Visit(PrimitiveLiteral & /*literal*/) override { return true; }
+
+    bool Visit(ParameterLookup & /*lookup*/) override { return true; }
+
+    bool Visit(EnumValueAccess & /*access*/) override { return true; }
+
+    std::unordered_set<int32_t> positions;
+    bool reads_graph{false};
+  };
+
+  static void CollectIdentifiers(const NodeCreationInfo &node, IdentifierCollector &out) {
+    for (auto const &label : node.labels) {
+      if (auto *const *expression = std::get_if<Expression *>(&label)) (*expression)->Accept(out);
+    }
+    if (auto const *map = std::get_if<PropertiesMapList>(&node.properties)) {
+      for (auto const &[key, value] : *map) value->Accept(out);
+    }
+  }
+
+  /// kOnlyCreated: a CREATE whose expressions read only entities created below it since the last advance, and plain
+  /// data. Such an entity is not there at View::OLD, so View::OLD would read it at View::NEW anyway.
+  enum class CreateRead : uint8_t { kNotACreate, kNothing, kOnlyCreated, kOther };
+
+  static CreateRead CreateReads(LogicalOperator &op) {
+    IdentifierCollector reads;
+    if (auto *create = memgraph::utils::Downcast<plan::CreateNode>(&op)) {
+      CollectIdentifiers(create->node_info_, reads);
+    } else if (auto *expand = memgraph::utils::Downcast<plan::CreateExpand>(&op)) {
+      if (!expand->existing_node_) CollectIdentifiers(expand->node_info_, reads);
+      if (auto const *map = std::get_if<PropertiesMapList>(&expand->edge_info_.properties)) {
+        for (auto const &[key, value] : *map) value->Accept(reads);
+      }
+    } else {
+      return CreateRead::kNotACreate;
+    }
+    if (reads.positions.empty()) return CreateRead::kNothing;
+    if (reads.reads_graph) return CreateRead::kOther;
+    std::unordered_set<int32_t> created;
+    std::unordered_set<int32_t> data;
+    auto note_created = [&](LogicalOperator &below) {
+      if (auto *create = memgraph::utils::Downcast<plan::CreateNode>(&below)) {
+        created.insert(create->node_info_.symbol.position());
+      } else if (auto *expand = memgraph::utils::Downcast<plan::CreateExpand>(&below)) {
+        created.insert(expand->edge_info_.symbol.position());
+        if (!expand->existing_node_) created.insert(expand->node_info_.symbol.position());
+      }
+    };
+    for (LogicalOperator *below = op.input().get(); below;) {
+      if (auto *barrier = memgraph::utils::Downcast<plan::Accumulate>(below); barrier && barrier->advance_command_) {
+        break;
+      }
+      note_created(*below);
+      if (auto *unwind = memgraph::utils::Downcast<plan::Unwind>(below)) {
+        IdentifierCollector list;
+        unwind->input_expression_->Accept(list);
+        if (list.positions.empty()) data.insert(unwind->output_symbol_.position());
+      }
+      auto children = Children(*below);
+      auto main = std::ranges::find_if(children, [](auto const &child) { return child.second == Edge::kInput; });
+      below = main == children.end() ? nullptr : main->first;
+    }
+    bool reads_created = false;
+    for (auto position : reads.positions) {
+      if (created.contains(position)) {
+        reads_created = true;
+      } else if (!data.contains(position)) {
+        return CreateRead::kOther;
+      }
+    }
+    return reads_created ? CreateRead::kOnlyCreated : CreateRead::kOther;
   }
 
   /// The symbols SET items read their right-hand side from, when one SET evaluated them up front.

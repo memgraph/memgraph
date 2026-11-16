@@ -380,7 +380,10 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
       ReadWriteSet pending_new_reads;
       // What this UNION part wrote since the last barrier of either kind: an access check barrier covers only this.
       ReadWriteSet access_pending_writes;
+      // The node and edge symbols a CREATE bound since the last barrier: each holds an entity this command created.
+      std::unordered_set<Symbol> created_since_barrier;
       auto forget_pending = [&] {
+        created_since_barrier.clear();
         pending_writes.Clear();
         pending_new_reads.Clear();
         access_pending_writes.Clear();
@@ -621,15 +624,25 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
                 AddIfUnbound(*atom->identifier_, context.bound_symbols, *pattern_bound);
             }
           }
+          // The atoms a CREATE binds; a path symbol is not one.
+          std::vector<Symbol> created_here;
+          if (auto *create = utils::Downcast<Create>(clause)) {
+            for (auto *pattern : create->patterns_) {
+              for (auto *atom : pattern->atoms_) AddIfUnbound(*atom->identifier_, context.bound_symbols, created_here);
+            }
+          }
           std::optional<std::unordered_set<Symbol>> bound_before;
           if (!pattern_bound && (reads_fresh || !access.writes.symbols.empty())) bound_before = context.bound_symbols;
           // Set by an arm that drains and advances after its own writes.
           bool advanced_after = false;
+          // Set by a CREATE that reads View::NEW because it reads only created entities.
+          bool create_reads_new = false;
           auto const record_writes = utils::OnScopeExit{[&] {
             if (advanced_after) return;
             pending_writes.Merge(access.writes);
             access_pending_writes.Merge(access.writes);
             if (pattern_bound) pending_writes.symbols.insert(pattern_bound->begin(), pattern_bound->end());
+            created_since_barrier.insert(created_here.begin(), created_here.end());
             if (bound_before) {
               auto *call = utils::Downcast<query::CallSubquery>(clause);
               for (const auto &symbol : context.bound_symbols) {
@@ -645,7 +658,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
                 pending_writes.symbols.insert(symbol);
               }
             }
-            if (clause_reads_new || reads_fresh) pending_new_reads.Merge(access.reads);
+            if (clause_reads_new || reads_fresh || create_reads_new) pending_new_reads.Merge(access.reads);
           }};
 
           if (auto *ret = utils::Downcast<Return>(clause)) {
@@ -708,7 +721,18 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
             write_occurred = true;
             plan_and_apply_comprehensions(impl::OriginatingIn(clause, pending_comprehensions));
             input_op = PreEvaluateSetGroup(clauses, std::distance(clauses.begin(), clause_it), std::move(input_op));
-            auto op = HandleWriteClause(clause, input_op, *context.symbol_table, context.bound_symbols, ScopeView());
+            // View::OLD reads a created entity by failing, then reading View::NEW; read only those, read View::NEW.
+            auto const created = [&](const Symbol &symbol) {
+              return created_since_barrier.contains(symbol) || std::ranges::contains(created_here, symbol);
+            };
+            auto const &reads = access.reads;
+            bool const reads_only_created = BarriersOn() && utils::Downcast<Create>(clause) &&
+                                            !reads.referenced.empty() && !reads.everything && !reads.nodes &&
+                                            reads.symbols.empty() && reads.edge_types.empty() && !reads.any_edge_type &&
+                                            std::ranges::all_of(reads.referenced, created);
+            create_reads_new = reads_only_created;
+            auto const view = reads_only_created ? storage::View::NEW : ScopeView();
+            auto op = HandleWriteClause(clause, input_op, *context.symbol_table, context.bound_symbols, view);
             MG_ASSERT(op, "Expected write clause to be handled");
             input_op = std::move(op);
           } else if (auto *unwind = utils::Downcast<query::Unwind>(clause)) {
