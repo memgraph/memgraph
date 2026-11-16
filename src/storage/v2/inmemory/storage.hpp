@@ -1254,6 +1254,10 @@ class InMemoryStorage final : public Storage {
   void ProcessPendingSchemaUpdates(uint64_t up_to_commit_ts);
 
 #ifdef MG_ENTERPRISE
+  // Exclusive bound on commit timestamps a transaction beginning now would see (`ts < bound`); caller holds
+  // engine_lock_.
+  uint64_t VisibleCommitBoundLocked() const;
+
   // Live branch fork points (multiset: pins may share a fork_ts); GC's horizon is clamped to the oldest.
   utils::SpinLock version_fork_pin_lock_;
   std::multiset<uint64_t> version_fork_pins_;
