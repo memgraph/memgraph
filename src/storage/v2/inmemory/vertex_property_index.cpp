@@ -79,7 +79,7 @@ void AdvanceUntilValid_(auto &index_iterator, auto end, Vertex *&current_vertex,
                         Storage *storage, Transaction *transaction, View view, PropertyId property,
                         std::optional<utils::Bound<PropertyValue>> const &lower_bound,
                         std::optional<utils::Bound<PropertyValue>> const &upper_bound, Gid max_gid,
-                        PropertyValueRange::ValuePredicateFn const *value_predicate) {
+                        uint64_t scan_start_timestamp, PropertyValueRange::ValuePredicateFn const *value_predicate) {
   for (; index_iterator != end; ++index_iterator) {
     if (index_iterator->vertex == current_vertex) {
       continue;
@@ -102,7 +102,7 @@ void AdvanceUntilValid_(auto &index_iterator, auto end, Vertex *&current_vertex,
       continue;
     }
 
-    if (!CanSeeEntityWithTimestamp(index_iterator->timestamp, transaction, view)) {
+    if (!CanSeeEntityWithTimestamp(index_iterator->timestamp, transaction, view, scan_start_timestamp)) {
       continue;
     }
 
@@ -371,7 +371,8 @@ InMemoryVertexPropertyIndex::Iterable::Iterable(
       view_(view),
       storage_(storage),
       transaction_(transaction),
-      max_gid_(max_gid) {}
+      max_gid_(max_gid),
+      scan_start_timestamp_(transaction->start_timestamp) {}
 
 InMemoryVertexPropertyIndex::Iterable::Iterator::Iterator(
     Iterable *self, utils::SkipListDb<InMemoryVertexPropertyIndex::Entry>::Iterator index_iterator)
@@ -397,6 +398,7 @@ void InMemoryVertexPropertyIndex::Iterable::Iterator::AdvanceUntilValid() {
                      self_->lower_bound_,
                      self_->upper_bound_,
                      self_->max_gid_,
+                     self_->scan_start_timestamp_,
                      self_->value_predicate_.get());
 }
 
@@ -515,7 +517,8 @@ InMemoryVertexPropertyIndex::ChunkedIterable::ChunkedIterable(
       view_(view),
       storage_(storage),
       transaction_(transaction),
-      max_gid_(max_gid) {
+      max_gid_(max_gid),
+      scan_start_timestamp_(transaction->start_timestamp) {
   if (!bounds_valid_) return;
 
   auto const lower_bound_pv = lower_bound_ ? std::optional<PropertyValue>{lower_bound_->value()} : std::nullopt;
@@ -538,6 +541,7 @@ void InMemoryVertexPropertyIndex::ChunkedIterable::Iterator::AdvanceUntilValid()
                      self_->lower_bound_,
                      self_->upper_bound_,
                      self_->max_gid_,
+                     self_->scan_start_timestamp_,
                      self_->value_predicate_.get());
 }
 

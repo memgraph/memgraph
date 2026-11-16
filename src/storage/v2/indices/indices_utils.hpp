@@ -349,20 +349,19 @@ inline void PopulateIndexDispatch(TVerticesAccessor &vertices, TSkipListAccessor
   }
 }
 
-// Helper function that determines, if a transaction has an original start timestamp
-// (for example in a periodic commit when it is necessary to preserve initial index iterators)
-// whether we are allowed to see the entity in the index data structures
-// Returns true if we are allowed to see the entity in the index data structures
-// If the method returns true, the reverts of the deltas will finally decide what's the version
-// of the graph entity
-inline bool CanSeeEntityWithTimestamp(uint64_t insertion_timestamp, Transaction *transaction, View view) {
+// Whether an index scan may see an index entry inserted at `insertion_timestamp`; if so, MVCC decides the version.
+// `scan_start_timestamp` is the transaction's start timestamp when the scan opened. Once a periodic-commit batch
+// has committed since then, an entry a later batch inserted is hidden: the scan sees the graph as of its own start,
+// whatever command the transaction is on. Until then, at command 0 an entry newer than the scan's start is hidden.
+inline bool CanSeeEntityWithTimestamp(uint64_t insertion_timestamp, Transaction *transaction, View view,
+                                      uint64_t scan_start_timestamp) {
+  if (transaction->start_timestamp != scan_start_timestamp) return insertion_timestamp <= scan_start_timestamp;
   // Not enough information, need to rely on MVCC to fully check entry
   if (transaction->command_id != 0) return true;
-  auto const original_start_timestamp = transaction->original_start_timestamp;
   if (view == View::OLD) {
-    return insertion_timestamp < original_start_timestamp;
+    return insertion_timestamp < scan_start_timestamp;
   }
-  return insertion_timestamp <= original_start_timestamp;
+  return insertion_timestamp <= scan_start_timestamp;
 }
 
 // Two bounds a range may be read from: either the value types can be compared, or the pair is the
