@@ -1406,11 +1406,12 @@ TYPED_TEST(QueryPlanTest, LabelAccessCheckSeesEarlierWrites) {
   memgraph::auth::User user{"test"};
   user.fine_grained_access_handler().label_permissions().Grant({"PM"}, memgraph::auth::kAllLabelPermissions);
   user.fine_grained_access_handler().label_permissions().Grant({"Oth"}, memgraph::auth::kAllLabelPermissions);
-  // :Hid may be added (CREATE on the target label) but a node carrying it may not be changed (no SET/REMOVE LABEL).
+  // :Hid may be added (CREATE on the target label), but a node carrying it may not be changed: a DENY wins over the
+  // grant :PM gives.
   user.fine_grained_access_handler().label_permissions().Grant(
-      {"Hid"},
-      static_cast<memgraph::auth::FineGrainedPermission>(memgraph::auth::FineGrainedPermission::READ |
-                                                         memgraph::auth::FineGrainedPermission::CREATE));
+      {"Hid"}, memgraph::auth::FineGrainedPermission::READ | memgraph::auth::FineGrainedPermission::CREATE);
+  user.fine_grained_access_handler().label_permissions().Deny(
+      {"Hid"}, memgraph::auth::FineGrainedPermission::SET_LABEL | memgraph::auth::FineGrainedPermission::REMOVE_LABEL);
 
   // Two rows set :Hid on the same node: the second row's check sees :Hid.
   {
