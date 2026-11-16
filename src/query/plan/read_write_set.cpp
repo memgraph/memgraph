@@ -64,6 +64,7 @@ class ReadWriteCollector final : public HierarchicalTreeVisitor {
   bool PreVisit(PropertyLookup &lookup) override {
     if (ReadsGraph(lookup.expression_)) {
       result.reads.properties.insert(lookup.property_path_.front().name);
+      NoteKeyAccess(result.reads, lookup.expression_);
       // A node's property permission depends on its labels.
       if (!IsEdge(lookup.expression_)) ReadLabelsForAccessCheck();
     }
@@ -71,12 +72,16 @@ class ReadWriteCollector final : public HierarchicalTreeVisitor {
   }
 
   bool PreVisit(AllPropertiesLookup &lookup) override {
-    if (ReadsGraph(lookup.expression_)) result.reads.any_property = true;
+    if (ReadsGraph(lookup.expression_)) {
+      result.reads.any_property = true;
+      NoteKeyAccess(result.reads, lookup.expression_);
+    }
     return true;
   }
 
   bool PreVisit(SubscriptOperator &op) override {
     if (!ReadsGraph(op.expression1_) || utils::Downcast<ListLiteral>(op.expression1_)) return true;
+    NoteKeyAccess(result.reads, op.expression1_);
     if (auto *key = utils::Downcast<PrimitiveLiteral>(op.expression2_)) {
       if (key->value_.IsString()) result.reads.properties.insert(std::string{key->value_.ValueString()});
       return true;
@@ -125,7 +130,7 @@ class ReadWriteCollector final : public HierarchicalTreeVisitor {
     } else if (!bound_.contains(symbol)) {
       result.reads.nodes = true;
     }
-    ReadPropertyKeys(node.properties_);
+    ReadPropertyKeys(node.properties_, node.identifier_);
     return true;
   }
 
@@ -139,7 +144,7 @@ class ReadWriteCollector final : public HierarchicalTreeVisitor {
         result.reads.any_edge_type = true;
       }
     }
-    ReadPropertyKeys(edge.properties_);
+    ReadPropertyKeys(edge.properties_, edge.identifier_);
     // EdgeAtom::Accept does not walk the lambdas.
     for (auto *lambda : {&edge.filter_lambda_, &edge.weight_lambda_}) {
       if (lambda->expression) lambda->expression->Accept(*this);
@@ -183,6 +188,7 @@ class ReadWriteCollector final : public HierarchicalTreeVisitor {
 
   bool PreVisit(SetProperty &set) override {
     result.writes.properties.insert(set.property_lookup_->property_path_.front().name);
+    NoteKeyAccess(result.writes, set.property_lookup_->expression_);
     // The target is an expression too: `SET (CASE WHEN a.f THEN b ELSE a END).x` reads a.f.
     set.property_lookup_->expression_->Accept(*this);
     set.expression_->Accept(*this);
@@ -191,10 +197,12 @@ class ReadWriteCollector final : public HierarchicalTreeVisitor {
 
   bool PreVisit(SetProperties &set) override {
     result.writes.any_property = true;
+    NoteKeyAccess(result.writes, set.identifier_);
     // `SET n = m` copies every property of an entity; any value but a map literal or a parameter may be one.
     if (!utils::Downcast<MapLiteral>(set.expression_) && !utils::Downcast<ParameterLookup>(set.expression_) &&
         ReadsGraph(set.expression_)) {
       result.reads.any_property = true;
+      result.reads.keys_mixed = true;
     }
     set.expression_->Accept(*this);
     return false;
@@ -209,6 +217,7 @@ class ReadWriteCollector final : public HierarchicalTreeVisitor {
 
   bool PreVisit(RemoveProperty &remove) override {
     result.writes.properties.insert(remove.property_lookup_->property_path_.front().name);
+    NoteKeyAccess(result.writes, remove.property_lookup_->expression_);
     remove.property_lookup_->expression_->Accept(*this);
     return false;
   }
@@ -319,12 +328,26 @@ class ReadWriteCollector final : public HierarchicalTreeVisitor {
   }
 
   template <class TProperties>
-  void ReadPropertyKeys(const TProperties &properties) {
+  void ReadPropertyKeys(const TProperties &properties, Identifier *atom) {
     if (const auto *map = std::get_if<std::unordered_map<PropertyIx, Expression *>>(&properties)) {
+      if (map->empty()) return;
       for (const auto &[key, value] : *map) result.reads.properties.insert(key.name);
     } else {
       result.reads.any_property = true;
     }
+    NoteKeyAccess(result.reads, atom);
+  }
+
+  /// Records the variable a key is read or written through; any other object makes the set's keys mixed.
+  void NoteKeyAccess(ReadWriteSet &set, Expression *object) const {
+    auto *ident = utils::Downcast<Identifier>(object);
+    if (!ident || ident->symbol_pos_ < 0) {
+      set.keys_mixed = true;
+      return;
+    }
+    auto const &symbol = symbol_table_.at(*ident);
+    if (set.key_symbol && *set.key_symbol != symbol) set.keys_mixed = true;
+    set.key_symbol = symbol;
   }
 
   /// A created entity's properties are reachable only through its labels or edge type, or its own symbol, which the
@@ -400,6 +423,8 @@ void ReadWriteSet::Merge(const ReadWriteSet &other) {
   everything |= other.everything;
   access_check_labels |= other.access_check_labels;
   relabels |= other.relabels;
+  if (other.keys_mixed || (key_symbol && other.key_symbol && *key_symbol != *other.key_symbol)) keys_mixed = true;
+  if (!key_symbol) key_symbol = other.key_symbol;
   symbols.insert(other.symbols.begin(), other.symbols.end());
   referenced.insert(other.referenced.begin(), other.referenced.end());
 }
@@ -416,6 +441,22 @@ bool Conflicts(const ReadWriteSet &reads, const ReadWriteSet &writes) {
          KeysConflict(reads.labels, reads.any_label, writes.labels, writes.any_label) ||
          KeysConflict(reads.edge_types, reads.any_edge_type, writes.edge_types, writes.any_edge_type) ||
          (reads.nodes && writes.nodes);
+}
+
+std::optional<Symbol> ConflictsOnlyOnKeysOf(const ReadWriteSet &reads, const ReadWriteSet &writes) {
+  // A procedure or a graph-reading function reads everything, through no one variable.
+  if (reads.everything || writes.everything || reads.keys_mixed || writes.keys_mixed || !reads.key_symbol ||
+      reads.key_symbol != writes.key_symbol) {
+    return std::nullopt;
+  }
+  auto other_reads = reads;
+  auto other_writes = writes;
+  for (auto *set : {&other_reads, &other_writes}) {
+    set->properties.clear();
+    set->any_property = false;
+  }
+  if (Conflicts(other_reads, other_writes)) return std::nullopt;
+  return reads.key_symbol;
 }
 
 bool MayHoldEntity(Expression *value, const SymbolTable &symbol_table, const std::unordered_set<Symbol> &non_graph) {

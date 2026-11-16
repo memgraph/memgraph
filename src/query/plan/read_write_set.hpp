@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <optional>
 #include <set>
 #include <string>
 #include <unordered_set>
@@ -47,6 +48,10 @@ struct ReadWriteSet {
   /// Writes only: a SET or REMOVE label changed the labels of a node that already existed, the one write an access
   /// check can see. A created node's labels are not one: whether a read finds that node at all is a real conflict.
   bool relabels{false};
+  /// The one variable every property key in this set is read or written through, when there is one (`keys_mixed`
+  /// false). A barrier between two clauses that touch keys only through a row-unique variable is not needed.
+  std::optional<Symbol> key_symbol;
+  bool keys_mixed{false};
   /// Reads: the symbols a pattern expands from or through. Writes: the symbols a CREATE or MERGE first binds, which
   /// View::OLD cannot see until the command advances.
   std::unordered_set<Symbol> symbols;
@@ -69,6 +74,10 @@ bool Conflicts(const ReadWriteSet &reads, const ReadWriteSet &writes);
 /// Whether the reads conflict with the writes only through `access_check_labels`: a barrier for that conflict is
 /// needed only while a fine-grained access check runs.
 bool ConflictsOnlyInAccessCheck(const ReadWriteSet &reads, const ReadWriteSet &writes);
+
+/// The variable through which the reads and the writes touch every key they conflict on, when they conflict on
+/// property keys alone and both reach them through that one variable; nullopt otherwise.
+std::optional<Symbol> ConflictsOnlyOnKeysOf(const ReadWriteSet &reads, const ReadWriteSet &writes);
 
 struct ReadsAndWrites {
   ReadWriteSet reads;

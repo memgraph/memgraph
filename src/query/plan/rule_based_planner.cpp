@@ -1325,6 +1325,67 @@ std::optional<std::unordered_set<Symbol>> SymbolsReadAfter(const QueryPart &quer
   return read;
 }
 
+namespace {
+
+/// Operators that emit at most one row per input row and leave every symbol bound below them as it was.
+bool NeverRepeatsARow(const LogicalOperator &op) {
+  return utils::IsSubtype(op, Filter::kType) || utils::IsSubtype(op, plan::SetProperty::kType) ||
+         utils::IsSubtype(op, plan::SetProperties::kType) || utils::IsSubtype(op, plan::SetLabels::kType) ||
+         utils::IsSubtype(op, plan::RemoveProperty::kType) || utils::IsSubtype(op, plan::RemoveLabels::kType) ||
+         utils::IsSubtype(op, plan::SetNestedProperty::kType) ||
+         utils::IsSubtype(op, plan::RemoveNestedProperty::kType) || utils::IsSubtype(op, Accumulate::kType) ||
+         utils::IsSubtype(op, EvaluatePatternFilter::kType) || utils::IsSubtype(op, RollUpApply::kType) ||
+         utils::IsSubtype(op, CacheProperties::kType) || utils::IsSubtype(op, ConstructNamedPath::kType) ||
+         utils::IsSubtype(op, EdgeUniquenessFilter::kType) || utils::IsSubtype(op, Skip::kType) ||
+         utils::IsSubtype(op, Limit::kType) || utils::IsSubtype(op, OrderBy::kType) ||
+         utils::IsSubtype(op, plan::CreateNode::kType) || utils::IsSubtype(op, plan::CreateExpand::kType) ||
+         utils::IsSubtype(op, plan::Delete::kType) || utils::IsSubtype(op, Distinct::kType);
+}
+
+/// Whether @p op produces at most one row: an Once, under operators that never repeat a row.
+bool AtMostOneRow(const LogicalOperator *op) {
+  while (op && NeverRepeatsARow(*op)) op = op->input().get();
+  return op && utils::IsSubtype(*op, Once::kType);
+}
+
+}  // namespace
+
+bool IsRowUnique(const LogicalOperator &plan, Symbol symbol) {
+  auto position = symbol.position();
+  for (const LogicalOperator *op = &plan; op != nullptr;) {
+    if (auto const *scan = utils::Downcast<const ScanAll>(op); scan && scan->output_symbol_.position() == position) {
+      return scan->view_ == storage::View::OLD && AtMostOneRow(scan->input().get());
+    }
+    if (auto const *once = utils::Downcast<const Once>(op)) {
+      return std::ranges::any_of(once->symbols_, [&](const Symbol &bound) { return bound.position() == position; });
+    }
+    if (auto const *aggregate = utils::Downcast<const Aggregate>(op)) {
+      if (aggregate->group_by_.size() != 1) return false;
+      auto *key = utils::Downcast<Identifier>(aggregate->group_by_.front());
+      return key && key->symbol_pos_ == position;
+    }
+    if (auto const *distinct = utils::Downcast<const Distinct>(op);
+        distinct && distinct->value_symbols_.size() == 1 && distinct->value_symbols_.front().position() == position) {
+      return true;
+    }
+    if (auto const *produce = utils::Downcast<const Produce>(op)) {
+      // A projection that binds the symbol hands it on from the variable it names, or makes it from anything else.
+      for (auto const *named : produce->named_expressions_) {
+        if (named->symbol_pos_ != position) continue;
+        auto *source = utils::Downcast<Identifier>(named->expression_);
+        if (!source) return false;
+        position = source->symbol_pos_;
+        break;
+      }
+      op = op->input().get();
+      continue;
+    }
+    if (!NeverRepeatsARow(*op)) return false;
+    op = op->input().get();
+  }
+  return false;
+}
+
 bool ReadsPropertyOf(Expression &expression, const Symbol &symbol, const std::set<std::string> &keys,
                      const SymbolTable &symbol_table) {
   PropertyOfFinder finder(symbol, keys, symbol_table);

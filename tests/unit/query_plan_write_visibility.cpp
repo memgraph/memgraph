@@ -273,14 +273,15 @@ std::vector<std::string> Chain(LogicalOperator &plan) {
 using Names = std::vector<std::string>;
 
 TEST_F(WriteVisibilityPlan, BarrierBeforeSetThatReadsAnEarlierSet) {
-  EXPECT_EQ(Chain(Plan("MATCH (a) SET a.x = 1 SET a.y = a.x")),
-            (Names{"EmptyResult", "SetProperty", "Accumulate+", "SetProperty", "ScanAll", "Once"}));
-  EXPECT_EQ(Chain(Plan("MATCH (a) SET a.x = 1 SET a.y = a.z")),
-            (Names{"EmptyResult", "SetProperty", "SetProperty", "ScanAll", "Once"}));
+  // The UNWIND repeats every a, so the barrier is needed (a row-unique a needs none).
+  EXPECT_EQ(Chain(Plan("UNWIND [1, 2] AS i MATCH (a) SET a.x = 1 SET a.y = a.x")),
+            (Names{"EmptyResult", "SetProperty", "Accumulate+", "SetProperty", "ScanAll", "Unwind", "Once"}));
+  EXPECT_EQ(Chain(Plan("UNWIND [1, 2] AS i MATCH (a) SET a.x = 1 SET a.y = a.z")),
+            (Names{"EmptyResult", "SetProperty", "SetProperty", "ScanAll", "Unwind", "Once"}));
 }
 
 TEST_F(WriteVisibilityPlan, TwoBarriersInOnePart) {
-  EXPECT_EQ(Chain(Plan("MATCH (a) SET a.x = 1 SET a.y = a.x SET a.z = a.y")),
+  EXPECT_EQ(Chain(Plan("UNWIND [1, 2] AS i MATCH (a) SET a.x = 1 SET a.y = a.x SET a.z = a.y")),
             (Names{"EmptyResult",
                    "SetProperty",
                    "Accumulate+",
@@ -288,28 +289,29 @@ TEST_F(WriteVisibilityPlan, TwoBarriersInOnePart) {
                    "Accumulate+",
                    "SetProperty",
                    "ScanAll",
+                   "Unwind",
                    "Once"}));
 }
 
 TEST_F(WriteVisibilityPlan, BarrierBeforeCreateMapThatReadsAnEarlierSet) {
-  EXPECT_EQ(Chain(Plan("MATCH (a) SET a.x = 1 CREATE ({v: a.x})")),
-            (Names{"EmptyResult", "CreateNode", "Accumulate+", "SetProperty", "ScanAll", "Once"}));
-  EXPECT_EQ(Chain(Plan("MATCH (a) SET a.x = 1 CREATE ({v: a.z})")),
-            (Names{"EmptyResult", "CreateNode", "SetProperty", "ScanAll", "Once"}));
+  EXPECT_EQ(Chain(Plan("UNWIND [1, 2] AS i MATCH (a) SET a.x = 1 CREATE ({v: a.x})")),
+            (Names{"EmptyResult", "CreateNode", "Accumulate+", "SetProperty", "ScanAll", "Unwind", "Once"}));
+  EXPECT_EQ(Chain(Plan("UNWIND [1, 2] AS i MATCH (a) SET a.x = 1 CREATE ({v: a.z})")),
+            (Names{"EmptyResult", "CreateNode", "SetProperty", "ScanAll", "Unwind", "Once"}));
 }
 
 TEST_F(WriteVisibilityPlan, BarrierBeforeForeachListThatReadsAnEarlierSet) {
-  EXPECT_EQ(Chain(Plan("MATCH (a) SET a.x = 1 FOREACH (i IN [a.x] | CREATE ())")),
-            (Names{"EmptyResult", "Foreach", "Accumulate+", "SetProperty", "ScanAll", "Once"}));
-  EXPECT_EQ(Chain(Plan("MATCH (a) SET a.x = 1 FOREACH (i IN [a.z] | CREATE ())")),
-            (Names{"EmptyResult", "Foreach", "SetProperty", "ScanAll", "Once"}));
+  EXPECT_EQ(Chain(Plan("UNWIND [1, 2] AS j MATCH (a) SET a.x = 1 FOREACH (i IN [a.x] | CREATE ())")),
+            (Names{"EmptyResult", "Foreach", "Accumulate+", "SetProperty", "ScanAll", "Unwind", "Once"}));
+  EXPECT_EQ(Chain(Plan("UNWIND [1, 2] AS j MATCH (a) SET a.x = 1 FOREACH (i IN [a.z] | CREATE ())")),
+            (Names{"EmptyResult", "Foreach", "SetProperty", "ScanAll", "Unwind", "Once"}));
 }
 
 TEST_F(WriteVisibilityPlan, BarrierBeforeCallBodyThatReadsAnEarlierSet) {
-  EXPECT_EQ(Chain(Plan("MATCH (a) SET a.x = 1 CALL (a) { RETURN a.x AS v } RETURN v")),
-            (Names{"Produce", "Apply", "Accumulate+", "SetProperty", "ScanAll", "Once"}));
-  EXPECT_EQ(Chain(Plan("MATCH (a) SET a.x = 1 CALL (a) { RETURN a.z AS v } RETURN v")),
-            (Names{"Produce", "Accumulate+", "Apply", "SetProperty", "ScanAll", "Once"}));
+  EXPECT_EQ(Chain(Plan("UNWIND [1, 2] AS i MATCH (a) SET a.x = 1 CALL (a) { RETURN a.x AS v } RETURN v")),
+            (Names{"Produce", "Apply", "Accumulate+", "SetProperty", "ScanAll", "Unwind", "Once"}));
+  EXPECT_EQ(Chain(Plan("UNWIND [1, 2] AS i MATCH (a) SET a.x = 1 CALL (a) { RETURN a.z AS v } RETURN v")),
+            (Names{"Produce", "Accumulate+", "Apply", "SetProperty", "ScanAll", "Unwind", "Once"}));
 }
 
 TEST_F(WriteVisibilityPlan, BarrierBeforeExpansionFromACreatedNode) {
@@ -430,6 +432,10 @@ TEST_F(WriteVisibilityPlan, ANodeThatMayRepeatKeepsItsBarrier) {
            "MATCH (n:L) WITH n, n AS m SET n.x = 1 SET n.y = m.x",
            // Something else conflicts too: labels() reads every label.
            "MATCH (n:L) SET n.x = 1, n:Q SET n.y = size(labels(n)) + n.x",
+           // degree() reads everything, as a procedure does, through no one variable.
+           "MATCH (n:L) SET n.x = 1 SET n.y = degree(n) + n.x",
+           // A writing body reads View::NEW: an index scan on x could meet its own write again.
+           "CALL () { MATCH (n:L) SET n.x = n.x + 1 SET n.y = n.x RETURN count(*) AS c } RETURN c",
        }) {
     EXPECT_FALSE(Collect<Accumulate>(Plan(query)).empty()) << query;
   }
@@ -980,15 +986,16 @@ TEST_F(WriteVisibilityPlan, NoBarrierBetweenTheItemsOfOneSet) {
   // The second item reads what the first writes, so a Produce evaluates the right-hand sides first.
   EXPECT_EQ(Chain(Plan("MATCH (a) SET a.x = 1, a.y = a.x")),
             (Names{"EmptyResult", "SetProperty", "SetProperty", "Produce", "ScanAll", "Once"}));
-  // Separate clauses keep their barrier.
-  EXPECT_EQ(Chain(Plan("MATCH (a) SET a.x = 1 SET a.y = a.x")),
-            (Names{"EmptyResult", "SetProperty", "Accumulate+", "SetProperty", "ScanAll", "Once"}));
+  // Separate clauses keep their barrier where a may repeat.
+  EXPECT_EQ(Chain(Plan("UNWIND [1, 2] AS i MATCH (a) SET a.x = 1 SET a.y = a.x")),
+            (Names{"EmptyResult", "SetProperty", "Accumulate+", "SetProperty", "ScanAll", "Unwind", "Once"}));
 }
 
 TEST_F(WriteVisibilityPlan, OneSetDecidesItsBarrierFromAllItsItems) {
   // The second item reads what an earlier clause wrote: the barrier goes before the whole SET.
-  EXPECT_EQ(Chain(Plan("MATCH (a) SET a.x = 1 SET a.z = 0, a.y = a.x")),
-            (Names{"EmptyResult", "SetProperty", "SetProperty", "Accumulate+", "SetProperty", "ScanAll", "Once"}));
+  EXPECT_EQ(
+      Chain(Plan("UNWIND [1, 2] AS i MATCH (a) SET a.x = 1 SET a.z = 0, a.y = a.x")),
+      (Names{"EmptyResult", "SetProperty", "SetProperty", "Accumulate+", "SetProperty", "ScanAll", "Unwind", "Once"}));
 }
 
 // The new write facts agree with the coarse ones the planner and the interpreter use today.

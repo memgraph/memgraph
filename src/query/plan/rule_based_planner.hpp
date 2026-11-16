@@ -262,6 +262,11 @@ std::optional<std::unordered_set<Symbol>> SymbolsReadAfter(const QueryPart &quer
                                                            std::span<Clause *const> rest,
                                                            const SymbolTable &symbol_table);
 
+/// Whether no two rows that @p plan produces hold the same value of @p symbol: it is bound by a View::OLD scan that
+/// runs once, by the one-row input of a body, or by a grouping or DISTINCT on it alone, and only operators that never
+/// repeat a row lie between. Anything else, an expand, an UNWIND or a CALL among them, answers false.
+bool IsRowUnique(const LogicalOperator &plan, Symbol symbol);
+
 /// Whether @p expression looks up a property of @p symbol named in @p keys.
 bool ReadsPropertyOf(Expression &expression, const Symbol &symbol, const std::set<std::string> &keys,
                      const SymbolTable &symbol_table);
@@ -417,8 +422,16 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
         access_pending_writes.Clear();
         pending_new_reads.access_check_labels = false;
       };
+      // Rows that touch keys only through a variable no two rows share cannot see each other's writes. Only at the
+      // root: there the scans read View::OLD, and an index scan on a key this command writes skips the new entry.
+      // A View::NEW index scan in a writing body could meet its own write again, which its drain prevents.
+      auto row_local = [&](const ReadWriteSet &reads, const ReadWriteSet &writes) {
+        if (read_scope_ != ReadScope::kRoot) return false;
+        auto const symbol = ConflictsOnlyOnKeysOf(reads, writes);
+        return symbol && input_op && impl::IsRowUnique(*input_op, *symbol);
+      };
       auto barrier_before = [&](const ReadWriteSet &reads) {
-        if (!BarriersOn() || !Conflicts(reads, pending_writes)) return;
+        if (!BarriersOn() || !Conflicts(reads, pending_writes) || row_local(reads, pending_writes)) return;
         if (!ConflictsOnlyInAccessCheck(reads, pending_writes)) {
           plan_barrier();
         } else if (Conflicts(reads, access_pending_writes)) {
@@ -426,7 +439,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
         }
       };
       auto drain_before = [&](const ReadWriteSet &writes) {
-        if (!BarriersOn() || !Conflicts(pending_new_reads, writes)) return;
+        if (!BarriersOn() || !Conflicts(pending_new_reads, writes) || row_local(pending_new_reads, writes)) return;
         if (ConflictsOnlyInAccessCheck(pending_new_reads, writes)) {
           plan_access_check_barrier();
         } else {
