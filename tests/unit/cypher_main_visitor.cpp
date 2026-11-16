@@ -6044,6 +6044,12 @@ TEST_P(CypherMainVisitorTest, RoutingTableKeywordsStillUsableAsIdentifiers) {
   EXPECT_NO_THROW(ast_generator.ParseQuery("CREATE INDEX ON :routing(table)"));
 }
 
+TEST_P(CypherMainVisitorTest, RegionKeywordStillUsableAsIdentifier) {
+  auto &ast_generator = *GetParam();
+  EXPECT_NO_THROW(ast_generator.ParseQuery("MATCH (region:Region) RETURN region.region AS region"));
+  EXPECT_NO_THROW(ast_generator.ParseQuery("CREATE INDEX ON :region(region)"));
+}
+
 TEST_P(CypherMainVisitorTest, TestDeleteReplica) {
   auto &ast_generator = *GetParam();
 
