@@ -40,6 +40,10 @@ namespace memgraph::metrics {
 struct DatabaseMetricHandles;
 }  // namespace memgraph::metrics
 
+namespace memgraph::query {
+class FineGrainedAuthChecker;
+}  // namespace memgraph::query
+
 struct mgp_proc;
 
 namespace memgraph::query {
@@ -1338,6 +1342,11 @@ class CachedPropertyGroup {
   /// them each read value belongs to.
   auto ordered() const -> storage::OrderedPropertyPaths const & { return ordered_; }
 
+  /// The property the `slot`th value read from a record belongs to.
+  auto property_at_slot(std::size_t slot) const -> CachedProperty const & {
+    return properties_[ordered_.position_lookup()[slot]];
+  }
+
  private:
   Symbol input_symbol_;
   std::vector<CachedProperty> properties_;
@@ -1389,12 +1398,23 @@ class CacheProperties : public memgraph::query::plan::LogicalOperator {
     void Reset() override;
 
    private:
+#ifdef MG_ENTERPRISE
+    /// Whether the caller may read any of a group's properties.
+    enum class Access { kNone, kSome };
+
+    /// Decides each of `group`'s properties into `allowed_by_slot_` before the record is read, and
+    /// answers whether reading it is worth doing at all. A record whose labels cannot be read
+    /// permits none of its properties.
+    auto WhatMayBeRead(CachedPropertyGroup const &group, TypedValue const &input, FineGrainedAuthChecker const *checker)
+        -> Access;
+#endif
+
     const CacheProperties &self_;
     const UniqueCursorPtr input_cursor_;
 #ifdef MG_ENTERPRISE
-    /// Whether each of the current group's properties may be read, decided before the record is.
-    /// Reused between rows.
-    std::vector<bool> allowed_;
+    /// Whether each of the current group's properties may be read, indexed by the slot the value is
+    /// read into rather than by the property's position in the group. Reused between rows.
+    std::vector<bool> allowed_by_slot_;
 #endif
     /// Every group's values end to end, so a row allocates nothing.
     std::vector<storage::PropertyValue> values_;

@@ -5908,6 +5908,35 @@ CacheProperties::CachePropertiesCursor::CachePropertiesCursor(const CachePropert
   values_.resize(total);
 }
 
+#ifdef MG_ENTERPRISE
+auto CacheProperties::CachePropertiesCursor::WhatMayBeRead(CachedPropertyGroup const &group, TypedValue const &input,
+                                                           FineGrainedAuthChecker const *checker) -> Access {
+  DMG_ASSERT(input.type() == TypedValue::Type::Vertex || input.type() == TypedValue::Type::Edge,
+             "Only a node or a relationship has a record to read a set of properties from");
+
+  allowed_by_slot_.assign(group.properties().size(), true);
+  if (!checker || !checker->HasPropertyRestrictions()) return Access::kSome;
+
+  auto const mark = [&](auto const &allows) {
+    for (std::size_t slot = 0; slot != allowed_by_slot_.size(); ++slot) {
+      allowed_by_slot_[slot] = allows(group.property_at_slot(slot).property_id);
+    }
+    return std::ranges::any_of(allowed_by_slot_, std::identity{}) ? Access::kSome : Access::kNone;
+  };
+
+  if (input.type() == TypedValue::Type::Edge) {
+    return mark(
+        [&](storage::PropertyId property) { return PropertyReadAllowed(checker, input.ValueEdge(), property); });
+  }
+
+  // A vertex's permissions are decided from its labels, and reading those takes the record's lock,
+  // so the whole group is decided from one read of them.
+  auto const labels = input.ValueVertex().Labels(storage::View::NEW);
+  if (!labels) return Access::kNone;
+  return mark([&](storage::PropertyId property) { return PropertyReadAllowed(checker, *labels, property); });
+}
+#endif
+
 bool CacheProperties::CachePropertiesCursor::Pull(Frame &frame, ExecutionContext &context) {
   OOMExceptionEnabler const oom_exception;
   SCOPED_PROFILE_OP_BY_REF(self_);
@@ -5957,37 +5986,9 @@ bool CacheProperties::CachePropertiesCursor::Pull(Frame &frame, ExecutionContext
     // A lookup answers Null for a property the caller may not read without ever reaching the record,
     // so a group of nothing but denied properties must not read one either: doing so would report a
     // deleted or missing record for a read the query was never allowed to make.
-    allowed_.assign(group.properties().size(), true);
-    if (context.auth_checker && context.auth_checker->HasPropertyRestrictions()) {
-      auto any_allowed = false;
-      auto const decide = [&](auto const &allows) {
-        for (std::size_t slot = 0; slot != group.properties().size(); ++slot) {
-          auto const &cached = group.properties()[group.ordered().position_lookup()[slot]];
-          allowed_[slot] = allows(cached.property_id);
-          any_allowed = any_allowed || allowed_[slot];
-        }
-      };
-
-      if (reads_a_vertex) {
-        auto const maybe_labels = input_value.ValueVertex().Labels(storage::View::NEW);
-        if (!maybe_labels) {
-          // A record whose labels cannot be read permits none of its properties.
-          answer_with_null(group);
-          continue;
-        }
-        decide([&](storage::PropertyId property) {
-          return PropertyReadAllowed(context.auth_checker, *maybe_labels, property);
-        });
-      } else {
-        decide([&](storage::PropertyId property) {
-          return PropertyReadAllowed(context.auth_checker, input_value.ValueEdge(), property);
-        });
-      }
-
-      if (!any_allowed) {
-        answer_with_null(group);
-        continue;
-      }
+    if (WhatMayBeRead(group, input_value, context.auth_checker) == Access::kNone) {
+      answer_with_null(group);
+      continue;
     }
 #endif
 
@@ -5999,11 +6000,11 @@ bool CacheProperties::CachePropertiesCursor::Pull(Frame &frame, ExecutionContext
     if (!read) ThrowPropertyReadError(read.error());
 
     for (std::size_t slot = 0; slot != slots.size(); ++slot) {
-      const auto &cached = group.properties()[group.ordered().position_lookup()[slot]];
+      auto const &cached = group.property_at_slot(slot);
       auto &value = slots[slot];
 #ifdef MG_ENTERPRISE
       // Decided above, before the record was read.
-      if (!value.IsNull() && !allowed_[slot]) {
+      if (!value.IsNull() && !allowed_by_slot_[slot]) {
         value = storage::PropertyValue{};
       }
 #endif
