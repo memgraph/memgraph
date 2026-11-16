@@ -250,7 +250,7 @@ not in these numbers.
 | Planning | Cardinality estimates come from the branch's own engine (branch-created objects only), not main@fork, so a plan can differ from main's for the same query. Results are unaffected | Gap between branch-created data and main@fork | Not yet measured |
 | Several sessions on one branch | Sessions share one branch core; each query is single-threaded (§6); writers conflict only on the same object | Session count | Correctness only (TSan, stress); throughput not yet measured |
 | Restart | Main replays its WAL from the oldest fork point as MVCC transactions, then each branch replays its whole WAL (§8) | Main's WAL since the oldest fork; branch write history (no compaction in v1) | Not yet measured |
-| Main's own queries while branches exist | Retained history costs memory and GC work (above); main's readers start from the newest version and do not walk it. Each built branch runs its own GC on main's interval. Vertex/edge flag writes are atomic read-modify-writes so the hint bit can be read without a lock | Main write rate × age of the oldest branch; branch count | Not yet measured with live branches. The CI benchmark job (no branches) passed on `87cddc09d`; not compared against master |
+| Main's own queries while branches exist | Retained history costs memory and GC work (above); main's readers start from the newest version and do not walk it. Each built branch runs its own GC on main's interval. Writes to the word holding a vertex/edge's delta pointer and flags are relaxed atomic stores (still serialised by the object's lock), so the hint bit can be read without a lock | Main write rate × age of the oldest branch; branch count | Not yet measured with live branches. The CI benchmark job (no branches) passed on `87cddc09d`; not compared against master |
 
 ## 8. Durability and recovery
 
@@ -397,9 +397,13 @@ A pooled application uses `driver.session(database="shop@supplier_fail")` instea
 
 ## Architecture (for reviewers)
 
-**Fork pin.** `CREATE BRANCH` records `fork_ts` = main's commit timestamp under `engine_lock_`;
-in-flight main commits get timestamps ≥ `fork_ts`, so the cut is consistent. The pin clamps
-main's GC horizon to the oldest pin. Base reads use a read-only historical accessor on main that
+**Fork pin.** `CREATE BRANCH` records `fork_ts` under `engine_lock_` without consuming a
+timestamp: it is the start timestamp a `BEGIN` on main would get at that moment. Base reads see
+exactly the commits with timestamp `< fork_ts`; an in-flight main commit, or the next one minted,
+gets a timestamp `≥ fork_ts` (possibly equal) and is excluded, so the cut is consistent. Pins are a
+multiset (branches and historical accessors may share a `fork_ts`; each registration is released
+once). Main's GC horizon is clamped to the oldest pin, and a main commit's deltas are fast-discarded
+only while the oldest pin is strictly greater than its commit timestamp. Base reads use a read-only historical accessor on main that
 takes only main's shared storage lock and always reads snapshot-isolated at `fork_ts`.
 
 **Branch core** (one per branch, shared by its sessions, built on first use):
@@ -412,7 +416,11 @@ takes only main's shared storage lock and always reads snapshot-isolated at `for
   `SERIALIZATION_ERROR` between branch sessions behave as on main. Own GC with snapshot pins.
 - *Anchor stubs:* empty vertices in the diff engine where branch edges attach to fork vertices.
 - *`branched()` hint bit* on main objects a branch touched: the only write to main's objects, so
-  untouched objects skip the overlay lookup.
+  untouched objects skip the overlay lookup. Set under the object's lock before the branch's first
+  write to it, read without a lock. One bit is shared by all branches, so it is never cleared, not
+  even by `DROP BRANCH`: an object any branch ever touched costs every branch the overlay lookup
+  until restart. It lives only in memory; recovery sets it again by replaying each branch's WAL
+  through the same write path.
 - *Visibility* = main@fork ⊕ overlay ⊕ native objects. Scans stream main@fork from main's index and
   resolve only gids in the branch's touched sets (insert-only, conservative), then merge the diff
   engine's index.
