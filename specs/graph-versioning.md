@@ -258,19 +258,21 @@ Every branch writes its own WAL; changes are durable before visible. A branch su
 restarts and crashes with its fork point and contents intact. Sessions must select it again after
 a restart.
 
-Nothing branch-related can stop the database from starting. A branch that cannot be rebuilt
-correctly is **dropped** with a warning naming `Graph Versioning`; its files are kept for
-inspection where noted. Conditions, checked in order:
+Nothing branch-related can stop the database from starting: main is always recovered, and one
+branch failing to recover does not affect main or any other branch. A branch that cannot be rebuilt
+correctly is **unavailable**: it stays registered (ledger entry, files, fork pin and retention floor
+kept), cannot be selected (the error names the reason), and `DROP BRANCH` removes it. A warning naming
+`Graph Versioning` is logged. Conditions, checked in order:
 
 | Condition at startup | Result |
 |---|---|
-| Branch registry unreadable or corrupt | All branches dropped |
+| Branch registry unreadable or corrupt | Main recovers whole; no branch is recovered. Every branch query fails with an error naming the ledger file. The ledger and branch files are never touched; main deletes no WAL file and pauses snapshot rotation until the ledger reads again |
 | WAL off, or recovery on startup off | All branches dropped (main's writes from this run would be missing from the history the branches are rebuilt from) |
 | Database starts in a non-transactional mode | All branches dropped |
 | Started without `--experimental-enabled=versioning` | Branches are hidden only: not visible or usable, branch queries fail with the disabled-flag error. All durable state stays (ledger, each branch's directory and WAL). Restarting with the flag on restores every branch with its data. |
 | Started with `--experimental-enabled=commit-lock-narrowing` | All branches dropped durably |
-| Main cannot be replayed to the fork points | All branches dropped; main recovers normally |
-| A branch's WAL is damaged | Main's WAL rules apply (unreadable or empty file skipped, unfinished file used up to its last complete transaction). Where main would refuse to start (e.g. a gap in the sequence), only that branch is dropped and its files are kept. |
+| Main cannot be replayed to the fork points | Main recovers normally; the affected branches are unavailable |
+| A branch's WAL is damaged | Main's WAL rules apply (unreadable or empty file skipped, unfinished file used up to its last complete transaction). Where main would refuse to start (e.g. a gap in the sequence), only that branch is unavailable. |
 | Main itself cannot be recovered | Standard Memgraph behaviour |
 
 **Flag off while branches exist.** The ledger's fork points still bound main's snapshot and WAL
@@ -440,4 +442,4 @@ each fork pin just before the first transaction with timestamp ≥ its `fork_ts`
 bumped to `max(last durable ts + 1, newest fork_ts)` so no future main commit can land below a
 fork point. Each branch core is rebuilt with its recorded floors, its WAL is replayed with main's
 WAL rules, and main's gid counters are raised above every recovered native gid. If bounded recovery
-fails, pins are released, main is recovered unbounded, and all branches are dropped (§8).
+fails, main is recovered unbounded and every branch is unavailable (§8).
