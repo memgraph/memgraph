@@ -1035,6 +1035,22 @@ TEST_F(WriteVisibilityPlan, AWritingCallBodySeeksNoPointIndex) {
 
 // ---------------------------------------------------------------- every reader of a writing CALL body reads View::NEW
 
+// A writing IN TRANSACTIONS body is a writing tree: its cursor runs the body to the end for each input row before it
+// commits, so a barrier inside it drains without advancing, and its readers read NEW.
+TEST_F(WriteVisibilityPlan, AWritingInTransactionsBodyIsAWritingTree) {
+  auto &plan = Plan(
+      "CALL () { UNWIND [1, 2] AS j CREATE (:L) MERGE (m:L) RETURN count(*) AS n } IN TRANSACTIONS OF 1 ROWS "
+      "RETURN n");
+  auto periodic = Collect<PeriodicSubquery>(plan);
+  ASSERT_EQ(periodic.size(), 1);
+  auto &body = *periodic[0]->subquery_;
+  auto accumulates = Collect<Accumulate>(body);
+  ASSERT_EQ(accumulates.size(), 1);
+  EXPECT_FALSE(accumulates[0]->advance_command_);
+  for (auto view : Views<Produce>(body)) EXPECT_EQ(view, View::NEW);
+  for (auto view : Views<memgraph::query::plan::Unwind>(body)) EXPECT_EQ(view, View::NEW);
+}
+
 /// Counts, per operator type, the operators under every Apply of @p plan, and names each that does not read View::NEW.
 template <class... TOps>
 void CheckBodyViews(LogicalOperator &plan, std::map<std::string, int> &counts, std::vector<std::string> &old_readers) {

@@ -2701,3 +2701,17 @@ Feature: Write visibility inside one query
         Then the result should be:
             | x | y |
             | 2 | 1 |
+
+    Scenario: A MERGE in an IN TRANSACTIONS body sees every row's CREATE before it
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:WvIt)
+            """
+        When executing query:
+            """
+            CALL () { UNWIND [1, 2] AS j CREATE (:WvIt) MERGE (m:WvIt) RETURN count(*) AS n } IN TRANSACTIONS OF 1 ROWS RETURN n
+            """
+        Then the result should be:
+            | n |
+            | 6 |
