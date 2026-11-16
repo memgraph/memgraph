@@ -177,6 +177,8 @@ class ReadWriteCollector final : public HierarchicalTreeVisitor {
 
   bool PreVisit(SetProperty &set) override {
     result.writes.properties.insert(set.property_lookup_->property_path_.front().name);
+    // The target is an expression too: `SET (CASE WHEN a.f THEN b ELSE a END).x` reads a.f.
+    set.property_lookup_->expression_->Accept(*this);
     set.expression_->Accept(*this);
     return false;
   }
@@ -200,6 +202,7 @@ class ReadWriteCollector final : public HierarchicalTreeVisitor {
 
   bool PreVisit(RemoveProperty &remove) override {
     result.writes.properties.insert(remove.property_lookup_->property_path_.front().name);
+    remove.property_lookup_->expression_->Accept(*this);
     return false;
   }
 
