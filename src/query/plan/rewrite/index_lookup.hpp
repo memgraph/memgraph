@@ -1933,7 +1933,6 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
     // Point index prefered over regular label+property index
     // TODO: figure out how to make NEW work
-    // literal-view: point-scan
     if (view == storage::View::OLD) {
       auto found_index = FindBestPointLabelPropertyIndex(node_symbol, bound_symbols);
 
