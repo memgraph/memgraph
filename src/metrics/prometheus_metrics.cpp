@@ -784,6 +784,19 @@ PrometheusMetrics::PrometheusMetrics()
                                               .Name("memgraph_gc_skiplist_cleanup_latency_seconds")
                                               .Help("GC skiplist cleanup latency in seconds")
                                               .Register(registry_)},
+      transaction_begin_family_{prometheus::BuildHistogram()
+                                    .Name("memgraph_transaction_begin_seconds")
+                                    .Help("Time to start a transaction, mostly waiting for the storage access "
+                                          "lock and the engine lock")
+                                    .Register(registry_)},
+      commit_lock_wait_family_{prometheus::BuildHistogram()
+                                   .Name("memgraph_commit_lock_wait_seconds")
+                                   .Help("Time a write commit waits for the commit locks")
+                                   .Register(registry_)},
+      commit_family_{prometheus::BuildHistogram()
+                         .Name("memgraph_commit_seconds")
+                         .Help("Time to commit a write transaction, including the WAL write and SYNC replicas")
+                         .Register(registry_)},
       gc_index_sweeps_family_{prometheus::BuildCounter()
                                   .Name("memgraph_gc_index_sweeps_total")
                                   .Help("Individual indexes swept by GC index cleanup")
@@ -1050,6 +1063,9 @@ DatabaseMetricHandles PrometheusMetrics::CreateHandles(uint64_t entry_id) {
       .snapshot_recovery_latency_seconds = {&snapshot_recovery_latency_family_.Add(labels, kLatencyBuckets)},
       .gc_latency_seconds = {&gc_latency_family_.Add(labels, kLatencyBuckets)},
       .gc_skiplist_cleanup_latency_seconds = {&gc_skiplist_cleanup_latency_family_.Add(labels, kLatencyBuckets)},
+      .transaction_begin_seconds = {&transaction_begin_family_.Add(labels, kLatencyBuckets)},
+      .commit_lock_wait_seconds = {&commit_lock_wait_family_.Add(labels, kLatencyBuckets)},
+      .commit_seconds = {&commit_family_.Add(labels, kLatencyBuckets)},
       .gc_index_sweeps = {&gc_index_sweeps_family_.Add(labels)},
   };
 }
@@ -1227,6 +1243,9 @@ void PrometheusMetrics::RemoveHandlesFromFamilies(DatabaseMetricHandles const &h
   snapshot_recovery_latency_family_.Remove(h.snapshot_recovery_latency_seconds.get());
   gc_latency_family_.Remove(h.gc_latency_seconds.get());
   gc_skiplist_cleanup_latency_family_.Remove(h.gc_skiplist_cleanup_latency_seconds.get());
+  transaction_begin_family_.Remove(h.transaction_begin_seconds.get());
+  commit_lock_wait_family_.Remove(h.commit_lock_wait_seconds.get());
+  commit_family_.Remove(h.commit_seconds.get());
   gc_index_sweeps_family_.Remove(h.gc_index_sweeps.get());
 }
 

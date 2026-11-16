@@ -131,6 +131,9 @@ EXPECTED_OPENMETRICS_PER_DB_FAMILIES = {
     "snapshot_recovery_latency_seconds",
     "gc_latency_seconds",
     "gc_skiplist_cleanup_latency_seconds",
+    "transaction_begin_seconds",
+    "commit_lock_wait_seconds",
+    "commit_seconds",
 }
 
 
@@ -289,6 +292,12 @@ def test_openmetrics_per_db_transaction_counters(populated_databases):
     m = parse_openmetrics(scrape_openmetrics())
     assert om_get(m, "memgraph_committed_transactions_total", "memgraph") > 0
     assert om_get(m, "memgraph_committed_transactions_total", "db2") > 0
+
+
+def test_openmetrics_per_db_transaction_timings(populated_databases):
+    m = parse_openmetrics(scrape_openmetrics())
+    for name in ("transaction_begin", "commit_lock_wait", "commit"):
+        assert om_get(m, f"memgraph_{name}_seconds_count", "memgraph") > 0
 
 
 if __name__ == "__main__":
