@@ -35,7 +35,7 @@ would mean additional rules to each role or user that could interact with them.
 This adds a `strength` level to a `DENY` permission or privilege. In the
 first delivery, we will support two levels: `WEAK DENY` and `STRONG DENY`.
 
-- `STRONG` (the default, and what `DENY` means today). Absolute. No `GRANT` overrides it.
+- `STRONG` (the default, and what `DENY` means today). No `GRANT` of the same thing overrides it.
 - `WEAK`. The same prohibition, except a `GRANT` of the same thing from another
   role overrides it.
 
@@ -68,6 +68,14 @@ is not covered; see Out of Scope.
 
 **Advice to users:** keep using `DENY`. Switch the specific permissions or
 privilege to a `WEAK DENY` when two roles collide and the stronger role should win.
+
+The overriding grant must name what the weak deny denies, on the same rule. If
+`HR` grants only `READ {*}` on `:Employee`, or grants `{salary}` on
+`:Employee, :Contractor`, a user holding both roles still reads `salary` as
+`Null`. Keep each override in a small role of its own, such as `salary_reader`
+holding `GRANT READ {salary} ON NODES CONTAINING LABELS :Employee`, and give it
+to whoever needs it alongside their main role. Each weak deny then has one
+matching grant to keep in step.
 
 Memgraph does not report a collision. The symptom is a property reading `Null`,
 which is indistinguishable from a property that was never set, and the
@@ -228,20 +236,19 @@ so this only affects something matching the `effective` value as an exact
 string. Accepted: leaving it as `DENY` would force an auditor to ask which
 strength it is, which is the doubt the column exists to remove.
 
-Weak denies are stored in a new optional field beside the existing grant and
-deny records. The existing deny record keeps its meaning and holds strong
-denies, so an auth store written by an earlier version has no weak field and
-loads with every deny strong. A deny present in both records counts as strong,
-the stronger of the two, so every combination has a meaning. The stored entity
-version, `kCurrentEntityVersion`, goes from 4 to 5. No migration step is needed:
-a version 4 record has no weak fields, so it loads with every deny strong.
+Every deny, weak or strong, is stored in the existing deny record. A new
+optional field marks which of those denies are weak; a deny it does not mark is
+strong. An auth store written by an earlier version has no weak field and loads
+with every deny strong. The stored entity version, `kCurrentEntityVersion`, goes
+from 4 to 5. No migration step is needed: a version 4 record has no weak field,
+so it loads with every deny strong.
 
-During a rolling upgrade, a replica still on an earlier version can receive a
-version 5 user or role from an upgraded main. From 3.14.0, the replica rejects
-it and system replication to that replica fails until it is upgraded. Earlier
-versions accept it and ignore the weak field, so a weak deny is not enforced
-on that replica. When upgrading from 3.13 or earlier, don't issue `WEAK DENY`
-until every instance is upgraded.
+A binary that does not know the weak field reads a weak deny as a strong one,
+so it fails closed: the deny holds and no grant overrides it. During a rolling
+upgrade, a replica still on an earlier version can receive a version 5 user or
+role from an upgraded main. From 3.14.0, the replica rejects it and system
+replication to that replica fails until it is upgraded. Earlier versions accept
+it and enforce each weak deny as strong until they are upgraded.
 
 ## Testing Decisions
 

@@ -1313,6 +1313,11 @@ TEST(AuthWithoutStorage, PermissionsSerializeWeakDeny) {
   ASSERT_EQ(loaded, permissions);
   ASSERT_EQ(loaded.weak_denies(), std::to_underlying(Permission::MATCH));
 
+  auto json = permissions.Serialize();
+  json.erase("weak_denies");
+  ASSERT_EQ(Permissions::Deserialize(json).strong_denies(),
+            std::to_underlying(Permission::MATCH) | std::to_underlying(Permission::CREATE));
+
   auto const legacy =
       Permissions::Deserialize({{"grants", uint64_t{0}}, {"denies", std::to_underlying(Permission::MATCH)}});
   ASSERT_EQ(legacy.weak_denies(), 0);
@@ -1819,6 +1824,8 @@ TEST(AuthWithoutStorage, PropertyAccessPermissionsSerializeWeakDeny) {
   auto const legacy = PropertyAccessPermissions::Deserialize(json);
   EXPECT_EQ(legacy.GetGlobalRules().at("amount").weak_denies, PropertyPermissionType::NONE);
   EXPECT_EQ(legacy.GetRules()[0].properties.at("salary").weak_denies, PropertyPermissionType::NONE);
+  EXPECT_EQ(legacy.GetGlobalRules().at("amount").strong_denies, read);
+  EXPECT_EQ(legacy.GetRules()[0].properties.at("salary").strong_denies, read);
 }
 
 TEST(AuthWithoutStorage, PropertyAccessHandlerDeserializeMissingKey) {
@@ -2649,12 +2656,20 @@ TEST(AuthWithFineGrainedTest, SerializeWeakDeny) {
   auto const legacy = FineGrainedAccessPermissions::Deserialize(json);
   ASSERT_EQ(legacy.GetGlobalWeakDenies(), 0);
   ASSERT_EQ(legacy.GetRules()[0].weak_denies, FineGrainedPermission::NONE);
+  ASSERT_EQ(legacy.GetGlobalStrongDenies(), static_cast<uint64_t>(FineGrainedPermission::DELETE));
+  ASSERT_EQ(legacy.GetRules()[0].strong_denies, FineGrainedPermission::READ | FineGrainedPermission::CREATE);
 }
 
 TEST(AuthWithFineGrainedTest, SerializeWeakDenyOnlyRule) {
   FineGrainedAccessPermissions perms;
   perms.Deny({"Secret"}, FineGrainedPermission::READ, MatchingMode::ANY, DenyStrength::WEAK);
   ASSERT_EQ(FineGrainedAccessPermissions::Deserialize(perms.Serialize()), perms);
+
+  auto json = perms.Serialize();
+  json["permissions"][0].erase("weak_denied");
+  auto const legacy = FineGrainedAccessPermissions::Deserialize(json);
+  ASSERT_EQ(legacy.GetRules().size(), 1);
+  ASSERT_EQ(legacy.GetRules()[0].strong_denies, FineGrainedPermission::READ);
 }
 
 TEST(AuthWithFineGrainedTest, RevokeClearsWeakDenies) {
