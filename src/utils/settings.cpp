@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <mutex>
 #include <shared_mutex>
+#include <utility>
 
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
@@ -76,11 +77,14 @@ bool Settings::SetValue(const std::string &setting_name, const std::string &new_
       throw utils::BasicException("Cannot update setting '{}': {}", setting_name, msg.error());
     }
 
+    // Copy before writing to disk, so a refused allocation cannot leave the new value on disk but not in memory
+    auto value = new_value;
+    auto on_change = entry.on_change;
     if (entry.persistence == Persistence::kPersisted) {
       MG_ASSERT(storage_.Put(setting_name, new_value), "Failed to modify the setting");
     }
-    entry.value = new_value;
-    return entry.on_change;
+    entry.value = std::move(value);
+    return on_change;
   });
 
   if (!settings_change_callback) {

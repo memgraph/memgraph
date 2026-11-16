@@ -17,8 +17,12 @@
 
 #include "kvstore/kvstore.hpp"
 #include "kvstore/rocksdb_options.hpp"
+#include "memory/global_memory_control.hpp"
+#include "memory/query_memory_control.hpp"
 #include "utils/file.hpp"
+#include "utils/memory_tracker.hpp"
 #include "utils/on_scope_exit.hpp"
+#include "utils/query_memory_tracker.hpp"
 
 namespace fs = std::filesystem;
 
@@ -261,4 +265,29 @@ TEST_F(KVStore, KeepsOnlyConfiguredNumberOfInfoLogs) {
   // Without the cap all kOpenCount info logs would still be there; the live LOG may or may not be counted by RocksDB
   // towards the limit.
   EXPECT_LE(static_cast<uint64_t>(info_log_count), kKeepLogFileNum + 1);
+}
+
+// RocksDB is not exception-safe, so a memory limit exception must never be thrown from inside it.
+TEST_F(KVStore, MemoryLimitDoesNotThrowInsideRocksDB) {
+#if USE_JEMALLOC
+  memgraph::kvstore::KVStore kvstore(test_folder_ / "MemoryLimitDoesNotThrowInsideRocksDB");
+  // Keys longer than 19 bytes make RocksDB allocate the lookup key on the heap
+  const std::string key = "a key long enough to be allocated on the heap";
+  const std::string value(4096, 'v');
+
+  memgraph::memory::SetHooks();
+  memgraph::utils::QueryMemoryTracker tracker;
+  tracker.SetQueryLimit(1);
+  memgraph::memory::StartTrackingCurrentThread(&tracker);
+  auto const stop_tracking = memgraph::utils::OnScopeExit{[] { memgraph::memory::StopTrackingCurrentThread(); }};
+  const memgraph::utils::MemoryTracker::OutOfMemoryExceptionEnabler enabler;
+
+  // The limit is in force: the same allocation outside RocksDB is refused
+  EXPECT_THROW((void)std::string(value), memgraph::utils::OutOfMemoryException);
+
+  EXPECT_TRUE(kvstore.Put(key, value));
+  EXPECT_EQ(kvstore.Get(key), value);
+  EXPECT_TRUE(kvstore.Delete(key));
+  EXPECT_FALSE(kvstore.Get(key).has_value());
+#endif
 }
