@@ -1399,14 +1399,12 @@ class CacheProperties : public memgraph::query::plan::LogicalOperator {
 
    private:
 #ifdef MG_ENTERPRISE
-    /// Whether the caller may read any of a group's properties.
-    enum class Access { kNone, kSome };
-
-    /// Decides each of `group`'s properties into `allowed_by_slot_` before the record is read, and
-    /// answers whether reading it is worth doing at all. A record whose labels cannot be read
-    /// permits none of its properties.
-    auto WhatMayBeRead(CachedPropertyGroup const &group, TypedValue const &input, FineGrainedAuthChecker const *checker)
-        -> Access;
+    /// Whether the caller may read any of `group`'s properties, deciding each of them into
+    /// `allowed_by_slot_` on the way. Asked before the record is read, because a record none of
+    /// whose properties may be read must not be reached at all. A record whose labels cannot be
+    /// read permits none of them.
+    [[nodiscard]] auto AnyPropertyReadable(CachedPropertyGroup const &group, TypedValue const &input,
+                                           FineGrainedAuthChecker const *checker) -> bool;
 #endif
 
     const CacheProperties &self_;

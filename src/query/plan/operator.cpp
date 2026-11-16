@@ -5909,19 +5909,20 @@ CacheProperties::CachePropertiesCursor::CachePropertiesCursor(const CachePropert
 }
 
 #ifdef MG_ENTERPRISE
-auto CacheProperties::CachePropertiesCursor::WhatMayBeRead(CachedPropertyGroup const &group, TypedValue const &input,
-                                                           FineGrainedAuthChecker const *checker) -> Access {
+auto CacheProperties::CachePropertiesCursor::AnyPropertyReadable(CachedPropertyGroup const &group,
+                                                                 TypedValue const &input,
+                                                                 FineGrainedAuthChecker const *checker) -> bool {
   DMG_ASSERT(input.type() == TypedValue::Type::Vertex || input.type() == TypedValue::Type::Edge,
              "Only a node or a relationship has a record to read a set of properties from");
 
   allowed_by_slot_.assign(group.properties().size(), true);
-  if (!checker || !checker->HasPropertyRestrictions()) return Access::kSome;
+  if (!checker || !checker->HasPropertyRestrictions()) return true;
 
   auto const mark = [&](auto const &allows) {
     for (std::size_t slot = 0; slot != allowed_by_slot_.size(); ++slot) {
       allowed_by_slot_[slot] = allows(group.property_at_slot(slot).property_id);
     }
-    return std::ranges::any_of(allowed_by_slot_, std::identity{}) ? Access::kSome : Access::kNone;
+    return std::ranges::any_of(allowed_by_slot_, std::identity{});
   };
 
   if (input.type() == TypedValue::Type::Edge) {
@@ -5932,7 +5933,7 @@ auto CacheProperties::CachePropertiesCursor::WhatMayBeRead(CachedPropertyGroup c
   // A vertex's permissions are decided from its labels, and reading those takes the record's lock,
   // so the whole group is decided from one read of them.
   auto const labels = input.ValueVertex().Labels(storage::View::NEW);
-  if (!labels) return Access::kNone;
+  if (!labels) return false;
   return mark([&](storage::PropertyId property) { return PropertyReadAllowed(checker, *labels, property); });
 }
 #endif
@@ -5986,7 +5987,7 @@ bool CacheProperties::CachePropertiesCursor::Pull(Frame &frame, ExecutionContext
     // A lookup answers Null for a property the caller may not read without ever reaching the record,
     // so a group of nothing but denied properties must not read one either: doing so would report a
     // deleted or missing record for a read the query was never allowed to make.
-    if (WhatMayBeRead(group, input_value, context.auth_checker) == Access::kNone) {
+    if (!AnyPropertyReadable(group, input_value, context.auth_checker)) {
       answer_with_null(group);
       continue;
     }
