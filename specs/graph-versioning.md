@@ -485,6 +485,7 @@ each fork pin just before the first transaction with timestamp ≥ its `fork_ts`
 bumped to `max(last durable ts + 1, newest fork_ts)` so no future main commit can land below a
 fork point. Main's gid counters are raised to the ledger's recorded gid ceilings, without reading
 any branch file. Each branch core is rebuilt with its recorded floors and its WAL is replayed with
-main's WAL rules. A restored branch's `fork_timestamp` is the pin on the rebuilt history; the
-recorded value bounds retention and recovery. If bounded recovery fails, main is recovered
+main's WAL rules. A restored branch's `fork_timestamp` is the pin on the rebuilt history (replay recommits main's tail
+at fresh MVCC timestamps, so it can differ from the fork point in main's durable timestamps); the
+durable fork point is what the ledger keeps and what bounds retention and recovery. If bounded recovery fails, main is recovered
 unbounded and every branch is unavailable (§8).
