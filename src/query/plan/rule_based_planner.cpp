@@ -1228,6 +1228,51 @@ void ReadNewThroughout(LogicalOperator &plan) {
   plan.Accept(setter);
 }
 
+namespace {
+
+class PropertyOfFinder final : public HierarchicalTreeVisitor {
+ public:
+  PropertyOfFinder(const Symbol &symbol, const std::set<std::string> &keys, const SymbolTable &symbol_table)
+      : symbol_(symbol), keys_(keys), symbol_table_(symbol_table) {}
+
+  using HierarchicalTreeVisitor::PostVisit;
+  using HierarchicalTreeVisitor::PreVisit;
+  using HierarchicalTreeVisitor::Visit;
+
+  bool Visit(Identifier & /*ident*/) override { return true; }
+
+  bool Visit(PrimitiveLiteral & /*literal*/) override { return true; }
+
+  bool Visit(ParameterLookup & /*lookup*/) override { return true; }
+
+  bool Visit(EnumValueAccess & /*access*/) override { return true; }
+
+  bool PreVisit(PropertyLookup &lookup) override {
+    auto *object = utils::Downcast<Identifier>(lookup.expression_);
+    if (object && object->symbol_pos_ >= 0 && symbol_table_.at(*object) == symbol_ &&
+        keys_.contains(lookup.property_path_.front().name)) {
+      found = true;
+    }
+    return !found;
+  }
+
+  bool found{false};
+
+ private:
+  const Symbol &symbol_;
+  const std::set<std::string> &keys_;
+  const SymbolTable &symbol_table_;
+};
+
+}  // namespace
+
+bool ReadsPropertyOf(Expression &expression, const Symbol &symbol, const std::set<std::string> &keys,
+                     const SymbolTable &symbol_table) {
+  PropertyOfFinder finder(symbol, keys, symbol_table);
+  expression.Accept(finder);
+  return finder.found;
+}
+
 bool HasBoundFilterSymbols(const std::unordered_set<Symbol> &bound_symbols, const FilterInfo &filter) {
   return std::ranges::all_of(filter.used_symbols,
                              [&bound_symbols](const auto &symbol) { return bound_symbols.contains(symbol); });

@@ -18,6 +18,7 @@
 #include <memory>
 #include <optional>
 #include <ranges>
+#include <set>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -250,6 +251,10 @@ std::unique_ptr<LogicalOperator> GenWith(With &with, std::unique_ptr<LogicalOper
 
 /// Sets View::NEW on every reading operator of @p plan, branches included.
 void ReadNewThroughout(LogicalOperator &plan);
+
+/// Whether @p expression looks up a property of @p symbol named in @p keys.
+bool ReadsPropertyOf(Expression &expression, const Symbol &symbol, const std::set<std::string> &keys,
+                     const SymbolTable &symbol_table);
 
 std::unique_ptr<LogicalOperator> GenUnion(const CypherUnion &cypher_union, std::shared_ptr<LogicalOperator> left_op,
                                           std::shared_ptr<LogicalOperator> right_op, SymbolTable &symbol_table);
@@ -1192,51 +1197,57 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
   // of input_op is transferred to the newly created operator. If the clause
   // isn't handled, returns nullptr and input_op is left as is.
   /// @param create_view what a CREATE's property maps read; see @c GenCreateForPattern.
-  /// The items of one SET (`continues_previous_`) are written in order but read the graph as of the clause's start
-  /// (#4377): `SET a.x = a.y, a.y = a.x` swaps. When an item reads what an earlier item of the group starting at
-  /// `clauses[first]` writes, one Produce before the group evaluates every right-hand side (View::NEW, as a SET
-  /// right-hand side reads), and the items read its results. The AST stays as it is: a query is planned more than
-  /// once; HandleWriteClause finds the rewritten item in `pre_evaluated_items_`.
+  /// One SET writes its items in order, but consecutive items on one variable read that node as of the run's start:
+  /// `SET a.x = a.y, a.y = a.x` swaps, while `SET a.x = b.x, b.x = a.x` reads the earlier item. When an item of the
+  /// run starting at `clauses[first]` reads a key an earlier item of the run wrote, one Produce before the run
+  /// evaluates its right-hand sides (View::NEW, as a SET right-hand side reads) and the items read the results. A run
+  /// whose right-hand sides hold a pattern is left alone: its comprehensions are planned per item. The AST stays as
+  /// it is, since a query is planned more than once; HandleWriteClause finds the rewritten item in
+  /// `pre_evaluated_items_`.
   std::unique_ptr<LogicalOperator> PreEvaluateSetGroup(const std::vector<Clause *> &clauses, size_t first,
                                                        std::unique_ptr<LogicalOperator> input_op) {
-    if (clauses[first]->continues_previous_) return input_op;
-    auto last = first + 1;
-    while (last < clauses.size() && clauses[last]->continues_previous_) ++last;
-    if (last - first < 2) return input_op;
-    auto const rhs_of = [](Clause *clause) -> Expression * {
-      if (auto *set = utils::Downcast<query::SetProperty>(clause)) return set->expression_;
-      if (auto *set = utils::Downcast<query::SetProperties>(clause)) return set->expression_;
-      return nullptr;
-    };
     auto &symbol_table = *context_->symbol_table;
-    ReadWriteSet written;
+    auto const target_of = [&](Clause *clause) -> std::optional<Symbol> {
+      auto *set = utils::Downcast<query::SetProperty>(clause);
+      if (!set || set->property_lookup_->use_nested_property_update_) return std::nullopt;
+      auto *ident = utils::Downcast<Identifier>(set->property_lookup_->expression_);
+      if (!ident) return std::nullopt;
+      return symbol_table.at(*ident);
+    };
+    auto const target = target_of(clauses[first]);
+    if (!target) return input_op;
+    auto const in_run = [&](size_t i) { return clauses[i]->continues_previous_ && target_of(clauses[i]) == target; };
+    if (first > 0 && in_run(first) && target_of(clauses[first - 1]) == target) return input_op;
+    auto last = first + 1;
+    while (last < clauses.size() && in_run(last)) ++last;
+    if (last - first < 2) return input_op;
+
+    std::set<std::string> written;
     bool reads_earlier_item = false;
-    for (auto i = first; i < last && !reads_earlier_item; ++i) {
-      if (auto *rhs = rhs_of(clauses[i])) {
-        reads_earlier_item = Conflicts(
-            CollectReadsAndWrites(*rhs, symbol_table, context_->bound_symbols, non_graph_symbols_).reads, written);
+    for (auto i = first; i < last; ++i) {
+      auto *set = utils::Downcast<query::SetProperty>(clauses[i]);
+      if (!CollectReadsAndWrites(*set->expression_, symbol_table, context_->bound_symbols, non_graph_symbols_)
+               .reads.symbols.empty()) {
+        return input_op;
       }
-      written.Merge(
-          CollectReadsAndWrites(*clauses[i], symbol_table, context_->bound_symbols, non_graph_symbols_).writes);
+      reads_earlier_item =
+          reads_earlier_item || impl::ReadsPropertyOf(*set->expression_, *target, written, symbol_table);
+      written.insert(set->property_lookup_->property_path_.front().name);
     }
     if (!reads_earlier_item) return input_op;
 
     auto &storage = *context_->ast_storage;
     std::vector<NamedExpression *> values;
     for (auto i = first; i < last; ++i) {
-      auto *rhs = rhs_of(clauses[i]);
-      if (!rhs || utils::Downcast<PrimitiveLiteral>(rhs) || utils::Downcast<ParameterLookup>(rhs)) continue;
-      auto const &symbol = symbol_table.CreateAnonymousSymbol();
-      values.push_back(storage.template Create<NamedExpression>(symbol.name(), rhs)->MapTo(symbol));
-      auto *value = storage.template Create<Identifier>(symbol.name())->MapTo(symbol);
-      Clause *item = nullptr;
-      if (auto *set = utils::Downcast<query::SetProperty>(clauses[i])) {
-        item = storage.template Create<query::SetProperty>(set->property_lookup_, value);
-      } else {
-        auto *props = utils::Downcast<query::SetProperties>(clauses[i]);
-        item = storage.template Create<query::SetProperties>(props->identifier_, value, props->update_);
+      auto *set = utils::Downcast<query::SetProperty>(clauses[i]);
+      if (utils::Downcast<PrimitiveLiteral>(set->expression_) || utils::Downcast<ParameterLookup>(set->expression_)) {
+        continue;
       }
-      item->continues_previous_ = clauses[i]->continues_previous_;
+      auto const &symbol = symbol_table.CreateAnonymousSymbol();
+      values.push_back(storage.template Create<NamedExpression>(symbol.name(), set->expression_)->MapTo(symbol));
+      auto *value = storage.template Create<Identifier>(symbol.name())->MapTo(symbol);
+      auto *item = storage.template Create<query::SetProperty>(set->property_lookup_, value);
+      item->continues_previous_ = set->continues_previous_;
       pre_evaluated_items_[clauses[i]] = item;
     }
     auto produce = std::make_unique<Produce>(std::move(input_op), values);

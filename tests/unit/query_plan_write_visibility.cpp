@@ -889,7 +889,7 @@ TEST_F(WriteVisibilityPlan, ParserMarksTheItemsAfterTheFirstOfOneSetOrRemove) {
 }
 
 TEST_F(WriteVisibilityPlan, NoBarrierBetweenTheItemsOfOneSet) {
-  // The second item reads what the first writes, so a Produce evaluates the right-hand sides first (#4377).
+  // The second item reads what the first writes, so a Produce evaluates the right-hand sides first.
   EXPECT_EQ(Chain(Plan("MATCH (a) SET a.x = 1, a.y = a.x")),
             (Names{"EmptyResult", "SetProperty", "SetProperty", "Produce", "ScanAll", "Once"}));
   // Separate clauses keep their barrier.
@@ -941,6 +941,8 @@ TEST_F(WriteVisibilityPlan, OneSetEvaluatesItsRightHandSidesFirst) {
             (Names{"EmptyResult", "SetProperty", "SetProperty", "Produce", "CacheProperties", "ScanAll", "Once"}));
   EXPECT_EQ(Chain(Plan("MATCH (a) SET a.x = 1, a.y = a.z + 1")),
             (Names{"EmptyResult", "SetProperty", "SetProperty", "ScanAll", "Once"}));
+  // The snapshot is per variable: items on two variables read each other in order.
+  EXPECT_TRUE(Collect<Produce>(Plan("MATCH (a), (b) SET a.x = b.x, b.x = a.x")).empty());
   EXPECT_FALSE(Collect<Produce>(Plan("MATCH (a) FOREACH (i IN [1] | SET a.x = i, a.y = a.x)")).empty());
   EXPECT_FALSE(Collect<Produce>(Plan("MERGE (a:L {k: 1}) ON CREATE SET a.x = 1, a.y = a.x")).empty());
   EXPECT_FALSE(Collect<Produce>(Plan("MERGE (a:L {k: 1}) ON MATCH SET a.x = 1, a.y = a.x")).empty());
