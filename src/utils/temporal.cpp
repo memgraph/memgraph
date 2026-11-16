@@ -809,7 +809,7 @@ ZonedDateTimeParameters ParseZonedDateTimeParameters(std::string_view string) {
   }
 
   // As in Neo4j, a timezone needs a time part; a date-only string is UTC.
-  if (!string.empty() && ldt_substring.find('T') == std::string_view::npos) {
+  if (!string.empty() && !ldt_substring.contains('T')) {
     throw temporal::InvalidArgumentException("Invalid ZonedDateTime format. A timezone requires a time part. {}",
                                              kSupportedZonedDateTimeFormatsHelpMessage);
   }
