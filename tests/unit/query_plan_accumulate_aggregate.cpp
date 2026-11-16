@@ -1570,6 +1570,95 @@ TYPED_TEST(QueryPlanTest, CachePropertiesWholeGroupDeniedIsNull) {
   EXPECT_TRUE(results[0][1].IsNull());
 }
 
+TYPED_TEST(QueryPlanTest, CachePropertiesWholeGroupDeniedNeverReadsTheRecord) {
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
+  memgraph::query::DbAccessor dba(storage_dba.get());
+  auto label = dba.NameToLabel("Person");
+  auto prop_ssn = dba.NameToProperty("ssn");
+
+  auto v = dba.InsertVertex();
+  ASSERT_TRUE(v.AddLabel(label).has_value());
+  ASSERT_TRUE(v.SetProperty(prop_ssn, memgraph::storage::PropertyValue("secret")).has_value());
+  dba.AdvanceCommand();
+
+  // Removed without advancing the command, so the scan's own view still finds it while reading it
+  // refuses.
+  ASSERT_TRUE(dba.RemoveVertex(&v).has_value());
+
+  SymbolTable symbol_table;
+  auto n = MakeScanAll(this->storage, symbol_table, "n");
+  auto cached_ssn_sym = symbol_table.CreateSymbol("cached_ssn", true);
+  auto cache =
+      std::make_shared<CacheProperties>(n.op_, n.sym_, std::vector<CachedProperty>{{prop_ssn, cached_ssn_sym}});
+  auto ssn_ne =
+      NEXPR("ssn", IDENT("cached_ssn")->MapTo(cached_ssn_sym))->MapTo(symbol_table.CreateSymbol("ssn_ne", true));
+  auto produce = MakeProduce(cache, ssn_ne);
+
+  // The row's record is already deleted. A read the caller was never allowed to make must not be
+  // what reports that, so a wholly denied group answers Null without reaching the record.
+  memgraph::tests::StubPropertyFGAChecker<memgraph::query::DbAccessor> checker(&dba, {{"Person", "ssn"}});
+  auto context = MakeContext(this->storage, symbol_table, &dba);
+  context.auth_checker = &checker;
+  auto results = CollectProduce(*produce, &context);
+  ASSERT_EQ(results.size(), 1);
+  ASSERT_EQ(results[0].size(), 1);
+  EXPECT_TRUE(results[0][0].IsNull());
+}
+
+// A relationship's permissions come from its type, which a deleted relationship still answers, so
+// here nothing fails before the group is read. Answering Null for the whole group is the only
+// thing keeping a read the caller was never allowed to make from reporting the deletion.
+TYPED_TEST(QueryPlanTest, CachePropertiesWholeGroupDeniedOnADeletedEdge) {
+  // An expansion on disk storage does not reach a relationship removed in this transaction, so the
+  // row this needs cannot be produced there.
+  if constexpr (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
+    return;
+  }
+
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
+  memgraph::query::DbAccessor dba(storage_dba.get());
+  auto edge_type = dba.NameToEdgeType("Pays");
+  auto prop_account = dba.NameToProperty("account");
+
+  auto from = dba.InsertVertex();
+  auto to = dba.InsertVertex();
+  auto edge = dba.InsertEdge(&from, &to, edge_type).value();
+  ASSERT_TRUE(edge.SetProperty(prop_account, memgraph::storage::PropertyValue("secret")).has_value());
+  dba.AdvanceCommand();
+
+  // Removed without advancing the command, so the expansion's own view still finds it while
+  // reading it refuses.
+  ASSERT_TRUE(dba.RemoveEdge(&edge).has_value());
+
+  SymbolTable symbol_table;
+  auto n = MakeScanAll(this->storage, symbol_table, "n");
+  auto r_m = MakeExpand(this->storage,
+                        symbol_table,
+                        n.op_,
+                        n.sym_,
+                        "r",
+                        EdgeAtom::Direction::OUT,
+                        {},
+                        "m",
+                        false,
+                        memgraph::storage::View::OLD);
+
+  auto cached_account_sym = symbol_table.CreateSymbol("cached_account", true);
+  auto cache = std::make_shared<CacheProperties>(
+      r_m.op_, r_m.edge_sym_, std::vector<CachedProperty>{{prop_account, cached_account_sym}});
+  auto account_ne = NEXPR("account", IDENT("cached_account")->MapTo(cached_account_sym))
+                        ->MapTo(symbol_table.CreateSymbol("account_ne", true));
+  auto produce = MakeProduce(cache, account_ne);
+
+  memgraph::tests::StubPropertyFGAChecker<memgraph::query::DbAccessor> checker(&dba, {{"Pays", "account"}});
+  auto context = MakeContext(this->storage, symbol_table, &dba);
+  context.auth_checker = &checker;
+  auto results = CollectProduce(*produce, &context);
+  ASSERT_EQ(results.size(), 1);
+  ASSERT_EQ(results[0].size(), 1);
+  EXPECT_TRUE(results[0][0].IsNull());
+}
+
 TYPED_TEST(QueryPlanTest, CachePropertiesDeniedEdgePropertyIsNull) {
   auto storage_dba = this->db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());
