@@ -303,7 +303,7 @@ kept), cannot be selected (the error names the reason), and `DROP BRANCH` remove
 
 | Condition at startup | Result |
 |---|---|
-| Ledger file missing but `branches/<n>` directories exist | Warning; no branch is restored, the directories are left untouched, and new branch numbers skip them |
+| No ledger entry for the database but `branches/<n>` directories exist | Warning; no branch is restored, the directories are left untouched, and new branch numbers skip them |
 | Branch ledger unreadable or corrupt | Main recovers whole; no branch is recovered. Branch queries fail with an error starting `The branch ledger of database '<db>' cannot be read, so its Graph Versioning branches are unavailable: …`. No main snapshot or WAL file is deleted. The ledger is re-read only at the next start. With the flag off this is only logged |
 | WAL off, recovery on startup off, or a non-transactional mode, for a database whose settings differ from the startup flags | That database's branches are unavailable (kept) |
 | Started without `--experimental-enabled=versioning` | Branches are hidden: `USE BRANCH`, `USING BRANCH`, `CREATE BRANCH` and `db="x@b"` fail with the disabled-flag error; `SHOW BRANCHES` lists them and `DROP BRANCH` removes them. All durable state and the retention for it stay. Restarting with the flag on restores every branch with its data. |
@@ -354,8 +354,10 @@ branches but keeps their durable state (§8); a REPLICA deletes them. Restarting
 
 **Metrics** (enterprise builds only; Prometheus; also in `SHOW METRICS INFO`; totals across
 databases, no per-database label). Counters are per process: they reset on restart, and restored
-branches are not counted as created. `dropped_total` includes automatic drops. `active_branches`
-counts live and unavailable branches, not hidden ones.
+branches are not counted as created. `dropped_total` includes automatic drops; branches removed
+together with their database (`DROP DATABASE`) are not counted. `active_branches` counts live and
+unavailable branches of loaded databases, not hidden ones; a suspended (cold) database's branches
+leave the gauge until it is resumed.
 
 | Metric | `SHOW METRICS INFO` name | Type |
 |---|---|---|
@@ -465,8 +467,11 @@ takes only main's shared storage lock and always reads snapshot-isolated at `for
   engine's index.
 - Lock order: main shared storage guard → diff engine. One transaction per session.
 
-**Durability.** `<storage_dir>/branches/ledger` is the registry: one file replaced atomically
-(temp, fsync, rename, dir fsync) with a `MGBL <ver> <size> <crc32>` header and JSON body. It is
+**Durability.** The registry (ledger) is one key per database, `branches:<database uuid>`, in the
+instance's database-registry KVStore (`databases/.durability`), next to the database's own record.
+The value is versioned JSON; each write is synced to the KVStore's WAL before it returns, so a
+written registry is durable. The key follows the uuid, so renaming a database needs no change, and it
+is deleted with the database. It is
 written on create, drop, the first gid-floor record, and each time a branch reserves a further
 chunk of native gids (durable before any gid in it is used); a failed write fails the query and
 changes nothing. `<storage_dir>/branches/<id>/wal/` holds each branch's WAL as ordinary deltas;
