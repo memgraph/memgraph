@@ -50,8 +50,7 @@ Every branch query checks these, in this order, and reports the first failure:
 | 3 | Valid Memgraph Enterprise license (runtime check) | Without it branches are read-only and droppable (§10); `CREATE BRANCH` and branch writes fail with `Graph versioning is an enterprise feature. A valid Memgraph Enterprise License is required.` |
 | 4 | The database runs in `IN_MEMORY_TRANSACTIONAL` | `Graph versioning requires IN_MEMORY_TRANSACTIONAL storage mode.` |
 | 5 | Durability: WAL on (`--storage-wal-enabled=true`, i.e. `PERIODIC_SNAPSHOT_WITH_WAL`) **and** `--data-recovery-on-startup=true` | `CREATE BRANCH` fails: `Graph versioning requires the WAL (PERIODIC_SNAPSHOT_WITH_WAL) and --data-recovery-on-startup=true.` |
-| 6 | Not started with `--experimental-enabled=commit-lock-narrowing` | `Graph versioning is not supported with --experimental-enabled=commit-lock-narrowing.` |
-| 7 | The instance is MAIN | `Branch operations are forbidden on a REPLICA. Run them on the MAIN instance.` |
+| 6 | The instance is MAIN | `Branch operations are forbidden on a REPLICA. Run them on the MAIN instance.` |
 
 Requirement 5 exists because a branch must survive a restart; otherwise it is no better than an
 open transaction. Without WAL or recovery it would be silently lost at the next startup.
@@ -270,7 +269,6 @@ kept), cannot be selected (the error names the reason), and `DROP BRANCH` remove
 | WAL off, or recovery on startup off | All branches dropped (main's writes from this run would be missing from the history the branches are rebuilt from) |
 | Database starts in a non-transactional mode | All branches dropped |
 | Started without `--experimental-enabled=versioning` | Branches are hidden only: not visible or usable, branch queries fail with the disabled-flag error. All durable state stays (ledger, each branch's directory and WAL). Restarting with the flag on restores every branch with its data. |
-| Started with `--experimental-enabled=commit-lock-narrowing` | All branches dropped durably |
 | Main cannot be replayed to the fork points | Main recovers normally; the affected branches are unavailable |
 | A branch's WAL is damaged | Main's WAL rules apply (unreadable or empty file skipped, unfinished file used up to its last complete transaction). Where main would refuse to start (e.g. a gap in the sequence), only that branch is unavailable. |
 | Main itself cannot be recovered | Standard Memgraph behaviour |
@@ -400,7 +398,10 @@ A pooled application uses `driver.session(database="shop@supplier_fail")` instea
 ## Architecture (for reviewers)
 
 **Fork pin.** `CREATE BRANCH` records `fork_ts` under `engine_lock_` without consuming a
-timestamp: it is the start timestamp a `BEGIN` on main would get at that moment. Base reads see
+timestamp: it is the exclusive bound of what a `BEGIN` on main would see at that moment (the next
+timestamp; with `--experimental-enabled=commit-lock-narrowing`, the last published commit + 1, since
+commits publish in timestamp order). Branches work the same with narrowing on or off, and the same
+files recover the same branches in either mode; the branch's own engine never narrows. Base reads see
 exactly the commits with timestamp `< fork_ts`; an in-flight main commit, or the next one minted,
 gets a timestamp `≥ fork_ts` (possibly equal) and is excluded, so the cut is consistent. Pins are a
 multiset (branches and historical accessors may share a `fork_ts`; each registration is released
