@@ -14,9 +14,13 @@
 # mgagent (Memgraph Agent) package, pulled from the release bucket.
 ARG MGAGENT_BASE_URL=https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/memgraph-agent/v0.1.0-rc1
 ARG MGAGENT_VERSION=v0.1.0
+# Selects the per-arch stage below. Defaults to TARGETARCH, but package_docker
+# passes --build-arg TARGETARCH="" (so the package mount paths resolve), so it
+# sets MGAGENT_ARCH explicitly.
+ARG MGAGENT_ARCH=${TARGETARCH}
 
 # Per-arch stages because the artifacts are named x86_64/aarch64 rather than
-# Docker's amd64/arm64; BuildKit only builds the one TARGETARCH selects.
+# Docker's amd64/arm64; BuildKit only builds the one MGAGENT_ARCH selects.
 FROM scratch AS mgagent-amd64
 ARG MGAGENT_BASE_URL
 ARG MGAGENT_VERSION
@@ -27,7 +31,7 @@ ARG MGAGENT_BASE_URL
 ARG MGAGENT_VERSION
 ADD ${MGAGENT_BASE_URL}/linux-aarch64/memgraph-agent-${MGAGENT_VERSION}-linux-aarch64.deb /memgraph-agent.deb
 
-FROM mgagent-${TARGETARCH} AS mgagent
+FROM mgagent-${MGAGENT_ARCH} AS mgagent
 
 FROM ubuntu:24.04 AS ubuntu-updated
 ARG CUSTOM_MIRROR=false

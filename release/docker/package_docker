@@ -235,6 +235,17 @@ if [[ -n "$debuginfo_package_name" ]]; then
   debuginfo_build_arg+=(--build-arg "DEBUGINFO_BINARY_NAME=${debuginfo_package_name}")
 fi
 
+# The dockerfile picks the mgagent package by MGAGENT_ARCH; it can't use
+# TARGETARCH because that is blanked below.
+case "$arch" in
+  amd) mgagent_arch=amd64 ;;
+  arm) mgagent_arch=arm64 ;;
+  *)
+    echo "Error: --arch must be 'amd' or 'arm' (got '$arch')"
+    exit 1
+  ;;
+esac
+
 # Build docker image.
 # NOTE: --pull is here to always pull that latest base image because of security patches.
 docker build --pull -t ${image_name} ${tag_latest} -f ${dockerfile_path} \
@@ -243,6 +254,7 @@ docker build --pull -t ${image_name} ${tag_latest} -f ${dockerfile_path} \
 --build-arg EXTENSION=${extension} ${docker_arg_source_code} \
 "${debuginfo_build_arg[@]}" \
 --build-arg CUSTOM_MIRROR=$custom_mirror \
+--build-arg MGAGENT_ARCH="${mgagent_arch}" \
 --build-arg TARGETARCH="" .
 docker save ${image_name} ${latest_image} | gzip > ${image_package_name}
 rm "${working_dir}/${package_name}.${extension}"
