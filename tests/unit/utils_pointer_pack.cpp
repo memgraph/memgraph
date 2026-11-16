@@ -9,11 +9,13 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include <atomic>
 #include <cstdint>
+#ifdef MG_ENTERPRISE
+#include <atomic>
 #include <mutex>
 #include <thread>
 #include <vector>
+#endif
 
 #include "gtest/gtest.h"
 
@@ -84,9 +86,11 @@ TEST_F(PointerPackTest, SetAndGetIndividualBits) {
   EXPECT_EQ(pp.Get<2>(), 1u);
   EXPECT_EQ(pp.GetPtr(), &a);
 
+#ifdef MG_ENTERPRISE
   EXPECT_FALSE(pp.GetRelaxed<0>());
   EXPECT_TRUE(pp.GetRelaxed<1>());
   EXPECT_TRUE(pp.GetRelaxed<2>());
+#endif
 }
 
 TEST_F(PointerPackTest, MultiBitField) {
@@ -113,8 +117,10 @@ TEST_F(PointerPackTest, SetPtrPreservesFlags) {
   EXPECT_EQ(pp.GetPtr(), &b);
   EXPECT_EQ(pp.Get<0>(), 1u);
   EXPECT_EQ(pp.Get<1>(), 1u);
+#ifdef MG_ENTERPRISE
   EXPECT_TRUE(pp.GetRelaxed<0>());
   EXPECT_TRUE(pp.GetRelaxed<1>());
+#endif
 }
 
 TEST_F(PointerPackTest, SetFlagsPreservesPointer) {
@@ -193,6 +199,7 @@ TEST_F(PointerPackTest, SingleBitPack) {
   EXPECT_EQ(pp.GetPtr(), &a);
 }
 
+#ifdef MG_ENTERPRISE
 // Lock-free GetRelaxed reader vs locked writers rewriting the other flags and pointer: TSan reports any
 // non-atomic write to the packed word; in every build a set bit must never be observed cleared.
 TEST_F(PointerPackTest, RelaxedReaderVsLockedWriters) {
@@ -234,3 +241,4 @@ TEST_F(PointerPackTest, RelaxedReaderVsLockedWriters) {
   auto guard = std::lock_guard{lock};
   EXPECT_TRUE(pp.GetRelaxed<2>());
 }
+#endif
