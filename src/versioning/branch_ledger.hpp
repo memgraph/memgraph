@@ -13,11 +13,13 @@
 
 #include <cstdint>
 #include <expected>
-#include <filesystem>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
+#include "kvstore/kvstore.hpp"
+#include "utils/uuid.hpp"
 #include "versioning/branch_info.hpp"
 
 namespace memgraph::versioning {
@@ -32,24 +34,25 @@ struct LedgerContents {
   std::vector<LedgerBranch> branches;
 };
 
-// Durable registry of a database's branches: one file replaced atomically per write (temp file, fsync, rename,
-// directory fsync). Layout: "MGBL <version> <payload_size> <crc32 hex>\n" then a JSON payload; Read rejects a bad
-// header, size, CRC or registry. Not thread-safe: the owner serializes Write/Read.
+inline constexpr std::string_view kBranchLedgerKeyPrefix = "branches:";
+
+// Durable registry of one database's branches: a single JSON value under "branches:<db-uuid>" in the DBMS durability
+// KVStore. Read rejects a bad payload, version or registry. Not thread-safe: the owner serializes Write/Read.
 class BranchLedger {
  public:
   static constexpr uint32_t kVersion = 1;
 
-  explicit BranchLedger(std::filesystem::path file);
+  BranchLedger(kvstore::KVStore &store, const utils::UUID &db_uuid);
 
-  // Refuses an invalid registry; creates the parent directory if missing. Failures before the rename leave the previous
-  // ledger untouched; after it the write counts as done and a directory-fsync failure is only logged.
+  // Refuses an invalid registry; the write is durable (WAL synced) on success.
   std::expected<void, std::string> Write(const LedgerContents &contents) const;
 
-  // nullopt if the file does not exist; an error message if it exists but is unreadable or corrupt.
+  // nullopt if the database has no branches; an error message if the stored value is unreadable or invalid.
   std::expected<std::optional<LedgerContents>, std::string> Read() const;
 
  private:
-  std::filesystem::path file_;
+  kvstore::KVStore *store_;
+  std::string key_;
 };
 
 }  // namespace memgraph::versioning
