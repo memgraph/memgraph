@@ -258,7 +258,7 @@ struct DateTimeLayout {
   std::string_view designator;
 };
 
-// Length of a leading date prefix (YYYY-MM-DD, YYYYMMDD, YYYY-MM or YYYYMM); 0 if absent.
+// Length of a leading date prefix (YYYY-MM-DD, YYYYMMDD or YYYY-MM); 0 if absent.
 size_t DatePrefixLength(std::string_view string) {
   if (!ParseNumber<int64_t>(string, 4)) {
     return 0;
@@ -275,7 +275,7 @@ size_t DatePrefixLength(std::string_view string) {
   if (!ParseNumber<int64_t>(string.substr(4), 2)) {
     return 0;
   }
-  return ParseNumber<int64_t>(string.substr(6), 2) ? 8 : 6;
+  return ParseNumber<int64_t>(string.substr(6), 2) ? 8 : 0;
 }
 
 // Splits a temporal string into the date[-T-time] part and the trailing timezone designator.
