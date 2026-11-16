@@ -2459,8 +2459,10 @@ TEST_P(CypherMainVisitorTest, MatchAfterOptionalMatch) {
       "OPTIONAL MATCH (n) MATCH (m) RETURN m UNION ALL OPTIONAL MATCH (n) MATCH (m) RETURN m"));
 
   // Any clause between the pair is accepted, not only WITH.
-  for (const auto *between :
-       {"UNWIND [1] AS x", "CALL mg.procedures() YIELD name", R"(LOAD CSV FROM "file.csv" WITH HEADER AS row)"}) {
+  for (const auto *between : {"UNWIND [1] AS x",
+                              "CALL () { RETURN 1 AS one }",
+                              "CALL mg.procedures() YIELD name",
+                              R"(LOAD CSV FROM "file.csv" WITH HEADER AS row)"}) {
     EXPECT_NO_THROW(ast_generator.ParseQuery(fmt::format("OPTIONAL MATCH (n) {} MATCH (m) RETURN n, m", between)))
         << between;
   }
@@ -2469,9 +2471,10 @@ TEST_P(CypherMainVisitorTest, MatchAfterOptionalMatch) {
 TEST_P(CypherMainVisitorTest, MatchAfterOptionalMatchRedeclaresItsRelationship) {
   // A later MATCH cannot reuse a relationship variable the optional bound.
   auto &ast_generator = *GetParam();
-  EXPECT_THROW(memgraph::query::MakeSymbolTable(dynamic_cast<CypherQuery *>(
-                   ast_generator.ParseQuery("OPTIONAL MATCH (a)-[r]->() MATCH ()-[r]->(b) RETURN a, b"))),
-               RedeclareVariableError);
+  auto *query =
+      dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("OPTIONAL MATCH (a)-[r]->() MATCH ()-[r]->(b) RETURN a, b"));
+  ASSERT_TRUE(query);
+  EXPECT_THROW(memgraph::query::MakeSymbolTable(query), RedeclareVariableError);
 }
 
 TEST_P(CypherMainVisitorTest, ClausesOrdering) {
