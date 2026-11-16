@@ -245,6 +245,22 @@ TEST_F(RetentionFloorTest, BaseWithinTheCountIsNotExtra) {
   ExpectBaseState(db, gids);
 }
 
+// A snapshot taken at or below the floor is itself the recovery base: no older snapshot is kept as an extra.
+TEST_F(RetentionFloorTest, SnapshotBelowTheFloorIsTheBase) {
+  Gids gids{};
+  uint64_t floor = 0;
+  {
+    Db db{MakeConfig(/*recover_on_startup=*/false, /*retention_count=*/1)};
+    gids = CreateBase(db, /*snapshot_below_floor=*/true);
+    floor = Mem(db)->RegisterBranchForkPin() - 1;
+    Snapshot(db);
+    EXPECT_EQ(CountFiles("snapshots"), 1U) << "the new snapshot is at the floor, so it replaces the older one";
+  }
+
+  Db db{MakeConfig(/*recover_on_startup=*/true, /*retention_count=*/1), Bound(floor)};
+  ExpectBaseState(db, gids);
+}
+
 // Raising the floor (to a later point, then to none) lets the next pass delete the base kept past the count.
 TEST_F(RetentionFloorTest, RaisedFloorReleasesTheExtraBase) {
   Db db{MakeConfig(/*recover_on_startup=*/false, /*retention_count=*/1)};
