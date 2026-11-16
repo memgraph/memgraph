@@ -115,8 +115,16 @@ TEST(EdgePropertySize, AnswersWhileTheEdgeIsBeingWritten) {
     for (auto next = int64_t{0}; !stop.stop_requested(); ++next) {
       auto acc = store->Access(memgraph::storage::WRITE);
       auto edge = FindEdge(*acc, ids);
-      if (!edge.SetProperty(acc->NameToProperty("size_me"), PropertyValue{next}).has_value()) return;
-      if (!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value()) return;
+      // A writer that gives up leaves the readers uncontended, which is the one way this finishes
+      // while the defect is present, so it fails rather than returning quietly.
+      if (!edge.SetProperty(acc->NameToProperty("size_me"), PropertyValue{next}).has_value()) {
+        ADD_FAILURE() << "the writer could not set the property, so the readers were never contended";
+        return;
+      }
+      if (!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value()) {
+        ADD_FAILURE() << "the writer could not commit, so the readers were never contended";
+        return;
+      }
     }
   }};
 
