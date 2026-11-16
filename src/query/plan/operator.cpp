@@ -7583,6 +7583,7 @@ std::unique_ptr<LogicalOperator> Accumulate::Clone(AstStorage *storage) const {
   object->input_ = input_ ? input_->Clone(storage) : nullptr;
   object->symbols_ = symbols_;
   object->advance_command_ = advance_command_;
+  object->access_check_only_ = access_check_only_;
   return object;
 }
 

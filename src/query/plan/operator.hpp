@@ -1955,6 +1955,9 @@ class Accumulate : public memgraph::query::plan::LogicalOperator {
   std::shared_ptr<memgraph::query::plan::LogicalOperator> input_;
   std::vector<Symbol> symbols_;
   bool advance_command_;
+  /// Planned only because a fine-grained access check reads labels an earlier clause wrote: without a check to run,
+  /// the cursor passes rows through and does not advance.
+  bool access_check_only_{false};
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
 };
