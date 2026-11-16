@@ -101,10 +101,8 @@ auto EnsureRetentionCountSnapshotsExist(const std::filesystem::path &snapshot_di
                                         Storage *storage) -> OldSnapshotFiles;
 #endif
 
-#ifdef MG_ENTERPRISE
 // With a `retention_floor`, the newest snapshot at or below it is kept even if the retention count would delete it
 // (and is then at the front of `old_snapshot_files`).
-#endif
 void DeleteOldSnapshotFiles(OldSnapshotFiles &old_snapshot_files, uint64_t snapshot_retention_count,
 #ifdef MG_ENTERPRISE
                             utils::FileRetainer *file_retainer, std::optional<uint64_t> retention_floor = std::nullopt);

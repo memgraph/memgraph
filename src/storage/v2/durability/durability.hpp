@@ -125,16 +125,23 @@ struct RecoveryTail {
   /// Durable timestamp of the newest data recovered (at most the bound).
   uint64_t reached_timestamp{0};
 };
+
+/// Per-start history limits for one storage, computed from the branch ledger rather than configured. Mutually
+/// exclusive.
+struct HistoryBounds {
+  /// Recovery stops at this durable timestamp; the rest is handed back through InMemoryStorage::TakeRecoveryTail.
+  std::optional<uint64_t> recovery_bound;
+  /// Snapshot/WAL retention keeps the state as of this durable timestamp recoverable (recovery is unaffected).
+  std::optional<uint64_t> retention_floor;
+};
 #endif
 
 struct Recovery {
  public:
   /// Recovers data either from a snapshot and/or WAL files.
-#ifdef MG_ENTERPRISE
   /// With `recovery_history_bound` (branch recovery), recovers the state as of that durable timestamp: the newest
   /// snapshot not past it (else the WAL chain from sequence 0), replaying only transactions up to it. `tail` receives
   /// the rest.
-#endif
   /// @throw RecoveryFailure
   /// @throw std::bad_alloc
   std::optional<RecoveryInfo> RecoverData(

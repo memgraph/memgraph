@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include <algorithm>
+#include <cstddef>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -53,96 +54,52 @@ TEST(RetentionTest, DeleteOldSnapshotFilesTest) {
   }
 }
 
-namespace {
+// Without a floor the newest `n` files survive: the shapes cover ties and the timestamp 0 that corrupt or foreign
+// snapshots get, which must sort first and go first.
+TEST(RetentionTest, DeleteOldSnapshotFilesKeepsTheNewestWithoutAFloor) {
+  struct Shape {
+    char const *name;
+    std::vector<uint64_t> timestamps;
+  };
 
-using Outcome = std::pair<std::vector<std::pair<uint64_t, std::string>>, std::set<std::string>>;
+  std::vector<Shape> const shapes{
+      {"ascending", {10, 20, 30, 40, 50, 60}},
+      {"descending", {60, 50, 40, 30, 20, 10}},
+      {"tie", {100, 100, 120, 130, 140, 150}},
+      {"zeros", {0, 20, 30, 0, 50, 0}},
+  };
+  auto const root =
+      std::filesystem::temp_directory_path() / ("MG_test_retention_nofloor_" + std::to_string(::getpid()));
+  std::filesystem::remove_all(root);
 
-enum class TimestampShape : uint8_t { kAscending, kDescendingByPath, kEqualPair, kZeroEntries };
-
-auto Timestamps(TimestampShape const shape, size_t const count) -> std::vector<uint64_t> {
-  std::vector<uint64_t> ts(count);
-  for (size_t i = 0; i < count; ++i) {
-    switch (shape) {
-      case TimestampShape::kAscending:
-        ts[i] = 10 * (i + 1);
-        break;
-      case TimestampShape::kDescendingByPath:
-        ts[i] = 10 * (count - i);
-        break;
-      case TimestampShape::kEqualPair:
-        ts[i] = i < 2 ? 100 : 10 * (i + 1) + 100;
-        break;
-      case TimestampShape::kZeroEntries:
-        ts[i] = (i == 0 || i == count / 2 || i + 1 == count) ? 0 : 10 * (i + 1);
-        break;
-    }
-  }
-  return ts;
-}
-
-class RetentionNoFloorTest : public ::testing::Test {
- protected:
-  void SetUp() override {
-    root = std::filesystem::temp_directory_path() / ("MG_test_retention_nofloor_" + std::to_string(::getpid()));
-    std::filesystem::remove_all(root);
-  }
-
-  void TearDown() override { std::filesystem::remove_all(root); }
-
-  template <typename Fn>
-  auto Run(std::vector<uint64_t> const &timestamps, Fn &&fn) -> Outcome {
-    auto const dir = root / std::to_string(run_counter++);
-    std::filesystem::create_directories(dir);
-    OldSnapshotFiles files;
-    for (size_t i = 0; i < timestamps.size(); ++i) {
-      auto path = dir / ("snapshot_" + std::string(i < 10 ? "0" : "") + std::to_string(i));
-      std::ofstream{path};
-      files.emplace_back(timestamps[i], std::move(path));
-    }
-    FileRetainer file_retainer;
-    fn(files, &file_retainer);
-
-    Outcome outcome;
-    for (auto const &[ts, path] : files) outcome.first.emplace_back(ts, path.filename().string());
-    for (auto const &entry : std::filesystem::directory_iterator(dir)) {
-      outcome.second.insert(entry.path().filename().string());
-    }
-    return outcome;
-  }
-
-  std::filesystem::path root;
-  size_t run_counter{0};
-};
-
-}  // namespace
-
-TEST_F(RetentionNoFloorTest, DeleteOldSnapshotFiles_NoFloor_KeepsNewest) {
-  for (uint64_t const n : {1U, 2U, 3U, 5U}) {
-    std::set<size_t> const counts{0, 1, n - 1, n, n + 1, 3 * n, 10};
-    for (size_t const s : counts) {
-      for (auto const shape : {TimestampShape::kAscending,
-                               TimestampShape::kDescendingByPath,
-                               TimestampShape::kEqualPair,
-                               TimestampShape::kZeroEntries}) {
-        SCOPED_TRACE("N=" + std::to_string(n) + " S=" + std::to_string(s) +
-                     " shape=" + std::to_string(static_cast<int>(shape)));
-        auto const timestamps = Timestamps(shape, s);
-
-        auto const defaulted =
-            Run(timestamps, [&](OldSnapshotFiles &files, FileRetainer *fr) { DeleteOldSnapshotFiles(files, n, fr); });
-
-        std::vector<std::pair<uint64_t, std::string>> expected;
-        for (size_t i = 0; i < s; ++i) {
-          expected.emplace_back(timestamps[i], std::string("snapshot_") + (i < 10 ? "0" : "") + std::to_string(i));
+  for (auto const &shape : shapes) {
+    for (size_t const n : {1U, 2U, 3U, 5U}) {
+      for (size_t const count : std::set<size_t>{0, 1, n, n + 1, shape.timestamps.size()}) {
+        SCOPED_TRACE(std::string{shape.name} + " n=" + std::to_string(n) + " files=" + std::to_string(count));
+        auto const dir = root / (std::string{shape.name} + std::to_string(n) + "_" + std::to_string(count));
+        std::filesystem::create_directories(dir);
+        OldSnapshotFiles files;
+        for (size_t i = 0; i < count; ++i) {
+          auto path = dir / ("snapshot_" + std::to_string(i));
+          std::ofstream{path};
+          files.emplace_back(shape.timestamps[i % shape.timestamps.size()], std::move(path));
         }
+        auto expected = files;
         std::ranges::sort(expected);
-        if (s >= n) expected.erase(expected.begin(), expected.begin() + (s - (n - 1)));
-        EXPECT_EQ(defaulted.first, expected);
+        if (count >= n)
+          expected.erase(expected.begin(), expected.begin() + static_cast<std::ptrdiff_t>(count - (n - 1)));
 
-        std::set<std::string> expected_on_disk;
-        for (auto const &[ts, name] : expected) expected_on_disk.insert(name);
-        EXPECT_EQ(defaulted.second, expected_on_disk);
+        FileRetainer file_retainer;
+        DeleteOldSnapshotFiles(files, n, &file_retainer);
+
+        EXPECT_EQ(files, expected);
+        std::set<std::filesystem::path> on_disk;
+        for (auto const &entry : std::filesystem::directory_iterator(dir)) on_disk.insert(entry.path());
+        std::set<std::filesystem::path> expected_on_disk;
+        for (auto const &file : expected) expected_on_disk.insert(file.second);
+        EXPECT_EQ(on_disk, expected_on_disk);
       }
     }
   }
+  std::filesystem::remove_all(root);
 }

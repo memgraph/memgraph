@@ -317,7 +317,12 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
                                  PlanInvalidatorPtr invalidator, metrics::DatabaseMetricHandles metric_handles,
                                  std::function<storage::DatabaseProtectorPtr()> database_protector_factory,
                                  memgraph::memory::ArenaPool *db_arena,
-                                 utils::MemoryTracker *db_embedding_memory_tracker)
+                                 utils::MemoryTracker *db_embedding_memory_tracker
+#ifdef MG_ENTERPRISE
+                                 ,
+                                 durability::HistoryBounds history_bounds
+#endif
+                                 )
     : Storage(config, config.salient.storage_mode, std::move(invalidator), metric_handles, db_arena,
               db_embedding_memory_tracker, std::move(database_protector_factory)),
       db_arena_(db_arena),
@@ -336,6 +341,12 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
   MG_ASSERT(!config_.salient.items.storage_light_edge || config_.salient.items.properties_on_edges,
             "Light edges require properties on edges (--storage-light-edge implies "
             "--storage-properties-on-edges=true).");
+#ifdef MG_ENTERPRISE
+  MG_ASSERT(!history_bounds.recovery_bound || !history_bounds.retention_floor,
+            "recovery_bound and retention_floor are mutually exclusive");
+  // The bound seeds the floor: what was just recovered must stay recoverable.
+  SetRetentionFloor(history_bounds.recovery_bound ? history_bounds.recovery_bound : history_bounds.retention_floor);
+#endif
   if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::DISABLED ||
       config_.durability.snapshot_on_exit || config_.durability.recover_on_startup) {
     // Create the directory initially to crash the database in case of
@@ -411,8 +422,8 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
             &ttl_,
 #ifdef MG_ENTERPRISE
             &description_store_,
-            config_.durability.recovery_history_bound,
-            config_.durability.recovery_history_bound ? &recovery_tail : nullptr);
+            history_bounds.recovery_bound,
+            history_bounds.recovery_bound ? &recovery_tail : nullptr);
 #else
             &description_store_);
 #endif
@@ -448,7 +459,7 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
         std::chrono::duration<double>(recovery_timer.Elapsed()).count());
     if (info) {
 #ifdef MG_ENTERPRISE
-      if (config_.durability.recovery_history_bound) recovery_tail_ = std::move(recovery_tail);
+      if (history_bounds.recovery_bound) recovery_tail_ = std::move(recovery_tail);
 #endif
       vertex_id_.store(info->next_vertex_id, std::memory_order_release);
       edge_id_.store(info->next_edge_id, std::memory_order_release);
@@ -3152,7 +3163,9 @@ uint64_t InMemoryStorage::MintForkTsLocked() {
   return config_.experimental_commit_lock_narrowing ? last_committed_mvcc_ts_.load(std::memory_order_acquire) + 1 : id;
 }
 
-uint64_t InMemoryStorage::RegisterForkPin() {
+uint64_t InMemoryStorage::RegisterForkPin() { return RegisterForkPinImpl(false); }
+
+uint64_t InMemoryStorage::RegisterForkPinImpl(bool lower_retention_floor) {
   // Capture and pin under engine_lock_: CheckForFastDiscardOfDeltas reads the pin under it, so no commit can mint
   // a timestamp >= fork_ts and fast-discard its deltas before the pin is visible.
   auto engine_guard = std::scoped_lock{engine_lock_};
@@ -3160,16 +3173,19 @@ uint64_t InMemoryStorage::RegisterForkPin() {
   auto pin_guard = std::scoped_lock{version_fork_pin_lock_};
   version_fork_pins_.insert(fork_ts);
   oldest_fork_pin_.store(*version_fork_pins_.begin(), std::memory_order_release);
+  if (lower_retention_floor) {
+    // CAS-min, still under engine_lock_: a snapshot whose transaction predates this fork sees the lowered floor, and
+    // one that starts later has its own durable ts <= fork_ts - 1 as a valid base.
+    auto const floor = fork_ts == 0 ? 0 : fork_ts - 1;
+    auto current = retention_floor_.load(std::memory_order_acquire);
+    while (floor < current && !retention_floor_.compare_exchange_weak(
+                                  current, floor, std::memory_order_acq_rel, std::memory_order_acquire)) {
+    }
+  }
   return fork_ts;
 }
 
-uint64_t InMemoryStorage::RegisterBranchForkPin() {
-  auto const floor_guard = std::scoped_lock{retention_floor_mutex_};
-  auto const fork_ts = RegisterForkPin();
-  auto const floor = fork_ts == 0 ? 0 : fork_ts - 1;
-  if (!retention_floor_ || floor < *retention_floor_) retention_floor_ = floor;
-  return fork_ts;
-}
+uint64_t InMemoryStorage::RegisterBranchForkPin() { return RegisterForkPinImpl(true); }
 
 void InMemoryStorage::ReleaseForkPin(uint64_t fork_ts) {
   auto pin_guard = std::scoped_lock{version_fork_pin_lock_};

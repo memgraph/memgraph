@@ -597,9 +597,7 @@ void EncodeTtlOperation(BaseEncoder &encoder, TtlOperationType operation_type,
 void EncodeOperationPreamble(BaseEncoder &encoder, StorageMetadataOperation Op, uint64_t timestamp);
 
 /// Function used to load the WAL data into the storage.
-#ifdef MG_ENTERPRISE
 /// Deltas above `recovery_history_bound` (branch recovery) are skipped.
-#endif
 /// @throw RecoveryFailure
 std::optional<RecoveryInfo> LoadWal(
     std::filesystem::path const &path, RecoveredIndicesAndConstraints *indices_constraints,
