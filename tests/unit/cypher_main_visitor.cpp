@@ -812,6 +812,20 @@ TEST_P(CypherMainVisitorTest, IntegerLiteral) {
   CheckRWType(query, kRead);
 }
 
+// Every form of index that names a set of properties refuses a repeat, and none of them refuses
+// two distinct ones.
+TEST_P(CypherMainVisitorTest, IndexPropertiesCannotRepeat) {
+  auto &ast_generator = *GetParam();
+
+  ASSERT_THROW(ast_generator.ParseQuery("CREATE INDEX ON :Label(prop, prop)"), SemanticException);
+  ASSERT_THROW(ast_generator.ParseQuery("CREATE TEXT INDEX name ON :Label(prop, prop)"), SemanticException);
+  ASSERT_THROW(ast_generator.ParseQuery("CREATE TEXT EDGE INDEX name ON :Type(prop, prop)"), SemanticException);
+
+  ASSERT_NO_THROW(ast_generator.ParseQuery("CREATE INDEX ON :Label(prop, other)"));
+  ASSERT_NO_THROW(ast_generator.ParseQuery("CREATE TEXT INDEX name ON :Label(prop, other)"));
+  ASSERT_NO_THROW(ast_generator.ParseQuery("CREATE TEXT EDGE INDEX name ON :Type(prop, other)"));
+}
+
 TEST_P(CypherMainVisitorTest, IntegerLiteralTooLarge) {
   auto &ast_generator = *GetParam();
   ASSERT_THROW(ast_generator.ParseQuery("RETURN 10000000000000000000000000"), SemanticException);

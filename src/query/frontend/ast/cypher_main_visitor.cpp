@@ -846,6 +846,18 @@ antlrcpp::Any CypherMainVisitor::visitDropPointIndex(MemgraphCypher::DropPointIn
   return index_query;
 }
 
+namespace {
+// A record is read for a whole set of properties in one pass, and such a pass answers a property
+// named twice only once, so the repeat would be indexed as a missing value rather than refused.
+void CheckTextIndexPropertiesAreUnique(std::vector<PropertyIx> const &properties) {
+  auto sorted = properties;
+  std::ranges::sort(sorted, {}, &PropertyIx::ix);
+  if (std::ranges::adjacent_find(sorted, {}, &PropertyIx::ix) != sorted.end()) {
+    throw SemanticException("Properties cannot be repeated in a text index.");
+  }
+}
+}  // namespace
+
 antlrcpp::Any CypherMainVisitor::visitCreateTextIndex(MemgraphCypher::CreateTextIndexContext *ctx) {
   auto *index_query = storage_->Create<TextIndexQuery>();
   index_query->index_name_ = std::any_cast<std::string>(ctx->indexName()->accept(this));
@@ -856,6 +868,7 @@ antlrcpp::Any CypherMainVisitor::visitCreateTextIndex(MemgraphCypher::CreateText
       index_query->properties_.emplace_back(std::any_cast<PropertyIx>(property_key_name_ctx->accept(this)));
     }
   }
+  CheckTextIndexPropertiesAreUnique(index_query->properties_);
   return index_query;
 }
 
@@ -875,6 +888,7 @@ antlrcpp::Any CypherMainVisitor::visitCreateTextEdgeIndex(MemgraphCypher::Create
       index_query->properties_.emplace_back(std::any_cast<PropertyIx>(property_key_name_ctx->accept(this)));
     }
   }
+  CheckTextIndexPropertiesAreUnique(index_query->properties_);
   query_ = index_query;
   return index_query;
 }
