@@ -313,7 +313,7 @@ nlohmann::json Permissions::Serialize() const {
   nlohmann::json data = nlohmann::json::object();
 
   data[kGrants] = grants_;
-  data[kDenies] = strong_denies_;
+  data[kDenies] = strong_denies_ | weak_denies_;
   data[kWeakDenies] = weak_denies_;
   return data;
 }
@@ -334,7 +334,8 @@ Permissions Permissions::Deserialize(const nlohmann::json &data) {
   if (weak_denies != data.end() && !weak_denies->is_number_unsigned()) {
     throw AuthException("Couldn't load permissions data!");
   }
-  return Permissions{data[kGrants], data[kDenies], weak_denies != data.end() ? weak_denies->get<uint64_t>() : 0};
+  auto const weak = weak_denies != data.end() ? weak_denies->get<uint64_t>() : 0;
+  return Permissions{grants->get<uint64_t>(), denies->get<uint64_t>() & ~weak, weak};
 }
 
 Permissions Merge(Permissions const &first, Permissions const &second) {
@@ -553,8 +554,8 @@ nlohmann::json FineGrainedAccessPermissions::Serialize() const {
   } else {
     data[kGlobalGrants] = -1;
   }
-  if (global_strong_denies_) {
-    data[kGlobalDenies] = global_strong_denies_.value();
+  if (auto const denies = global_strong_denies_.value_or(0) | global_weak_denies_; denies != 0) {
+    data[kGlobalDenies] = denies;
   } else {
     data[kGlobalDenies] = -1;
   }
@@ -565,7 +566,7 @@ nlohmann::json FineGrainedAccessPermissions::Serialize() const {
     nlohmann::json rule_json;
     rule_json[kSymbols] = std::vector<std::string>(rule.symbols.begin(), rule.symbols.end());
     rule_json[kGranted] = static_cast<uint64_t>(rule.grants);
-    rule_json[kDenied] = static_cast<uint64_t>(rule.strong_denies);
+    rule_json[kDenied] = static_cast<uint64_t>(rule.strong_denies | rule.weak_denies);
     rule_json[kWeakDenied] = static_cast<uint64_t>(rule.weak_denies);
     rule_json[kMatching] = (rule.matching_mode == MatchingMode::EXACTLY) ? "EXACTLY" : "ANY";
     rules_json.push_back(rule_json);
@@ -640,7 +641,7 @@ FineGrainedAccessPermissions FineGrainedAccessPermissions::Deserialize(const nlo
       }
       rules.push_back({.symbols = symbols,
                        .grants = grants,
-                       .strong_denies = denies,
+                       .strong_denies = denies & ~weak_denies,
                        .matching_mode = matching_mode,
                        .weak_denies = weak_denies});
     }
@@ -649,6 +650,10 @@ FineGrainedAccessPermissions FineGrainedAccessPermissions::Deserialize(const nlo
   uint64_t global_weak_denies = 0;
   if (data.contains(kGlobalWeakDenies) && data[kGlobalWeakDenies].is_number_unsigned()) {
     global_weak_denies = data[kGlobalWeakDenies].get<uint64_t>();
+  }
+  if (global_denies) {
+    *global_denies &= ~global_weak_denies;
+    if (*global_denies == 0) global_denies.reset();
   }
   return FineGrainedAccessPermissions(global_grants, global_denies, std::move(rules), global_weak_denies);
 }
@@ -835,7 +840,7 @@ nlohmann::json SerializePropertyMap(std::unordered_map<std::string, PropertyPerm
   nlohmann::json props_json = nlohmann::json::object();
   for (auto const &[prop, perm] : props) {
     props_json[prop] = {{"grants", std::to_underlying(perm.grants)},
-                        {"denies", std::to_underlying(perm.strong_denies)},
+                        {"denies", std::to_underlying(perm.strong_denies | perm.weak_denies)},
                         {kWeakDenies, std::to_underlying(perm.weak_denies)}};
   }
   return props_json;
@@ -847,8 +852,8 @@ void DeserializePropertyMap(nlohmann::json const &props_json,
     if (!perm_json.is_object()) continue;
     auto &perm = out[prop];
     perm.grants = static_cast<PropertyPermissionType>(perm_json.value("grants", uint8_t{0}));
-    perm.strong_denies = static_cast<PropertyPermissionType>(perm_json.value("denies", uint8_t{0}));
     perm.weak_denies = static_cast<PropertyPermissionType>(perm_json.value(kWeakDenies, uint8_t{0}));
+    perm.strong_denies = static_cast<PropertyPermissionType>(perm_json.value("denies", uint8_t{0})) & ~perm.weak_denies;
   }
 }
 }  // namespace
