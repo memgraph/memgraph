@@ -12,6 +12,7 @@
 #include "query_plan_checker.hpp"
 
 #include <cmath>
+#include <filesystem>
 #include <iostream>
 #include <list>
 #include <memory>
@@ -31,6 +32,7 @@
 #include <gtest/gtest.h>
 
 #include "cache_properties_flag_guard.hpp"
+#include "flags/run_time_configurable.hpp"
 #include "query/exceptions.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/semantic/symbol_generator.hpp"
@@ -43,6 +45,8 @@
 
 #include "query_common.hpp"
 #include "utils/bound.hpp"
+#include "utils/on_scope_exit.hpp"
+#include "utils/settings.hpp"
 
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_bool(query_cache_properties);
@@ -1383,6 +1387,29 @@ TYPED_TEST(TestPlanner, VariableStartDoesNotScanAnEdgeIntoABoundEndpoint) {
     }
     ASSERT_GT(plan_count, 1U) << "the edge must be offered as a start";
   }
+}
+
+TYPED_TEST(TestPlanner, MatchEdgeTypeIndexKeepsAnExpandOverAnotherScan) {
+  // MATCH (a) WITH a MATCH (x), (a)-[e:indexed_edgetype]->(b) RETURN x: without cartesian products the Expand from
+  // the bound a sits on ScanAll (x); an edge scan would drop x and overwrite a.
+  const auto settings_dir = std::filesystem::temp_directory_path() / "MG_tests_unit_query_plan_cartesian";
+  std::filesystem::remove_all(settings_dir);
+  memgraph::utils::Settings settings(settings_dir);
+  memgraph::flags::run_time::Initialize(settings);
+  settings.SetValue("cartesian-product-enabled", "false");
+  memgraph::utils::OnScopeExit restore{[&] { settings.SetValue("cartesian-product-enabled", "true"); }};
+
+  FakeDbAccessor dba;
+  dba.SetIndexCount(dba.EdgeType("indexed_edgetype"), 1);
+  auto *query = QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(NODE("a"))),
+      WITH("a"),
+      MATCH(PATTERN(NODE("x")), PATTERN(NODE("a"), EDGE("e", Direction::OUT, {"indexed_edgetype"}), NODE("b"))),
+      RETURN("x")));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+  CheckPlan(
+      planner.plan(), symbol_table, ExpectScanAll(), ExpectProduce(), ExpectScanAll(), ExpectExpand(), ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, MatchEdgeTypePropertyIndexExistence) {
