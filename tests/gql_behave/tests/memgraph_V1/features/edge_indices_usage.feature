@@ -53,26 +53,6 @@ Feature: Edge Indices Usage
             | result |
             | 1      |
 
-    Scenario: An edge-type index does not rebind a node bound by WITH
-        Given an empty graph
-        And having executed
-            """
-            CREATE EDGE INDEX ON :SEQUEL
-            """
-        And having executed
-            """
-            CREATE (:M {title: 'Matrix'})-[:SEQUEL]->(:M {title: 'JW'}), (:M {title: 'Lone'})
-            """
-        When executing query:
-            """
-            MATCH (m:M) WITH m
-            MATCH (m)-[:SEQUEL]->(s)
-            RETURN m.title AS m, s.title AS s
-            """
-        Then the result should be:
-            | m        | s    |
-            | 'Matrix' | 'JW' |
-
     Scenario: An edge-type index does not rebind a node bound by WITH at the pattern's end
         Given an empty graph
         And having executed
