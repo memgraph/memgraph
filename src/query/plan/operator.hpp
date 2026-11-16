@@ -308,6 +308,9 @@ class LogicalOperator : public utils::Visitable<HierarchicalLogicalOperatorVisit
    */
   virtual std::vector<Symbol> OutputSymbols(const SymbolTable &) const { return std::vector<Symbol>(); }
 
+  /// The view at which the planner set this operator to read the graph, or nullopt when it has no planner-set view.
+  virtual std::optional<storage::View> ReadView() const { return std::nullopt; }
+
   /**
    * Symbol vector whose values are modified by this operator sub-tree.
    *
@@ -472,6 +475,8 @@ class CreateNode : public memgraph::query::plan::LogicalOperator {
   /// The view its expressions read; the planner sets it.
   storage::View view_{storage::View::NEW};
 
+  std::optional<storage::View> ReadView() const override { return view_; }
+
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
 
  private:
@@ -567,6 +572,8 @@ class CreateExpand : public memgraph::query::plan::LogicalOperator {
   /// The view its expressions read; the planner sets it.
   storage::View view_{storage::View::NEW};
 
+  std::optional<storage::View> ReadView() const override { return view_; }
+
   std::string ToString(const DbAccessor *dba) const override;
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
@@ -630,6 +637,8 @@ class ScanAll : public memgraph::query::plan::LogicalOperator {
   /// command. With @c storage::View::NEW, all vertices will be produced the current
   /// transaction sees along with their modifications.
   storage::View view_;
+
+  std::optional<storage::View> ReadView() const override { return view_; }
 
   std::string ToString(const DbAccessor *dba) const override;
 
@@ -1050,6 +1059,8 @@ class Expand : public memgraph::query::plan::LogicalOperator {
   /// State from which the input node should get expanded.
   storage::View view_;
 
+  std::optional<storage::View> ReadView() const override { return view_; }
+
   std::string ToString(const DbAccessor *dba) const override;
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
@@ -1156,6 +1167,8 @@ class ExpandVariable : public memgraph::query::plan::LogicalOperator {
   /// The view its expansion and lambdas read; the planner sets it.
   storage::View view_{storage::View::OLD};
 
+  std::optional<storage::View> ReadView() const override { return view_; }
+
   /// Limit for the number of paths returned in kshortest path expansion.
   Expression *limit_;
 
@@ -1247,6 +1260,8 @@ class Filter : public memgraph::query::plan::LogicalOperator {
   /// The view its expressions read; the planner sets it.
   storage::View view_{storage::View::OLD};
 
+  std::optional<storage::View> ReadView() const override { return view_; }
+
   static std::string SingleFilterName(const query::plan::FilterInfo &single_filter);
 
   std::string ToString(const DbAccessor *dba) const override;
@@ -1301,6 +1316,8 @@ class Produce : public memgraph::query::plan::LogicalOperator {
   std::vector<NamedExpression *> named_expressions_;
   /// The view its expressions read; the planner sets it.
   storage::View view_{storage::View::NEW};
+
+  std::optional<storage::View> ReadView() const override { return view_; }
 
   std::string ToString(const DbAccessor *dba) const override;
 
@@ -1396,6 +1413,8 @@ class CacheProperties : public memgraph::query::plan::LogicalOperator {
   std::vector<CachedPropertyGroup> groups_;
   /// The view of the projection whose lookups it replaces.
   storage::View view_{storage::View::NEW};
+
+  std::optional<storage::View> ReadView() const override { return view_; }
 
   std::string ToString(const DbAccessor *dba) const override;
 
@@ -1997,6 +2016,8 @@ class Aggregate : public memgraph::query::plan::LogicalOperator {
   /// The view its expressions read; the planner sets it.
   storage::View view_{storage::View::NEW};
 
+  std::optional<storage::View> ReadView() const override { return view_; }
+
   std::string ToString(const DbAccessor *dba) const override;
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
@@ -2131,6 +2152,9 @@ class ScanParallel : public memgraph::query::plan::LogicalOperator {
 
   std::shared_ptr<LogicalOperator> input_;
   storage::View view_;
+
+  std::optional<storage::View> ReadView() const override { return view_; }
+
   size_t num_threads_;
   Symbol state_symbol_;
 };
@@ -2526,6 +2550,9 @@ class OrderBy : public memgraph::query::plan::LogicalOperator {
   std::vector<Symbol> output_symbols_;
   /// The view its expressions read; the planner sets it.
   storage::View view_{storage::View::OLD};
+
+  std::optional<storage::View> ReadView() const override { return view_; }
+
   bool parallel_execution_{false};  // When true, OrderByCursor keeps order_by_cache_ for OrderByParallel merge
 
   std::string ToString(const DbAccessor *dba) const override;
@@ -2676,6 +2703,8 @@ class Unwind : public memgraph::query::plan::LogicalOperator {
   Symbol output_symbol_;
   /// The view its expressions read; the planner sets it.
   storage::View view_{storage::View::OLD};
+
+  std::optional<storage::View> ReadView() const override { return view_; }
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
 };
@@ -2926,6 +2955,9 @@ class CallProcedure : public memgraph::query::plan::LogicalOperator {
   GraphAccess graph_access_{GraphAccess::Read};
   /// The view of a read procedure; a write procedure always reads View::NEW.
   storage::View view_{storage::View::OLD};
+
+  std::optional<storage::View> ReadView() const override { return view_; }
+
   int64_t procedure_id_;
   bool void_procedure_;
 
@@ -3197,6 +3229,9 @@ class HashJoin : public memgraph::query::plan::LogicalOperator {
   std::vector<Symbol> right_symbols_;
   /// The view its join keys read; the planner sets it.
   storage::View view_{storage::View::OLD};
+
+  std::optional<storage::View> ReadView() const override { return view_; }
+
   EqualOperator *hash_join_condition_;
 
   std::string ToString(const DbAccessor *dba) const override;
@@ -3297,6 +3332,8 @@ class Conditional : public memgraph::query::plan::LogicalOperator {
   std::vector<Symbol> output_symbols_;
   /// The view its branch predicates read; the planner sets it.
   storage::View view_{storage::View::NEW};
+
+  std::optional<storage::View> ReadView() const override { return view_; }
 
  private:
   class ConditionalCursor : public Cursor {

@@ -4335,7 +4335,8 @@ PreparedQuery PrepareExplainQuery(ParsedQuery parsed_query, std::vector<Notifica
   }
 
   std::stringstream printed_plan;
-  plan::PrettyPrint(*dba, &cypher_query_plan->plan(), &printed_plan, &parsed_inner_query.parameters);
+  plan::PrettyPrint(
+      *dba, &cypher_query_plan->plan(), &printed_plan, &parsed_inner_query.parameters, FLAGS_query_plan_print_views);
   // PrettyPrint feeds the EXPLAIN result rows below; only the trace emit is gated.
   if (memgraph::logging::IsSessionTraceEnabled()) {
     memgraph::logging::EmitSessionTraceEvent("Explain plan:\n{}", printed_plan.str());
