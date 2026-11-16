@@ -36,6 +36,7 @@ std::optional<std::string> Validate(const LedgerContents &contents) {
         return fmt::format("branch '{}' has parent '{}': {}", name, info.parent, *invalid);
       }
     }
+    if (info.parent == name) return fmt::format("branch '{}' is its own parent", name);
     if (info.number < 2 || info.number >= contents.next_number) {
       return fmt::format(
           "branch '{}' has number {} outside [2, next_number {})", name, info.number, contents.next_number);

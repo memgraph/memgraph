@@ -119,6 +119,15 @@ TEST_F(BranchLedgerTest, RoundTrip) {
   EXPECT_EQ(GidsHeldBelow(out.branches[1].info, GidKind::kEdge), 0);
 }
 
+TEST_F(BranchLedgerTest, EmptyLedgerKeepsNextNumber) {
+  BranchLedger ledger{*store_, uuid_};
+  ASSERT_TRUE(ledger.Write({.next_number = 7, .branches = {}}).has_value());
+  const auto res = ledger.Read();
+  ASSERT_TRUE(res.has_value() && res->has_value());
+  EXPECT_EQ((*res)->next_number, 7);
+  EXPECT_TRUE((*res)->branches.empty());
+}
+
 // The floor stands in for the missing ceilings.
 TEST_F(BranchLedgerTest, AnOldFormatLedgerReadsWithNoCeilingsAndIgnoresUnknownKeys) {
   Put(Versioned(OneBranch(
@@ -137,7 +146,13 @@ TEST_F(BranchLedgerTest, AnOldFormatLedgerReadsWithNoCeilingsAndIgnoresUnknownKe
 
 TEST_F(BranchLedgerTest, RejectsUnparsableValues) {
   const auto good = Versioned(OneBranch(R"({"name":"a","number":2,"parent":"main","fork_ts":10})"));
-  for (const auto &value : {good.substr(0, good.size() - 3), std::string{}, std::string{"not json"}}) {
+  for (const auto &value : {good.substr(0, good.size() - 3),
+                            std::string{},
+                            std::string{"not json"},
+                            std::string{"[]"},
+                            std::string{"5"},
+                            std::string{"null"},
+                            std::string{R"("x")"}}) {
     Put(value);
     EXPECT_FALSE(Read().has_value()) << value;
   }
@@ -192,6 +207,7 @@ TEST_F(BranchLedgerTest, RejectsAnInvalidRegistry) {
            OneBranch(branch("-a", 2)),
            OneBranch(branch("a", 2, "x@y")),
            OneBranch(branch("a", 2, "")),
+           OneBranch(branch("a", 2, "a")),
            fmt::format(R"({{"next_number":5,"branches":[{},{}]}})", branch("a", 2), branch("a", 3)),
            fmt::format(R"({{"next_number":5,"branches":[{},{}]}})", branch("a", 2), branch("b", 2)),
        }) {
@@ -223,7 +239,8 @@ TEST_F(BranchLedgerTest, WriteRefusesWhatReadWouldReject) {
                                              std::tuple{"a", 2, "\xff"},
                                              std::tuple{"main", 2, "main"},
                                              std::tuple{"a", 1, "main"},
-                                             std::tuple{"a", 3, "main"}}) {
+                                             std::tuple{"a", 3, "main"},
+                                             std::tuple{"a", 2, "a"}}) {
     LedgerContents bad;
     bad.next_number = 3;
     bad.branches.push_back({name, {.number = static_cast<uint64_t>(number), .parent = parent, .fork_ts = 1}});

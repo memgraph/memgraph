@@ -559,14 +559,15 @@ PrometheusMetrics::PrometheusMetrics()
               .Name("memgraph_versioning_branches_created_total")
               .Help("Total number of branches created, not counting those restored at startup")
               .Register(registry_)},
-      versioning_branches_dropped_family_{
-          prometheus::BuildCounter()
-              .Name("memgraph_versioning_branches_dropped_total")
-              .Help("Total number of branches dropped, not counting those lost to DROP DATABASE or suspend")
-              .Register(registry_)},
+      versioning_branches_dropped_family_{prometheus::BuildCounter()
+                                              .Name("memgraph_versioning_branches_dropped_total")
+                                              .Help("Total number of branches dropped, including automatic drops; "
+                                                    "branches removed with their database are not counted")
+                                              .Register(registry_)},
       versioning_active_branches_family_{prometheus::BuildGauge()
                                              .Name("memgraph_versioning_active_branches")
-                                             .Help("Current number of branches on hot databases")
+                                             .Help("Current number of live and unavailable branches of loaded "
+                                                   "databases; hidden branches are not counted")
                                              .Register(registry_)},
       versioning_active_sessions_family_{prometheus::BuildGauge()
                                              .Name("memgraph_versioning_active_sessions")
