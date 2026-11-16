@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <chrono>
 #include <memory>
 #include <span>
 #include <string>
@@ -42,6 +43,10 @@ class KafkaClusterMock {
   std::string Bootstraps() const;
   void CreateTopic(const std::string &topic_name);
   void SeedTopic(const std::string &topic_name, std::span<const char> message);
+
+  /// Makes the only broker take \p rtt to answer, so a request that waits for a reply waits that
+  /// long. A broker taken down instead refuses the connection, which fails rather than waits.
+  void AnswerSlowly(std::chrono::milliseconds rtt);
 
  private:
   RdKafkaUniquePtr rk_{nullptr};
