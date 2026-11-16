@@ -2457,7 +2457,7 @@ TEST_P(CypherMainVisitorTest, MatchAfterOptionalMatch) {
   EXPECT_FALSE(match->optional_);
   CheckRWType(query, kRead);
 
-  // A clause between the pair that is not WITH used to keep the refusal too.
+  // Any clause between the pair is accepted, not only WITH.
   for (const auto *between :
        {"UNWIND [1] AS x", "CALL mg.procedures() YIELD name", R"(LOAD CSV FROM "file.csv" WITH HEADER AS row)"}) {
     EXPECT_NO_THROW(ast_generator.ParseQuery(fmt::format("OPTIONAL MATCH (n) {} MATCH (m) RETURN n, m", between)))
@@ -2466,7 +2466,7 @@ TEST_P(CypherMainVisitorTest, MatchAfterOptionalMatch) {
 }
 
 TEST_P(CypherMainVisitorTest, MatchAfterOptionalMatchRedeclaresItsRelationship) {
-  // A later MATCH cannot reuse a bound relationship variable, whatever separates it from the optional.
+  // A later MATCH cannot reuse a relationship variable the optional bound.
   auto &ast_generator = *GetParam();
   EXPECT_THROW(memgraph::query::MakeSymbolTable(dynamic_cast<CypherQuery *>(
                    ast_generator.ParseQuery("OPTIONAL MATCH (a)-[r]->() MATCH ()-[r]->(b) RETURN a, b"))),
@@ -2487,6 +2487,8 @@ TEST_P(CypherMainVisitorTest, ClausesOrdering) {
   ASSERT_THROW(ast_generator.ParseQuery("RETURN 1 AS n UNWIND n AS x RETURN x"), SemanticException);
 
   ASSERT_NO_THROW(ast_generator.ParseQuery("OPTIONAL MATCH (n) MATCH (m) RETURN n, m"));
+  EXPECT_THAT([&] { ast_generator.ParseQuery("OPTIONAL MATCH (n) CREATE (m) MATCH (k) RETURN k"); },
+              testing::ThrowsMessage<SemanticException>(HasSubstr("after an update")));
 
   CheckRWType(ast_generator.ParseQuery("OPTIONAL MATCH (n) WITH n MATCH (m) RETURN n, m"), kRead);
   CheckRWType(ast_generator.ParseQuery("OPTIONAL MATCH (n) OPTIONAL MATCH (m) RETURN n, m"), kRead);

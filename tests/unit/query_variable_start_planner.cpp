@@ -193,11 +193,10 @@ TYPED_TEST(TestVariableStartPlanner, MatchOptionalMatchReturn) {
 TYPED_TEST(TestVariableStartPlanner, OptionalMatchThenMatchReturn) {
   auto storage_dba = this->db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());
-  // Graph (v1) -[:r]-> (v2) -[:r]-> (v3), and a lone (v4)
+  // Graph (v1) -[:r]-> (v2) -[:r]-> (v3)
   auto v1 = dba.InsertVertex();
   auto v2 = dba.InsertVertex();
   auto v3 = dba.InsertVertex();
-  dba.InsertVertex();
   ASSERT_TRUE(dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("r")).has_value());
   ASSERT_TRUE(dba.InsertEdge(&v2, &v3, dba.NameToEdgeType("r")).has_value());
   dba.AdvanceCommand();

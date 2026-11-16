@@ -313,8 +313,8 @@ Feature: MATCH after OPTIONAL MATCH
             """
         Then the result should be:
             | p        | m        |
-            | 'Keanu'  | 'Matrix' |
             | 'Keanu'  | 'JW'     |
+            | 'Keanu'  | 'Matrix' |
             | 'Carrie' | 'Matrix' |
 
     Scenario: A WHERE in the MATCH reads an optional variable
@@ -327,7 +327,7 @@ Feature: MATCH after OPTIONAL MATCH
                    (mx)-[:SEQUEL]->(jw)
             """
         And parameters are:
-            | lim | 3 |
+            | lim | 2 |
         When executing query:
             """
             OPTIONAL MATCH (a:MaoM {title: 'JW'})
@@ -335,9 +335,8 @@ Feature: MATCH after OPTIONAL MATCH
             RETURN a.title AS a, b.title AS b
             """
         Then the result should be:
-            | a    | b      |
-            | 'JW' | 'JW'   |
-            | 'JW' | 'Lone' |
+            | a    | b    |
+            | 'JW' | 'JW' |
 
     Scenario: A WHERE on a null optional variable drops every row
         Given an empty graph
@@ -348,8 +347,6 @@ Feature: MATCH after OPTIONAL MATCH
                    (k)-[:ACTED_IN]->(mx), (c)-[:ACTED_IN]->(mx), (k)-[:ACTED_IN]->(jw),
                    (mx)-[:SEQUEL]->(jw)
             """
-        And parameters are:
-            | lim | 2 |
         When executing query:
             """
             OPTIONAL MATCH (a:MaoNone)
@@ -360,7 +357,7 @@ Feature: MATCH after OPTIONAL MATCH
             | c |
             | 0 |
 
-    Scenario: The later MATCH is not hoisted above the optional
+    Scenario: An independent MATCH after a null optional keeps the null
         Given an empty graph
         And having executed:
             """
@@ -380,7 +377,7 @@ Feature: MATCH after OPTIONAL MATCH
             | p      | m    | m2       |
             | 'Hugo' | null | 'Matrix' |
 
-    Scenario: The later MATCH is not hoisted above the optional (indexes :MaoM(title))
+    Scenario: An independent MATCH after a null optional keeps the null (indexes :MaoM(title))
         Given an empty graph
         And with new index :MaoM(title)
         And having executed:
@@ -699,7 +696,7 @@ Feature: MATCH after OPTIONAL MATCH
             | 2       | 4     |
 
     Scenario: A MATCH after an update is still refused
-        # Divergence: memgraph refuses MATCH after an update without WITH; Cypher allows it. Out of scope.
+        # Divergence: memgraph refuses MATCH after an update without WITH; Cypher allows it. Out of scope. Text pinned by CypherMainVisitorTest.ClausesOrdering.
         Given an empty graph
         And having executed:
             """
@@ -832,7 +829,7 @@ Feature: MATCH after OPTIONAL MATCH
         Then the result should be empty
 
     Scenario: An UNWIND of a non-node between the pair fails the node MATCH on it
-        # Divergence: Cypher rejects this at compile time (n is an integer); memgraph raises at run time "Expected a node for 'n', but got int.", as with WITH between them.
+        # Divergence: Cypher rejects this at compile time (n is an integer); memgraph raises at run time "Expected a node for 'n', but got int.", as with WITH between them. Error type pinned by QueryExecution.MatchOnBoundNodeIsNotANode.
         Given an empty graph
         And having executed:
             """

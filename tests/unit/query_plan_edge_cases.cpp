@@ -241,6 +241,10 @@ TYPED_TEST(QueryExecution, MatchOnBoundNodeIsNotANode) {
                              "WITH coalesce(f, 1) AS g MATCH (g) RETURN count(*) AS c"),
                memgraph::query::QueryRuntimeException);
 
+  // An UNWIND between OPTIONAL MATCH and MATCH reaches the same run-time check.
+  EXPECT_THROW(this->Execute("OPTIONAL MATCH (x:None) UNWIND [1] AS f MATCH (f) RETURN count(*) AS c"),
+               memgraph::query::QueryRuntimeException);
+
   // A node passes, so what the guard rejects is the type and not the reuse of a variable.
   auto results = this->Execute("MATCH (p:Person) WITH p AS g MATCH (g) RETURN count(*) AS c");
   ASSERT_EQ(results.size(), 1U);
