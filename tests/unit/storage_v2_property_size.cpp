@@ -39,7 +39,6 @@ auto MakeStore() -> std::unique_ptr<Storage> {
       memgraph::storage::Config{.salient = {.items = {.properties_on_edges = true}}});
 }
 
-/// A committed edge carrying one property, and the vertices it joins.
 auto CreateEdgeWithProperty(Storage &store, PropertyValue value) -> OneEdge {
   auto acc = store.Access(memgraph::storage::WRITE);
   auto from = acc->CreateVertex();
@@ -90,10 +89,9 @@ TEST(EdgePropertySize, AgreesWhetherOrNotTheEdgeCarriesADelta) {
   EXPECT_GT(*size, 0);
 }
 
-// Reading an edge's property size reads the property itself, and the edge's lock is friendly to
-// writers: a waiting writer holds its bit and lets no new reader in. A reader that kept the lock
-// across the nested read would wait for the writer to release while the writer waited for that
-// reader to leave, so this finishes only if the size is read with the lock taken once.
+// Reading an edge's property size reads the property itself, and the edge's lock admits no new
+// reader once a writer is waiting. A read holding that lock across the nested read would wait for
+// the writer while the writer waited for it, so finishing at all is what this asserts.
 TEST(EdgePropertySize, AnswersWhileTheEdgeIsBeingWritten) {
   auto store = MakeStore();
   auto const ids = CreateEdgeWithProperty(*store, PropertyValue{"measure me"});

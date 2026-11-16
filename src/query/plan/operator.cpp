@@ -5969,8 +5969,6 @@ bool CacheProperties::CachePropertiesCursor::Pull(Frame &frame, ExecutionContext
       };
 
       if (reads_a_vertex) {
-        // A vertex's permissions are decided from its labels, and reading those takes the record's
-        // lock, so the group reads them once and decides every property against that one read.
         auto const maybe_labels = input_value.ValueVertex().Labels(storage::View::NEW);
         if (!maybe_labels) {
           // A record whose labels cannot be read permits none of its properties.

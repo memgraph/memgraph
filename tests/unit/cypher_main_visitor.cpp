@@ -812,8 +812,8 @@ TEST_P(CypherMainVisitorTest, IntegerLiteral) {
   CheckRWType(query, kRead);
 }
 
-// An index names the properties each record is read for, and reading a set of them answers a
-// property named twice only once, so naming one twice is refused wherever an index names a set.
+// Every form of index that names a set of properties refuses a repeat, and none of them refuses
+// two distinct ones.
 TEST_P(CypherMainVisitorTest, IndexPropertiesCannotRepeat) {
   auto &ast_generator = *GetParam();
 
