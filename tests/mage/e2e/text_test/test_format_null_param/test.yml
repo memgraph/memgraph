@@ -1,0 +1,8 @@
+query: >
+  CALL mg.procedures() YIELD name, signature WHERE name = "text.format"
+  WITH signature WHERE signature CONTAINS "ANY?"
+  CALL text.format("a{}b", [null]) YIELD result
+  RETURN result;
+
+output:
+  - result: "ab"

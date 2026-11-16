@@ -1,0 +1,8 @@
+query: >
+  CALL mg.functions() YIELD name, signature WHERE name = "map.from_pairs"
+  WITH signature WHERE signature CONTAINS "ANY?"
+  RETURN map.from_pairs([["a", null]]) AS single, map.from_pairs([["a", 1], ["b", null]]) AS mixed;
+
+output:
+  - single: {a: null}
+    mixed: {a: 1, b: null}
