@@ -282,20 +282,20 @@ size_t DatePrefixLength(std::string_view string) {
 DateTimeLayout SplitDateTime(std::string_view string) {
   const auto date_length = DatePrefixLength(string);
   if (date_length == 0 || string.size() == date_length) {
-    return {string, {}};
+    return {.date_time = string};
   }
   if (string[date_length] == 'T') {
     const auto designator_start = string.find_first_of("Z+-[", date_length + 1);
     if (designator_start == std::string_view::npos) {
-      return {string, {}};
+      return {.date_time = string};
     }
-    return {string.substr(0, designator_start), string.substr(designator_start)};
+    return {.date_time = string.substr(0, designator_start), .designator = string.substr(designator_start)};
   }
   const auto next = string[date_length];
   if (next == 'Z' || next == '+' || next == '-' || next == '[') {
-    return {string.substr(0, date_length), string.substr(date_length)};
+    return {.date_time = string.substr(0, date_length), .designator = string.substr(date_length)};
   }
-  return {string, {}};
+  return {.date_time = string};
 }
 
 // Reads a 1-9 digit second fraction, right-padded to nanoseconds and truncated to microseconds.
