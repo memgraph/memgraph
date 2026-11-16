@@ -170,6 +170,8 @@ add_unit_test(query_plan_write_visibility
     SOURCES query_plan_write_visibility.cpp
     LINK_TARGETS mg-query
 )
+# The view oracle plans the queries of the write-visibility feature file.
+target_compile_definitions(${test_unit_prefix}query_plan_write_visibility PRIVATE MG_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
 
 add_unit_test(query_plan_orderby_index
     SOURCES query_plan_orderby_index.cpp

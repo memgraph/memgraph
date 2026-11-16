@@ -13,8 +13,12 @@
 // and which rewrites must not move a read across a write.
 
 #include <algorithm>
+#include <filesystem>
+#include <fstream>
 #include <map>
 #include <memory>
+#include <optional>
+#include <regex>
 #include <sstream>
 #include <string>
 #include <string_view>
@@ -1143,6 +1147,273 @@ TEST_F(WriteVisibilityPlan, ExplainPrintsTheViewOfEachReaderOnRequest) {
   EXPECT_TRUE(line_of("Filter").ends_with(" [view: OLD]")) << fmt::format("{}", fmt::join(lines, "\n"));
   EXPECT_TRUE(line_of("SetProperty").ends_with("SetProperty"));
   for (auto const &line : PrintedLines(plan, false)) EXPECT_FALSE(line.contains("[view:")) << line;
+}
+
+// ---------------------------------------------------------------- view oracle
+
+// The view rule (write_visibility_plan.md §4.1), computed from an operator's ancestors rather than from the
+// planner's scope state: OLD at the root and in a read-only CALL body; NEW in a writing CALL body tree, a MERGE,
+// a FOREACH body, and a fold branch whose consumer reads NEW. A query under batching keeps master's views: no check.
+class ViewOracle {
+ public:
+  struct Mismatch {
+    std::string op;
+    View expected;
+    View actual;
+  };
+
+  std::vector<Mismatch> Check(LogicalOperator &root) {
+    mismatches_.clear();
+    if (!ContainsBatching(root)) Walk(root, false);
+    return mismatches_;
+  }
+
+ private:
+  template <class TOp>
+  static bool Is(LogicalOperator const &op) {
+    return memgraph::utils::IsSubtype(op, TOp::kType);
+  }
+
+  static bool IsWrite(LogicalOperator const &op) {
+    if (auto const *proc = memgraph::utils::Downcast<plan::CallProcedure const>(&op)) {
+      return proc->graph_access_ == GraphAccess::Write;
+    }
+    return Is<plan::CreateNode>(op) || Is<plan::CreateExpand>(op) || Is<plan::Delete>(op) ||
+           Is<plan::SetProperty>(op) || Is<plan::SetProperties>(op) || Is<plan::SetLabels>(op) ||
+           Is<plan::RemoveProperty>(op) || Is<plan::RemoveLabels>(op) || Is<plan::SetNestedProperty>(op) ||
+           Is<plan::RemoveNestedProperty>(op) || Is<plan::Merge>(op) || Is<plan::Foreach>(op);
+  }
+
+  /// A clause that must see its own earlier rows, so its expressions read NEW. A CREATE map and a procedure's
+  /// arguments read the scope's view.
+  static bool ReadsNewClause(LogicalOperator const &op) {
+    return Is<plan::Delete>(op) || Is<plan::SetProperty>(op) || Is<plan::SetProperties>(op) ||
+           Is<plan::SetLabels>(op) || Is<plan::RemoveProperty>(op) || Is<plan::RemoveLabels>(op) ||
+           Is<plan::SetNestedProperty>(op) || Is<plan::RemoveNestedProperty>(op) || Is<plan::Merge>(op) ||
+           Is<plan::Foreach>(op);
+  }
+
+  /// Every child of an operator, branches included, paired with whether the branch is a nested body (a CALL body or
+  /// a conditional branch), a writing clause's branch (MERGE, FOREACH) or a fold branch.
+  enum class Edge : uint8_t { kInput, kBody, kWritingClause, kFold };
+
+  static std::vector<std::pair<LogicalOperator *, Edge>> Children(LogicalOperator &op) {
+    std::vector<std::pair<LogicalOperator *, Edge>> out;
+    auto add = [&](auto const &child, Edge edge) {
+      if (child) out.emplace_back(child.get(), edge);
+    };
+    if (auto *apply = memgraph::utils::Downcast<plan::Apply>(&op)) {
+      add(apply->input_, Edge::kInput);
+      add(apply->subquery_, Edge::kBody);
+    } else if (auto *merge = memgraph::utils::Downcast<plan::Merge>(&op)) {
+      add(merge->input_, Edge::kInput);
+      add(merge->merge_match_, Edge::kWritingClause);
+      add(merge->merge_create_, Edge::kWritingClause);
+    } else if (auto *foreach = memgraph::utils::Downcast<plan::Foreach>(&op)) {
+      add(foreach->input_, Edge::kInput);
+      add(foreach->update_clauses_, Edge::kWritingClause);
+    } else if (auto *filter = memgraph::utils::Downcast<plan::Filter>(&op)) {
+      add(filter->input_, Edge::kInput);
+      for (auto const &branch : filter->pattern_filters_) add(branch, Edge::kFold);
+    } else if (auto *rollup = memgraph::utils::Downcast<plan::RollUpApply>(&op)) {
+      add(rollup->input_, Edge::kInput);
+      add(rollup->list_collection_branch_, Edge::kFold);
+    } else if (auto *conditional = memgraph::utils::Downcast<plan::Conditional>(&op)) {
+      add(conditional->input(), Edge::kInput);
+      for (auto const &branch : conditional->branches_) {
+        for (auto const &fold : branch.pattern_filters) add(fold, Edge::kFold);
+        add(branch.plan, Edge::kBody);
+      }
+    } else if (auto *optional = memgraph::utils::Downcast<plan::Optional>(&op)) {
+      add(optional->input_, Edge::kInput);
+      add(optional->optional_, Edge::kInput);
+    } else if (auto *u = memgraph::utils::Downcast<plan::Union>(&op)) {
+      add(u->left_op_, Edge::kInput);
+      add(u->right_op_, Edge::kInput);
+    } else if (auto *cartesian = memgraph::utils::Downcast<plan::Cartesian>(&op)) {
+      add(cartesian->left_op_, Edge::kInput);
+      add(cartesian->right_op_, Edge::kInput);
+    } else if (auto *join = memgraph::utils::Downcast<plan::HashJoin>(&op)) {
+      add(join->left_op_, Edge::kInput);
+      add(join->right_op_, Edge::kInput);
+    } else if (auto *join = memgraph::utils::Downcast<plan::IndexedJoin>(&op)) {
+      add(join->main_branch_, Edge::kInput);
+      add(join->sub_branch_, Edge::kInput);
+    } else if (auto *periodic = memgraph::utils::Downcast<plan::PeriodicSubquery>(&op)) {
+      add(periodic->input_, Edge::kInput);
+      add(periodic->subquery_, Edge::kBody);
+    } else if (op.HasSingleInput()) {
+      add(op.input(), Edge::kInput);
+    } else if (!Is<plan::Once>(op)) {
+      ADD_FAILURE() << "the oracle does not know the children of " << op.GetTypeInfo().name;
+    }
+    return out;
+  }
+
+  static bool ContainsWrite(LogicalOperator &op) {
+    if (IsWrite(op)) return true;
+    return std::ranges::any_of(Children(op), [](auto const &child) { return ContainsWrite(*child.first); });
+  }
+
+  static bool ContainsBatching(LogicalOperator &op) {
+    if (Is<plan::PeriodicCommit>(op) || Is<plan::PeriodicSubquery>(op)) return true;
+    return std::ranges::any_of(Children(op), [](auto const &child) { return ContainsBatching(*child.first); });
+  }
+
+  /// `reads_new`: the operator is in a scope whose every read is a NEW reader. `consumer_reads_new`: the operator
+  /// that uses this one's rows is a clause that reads NEW; it decides a comprehension branch, whose list RollUpApply
+  /// passes up to the operator above it (a SET right-hand side, a FOREACH list).
+  void Walk(LogicalOperator &op, bool reads_new, bool consumer_reads_new = false) {
+    auto const expected = reads_new ? View::NEW : View::OLD;
+    if (auto const actual = op.ReadView(); actual && *actual != expected) {
+      mismatches_.push_back({std::string{op.GetTypeInfo().name}, expected, *actual});
+    }
+    auto const is_rollup = Is<plan::RollUpApply>(op);
+    for (auto [child, edge] : Children(op)) {
+      switch (edge) {
+        case Edge::kInput:
+          Walk(*child, reads_new, is_rollup ? consumer_reads_new : ReadsNewClause(op));
+          break;
+        case Edge::kBody:
+          Walk(*child, reads_new || ContainsWrite(*child));
+          break;
+        case Edge::kWritingClause:
+          Walk(*child, true);
+          break;
+        case Edge::kFold:
+          // A Filter or Conditional evaluates its own folds; a RollUpApply's list goes to the operator above it.
+          Walk(*child, reads_new || (is_rollup && consumer_reads_new));
+          break;
+      }
+    }
+  }
+
+  std::vector<Mismatch> mismatches_;
+};
+
+/// One planning environment per query, so the indexes of one scenario do not leak into the next.
+struct PlannedQuery {
+  AstStorage storage;
+  Parameters parameters;
+  SymbolTable symbol_table;
+  FakeDbAccessor dba;
+  std::unique_ptr<LogicalOperator> plan;
+
+  /// Null on a query the unit planner cannot plan (a procedure, a parameter, a refusal).
+  LogicalOperator *Plan(std::string const &query_string) try {
+    // A parameter's value is looked up while planning; the fixture has none to give.
+    if (query_string.contains('$')) return nullptr;
+    ::frontend::opencypher::Parser parser{query_string};
+    ParsingContext context{.is_query_cached = false};
+    CypherMainVisitor visitor{context, &storage, &parameters};
+    visitor.visit(parser.tree());
+    auto *query = memgraph::utils::Downcast<CypherQuery>(visitor.query());
+    if (query == nullptr) return nullptr;
+    symbol_table = MakeSymbolTable(query);
+    auto planning_context = MakePlanningContext(&storage, &symbol_table, query, &dba);
+    PostProcessor post_processor(parameters, {}, &dba);
+    auto query_parts = CollectQueryParts(symbol_table, storage, query, false);
+    plan = MakeLogicalPlanForSingleQuery<RuleBasedPlanner>(query_parts, &planning_context);
+    plan = post_processor.Rewrite(std::move(plan), &planning_context);
+    return plan.get();
+  } catch (std::exception const &) {
+    return nullptr;
+  }
+};
+
+struct CorpusQuery {
+  std::string scenario;
+  std::string query;
+  std::vector<std::pair<std::string, std::optional<std::string>>> indexes;  // label, property
+};
+
+std::vector<CorpusQuery> FeatureCorpus(std::filesystem::path const &path) {
+  std::ifstream in(path);
+  std::vector<CorpusQuery> corpus;
+  std::string scenario;
+  std::vector<std::pair<std::string, std::optional<std::string>>> indexes;
+  static std::regex const index_re{R"(with new index :(\w+)(?:\((\w+)\))?)"};
+  for (std::string line; std::getline(in, line);) {
+    std::smatch match;
+    if (auto pos = line.find("Scenario"); pos != std::string::npos && line.find(':', pos) != std::string::npos) {
+      scenario = line.substr(line.find(':', pos) + 2);
+      indexes.clear();
+    } else if (std::regex_search(line, match, index_re)) {
+      indexes.emplace_back(match[1], match[2].matched ? std::optional<std::string>{match[2]} : std::nullopt);
+    } else if (line.find("When executing query") != std::string::npos) {
+      std::getline(in, line);  // the opening """
+      std::string query;
+      while (std::getline(in, line) && line.find(R"(""")") == std::string::npos) query += line + "\n";
+      corpus.push_back({scenario, query, indexes});
+    }
+  }
+  return corpus;
+}
+
+std::filesystem::path FeaturePath() {
+  return std::filesystem::path{MG_SOURCE_DIR} / "tests/gql_behave/tests/memgraph_V1/features/write_visibility.feature";
+}
+
+/// The queries of write_visibility.feature, planned with and without their scenario's indexes, plus the shapes
+/// the feature does not cover. Every view of every plan must follow the rule.
+TEST(WriteVisibilityOracle, EveryViewFollowsTheRule) {
+  auto corpus = FeatureCorpus(FeaturePath());
+  ASSERT_GE(corpus.size(), 150) << FeaturePath();
+  for (auto const *extra : {
+           "MATCH (a:Pt) WHERE point.distance(a.loc, point({x: 0, y: 0})) < 10 SET a.k = 1 RETURN count(*) AS c",
+           "UNWIND [1, 2] AS i CALL (i) { MATCH (n:Pt) WHERE point.distance(n.loc, point({x: 0, y: 0})) < 10 "
+           "SET n.k = i RETURN count(n) AS c } RETURN collect(c) AS cs",
+           "MATCH ()-[r:E]->() WHERE r.w = 1 SET r.w = 2 WITH * MATCH ()-[s:E]->() WHERE s.w = 2 RETURN count(*) AS c",
+           "CALL () { MATCH (a:A) SET a.l = [2] WITH * MATCH (x:L) WHERE x.k IN a.l RETURN count(*) AS c } RETURN c",
+           "CALL () { MATCH (a:A) SET a.k = 2 WITH * MATCH (x:A), (b:B) WHERE x.k = b.k RETURN count(*) AS c } "
+           "RETURN c",
+           "MATCH (n:L) SET n.k = n.k + 1 WITH n ORDER BY n.k RETURN n.k AS k",
+           "CALL () { MATCH (n:L) SET n.k = 1 WITH n ORDER BY n.k RETURN collect(n.k) AS ks } RETURN ks",
+           "MATCH (a:A) SET a.c = size([(a)-[*0]-(x) WHERE EXISTS { MATCH (x) WHERE x.c IS NOT NULL } | x])",
+           "MATCH (a:A), (b:B) CALL (a) { MATCH (a)-[*BFS]->(x) RETURN count(x) AS n } SET b.n = n",
+       }) {
+    corpus.push_back({"extra", extra, {{"Pt", "loc"}, {"E", "w"}, {"L", "k"}, {"A", std::nullopt}}});
+  }
+
+  size_t planned = 0;
+  std::vector<std::string> failures;
+  for (auto const &item : corpus) {
+    for (bool const with_indexes : {false, true}) {
+      PlannedQuery planned_query;
+      if (with_indexes) {
+        for (auto const &[label, property] : item.indexes) {
+          auto &dba = planned_query.dba;
+          if (label == "E") {
+            dba.SetIndexCount(dba.EdgeType(label), 1);
+            if (property) dba.SetIndexCount(dba.EdgeType(label), dba.Property(*property), 1);
+            continue;
+          }
+          dba.SetIndexCount(dba.Label(label), 1);
+          if (property == "loc") {
+            dba.SetPointIndex(dba.Label(label), dba.Property(*property));
+          } else if (property) {
+            dba.SetIndexCount(dba.Label(label), memgraph::storage::PropertyPath{dba.Property(*property)}, 1);
+          }
+        }
+      }
+      auto *plan = planned_query.Plan(item.query);
+      if (plan == nullptr) continue;
+      ++planned;
+      for (auto const &m : ViewOracle{}.Check(*plan)) {
+        failures.push_back(fmt::format("{} [{}] {}: expected {}, planned {}\n  {}",
+                                       item.scenario,
+                                       with_indexes ? "indexes" : "plain",
+                                       m.op,
+                                       m.expected == View::NEW ? "NEW" : "OLD",
+                                       m.actual == View::NEW ? "NEW" : "OLD",
+                                       item.query));
+      }
+    }
+  }
+  // Most of the corpus plans in the unit planner; a parser or fixture change that drops it must not pass silently.
+  EXPECT_GE(planned, 2 * 150);
+  EXPECT_TRUE(failures.empty()) << failures.size() << " views off the rule:\n"
+                                << fmt::format("{}", fmt::join(failures, "\n"));
 }
 
 }  // namespace
