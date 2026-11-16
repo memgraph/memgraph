@@ -1047,6 +1047,45 @@ TEST_F(WriteVisibilityPlan, ARootWithAnInTransactionsCallKeepsItsBarriers) {
   EXPECT_TRUE(barrier->advance_command_);
 }
 
+// Pinned, known (write_visibility_followups_plan.md §8.4, Q3 interim): under USING PERIODIC COMMIT no barrier is
+// planned and the views stay master's: projections read NEW, ORDER BY reads OLD. So ORDER BY n.x LIMIT 1 after a
+// SET with a batch larger than the rows returns 9, where the clause rule gives 7.
+TEST_F(WriteVisibilityPlan, PeriodicCommitKeepsMastersViews) {
+  auto &plan = Plan("USING PERIODIC COMMIT 100 MATCH (n:P) SET n.x = 10 - n.x RETURN n.x AS x ORDER BY n.x LIMIT 1");
+  EXPECT_EQ(Views<Produce>(plan), (std::vector{View::NEW}));
+  EXPECT_EQ(Views<OrderBy>(plan), (std::vector{View::OLD}));
+}
+
+// Pinned, known: under USING PERIODIC COMMIT a read after a write in the same batch sees later clauses' writes of
+// earlier rows. Neither shape gets a barrier (i14_pc_drain, review B3).
+TEST_F(WriteVisibilityPlan, PeriodicCommitPlansNoBarriers) {
+  EXPECT_TRUE(
+      Collect<Accumulate>(Plan("USING PERIODIC COMMIT 100 MATCH (a:A), (b:A) SET a.y = b.x SET b.x = 0")).empty());
+  // B3: the WITH after the SET keeps master's drain, and nothing fences the EXISTS from the later CREATE.
+  EXPECT_EQ(Chain(Plan("USING PERIODIC COMMIT 10 UNWIND [1, 2] AS i MATCH (a:BA) SET a.k = i WITH i, a, "
+                       "EXISTS { MATCH (a)-[*]->() } AS e CREATE (a)-[:R]->(:BB) RETURN i, e ORDER BY i")),
+            (Names{"OrderBy",
+                   "Produce",
+                   "PeriodicCommit",
+                   "CreateExpand",
+                   "Produce",
+                   "RollUpApply",
+                   "Accumulate+",
+                   "SetProperty",
+                   "Filter",
+                   "ScanAll",
+                   "Unwind",
+                   "Once"}));
+}
+
+// The root RETURN after an IN TRANSACTIONS call drains every batch before it advances, so no scan is open: kept.
+TEST_F(WriteVisibilityPlan, RootReturnAfterAnInTransactionsCallAdvances) {
+  auto &plan = Plan("MATCH (n:P) CALL (n) { SET n.x = 1 } IN TRANSACTIONS OF 10 ROWS RETURN n.x AS x ORDER BY x");
+  auto accumulates = Collect<Accumulate>(plan);
+  ASSERT_FALSE(accumulates.empty());
+  EXPECT_TRUE(accumulates.front()->advance_command_);
+}
+
 // A writing IN TRANSACTIONS body is a writing tree: its cursor runs the body to the end for each input row before it
 // commits, so a barrier inside it drains without advancing, and its readers read NEW.
 TEST_F(WriteVisibilityPlan, AWritingInTransactionsBodyIsAWritingTree) {
