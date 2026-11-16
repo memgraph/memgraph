@@ -251,80 +251,15 @@ Symbol table:
 |---|---------|
 
 Additionally, seconds can be defined as decimal fractions with 1 to 9 digits after the decimal point.
-Fractions shorter than 6 digits are right-padded with zeros and digits beyond microseconds are truncated; more than 9 digits is invalid.)help";
-
-struct DateTimeLayout {
-  std::string_view date_time;
-  std::string_view designator;
-};
-
-// Length of a leading date prefix (YYYY-MM-DD, YYYYMMDD or YYYY-MM); 0 if absent.
-size_t DatePrefixLength(std::string_view string) {
-  if (!ParseNumber<int64_t>(string, 4)) {
-    return 0;
-  }
-  if (string.size() > 4 && string[4] == '-') {
-    if (!ParseNumber<int64_t>(string.substr(5), 2)) {
-      return 0;
-    }
-    if (string.size() > 7 && string[7] == '-') {
-      return ParseNumber<int64_t>(string.substr(8), 2) ? 10 : 0;
-    }
-    return 7;
-  }
-  if (!ParseNumber<int64_t>(string.substr(4), 2)) {
-    return 0;
-  }
-  return ParseNumber<int64_t>(string.substr(6), 2) ? 8 : 0;
-}
-
-// Splits a temporal string into the date[-T-time] part and the trailing timezone designator.
-DateTimeLayout SplitDateTime(std::string_view string) {
-  const auto date_length = DatePrefixLength(string);
-  if (date_length == 0 || string.size() == date_length) {
-    return {.date_time = string};
-  }
-  if (string[date_length] == 'T') {
-    const auto designator_start = string.find_first_of("Z+-[", date_length + 1);
-    if (designator_start == std::string_view::npos) {
-      return {.date_time = string};
-    }
-    return {.date_time = string.substr(0, designator_start), .designator = string.substr(designator_start)};
-  }
-  const auto next = string[date_length];
-  if (next == 'Z' || next == '+' || next == '-' || next == '[') {
-    return {.date_time = string.substr(0, date_length), .designator = string.substr(date_length)};
-  }
-  return {.date_time = string};
-}
-
-// Reads up to 9 fraction digits, right-padded to nanoseconds and truncated to microseconds; excess stays in `string`.
-int64_t ParseFractionMicros(std::string_view &string) {
-  size_t digits = 0;
-  while (digits < string.size() && string[digits] >= '0' && string[digits] <= '9') {
-    ++digits;
-  }
-  if (digits == 0) {
-    throw temporal::InvalidArgumentException("Invalid milliseconds in the string. {}",
-                                             kSupportedTimeFormatsHelpMessage);
-  }
-  const auto significant = std::min<size_t>(digits, 9);
-  auto nanoseconds = *ParseNumber<int64_t>(string.substr(0, significant), significant);
-  for (size_t i = significant; i < 9; ++i) {
-    nanoseconds *= 10;
-  }
-  string.remove_prefix(significant);
-  return nanoseconds / 1000;
-}
+Digits beyond microseconds (the 7th to 9th) are truncated.)help";
 
 }  // namespace
 
 std::pair<LocalTimeParameters, bool> ParseLocalTimeParameters(std::string_view local_time_string) {
   // https://en.wikipedia.org/wiki/ISO_8601#Times
   // supported formats:
-  //  hh:mm:ss.ssssss | hhmmss.ssssss
-  //  hh:mm:ss.sss    | hhmmss.sss
-  //  hh:mm           | hhmm
+  //  hh:mm:ss.s | hhmmss.s  (1 to 9 fraction digits)
+  //  hh:mm      | hhmm
   //  hh
   // Times without the separator are in BASIC format
   // Times with ':' as a separator are in EXTENDED format.
@@ -399,9 +334,20 @@ std::pair<LocalTimeParameters, bool> ParseLocalTimeParameters(std::string_view l
   }
   local_time_string.remove_prefix(1);
 
-  const auto fraction_microseconds = ParseFractionMicros(local_time_string);
+  const auto fraction_digits = std::min(local_time_string.find_first_not_of("0123456789"), local_time_string.size());
+  if (fraction_digits == 0 || fraction_digits > 9) {
+    throw temporal::InvalidArgumentException("Invalid fraction of a second in the string. {}",
+                                             kSupportedTimeFormatsHelpMessage);
+  }
+  // Memgraph stores microseconds, so shorter fractions are right-padded and digits 7-9 are truncated.
+  const auto used_digits = std::min<size_t>(fraction_digits, 6);
+  auto fraction_microseconds = *ParseNumber<int64_t>(local_time_string, used_digits);
+  for (auto i = used_digits; i < 6; ++i) {
+    fraction_microseconds *= 10;
+  }
   local_time_parameters.millisecond = fraction_microseconds / 1000;
   local_time_parameters.microsecond = fraction_microseconds % 1000;
+  local_time_string.remove_prefix(fraction_digits);
 
   if (!local_time_string.empty()) {
     throw temporal::InvalidArgumentException("Extra characters present at the end of the string.");
@@ -499,6 +445,7 @@ String representing LocalDateTime should be in one of the following formats:
 - YYYY-MM-DDThh:mm:ss
 - YYYY-MM-DDThh:mm
 - YYYY-MM-DD
+- YYYY-MM
 
 or
 
@@ -523,7 +470,7 @@ Symbol table:
 |---|---------|
 
 Additionally, seconds can be defined as decimal fractions with 1 to 9 digits after the decimal point.
-Fractions shorter than 6 digits are right-padded with zeros and digits beyond microseconds are truncated; more than 9 digits is invalid.
+Digits beyond microseconds (the 7th to 9th) are truncated.
 
 A date without a time part is parsed as midnight at the start of that day.
 
@@ -533,20 +480,10 @@ or both parts should be written in their basic forms without the separators.)hel
 }  // namespace
 
 std::pair<DateParameters, LocalTimeParameters> ParseLocalDateTimeParameters(std::string_view string) {
-  const auto layout = SplitDateTime(string);
-  if (!layout.designator.empty()) {
-    throw temporal::InvalidArgumentException("Invalid LocalDateTime format. {}",
-                                             kSupportedLocalDateTimeFormatsHelpMessage);
-  }
-  string = layout.date_time;
-
   try {
     const auto t_position = string.find('T');
     if (t_position == std::string_view::npos) {
-      // A date without a time part defaults to midnight; constructing the Date range-checks the fields.
-      const auto date_parameters = ParseDateParameters(string).first;
-      static_cast<void>(Date{date_parameters});
-      return {date_parameters, LocalTimeParameters{}};
+      return {ParseDateParameters(string).first, LocalTimeParameters{}};
     }
     auto [date_parameters, extended_date_format] = ParseDateParameters(string.substr(0, t_position));
     // https://en.wikipedia.org/wiki/ISO_8601#Combined_date_and_time_representations
@@ -690,6 +627,7 @@ The <DateTime> substring should use one of the following formats:
 - YYYY-MM-DDThh:mm:ss
 - YYYY-MM-DDThh:mm
 - YYYY-MM-DD
+- YYYY-MM
 
 or
 
@@ -729,9 +667,10 @@ Symbol table:
 ZoneName is a standardized timezone name from the IANA time zone database, given without quote marks.
 
 Additionally, seconds can be defined as decimal fractions with 1 to 9 digits after the decimal point.
-Fractions shorter than 6 digits are right-padded with zeros and digits beyond microseconds are truncated; more than 9 digits is invalid.
+Digits beyond microseconds (the 7th to 9th) are truncated.
 
 A date without a time part is parsed as midnight at the start of that day.
+Such a date takes no timezone and is in UTC.
 
 It's important to note that the date and time parts should use both the corresponding separators
 or both parts should be written in their basic forms without the separators.)help";
@@ -839,9 +778,41 @@ Timezone ParseTimezoneFromUserString(std::string_view timezone) {
 ZonedDateTimeParameters ParseZonedDateTimeParameters(std::string_view string) {
   // https://en.wikipedia.org/wiki/ISO_8601#Time_zone_designators
 
-  const auto layout = SplitDateTime(string);
-  const auto ldt_substring = layout.date_time;
-  string = layout.designator;
+  auto get_offset_sign = [](std::string_view string) {
+    const auto plus_position = string.find('+');
+    if (plus_position != std::string::npos) {
+      return plus_position;
+    }
+
+    // The '-' is the same as the hyphens in the date substring (YYYY-MM-DD), but the date substring is always
+    // right-delimited by 'T'
+    return string.find('-', string.find('T'));
+  };
+
+  auto get_timezone_designator_start_position = [&get_offset_sign](std::string_view string) {
+    const auto utc_position = string.find('Z');
+    const auto offset_sign_position = get_offset_sign(string);
+    const auto timezone_name_position = string.find('[');
+
+    return std::min({utc_position, offset_sign_position, timezone_name_position});
+  };
+
+  const auto timezone_designator_start_position = get_timezone_designator_start_position(string);
+
+  std::string_view ldt_substring;
+  if (timezone_designator_start_position != std::string::npos) {
+    ldt_substring = {string.data(), timezone_designator_start_position};
+    string.remove_prefix(timezone_designator_start_position);
+  } else {
+    ldt_substring = string;
+    string = "";
+  }
+
+  // As in Neo4j, a timezone needs a time part; a date-only string is UTC.
+  if (!string.empty() && ldt_substring.find('T') == std::string_view::npos) {
+    throw temporal::InvalidArgumentException("Invalid ZonedDateTime format. A timezone requires a time part. {}",
+                                             kSupportedZonedDateTimeFormatsHelpMessage);
+  }
 
   auto [date_parameters, local_time_parameters] = ParseLocalDateTimeParameters(ldt_substring);
 
