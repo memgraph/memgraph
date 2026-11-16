@@ -89,6 +89,7 @@ def test_temporal_string_parsing_family():
     for value, reference in accepted:
         actual = to_string(cursor, value)
         expected = to_string(cursor, reference)
+        assert expected is not None, f"reference {reference} failed to parse"
         assert actual == expected, f"{value} parsed to {actual}, expected the value of {reference} ({expected})"
 
     # Invalid strings keep being rejected with a query error.

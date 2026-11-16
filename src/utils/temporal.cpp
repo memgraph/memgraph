@@ -258,9 +258,7 @@ struct DateTimeLayout {
   std::string_view designator;
 };
 
-constexpr bool IsDesignatorStart(const char c) { return c == 'Z' || c == '+' || c == '-' || c == '['; }
-
-// Length of a date prefix: YYYY-MM-DD (extended), YYYYMMDD or YYYYMM (basic); 0 when this is not a date.
+// Length of a leading date prefix (YYYY-MM-DD, YYYYMMDD or YYYY-MM); 0 when the string does not start with a date.
 size_t DatePrefixLength(std::string_view string) {
   if (!ParseNumber<int64_t>(string, 4)) {
     return 0;
@@ -293,7 +291,8 @@ DateTimeLayout SplitDateTime(std::string_view string) {
     }
     return {string.substr(0, designator_start), string.substr(designator_start)};
   }
-  if (IsDesignatorStart(string[date_length])) {
+  const auto next = string[date_length];
+  if (next == 'Z' || next == '+' || next == '-' || next == '[') {
     return {string.substr(0, date_length), string.substr(date_length)};
   }
   return {string, {}};
