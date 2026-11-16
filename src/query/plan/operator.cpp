@@ -8604,10 +8604,11 @@ UniqueCursorPtr Merge::MakeCursor(utils::MemoryResource *mem, metrics::DatabaseM
 
 std::vector<Symbol> Merge::ModifiedSymbols(const SymbolTable &table) const {
   auto symbols = input_->ModifiedSymbols(table);
-  // Match and create branches should have the same symbols, so just take one
-  // of them.
-  auto my_symbols = merge_match_->OutputSymbols(table);
-  symbols.insert(symbols.end(), my_symbols.begin(), my_symbols.end());
+  // Both branches bind the pattern's symbols, so take the match branch's. It starts from an Once naming the input's
+  // symbols, which are already listed.
+  for (auto const &symbol : merge_match_->ModifiedSymbols(table)) {
+    if (std::ranges::find(symbols, symbol) == symbols.end()) symbols.push_back(symbol);
+  }
   return symbols;
 }
 
