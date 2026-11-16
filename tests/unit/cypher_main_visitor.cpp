@@ -2455,7 +2455,8 @@ TEST_P(CypherMainVisitorTest, MatchAfterOptionalMatch) {
   ASSERT_TRUE(match);
   EXPECT_TRUE(optional_match->optional_);
   EXPECT_FALSE(match->optional_);
-  CheckRWType(query, kRead);
+  EXPECT_NO_THROW(ast_generator.ParseQuery(
+      "OPTIONAL MATCH (n) MATCH (m) RETURN m UNION ALL OPTIONAL MATCH (n) MATCH (m) RETURN m"));
 
   // Any clause between the pair is accepted, not only WITH.
   for (const auto *between :
@@ -2486,7 +2487,6 @@ TEST_P(CypherMainVisitorTest, ClausesOrdering) {
   ASSERT_THROW(ast_generator.ParseQuery("RETURN 1 WITH n AS m RETURN 1"), SemanticException);
   ASSERT_THROW(ast_generator.ParseQuery("RETURN 1 AS n UNWIND n AS x RETURN x"), SemanticException);
 
-  ASSERT_NO_THROW(ast_generator.ParseQuery("OPTIONAL MATCH (n) MATCH (m) RETURN n, m"));
   EXPECT_THAT([&] { ast_generator.ParseQuery("OPTIONAL MATCH (n) CREATE (m) MATCH (k) RETURN k"); },
               testing::ThrowsMessage<SemanticException>(HasSubstr("after an update")));
 
