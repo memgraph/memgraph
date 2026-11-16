@@ -668,6 +668,20 @@ constexpr std::string_view kCaseQueries[] = {
 
 // ---------------------------------------------------------------- reads the collector must not miss
 
+// The target of a SET or REMOVE item is an expression too: `(CASE WHEN a.f THEN b ELSE a END).x` reads a.f.
+TEST_F(WriteVisibilityPlan, SetAndRemoveTargetsAreRead) {
+  for (auto const *query : {
+           "MATCH (a), (b) SET (CASE WHEN a.f THEN b ELSE a END).x = 1",
+           "MATCH (a), (b) REMOVE (CASE WHEN a.f THEN b ELSE a END).x",
+           "MATCH (a), (b) FOREACH (i IN [1] | SET (CASE WHEN a.f THEN b ELSE a END).x = i)",
+           "MATCH (a), (b) MERGE (b)-[:R]->(a) ON CREATE SET (CASE WHEN a.f THEN b ELSE a END).x = 1",
+       }) {
+    auto access = Access(query);
+    EXPECT_TRUE(access.reads.properties.contains("f")) << query;
+    EXPECT_TRUE(access.writes.properties.contains("x")) << query;
+  }
+}
+
 TEST_F(WriteVisibilityPlan, ValuesAndPropertySizeReadEverything) {
   EXPECT_TRUE(Access("MATCH (n) RETURN values(n) AS v").reads.everything);
   EXPECT_TRUE(Access("MATCH (n) RETURN propertySize(n, 'x') AS s").reads.everything);

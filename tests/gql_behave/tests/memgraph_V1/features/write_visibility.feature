@@ -2628,3 +2628,33 @@ Feature: Write visibility inside one query
             | c |
             | 2 |
             | 2 |
+
+    Scenario: A SET target expression reads a property a later SET writes
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:WvTg {k: 1, f: true}), (:WvTg {k: 2, f: true})
+            """
+        When executing query:
+            """
+            MATCH (a:WvTg {k: 1}), (b:WvTg) WITH a, b ORDER BY b.k SET (CASE WHEN a.f THEN b ELSE a END).x = b.k SET a.f = false WITH count(*) AS c MATCH (n:WvTg) RETURN n.k AS k, n.x AS x
+            """
+        Then the result should be:
+            | k | x |
+            | 1 | 1 |
+            | 2 | 2 |
+
+    Scenario: A REMOVE target expression reads a property a later SET writes
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:WvTg {k: 1, f: true, x: 9}), (:WvTg {k: 2, f: true, x: 9})
+            """
+        When executing query:
+            """
+            MATCH (a:WvTg {k: 1}), (b:WvTg) WITH a, b ORDER BY b.k REMOVE (CASE WHEN a.f THEN b ELSE a END).x SET a.f = false WITH count(*) AS c MATCH (n:WvTg) RETURN n.k AS k, n.x AS x
+            """
+        Then the result should be:
+            | k | x    |
+            | 1 | null |
+            | 2 | null |
