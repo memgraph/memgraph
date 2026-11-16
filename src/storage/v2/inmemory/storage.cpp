@@ -3198,8 +3198,8 @@ InMemoryStorage::HistoricalAccess(uint64_t fork_ts) {
     if (!version_fork_pins_.contains(fork_ts)) {
       return std::unexpected{HistoricalAccessError::ForkTimestampNotPinned};
     }
+    // Another reference to an already-pinned fork_ts: the oldest pin is unchanged.
     version_fork_pins_.insert(fork_ts);
-    oldest_fork_pin_.store(*version_fork_pins_.begin(), std::memory_order_release);
   }
   // The handle releases the self-pin if accessor construction throws.
   ForkPin pin{this, fork_ts};
