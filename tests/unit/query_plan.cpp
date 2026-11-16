@@ -11,6 +11,7 @@
 
 #include "query_plan_checker.hpp"
 
+#include <unistd.h>
 #include <cmath>
 #include <filesystem>
 #include <iostream>
@@ -1392,8 +1393,10 @@ TYPED_TEST(TestPlanner, VariableStartDoesNotScanAnEdgeIntoABoundEndpoint) {
 TYPED_TEST(TestPlanner, MatchEdgeTypeIndexKeepsAnExpandOverAnotherScan) {
   // MATCH (a) WITH a MATCH (x), (a)-[e:indexed_edgetype]->(b) RETURN x: without cartesian products the Expand from
   // the bound a sits on ScanAll (x); an edge scan would drop x and overwrite a.
-  const auto settings_dir = std::filesystem::temp_directory_path() / "MG_tests_unit_query_plan_cartesian";
+  const auto settings_dir =
+      std::filesystem::temp_directory_path() / ("MG_tests_unit_query_plan_cartesian_" + std::to_string(getpid()));
   std::filesystem::remove_all(settings_dir);
+  memgraph::utils::OnScopeExit remove_dir{[&] { std::filesystem::remove_all(settings_dir); }};
   memgraph::utils::Settings settings(settings_dir);
   memgraph::flags::run_time::Initialize(settings);
   settings.SetValue("cartesian-product-enabled", "false");
