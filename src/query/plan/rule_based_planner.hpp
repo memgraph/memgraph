@@ -19,6 +19,7 @@
 #include <optional>
 #include <ranges>
 #include <set>
+#include <span>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -252,6 +253,15 @@ std::unique_ptr<LogicalOperator> GenWith(With &with, std::unique_ptr<LogicalOper
 /// Sets View::NEW on every reading operator of @p plan, branches included.
 void ReadNewThroughout(LogicalOperator &plan);
 
+/// The symbols a barrier must keep: what the rest of a UNION leg reads after it. That is the clauses @p rest, the
+/// matching of @p matched_after when the barrier precedes it, and every single query part of @p query_part after
+/// index @p part. Nullopt when a later clause projects everything (WITH *, RETURN *) or holds a body or branch this
+/// does not walk (CALL, WHEN): the barrier then keeps every bound symbol.
+std::optional<std::unordered_set<Symbol>> SymbolsReadAfter(const QueryPart &query_part, size_t part,
+                                                           const SingleQueryPart *matched_after,
+                                                           std::span<Clause *const> rest,
+                                                           const SymbolTable &symbol_table);
+
 /// Whether @p expression looks up a property of @p symbol named in @p keys.
 bool ReadsPropertyOf(Expression &expression, const Symbol &symbol, const std::set<std::string> &keys,
                      const SymbolTable &symbol_table);
@@ -370,11 +380,26 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
         pending_new_reads.Clear();
         access_pending_writes.Clear();
       };
+      // Where a barrier would go: before the matching of `barrier_matched_after`, or before the clauses
+      // `barrier_rest` of the single query part at index `barrier_part`.
+      size_t barrier_part = 0;
+      const SingleQueryPart *barrier_matched_after = nullptr;
+      std::span<Clause *const> barrier_rest;
+      // The bound symbols the rest of the leg reads: a barrier keeps only these.
+      auto barrier_symbols = [&]() {
+        auto const read = impl::SymbolsReadAfter(
+            query_part, barrier_part, barrier_matched_after, barrier_rest, *context.symbol_table);
+        std::vector<Symbol> symbols;
+        for (const auto &symbol : context.bound_symbols) {
+          if (!read || read->contains(symbol)) symbols.push_back(symbol);
+        }
+        std::ranges::sort(symbols, std::less<>{}, &Symbol::position);
+        return symbols;
+      };
       // Ends the command here: drains every row through the clauses so far, so a read above sees all their writes.
       auto plan_barrier = [&]() {
         if (input_op) {
-          // Every bound symbol: an operator's ModifiedSymbols can miss one (Merge reports none of its pattern's).
-          std::vector<Symbol> symbols(context.bound_symbols.begin(), context.bound_symbols.end());
+          auto symbols = barrier_symbols();
           input_op = std::make_unique<Accumulate>(std::move(input_op), symbols, read_scope_ == ReadScope::kRoot);
         }
         forget_pending();
@@ -384,8 +409,8 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
       // the writes stay pending for a later read that conflicts for real.
       auto plan_access_check_barrier = [&]() {
         if (input_op) {
-          std::vector<Symbol> symbols(context.bound_symbols.begin(), context.bound_symbols.end());
-          auto barrier = std::make_unique<Accumulate>(std::move(input_op), symbols, read_scope_ == ReadScope::kRoot);
+          auto barrier =
+              std::make_unique<Accumulate>(std::move(input_op), barrier_symbols(), read_scope_ == ReadScope::kRoot);
           barrier->access_check_only_ = true;
           input_op = std::move(barrier);
         }
@@ -409,6 +434,9 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
         }
       };
       for (const auto &single_query_part : query_part.single_query_parts) {
+        barrier_part = &single_query_part - query_part.single_query_parts.data();
+        barrier_matched_after = &single_query_part;
+        barrier_rest = single_query_part.remaining_clauses;
         // Installed before HandleMatching, which plans MATCH-clause comprehensions through the same member.
         auto const restore_symbols = utils::OnScopeExit{
             [this, saved = std::move(query_part_symbols_)]() mutable { query_part_symbols_ = std::move(saved); }};
@@ -528,6 +556,8 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
         auto const &clauses = single_query_part.remaining_clauses;
         for (auto clause_it = clauses.begin(); clause_it != clauses.end(); ++clause_it) {
           auto *clause = *clause_it;
+          barrier_matched_after = nullptr;
+          barrier_rest = std::span<Clause *const>(clause_it, clauses.end());
           MG_ASSERT(!utils::IsSubtype(*clause, Match::kType), "Unexpected Match in remaining clauses");
 
           // A writing clause is marked before its own comprehensions are planned, so they see earlier rows' writes.

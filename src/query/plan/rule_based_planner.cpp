@@ -1266,6 +1266,65 @@ class PropertyOfFinder final : public HierarchicalTreeVisitor {
 
 }  // namespace
 
+std::optional<std::unordered_set<Symbol>> SymbolsReadAfter(const QueryPart &query_part, size_t part,
+                                                           const SingleQueryPart *matched_after,
+                                                           std::span<Clause *const> rest,
+                                                           const SymbolTable &symbol_table) {
+  if (query_part.conditional) return std::nullopt;
+  SubqueryReadSymbolsCollector reads{symbol_table};
+  std::unordered_set<Symbol> read;
+  // A comprehension or subquery may be planned before the barrier; the clause then reads its result symbol.
+  SubqueryResultSymbolCollector results{symbol_table, read};
+  auto const walk = [&](auto &tree) {
+    tree.Accept(reads);
+    tree.Accept(results);
+  };
+  auto const walk_clauses = [&](std::span<Clause *const> clauses) {
+    for (auto *clause : clauses) {
+      if (utils::Downcast<CallSubquery>(clause) || utils::Downcast<ConditionalBranches>(clause)) return false;
+      auto *with = utils::Downcast<With>(clause);
+      auto *ret = utils::Downcast<Return>(clause);
+      if ((with && with->body_.all_identifiers) || (ret && ret->body_.all_identifiers)) return false;
+      walk(*clause);
+    }
+    return true;
+  };
+  auto const walk_matching = [&](const Matching &matching) {
+    for (const auto &expansion : matching.expansions) {
+      for (auto *atom : {static_cast<PatternAtom *>(expansion.node1),
+                         static_cast<PatternAtom *>(expansion.edge),
+                         static_cast<PatternAtom *>(expansion.node2)}) {
+        if (atom) read.insert(symbol_table.at(*atom->identifier_));
+      }
+      if (expansion.edge) {
+        for (auto *lambda : {&expansion.edge->filter_lambda_, &expansion.edge->weight_lambda_}) {
+          if (lambda->expression) walk(*lambda->expression);
+        }
+      }
+    }
+    for (const auto &filter : matching.filters) {
+      read.insert(filter.used_symbols.begin(), filter.used_symbols.end());
+      if (filter.expression) walk(*filter.expression);
+    }
+  };
+  auto const walk_part = [&](const SingleQueryPart &single) {
+    walk_matching(single.matching);
+    for (const auto &optional : single.optional_matching) walk_matching(optional);
+    return walk_clauses(single.remaining_clauses);
+  };
+
+  if (matched_after) {
+    walk_matching(matched_after->matching);
+    for (const auto &optional : matched_after->optional_matching) walk_matching(optional);
+  }
+  if (!walk_clauses(rest)) return std::nullopt;
+  for (auto i = part + 1; i < query_part.single_query_parts.size(); ++i) {
+    if (!walk_part(query_part.single_query_parts[i])) return std::nullopt;
+  }
+  read.insert(reads.symbols_.begin(), reads.symbols_.end());
+  return read;
+}
+
 bool ReadsPropertyOf(Expression &expression, const Symbol &symbol, const std::set<std::string> &keys,
                      const SymbolTable &symbol_table) {
   PropertyOfFinder finder(symbol, keys, symbol_table);
