@@ -11,7 +11,9 @@
 
 #pragma once
 
+#ifdef MG_ENTERPRISE
 #include <atomic>
+#endif
 #include <cstdint>
 
 namespace memgraph::utils {
@@ -29,6 +31,15 @@ class PointerPack {
 
   uintptr_t storage_{0};
 
+  // Enterprise: keeps writes well-defined against the lock-free GetRelaxed reader.
+  void Store(uintptr_t value) {
+#ifdef MG_ENTERPRISE
+    std::atomic_ref<uintptr_t>(storage_).store(value, std::memory_order_relaxed);
+#else
+    storage_ = value;
+#endif
+  }
+
  public:
   PointerPack() = default;
 
@@ -37,12 +48,7 @@ class PointerPack {
 
   T *GetPtr() const { return reinterpret_cast<T *>(storage_ & kPtrMask); }
 
-  /// Writers must hold the caller's lock; `atomic_ref` only keeps the store well-defined vs `GetRelaxed`.
-  void SetPtr(T *ptr) {
-    auto ref = std::atomic_ref<uintptr_t>(storage_);
-    uintptr_t const flags = ref.load(std::memory_order_relaxed) & kFlagsMask;
-    ref.store(reinterpret_cast<uintptr_t>(ptr) | flags, std::memory_order_relaxed);
-  }
+  void SetPtr(T *ptr) { Store(reinterpret_cast<uintptr_t>(ptr) | (storage_ & kFlagsMask)); }
 
   /// Extracts the bit field at position @p Pos with @p Size bits.
   template <int Pos, int Size = 1>
@@ -51,16 +57,15 @@ class PointerPack {
     return (storage_ >> Pos) & ((1UL << Size) - 1);
   }
 
-  /// Sets the bit field at position @p Pos with @p Size bits to @p value. Writers must hold the caller's lock.
+  /// Sets the bit field at position @p Pos with @p Size bits to @p value.
   template <int Pos, int Size = 1>
   void Set(uintptr_t value) {
     static_assert(Pos >= 0 && Size > 0 && Pos + Size <= NumFlagBits);
     const uintptr_t field_mask = ((1UL << Size) - 1) << Pos;
-    auto ref = std::atomic_ref<uintptr_t>(storage_);
-    uintptr_t const old = ref.load(std::memory_order_relaxed);
-    ref.store((old & ~field_mask) | ((value << Pos) & field_mask), std::memory_order_relaxed);
+    Store((storage_ & ~field_mask) | ((value << Pos) & field_mask));
   }
 
+#ifdef MG_ENTERPRISE
   /// Lock-free read of the bit at @p Pos. Relaxed: a non-torn flag only, no ordering with prior writes.
   /// Safe only because every mutator (`Set`, `SetPtr`, `operator=(T *)`) goes through `atomic_ref`.
   template <int Pos>
@@ -70,6 +75,7 @@ class PointerPack {
     auto const bits = std::atomic_ref<uintptr_t>(const_cast<uintptr_t &>(storage_)).load(std::memory_order_relaxed);
     return ((bits >> Pos) & 1UL) != 0;
   }
+#endif
 
   operator T *() const { return GetPtr(); }  // NOLINT(google-explicit-constructor)
 
