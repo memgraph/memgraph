@@ -234,6 +234,28 @@ TEST_F(WriteVisibilityPlan, RootProjectionAndCreateReadOld) {
   EXPECT_EQ(Views<CreateExpand>(plan), (std::vector{View::OLD}));
 }
 
+// An entity created since the last barrier is not there at View::OLD, so a read of it falls back to View::NEW
+// (`ReadSeeingCreated`). A CREATE that reads only such entities reads View::NEW and skips the failed read.
+TEST_F(WriteVisibilityPlan, CreateReadingOnlyCreatedEntitiesReadsNew) {
+  // Top first: the CREATE that reads `a`, then the one that creates it from `i`.
+  EXPECT_EQ(Views<CreateNode>(Plan("UNWIND range(1, 3) AS i CREATE (a {id: i}) CREATE (b {r: a.id})")),
+            (std::vector{View::NEW, View::OLD}));
+  EXPECT_EQ(Views<CreateNode>(Plan("CREATE (a)-[r:R {w: 1}]->(b) CREATE (c {x: r.w, y: b.id, z: a:L})")),
+            (std::vector{View::NEW, View::OLD}));
+  EXPECT_EQ(Views<CreateExpand>(Plan("CREATE (a {id: 1})-[:R {w: a.id}]->(b)")), (std::vector{View::NEW}));
+}
+
+TEST_F(WriteVisibilityPlan, CreateReadingAnyOtherEntityReadsOld) {
+  // A matched entity, a MERGE-bound one (it may have matched), one created before a barrier, a pattern.
+  EXPECT_EQ(Views<CreateNode>(Plan("MATCH (m) CREATE (a {id: 1}) CREATE (b {r: a.id, s: m.x})")),
+            (std::vector{View::OLD, View::OLD}));
+  EXPECT_EQ(Views<CreateNode>(Plan("MERGE (a {id: 1}) CREATE (b {r: a.id})")).front(), View::OLD);
+  EXPECT_EQ(Views<CreateNode>(Plan("UNWIND [1, 2] AS i CREATE (a {id: i}) WITH a CREATE (b {r: a.id})")),
+            (std::vector{View::OLD, View::OLD}));
+  EXPECT_EQ(Views<CreateNode>(Plan("CREATE (a {id: 1}) CREATE (b {r: a.id, e: exists((a)-[:R]->())})")),
+            (std::vector{View::OLD, View::OLD}));
+}
+
 TEST_F(WriteVisibilityPlan, BatchingReadsNew) {
   auto &plan = Plan("USING PERIODIC COMMIT 10 UNWIND range(1, 3) AS i CREATE (b {v: i}) RETURN count(*) AS c");
   EXPECT_EQ(Views<Produce>(plan), (std::vector{View::NEW}));
