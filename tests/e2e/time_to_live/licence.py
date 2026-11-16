@@ -84,5 +84,17 @@ def test_ttl_deletes_nothing_without_licence(request):
     mg_sleep_and_assert(0, partial(ttl_nodes, cursor))
 
 
+def test_on_disk_ttl_deletes_nothing_without_licence(request):
+    cursor = start_licensed_by_settings(request.node.name)
+    execute_and_fetch_all(cursor, "STORAGE MODE ON_DISK_TRANSACTIONAL;")
+    with pytest.raises(Exception):
+        execute_and_fetch_all(cursor, 'ENABLE TTL EVERY "1s";')
+
+    set_organization_name(cursor, ORGANIZATION_NAME + "-invalid")
+    execute_and_fetch_all(cursor, "UNWIND range(1, 10) AS i CREATE (:TTL {ttl: 0});")
+    time.sleep(3)
+    assert ttl_nodes(cursor) == 10
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))

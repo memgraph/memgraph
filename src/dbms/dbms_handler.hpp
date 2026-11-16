@@ -820,12 +820,14 @@ class DbmsHandler {
 
   /**
    * @brief Set the check each database's TTL runs before deleting, and apply it to every database. Databases
-   *        created or resumed later get it too. Set once at startup.
+   *        created or resumed later get it too. Called once at startup, before any database is resumed, so
+   *        Resume_ reads ttl_user_check_ without holding lock_.
    */
   void SetTtlUserCheck(std::function<bool()> check) {
 #ifdef MG_ENTERPRISE
     auto wr = std::unique_lock{lock_};
 #endif
+    MG_ASSERT(!ttl_user_check_, "The TTL user check is set once, at startup");
     ttl_user_check_ = std::move(check);
     ForEachLocked_([this](DatabaseAccess db_acc) { db_acc->storage()->ttl_.SetUserCheck(ttl_user_check_); });
   }

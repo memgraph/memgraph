@@ -258,6 +258,8 @@ DiskStorage::DiskStorage(Config config, PlanInvalidatorPtr invalidator, metrics:
               db_embedding_memory_tracker, std::move(database_protector_factory)),
       kvstore_(std::make_unique<RocksDBStorage>()),
       durable_metadata_(config) {
+  // DiskStorage does not support TTL, so a worker left running by a failed ENABLE TTL must not delete
+  ttl_.SetUserCheck([]() -> bool { return false; });
   LoadPersistingMetadataInfo();
   kvstore_->options_.create_if_missing = true;
   kvstore_->options_.comparator = new ComparatorWithU64TsImpl();
