@@ -699,6 +699,44 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
     return coordinator_handler_.ShowCoordinatorSettings();
   }
 
+  void AddRegion(std::string_view const region_name) override {
+    switch (coordinator_handler_.AddRegion(region_name)) {
+      case coordination::AddRegionStatus::SUCCESS:
+        break;
+      case coordination::AddRegionStatus::REGION_EXISTS:
+        throw QueryRuntimeException("Region '{}' already exists.", region_name);
+      case coordination::AddRegionStatus::NOT_LEADER:
+        throw QueryRuntimeException(GetNotLeaderForwardedQueryMessage());
+      case coordination::AddRegionStatus::LEADER_NOT_FOUND:
+        throw QueryRuntimeException(GetLeaderNotFoundForwardedQueryMessage());
+      case coordination::AddRegionStatus::LEADER_FAILED:
+        throw QueryRuntimeException(GetLeaderFailedForwardedQueryMessage());
+      case coordination::AddRegionStatus::RAFT_LOG_ERROR:
+        throw QueryRuntimeException("Writing to Raft log failed. Please retry the operation.");
+    }
+  }
+
+  void DropRegion(std::string_view const region_name) override {
+    switch (coordinator_handler_.DropRegion(region_name)) {
+      case coordination::DropRegionStatus::SUCCESS:
+        break;
+      case coordination::DropRegionStatus::NO_SUCH_REGION:
+        throw QueryRuntimeException("Region '{}' doesn't exist.", region_name);
+      case coordination::DropRegionStatus::NOT_LEADER:
+        throw QueryRuntimeException(GetNotLeaderForwardedQueryMessage());
+      case coordination::DropRegionStatus::LEADER_NOT_FOUND:
+        throw QueryRuntimeException(GetLeaderNotFoundForwardedQueryMessage());
+      case coordination::DropRegionStatus::LEADER_FAILED:
+        throw QueryRuntimeException(GetLeaderFailedForwardedQueryMessage());
+      case coordination::DropRegionStatus::RAFT_LOG_ERROR:
+        throw QueryRuntimeException("Writing to Raft log failed. Please retry the operation.");
+    }
+  }
+
+  std::optional<std::vector<coordination::RegionInfo>> ShowRegionInfo() override {
+    return coordinator_handler_.ShowRegionInfo();
+  }
+
   void CreateRole(std::string_view const role_name, bool const if_not_exists) override {
     if (auth::IsInternalSystemUsername(role_name)) {
       throw QueryRuntimeException("The name '{}' is reserved for the internal system user.", role_name);
@@ -1345,6 +1383,7 @@ auth::Permission RequiredCoordinatorPermission(Query *query) {
       case CoordinatorQuery::Action::SHOW_COORDINATOR_SETTINGS:
       case CoordinatorQuery::Action::SHOW_REPLICATION_LAG:
       case CoordinatorQuery::Action::SHOW_ROUTING_TABLE:
+      case CoordinatorQuery::Action::SHOW_REGION_INFO:
         return auth::Permission::COORDINATOR_READ;
       default:
         return auth::Permission::COORDINATOR_WRITE;
@@ -2997,6 +3036,64 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
           return {TypedValue{role}, TypedValue{std::move(servers_tv)}};
         };
         return utils::fmap(routing_table, converter);
+      };
+      return callback;
+    }
+    case CoordinatorQuery::Action::ADD_REGION:
+    case CoordinatorQuery::Action::DROP_REGION: {
+      bool const is_add = coordinator_query->action_ == CoordinatorQuery::Action::ADD_REGION;
+      if (!coordinator_state->IsCoordinator()) {
+        throw QueryRuntimeException("Only coordinator can run {} REGION query.", is_add ? "ADD" : "DROP");
+      }
+      EvaluationContext evaluation_context{.timestamp = QueryTimestamp(), .parameters = parameters};
+      auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
+      auto const region_name = EvaluateOptionalExpression(coordinator_query->region_name_, evaluator);
+      if (!region_name.IsString()) {
+        throw QueryRuntimeException("Region name should be a string literal.");
+      }
+      if (region_name.ValueString().empty()) {
+        throw QueryRuntimeException("Region name must not be empty.");
+      }
+
+      callback.fn = [handler = CoordQueryHandler{*coordinator_state},
+                     region_name = std::string{region_name.ValueString()},
+                     is_add]() mutable {
+        if (is_add) {
+          handler.AddRegion(region_name);
+        } else {
+          handler.DropRegion(region_name);
+        }
+        return std::vector<std::vector<TypedValue>>();
+      };
+      return callback;
+    }
+    case CoordinatorQuery::Action::SHOW_REGION_INFO: {
+      if (!coordinator_state->IsCoordinator()) {
+        throw QueryRuntimeException("Only coordinator can run SHOW REGION INFO query.");
+      }
+      callback.header = {"region", "instances", "is_primary_region"};
+      callback.fn = [handler = CoordQueryHandler{*coordinator_state}, notifications]() mutable {
+        auto const regions = handler.ShowRegionInfo();
+        if (!regions.has_value()) {
+          notifications->emplace_back(SeverityLevel::WARNING,
+                                      NotificationCode::LEADER_NOT_REACHABLE,
+                                      "Couldn't reach the leader coordinator, so the region info is unknown. "
+                                      "Please retry the query.");
+          return std::vector<std::vector<TypedValue>>{};
+        }
+
+        std::vector<std::vector<TypedValue>> results;
+        results.reserve(regions->size());
+        for (auto const &region : *regions) {
+          std::vector<TypedValue> instances;
+          instances.reserve(region.instances.size());
+          for (auto const &instance : region.instances) {
+            instances.emplace_back(instance);
+          }
+          results.push_back(
+              {TypedValue{region.name}, TypedValue{std::move(instances)}, TypedValue{region.is_primary_region}});
+        }
+        return results;
       };
       return callback;
     }

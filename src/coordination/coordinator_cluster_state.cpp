@@ -79,6 +79,7 @@ CoordinatorClusterState::CoordinatorClusterState(CoordinatorClusterState const &
   instance_health_check_frequency_sec_ = other.instance_health_check_frequency_sec_;
   global_read_only_ = other.global_read_only_;
   roles_ = other.roles_;
+  regions_ = other.regions_;
   // NOLINTEND
 }
 
@@ -100,6 +101,7 @@ CoordinatorClusterState &CoordinatorClusterState::operator=(CoordinatorClusterSt
   instance_health_check_frequency_sec_ = other.instance_health_check_frequency_sec_;
   global_read_only_ = other.global_read_only_;
   roles_ = other.roles_;
+  regions_ = other.regions_;
   return *this;
 }
 
@@ -115,7 +117,8 @@ CoordinatorClusterState::CoordinatorClusterState(CoordinatorClusterState &&other
       instance_down_timeout_sec_(other.instance_down_timeout_sec_),
       instance_health_check_frequency_sec_(other.instance_health_check_frequency_sec_),
       global_read_only_(other.global_read_only_),
-      roles_(std::move(other.roles_)) {}
+      roles_(std::move(other.roles_)),
+      regions_(std::move(other.regions_)) {}
 
 CoordinatorClusterState &CoordinatorClusterState::operator=(CoordinatorClusterState &&other) noexcept {
   if (this == &other) {
@@ -136,6 +139,7 @@ CoordinatorClusterState &CoordinatorClusterState::operator=(CoordinatorClusterSt
   instance_health_check_frequency_sec_ = other.instance_health_check_frequency_sec_;
   global_read_only_ = other.global_read_only_;
   roles_ = std::move(other.roles_);
+  regions_ = std::move(other.regions_);
   return *this;
 }
 
@@ -208,6 +212,10 @@ auto CoordinatorClusterState::DoAction(CoordinatorClusterStateDelta delta_state)
 
   if (delta_state.roles_.has_value()) {
     roles_ = std::move(*delta_state.roles_);
+  }
+
+  if (delta_state.regions_.has_value()) {
+    regions_ = std::move(*delta_state.regions_);
   }
 }
 
@@ -299,6 +307,11 @@ auto CoordinatorClusterState::GetRoles() const -> std::vector<CoordinatorRole> {
   return roles_;
 }
 
+auto CoordinatorClusterState::GetRegions() const -> std::set<std::string> {
+  auto lock = std::shared_lock{app_lock_};
+  return regions_;
+}
+
 void CoordinatorClusterState::SetCoordinatorInstances(std::vector<CoordinatorInstanceContext> coordinator_instances) {
   auto lock = std::lock_guard{app_lock_};
   coordinator_instances_ = DedupCoordinatorInstances(std::move(coordinator_instances));
@@ -359,6 +372,11 @@ void CoordinatorClusterState::SetRoles(std::vector<CoordinatorRole> roles) {
   roles_ = std::move(roles);
 }
 
+void CoordinatorClusterState::SetRegions(std::set<std::string> regions) {
+  auto lock = std::lock_guard{app_lock_};
+  regions_ = std::move(regions);
+}
+
 void to_json(nlohmann::json &j, CoordinatorRole const &role) {
   j = nlohmann::json{{kRoleName.data(), role.name}, {kRolePermissions.data(), role.permissions}};
 }
@@ -384,7 +402,8 @@ void to_json(nlohmann::json &j, CoordinatorClusterState const &state) {
                      {kInstanceHealthCheckFreqSec.data(), state.GetInstanceHealthCheckFrequencySec().count()},
                      {kGlobalReadOnly.data(), state.GetGlobalReadOnly()},
                      // Coordinator role list, added for SSO on coordinators
-                     {kRoles.data(), state.GetRoles()}};
+                     {kRoles.data(), state.GetRoles()},
+                     {kRegions.data(), state.GetRegions()}};
 }
 
 void from_json(nlohmann::json const &j, CoordinatorClusterState &instance_state) {
@@ -438,6 +457,9 @@ void from_json(nlohmann::json const &j, CoordinatorClusterState &instance_state)
   // roles defaults to an empty list for clusters serialized before coordinator SSO. An older coordinator ignores the
   // unknown key; a newer coordinator reading an older snapshot sees an empty role set.
   instance_state.SetRoles(j.value(kRoles.data(), std::vector<CoordinatorRole>{}));
+
+  // regions defaults to an empty set for clusters serialized before cross-region HA
+  instance_state.SetRegions(j.value(kRegions.data(), std::set<std::string>{}));
 }
 
 }  // namespace memgraph::coordination

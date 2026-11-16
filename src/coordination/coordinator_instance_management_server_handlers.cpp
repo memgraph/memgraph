@@ -275,6 +275,46 @@ void CoordinatorInstanceManagementServerHandlers::Register(CoordinatorInstanceMa
             res_builder);
       });
 
+  server.Register<AddRegionRpc>([&](std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+                                    uint64_t const request_version,
+                                    slk::Reader *req_reader,
+                                    slk::Builder *res_builder) -> void {
+    CoordinatorInstanceManagementServerHandlers::FwdRequestHandler<AddRegionRpc>(
+        [&coordinator_instance](std::string_view region_name) -> AddRegionStatus {
+          return coordinator_instance.AddRegion(region_name);
+        },
+        request_version,
+        req_reader,
+        res_builder);
+  });
+
+  server.Register<DropRegionRpc>([&](std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+                                     uint64_t const request_version,
+                                     slk::Reader *req_reader,
+                                     slk::Builder *res_builder) -> void {
+    CoordinatorInstanceManagementServerHandlers::FwdRequestHandler<DropRegionRpc>(
+        [&coordinator_instance](std::string_view region_name) -> DropRegionStatus {
+          return coordinator_instance.DropRegion(region_name);
+        },
+        request_version,
+        req_reader,
+        res_builder);
+  });
+
+  server.Register<ShowRegionInfoRpc>(
+      [&](std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+          uint64_t const request_version,
+          slk::Reader *req_reader,
+          slk::Builder *res_builder) -> void {
+        CoordinatorInstanceManagementServerHandlers::FwdRequestHandler<ShowRegionInfoRpc>(
+            [&coordinator_instance]() -> std::optional<std::vector<RegionInfo>> {
+              return coordinator_instance.ShowRegionInfoAsLeader();
+            },
+            request_version,
+            req_reader,
+            res_builder);
+      });
+
   // Role/privilege reads forwarded from a follower. An unengaged optional means this coordinator couldn't serve the
   // read as the ready leader (or reach one), which the follower surfaces as a forwarding error.
   server.Register<GetRolesRpc>([&](std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,

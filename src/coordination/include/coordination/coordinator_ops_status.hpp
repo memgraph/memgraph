@@ -67,6 +67,23 @@ enum class RevokePrivilegeStatus : uint8_t {
   LEADER_FAILED
 };
 
+enum class AddRegionStatus : uint8_t {
+  SUCCESS = 0,
+  REGION_EXISTS,
+  NOT_LEADER,
+  RAFT_LOG_ERROR,
+  LEADER_NOT_FOUND,
+  LEADER_FAILED
+};
+enum class DropRegionStatus : uint8_t {
+  SUCCESS = 0,
+  NO_SUCH_REGION,
+  NOT_LEADER,
+  RAFT_LOG_ERROR,
+  LEADER_NOT_FOUND,
+  LEADER_FAILED
+};
+
 enum class RegisterInstanceCoordinatorStatus : uint8_t {
   NAME_EXISTS = 0,
   MGMT_ENDPOINT_EXISTS,

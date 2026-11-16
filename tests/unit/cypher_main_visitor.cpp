@@ -6002,6 +6002,39 @@ TEST_P(CypherMainVisitorTest, TestShowRoutingTableInvalid) {
   EXPECT_THROW(ast_generator.ParseQuery("SHOW ROUTING TABLES"), SyntaxException);
 }
 
+TEST_P(CypherMainVisitorTest, TestAddRegion) {
+  auto &ast_generator = *GetParam();
+  auto *parsed_query = dynamic_cast<CoordinatorQuery *>(ast_generator.ParseQuery("ADD REGION 'eu-west'"));
+  ASSERT_TRUE(parsed_query);
+  EXPECT_EQ(parsed_query->action_, CoordinatorQuery::Action::ADD_REGION);
+  ast_generator.CheckLiteral(parsed_query->region_name_, TypedValue("eu-west"));
+}
+
+TEST_P(CypherMainVisitorTest, TestDropRegion) {
+  auto &ast_generator = *GetParam();
+  auto *parsed_query = dynamic_cast<CoordinatorQuery *>(ast_generator.ParseQuery("DROP REGION 'eu-west'"));
+  ASSERT_TRUE(parsed_query);
+  EXPECT_EQ(parsed_query->action_, CoordinatorQuery::Action::DROP_REGION);
+  ast_generator.CheckLiteral(parsed_query->region_name_, TypedValue("eu-west"));
+}
+
+TEST_P(CypherMainVisitorTest, TestShowRegionInfo) {
+  auto &ast_generator = *GetParam();
+  auto *parsed_query = dynamic_cast<CoordinatorQuery *>(ast_generator.ParseQuery("SHOW REGION INFO"));
+  ASSERT_TRUE(parsed_query);
+  EXPECT_EQ(parsed_query->action_, CoordinatorQuery::Action::SHOW_REGION_INFO);
+}
+
+TEST_P(CypherMainVisitorTest, TestRegionQueriesInvalid) {
+  auto &ast_generator = *GetParam();
+  EXPECT_THROW(ast_generator.ParseQuery("ADD REGION eu"), SyntaxException);
+  EXPECT_THROW(ast_generator.ParseQuery("DROP REGION eu"), SyntaxException);
+  EXPECT_THROW(ast_generator.ParseQuery("ADD REGION 1"), SemanticException);
+  EXPECT_THROW(ast_generator.ParseQuery("DROP REGION 1"), SemanticException);
+  EXPECT_THROW(ast_generator.ParseQuery("SHOW REGION"), SyntaxException);
+  EXPECT_THROW(ast_generator.ParseQuery("SHOW REGIONS INFO"), SyntaxException);
+}
+
 #endif
 
 TEST_P(CypherMainVisitorTest, RoutingTableKeywordsStillUsableAsIdentifiers) {

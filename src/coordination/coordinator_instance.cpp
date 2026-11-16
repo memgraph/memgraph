@@ -1242,6 +1242,60 @@ auto CoordinatorInstance::DropRole(std::string_view const role_name) const -> Dr
   return DropRoleStatus::SUCCESS;
 }
 
+auto CoordinatorInstance::AddRegion(std::string_view const region_name) const -> AddRegionStatus {
+  if (auto const res = ForwardStatusToLeader<AddRegionRpc, AddRegionStatus>(std::string{region_name});
+      res.has_value()) {
+    return *res;
+  }
+
+  if (status.load(std::memory_order_acquire) != CoordinatorStatus::LEADER_READY) {
+    return AddRegionStatus::NOT_LEADER;
+  }
+
+  auto lock = std::lock_guard{coord_instance_lock_};
+  auto regions = raft_state_->GetRegions();
+  if (!regions.emplace(region_name).second) {
+    return AddRegionStatus::REGION_EXISTS;
+  }
+
+  CoordinatorClusterStateDelta delta_state;
+  delta_state.regions_ = std::move(regions);
+  if (!raft_state_->AppendLogAndWaitForCommit(delta_state)) {
+    spdlog::error("Aborting addition of region {}. Writing to Raft failed.", region_name);
+    return AddRegionStatus::RAFT_LOG_ERROR;
+  }
+
+  return AddRegionStatus::SUCCESS;
+}
+
+auto CoordinatorInstance::DropRegion(std::string_view const region_name) const -> DropRegionStatus {
+  if (auto const res = ForwardStatusToLeader<DropRegionRpc, DropRegionStatus>(std::string{region_name});
+      res.has_value()) {
+    return *res;
+  }
+
+  if (status.load(std::memory_order_acquire) != CoordinatorStatus::LEADER_READY) {
+    return DropRegionStatus::NOT_LEADER;
+  }
+
+  auto lock = std::lock_guard{coord_instance_lock_};
+  auto regions = raft_state_->GetRegions();
+  auto const it = regions.find(std::string{region_name});
+  if (it == regions.end()) {
+    return DropRegionStatus::NO_SUCH_REGION;
+  }
+  regions.erase(it);
+
+  CoordinatorClusterStateDelta delta_state;
+  delta_state.regions_ = std::move(regions);
+  if (!raft_state_->AppendLogAndWaitForCommit(delta_state)) {
+    spdlog::error("Aborting removal of region {}. Writing to Raft failed.", region_name);
+    return DropRegionStatus::RAFT_LOG_ERROR;
+  }
+
+  return DropRegionStatus::SUCCESS;
+}
+
 auto CoordinatorInstance::GetRoles() const -> std::optional<std::vector<CoordinatorRole>> {
   if (status.load(std::memory_order_acquire) == CoordinatorStatus::LEADER_READY) {
     return raft_state_->GetRoles();
@@ -1821,6 +1875,30 @@ auto CoordinatorInstance::ShowCoordinatorSettingsAsLeader() const
                 std::to_string(raft_state_->GetInstanceHealthCheckFrequencySec().count())},
       std::pair{std::string{kGlobalReadOnly}, raft_state_->GetGlobalReadOnly() ? "true" : "false"}};
   return settings;
+}
+
+auto CoordinatorInstance::ShowRegionInfo() const -> std::optional<std::vector<RegionInfo>> {
+  if (AmReadyLeader()) {
+    return ShowRegionInfoAsLeader();
+  }
+
+  return SendReadToLeader<ShowRegionInfoRpc>().value_or(std::nullopt);
+}
+
+auto CoordinatorInstance::ShowRegionInfoAsLeader() const -> std::optional<std::vector<RegionInfo>> {
+  if (status.load(std::memory_order_acquire) != CoordinatorStatus::LEADER_READY) {
+    spdlog::trace("Leader is not ready, no region info to report.");
+    return std::nullopt;
+  }
+
+  // The region set is ordered, so rows come out sorted by name.
+  auto const regions = raft_state_->GetRegions();
+  std::vector<RegionInfo> result;
+  result.reserve(regions.size());
+  for (auto const &region : regions) {
+    result.emplace_back(RegionInfo{.name = region, .instances = {}, .is_primary_region = false});
+  }
+  return result;
 }
 
 auto CoordinatorInstance::ShowReplicationLagAsLeader() const -> ReplicationLagResult {

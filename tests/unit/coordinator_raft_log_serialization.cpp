@@ -166,3 +166,33 @@ TEST_F(RaftLogSerialization, SerializeUpdateClusterStateWithoutRoles) {
   ASSERT_EQ(delta_state, decoded_log_state);
   ASSERT_FALSE(decoded_log_state.roles_.has_value());
 }
+
+TEST_F(RaftLogSerialization, SerializeUpdateClusterStateWithRegions) {
+  // NOLINTNEXTLINE
+  CoordinatorClusterStateDelta const delta_state{.regions_ = std::set<std::string>{"us-east", "eu-west"}};
+  auto const buffer = CoordinatorStateMachine::SerializeUpdateClusterState(delta_state);
+  auto const decoded_log_state = CoordinatorStateMachine::DecodeLog(*buffer);
+  ASSERT_EQ(delta_state, decoded_log_state);
+  ASSERT_EQ(decoded_log_state.regions_, (std::set<std::string>{"eu-west", "us-east"}));
+}
+
+TEST_F(RaftLogSerialization, SerializeUpdateClusterStateWithEmptyRegions) {
+  // An empty (but set) region set must roundtrip as an empty set, not as an unset optional.
+  // NOLINTNEXTLINE
+  CoordinatorClusterStateDelta const delta_state{.regions_ = std::set<std::string>{}};
+  auto const buffer = CoordinatorStateMachine::SerializeUpdateClusterState(delta_state);
+  auto const decoded_log_state = CoordinatorStateMachine::DecodeLog(*buffer);
+  ASSERT_EQ(delta_state, decoded_log_state);
+  ASSERT_TRUE(decoded_log_state.regions_.has_value());
+  ASSERT_TRUE(decoded_log_state.regions_->empty());
+}
+
+TEST_F(RaftLogSerialization, SerializeUpdateClusterStateWithoutRegions) {
+  // An older log entry without regions decodes with regions_ unset, so DoAction leaves the region set untouched.
+  // NOLINTNEXTLINE
+  CoordinatorClusterStateDelta const delta_state{.enabled_reads_on_main_ = true};
+  auto const buffer = CoordinatorStateMachine::SerializeUpdateClusterState(delta_state);
+  auto const decoded_log_state = CoordinatorStateMachine::DecodeLog(*buffer);
+  ASSERT_EQ(delta_state, decoded_log_state);
+  ASSERT_FALSE(decoded_log_state.regions_.has_value());
+}
