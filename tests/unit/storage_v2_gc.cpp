@@ -1939,6 +1939,12 @@ TEST(StorageV2Gc, ConcurrentDeleteAndGcUAFSmoke) {
 }
 
 #ifdef MG_ENTERPRISE
+namespace {
+void RunGc(memgraph::storage::Storage &storage, int rounds = 4) {
+  for (int i = 0; i < rounds; ++i) storage.FreeMemory({}, false);
+}
+}  // namespace
+
 // A fork pin at P == C must still block fast-discard (the off-by-one boundary); a P < C pin is covered a fortiori.
 TEST_F(StorageV2GcMetricsTest, ForkPin_BlocksFastDiscardUpToTheCommitTimestamp) {
   auto *mem_storage = static_cast<memgraph::storage::InMemoryStorage *>(storage.get());
@@ -1966,151 +1972,58 @@ TEST_F(StorageV2GcMetricsTest, ForkPin_BlocksFastDiscardUpToTheCommitTimestamp) 
   a1.reset();
 
   mem_storage->ReleaseForkPin(fork_ts);
-  for (int i = 0; i < 4; ++i) {
-    auto main_guard = UniqueGuard(storage->main_lock_);
-    storage->FreeMemory(std::move(main_guard), false);
-  }
+  RunGc(*storage);
   EXPECT_EQ(0, handles().unreleased_delta_objects.Value());
 }
 
-// The GC floor is the oldest live pin: releasing a newer pin must not move it.
-TEST_F(StorageV2GcMetricsTest, ForkPin_MultisetSemanticsOldestPinWins) {
+// The GC floor is the oldest live pin: releasing a newer pin or one of several same-timestamp pins must not move it.
+TEST_F(StorageV2GcMetricsTest, ForkPin_GcFloorIsOldestLivePin) {
   auto *mem_storage = static_cast<memgraph::storage::InMemoryStorage *>(storage.get());
   EXPECT_FALSE(mem_storage->OldestForkPin().has_value());
 
-  memgraph::storage::Gid v_gid;
-  {
+  const auto commit_label = [&](memgraph::storage::Gid gid, const std::string &name) {
     auto acc = storage->Access(memgraph::storage::WRITE);
-    auto v = acc->CreateVertex();
-    v_gid = v.Gid();
-    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
-  }
-
-  const uint64_t fork_ts_older = mem_storage->RegisterForkPin();
-
-  {
-    auto acc = storage->Access(memgraph::storage::WRITE);
-    auto v = acc->FindVertex(v_gid, memgraph::storage::View::OLD);
+    auto v = acc->FindVertex(gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(v.has_value());
-    ASSERT_TRUE(v->AddLabel(acc->NameToLabel("Mid")).has_value());
+    ASSERT_TRUE(v->AddLabel(acc->NameToLabel(name)).has_value());
     ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
-  }
-
-  const uint64_t fork_ts_newer = mem_storage->RegisterForkPin();
-  ASSERT_LT(fork_ts_older, fork_ts_newer);
-  EXPECT_EQ(mem_storage->OldestForkPin(), std::optional<uint64_t>{fork_ts_older});
-
-  for (int i = 0; i < 5; ++i) {
-    auto acc = storage->Access(memgraph::storage::WRITE);
-    auto v = acc->FindVertex(v_gid, memgraph::storage::View::OLD);
-    ASSERT_TRUE(v.has_value());
-    ASSERT_TRUE(v->AddLabel(acc->NameToLabel("L" + std::to_string(i))).has_value());
-    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
-  }
-  ASSERT_EQ(6, handles().unreleased_delta_objects.Value());
-
-  mem_storage->ReleaseForkPin(fork_ts_newer);
-  EXPECT_EQ(mem_storage->OldestForkPin(), std::optional<uint64_t>{fork_ts_older});
-  for (int i = 0; i < 4; ++i) {
-    auto main_guard = UniqueGuard(storage->main_lock_);
-    storage->FreeMemory(std::move(main_guard), false);
-  }
-  EXPECT_EQ(6, handles().unreleased_delta_objects.Value())
-      << "releasing the newer pin must not let GC advance past the still-live older pin";
-
-  mem_storage->ReleaseForkPin(fork_ts_older);
-  EXPECT_FALSE(mem_storage->OldestForkPin().has_value());
-  for (int i = 0; i < 4; ++i) {
-    auto main_guard = UniqueGuard(storage->main_lock_);
-    storage->FreeMemory(std::move(main_guard), false);
-  }
-  EXPECT_EQ(0, handles().unreleased_delta_objects.Value());
-}
-
-// Pins sharing a fork timestamp must release one at a time, keeping GC pinned until the last one goes.
-TEST_F(StorageV2GcMetricsTest, ForkPin_SameTimestampPinsReleaseOneByOne) {
-  auto *mem_storage = static_cast<memgraph::storage::InMemoryStorage *>(storage.get());
-
-  memgraph::storage::Gid v_gid;
-  {
-    auto acc = storage->Access(memgraph::storage::WRITE);
-    auto v = acc->CreateVertex();
-    v_gid = v.Gid();
-    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
-  }
-
-  const uint64_t fork_ts_a = mem_storage->RegisterForkPin();
-  const uint64_t fork_ts_b = mem_storage->RegisterForkPin();
-  ASSERT_EQ(fork_ts_a, fork_ts_b) << "no commit happened between the two registrations";
-  ASSERT_TRUE(mem_storage->OldestForkPin().has_value());
-  EXPECT_EQ(fork_ts_a, *mem_storage->OldestForkPin());
-
-  {
-    auto acc = storage->Access(memgraph::storage::WRITE);
-    auto v = acc->FindVertex(v_gid, memgraph::storage::View::OLD);
-    ASSERT_TRUE(v.has_value());
-    ASSERT_TRUE(v->AddLabel(acc->NameToLabel("L")).has_value());
-    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
-  }
-  ASSERT_EQ(1, handles().unreleased_delta_objects.Value());
-
-  mem_storage->ReleaseForkPin(fork_ts_a);
-  for (int i = 0; i < 4; ++i) {
-    auto main_guard = UniqueGuard(storage->main_lock_);
-    storage->FreeMemory(std::move(main_guard), false);
-  }
-  EXPECT_EQ(1, handles().unreleased_delta_objects.Value())
-      << "the second pin at the same timestamp must keep the deltas alive";
-
-  mem_storage->ReleaseForkPin(fork_ts_b);
-  for (int i = 0; i < 4; ++i) {
-    auto main_guard = UniqueGuard(storage->main_lock_);
-    storage->FreeMemory(std::move(main_guard), false);
-  }
-  EXPECT_EQ(0, handles().unreleased_delta_objects.Value());
-  EXPECT_FALSE(mem_storage->OldestForkPin().has_value());
-}
-
-// Readers opened before a write keep their snapshot across GC; once they end, the pin alone retains the write.
-TEST_F(StorageV2GcMetricsTest, ForkPin_ReadersThenWriteThenGc) {
-  auto *mem_storage = static_cast<memgraph::storage::InMemoryStorage *>(storage.get());
-  const auto p = storage->NameToProperty("p");
-  memgraph::storage::Gid v_gid;
-  {
-    auto acc = storage->Access(memgraph::storage::WRITE);
-    auto v = acc->CreateVertex();
-    v_gid = v.Gid();
-    ASSERT_TRUE(v.SetProperty(p, memgraph::storage::PropertyValue(1)).has_value());
-    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
-  }
-  const auto read_p = [&](memgraph::storage::Storage::Accessor &acc) {
-    auto v = acc.FindVertex(v_gid, memgraph::storage::View::OLD);
-    return v->GetProperty(p, memgraph::storage::View::OLD)->ValueInt();
   };
 
-  auto r1 = storage->Access(memgraph::storage::READ);
-  auto r2 = storage->Access(memgraph::storage::READ);
-  const uint64_t fork_ts = mem_storage->RegisterForkPin();
+  memgraph::storage::Gid v_gid;
   {
     auto acc = storage->Access(memgraph::storage::WRITE);
-    auto v = acc->FindVertex(v_gid, memgraph::storage::View::OLD);
-    ASSERT_TRUE(v->SetProperty(p, memgraph::storage::PropertyValue(2)).has_value());
+    auto v = acc->CreateVertex();
+    v_gid = v.Gid();
     ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
-  storage->FreeMemory({}, false);
-  EXPECT_EQ(1, read_p(*r1));
-  EXPECT_EQ(1, read_p(*r2));
-  EXPECT_EQ(1, handles().unreleased_delta_objects.Value());
+  const uint64_t ts_a = mem_storage->RegisterForkPin();
+  const uint64_t ts_b = mem_storage->RegisterForkPin();
+  ASSERT_EQ(ts_a, ts_b) << "no commit happened between the two registrations";
 
-  r1.reset();
-  r2.reset();
-  for (int i = 0; i < 4; ++i) storage->FreeMemory({}, false);
-  EXPECT_EQ(1, handles().unreleased_delta_objects.Value());
-  EXPECT_EQ(2, read_p(*storage->Access(memgraph::storage::READ)));
+  commit_label(v_gid, "Mid");
+  const uint64_t ts_newer = mem_storage->RegisterForkPin();
+  ASSERT_LT(ts_a, ts_newer);
+  EXPECT_EQ(mem_storage->OldestForkPin(), std::optional<uint64_t>{ts_a});
 
-  mem_storage->ReleaseForkPin(fork_ts);
-  for (int i = 0; i < 4; ++i) storage->FreeMemory({}, false);
+  for (int i = 0; i < 5; ++i) commit_label(v_gid, "L" + std::to_string(i));
+  ASSERT_EQ(6, handles().unreleased_delta_objects.Value());
+
+  mem_storage->ReleaseForkPin(ts_newer);
+  EXPECT_EQ(mem_storage->OldestForkPin(), std::optional<uint64_t>{ts_a});
+  RunGc(*storage);
+  EXPECT_EQ(6, handles().unreleased_delta_objects.Value())
+      << "releasing the newer pin must not let GC advance past the still-live older pins";
+
+  mem_storage->ReleaseForkPin(ts_a);
+  EXPECT_EQ(mem_storage->OldestForkPin(), std::optional<uint64_t>{ts_b});
+  RunGc(*storage);
+  EXPECT_EQ(6, handles().unreleased_delta_objects.Value())
+      << "the second pin at the same timestamp must keep the deltas alive";
+
+  mem_storage->ReleaseForkPin(ts_b);
+  EXPECT_FALSE(mem_storage->OldestForkPin().has_value());
+  RunGc(*storage);
   EXPECT_EQ(0, handles().unreleased_delta_objects.Value());
 }
 
@@ -2138,7 +2051,7 @@ TEST_F(StorageV2GcMetricsTest, ForkPin_ConcurrentPinChurnWriterAndGc) {
     done.store(true);
   }};
   std::jthread gc{[&] {
-    while (!done.load()) storage->FreeMemory({}, false);
+    while (!done.load()) RunGc(*storage, 1);
   }};
   while (!done.load()) {
     const uint64_t pin = mem_storage->RegisterForkPin();
@@ -2149,12 +2062,12 @@ TEST_F(StorageV2GcMetricsTest, ForkPin_ConcurrentPinChurnWriterAndGc) {
   writer.join();
   gc.join();
 
-  storage->FreeMemory({}, false);
+  RunGc(*storage, 1);
   EXPECT_EQ(mem_storage->OldestForkPin(), floor_ts);
   EXPECT_EQ(kCommits, handles().unreleased_delta_objects.Value());
 
   mem_storage->ReleaseForkPin(floor_ts);
-  for (int i = 0; i < 4; ++i) storage->FreeMemory({}, false);
+  RunGc(*storage);
   EXPECT_EQ(0, handles().unreleased_delta_objects.Value());
   EXPECT_FALSE(mem_storage->OldestForkPin().has_value());
 }

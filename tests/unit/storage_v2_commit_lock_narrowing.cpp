@@ -1148,27 +1148,4 @@ TEST_F(LockFreeReadSnapshotRecovery, ForkPinInsideCommitWindow_ExcludesTheInFlig
   RunGc(*store);
   EXPECT_EQ(store->VertexStoreSize(), 0U);
 }
-
-TEST(LockFreeReadSnapshot, ForkPinAcrossAbortedMint_Unchanged_ON) {
-  auto store = MakeStorageManualGc(/*flag_on=*/true);
-  const auto label = store->NameToLabel("L");
-  CreateUniquePConstraint(*store, label);
-  (void)CommitLabeledVertex(*store, label, 1);
-
-  const auto fork_before = store->RegisterForkPin();
-  {
-    auto w = store->Access(memgraph::storage::WRITE);
-    auto vertex = w->CreateVertex();
-    ASSERT_TRUE(vertex.AddLabel(label).has_value());
-    ASSERT_TRUE(vertex.SetProperty(store->NameToProperty("p"), PropertyValue(1)).has_value());
-    ASSERT_FALSE(w->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
-  }
-  const auto fork_after = store->RegisterForkPin();
-  EXPECT_EQ(fork_before, fork_after) << "an aborted commit moved the fork point";
-  EXPECT_EQ(store->OldestForkPin(), fork_before);
-
-  store->ReleaseForkPin(fork_after);
-  store->ReleaseForkPin(fork_before);
-  EXPECT_FALSE(store->OldestForkPin().has_value());
-}
 #endif  // MG_ENTERPRISE

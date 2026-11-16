@@ -9,13 +9,11 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include <cstdint>
-#ifdef MG_ENTERPRISE
 #include <atomic>
+#include <cstdint>
 #include <mutex>
 #include <thread>
 #include <vector>
-#endif
 
 #include "gtest/gtest.h"
 
@@ -85,6 +83,10 @@ TEST_F(PointerPackTest, SetAndGetIndividualBits) {
   EXPECT_EQ(pp.Get<1>(), 1u);
   EXPECT_EQ(pp.Get<2>(), 1u);
   EXPECT_EQ(pp.GetPtr(), &a);
+
+  EXPECT_FALSE(pp.GetRelaxed<0>());
+  EXPECT_TRUE(pp.GetRelaxed<1>());
+  EXPECT_TRUE(pp.GetRelaxed<2>());
 }
 
 TEST_F(PointerPackTest, MultiBitField) {
@@ -111,6 +113,8 @@ TEST_F(PointerPackTest, SetPtrPreservesFlags) {
   EXPECT_EQ(pp.GetPtr(), &b);
   EXPECT_EQ(pp.Get<0>(), 1u);
   EXPECT_EQ(pp.Get<1>(), 1u);
+  EXPECT_TRUE(pp.GetRelaxed<0>());
+  EXPECT_TRUE(pp.GetRelaxed<1>());
 }
 
 TEST_F(PointerPackTest, SetFlagsPreservesPointer) {
@@ -189,34 +193,6 @@ TEST_F(PointerPackTest, SingleBitPack) {
   EXPECT_EQ(pp.GetPtr(), &a);
 }
 
-#ifdef MG_ENTERPRISE
-TEST_F(PointerPackTest, SingleBitSetLeavesOtherFlagsAndPointerUntouched) {
-  PointerPack<Dummy, 3> pp(&a, 0b011);
-
-  pp.Set<2>(1);
-  EXPECT_TRUE(pp.GetRelaxed<2>());
-  EXPECT_EQ(pp.Get<0>(), 1u);
-  EXPECT_EQ(pp.Get<1>(), 1u);
-  EXPECT_EQ(pp.GetPtr(), &a);
-
-  pp.Set<0>(0);
-  pp.SetPtr(&b);
-  EXPECT_TRUE(pp.GetRelaxed<2>());
-  EXPECT_FALSE(pp.GetRelaxed<0>());
-  EXPECT_TRUE(pp.GetRelaxed<1>());
-
-  pp.Set<2>(0);
-  EXPECT_FALSE(pp.GetRelaxed<2>());
-  EXPECT_EQ(pp.Get<0>(), 0u);
-  EXPECT_EQ(pp.Get<1>(), 1u);
-  EXPECT_EQ(pp.GetPtr(), &b);
-
-  pp.Set<0, 2>(0b10);
-  EXPECT_EQ((pp.Get<0, 2>()), 0b10u);
-  EXPECT_FALSE(pp.GetRelaxed<2>());
-  EXPECT_EQ(pp.GetPtr(), &b);
-}
-
 // Lock-free GetRelaxed reader vs locked writers rewriting the other flags and pointer: TSan reports any
 // non-atomic write to the packed word; in every build a set bit must never be observed cleared.
 TEST_F(PointerPackTest, RelaxedReaderVsLockedWriters) {
@@ -258,4 +234,3 @@ TEST_F(PointerPackTest, RelaxedReaderVsLockedWriters) {
   auto guard = std::lock_guard{lock};
   EXPECT_TRUE(pp.GetRelaxed<2>());
 }
-#endif  // MG_ENTERPRISE

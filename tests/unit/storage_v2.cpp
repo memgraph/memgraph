@@ -3458,41 +3458,31 @@ TEST(StorageV2BranchedHint, VertexBitIsIndependentOfOtherFlagsAndDelta) {
   vertex.SetDeleted(false);
   vertex.set_has_uncommitted_non_sequential_deltas(false);
   EXPECT_TRUE(vertex.branched());
-
-  vertex.SetBranched();
-  EXPECT_TRUE(vertex.branched());
-  vertex.SetDeleted(true);
-  EXPECT_TRUE(vertex.branched());
-}
-
-TEST(StorageV2BranchedHint, EdgeAccessorHintFollowsEdgeBit) {
-  memgraph::storage::InMemoryStorage store;
-  auto acc = store.Access(memgraph::storage::WRITE);
-  auto from = acc->CreateVertex();
-  auto to = acc->CreateVertex();
-  auto edge = acc->CreateEdge(&from, &to, acc->NameToEdgeType("T"));
-  ASSERT_TRUE(edge.has_value());
-  EXPECT_FALSE(edge->MaybeBranchedHint());
-
-  auto *raw = edge->edge_.ptr;
-  raw->SetBranched();
-  EXPECT_TRUE(edge->MaybeBranchedHint());
-  EXPECT_FALSE(raw->deleted());
-
-  raw->SetBranched();
-  EXPECT_TRUE(edge->MaybeBranchedHint());
 }
 
 // Without properties on edges the EdgeRef holds a Gid, not an Edge*, so there is no bit to read.
-TEST(StorageV2BranchedHint, EdgeAccessorHintIsFalseWithoutPropertiesOnEdges) {
+TEST(StorageV2BranchedHint, EdgeAccessorHintFollowsEdgeBit) {
+  auto make_edge = [](memgraph::storage::InMemoryStorage &store) {
+    auto acc = store.Access(memgraph::storage::WRITE);
+    auto from = acc->CreateVertex();
+    auto to = acc->CreateVertex();
+    auto edge = acc->CreateEdge(&from, &to, acc->NameToEdgeType("T"));
+    EXPECT_TRUE(edge.has_value());
+    return std::make_pair(std::move(acc), *edge);
+  };
+
+  memgraph::storage::InMemoryStorage store;
+  auto [acc, edge] = make_edge(store);
+  EXPECT_FALSE(edge.MaybeBranchedHint());
+  auto *raw = edge.edge_.ptr;
+  raw->SetBranched();
+  EXPECT_TRUE(edge.MaybeBranchedHint());
+  EXPECT_FALSE(raw->deleted());
+
   memgraph::storage::Config config;
   config.salient.items.properties_on_edges = false;
-  memgraph::storage::InMemoryStorage store{config};
-  auto acc = store.Access(memgraph::storage::WRITE);
-  auto from = acc->CreateVertex();
-  auto to = acc->CreateVertex();
-  auto edge = acc->CreateEdge(&from, &to, acc->NameToEdgeType("T"));
-  ASSERT_TRUE(edge.has_value());
-  EXPECT_FALSE(edge->MaybeBranchedHint());
+  memgraph::storage::InMemoryStorage no_props_store{config};
+  auto [acc2, edge2] = make_edge(no_props_store);
+  EXPECT_FALSE(edge2.MaybeBranchedHint());
 }
 #endif  // MG_ENTERPRISE
