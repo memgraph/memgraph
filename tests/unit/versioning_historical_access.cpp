@@ -208,7 +208,7 @@ TEST_F(VersioningHistoricalAccessTest, TransientReadsDoNotReleaseSharedForkTimes
   const uint64_t fork_ts = Mem()->RegisterForkPin();
 
   auto real_reader = storage->Access(ms::READ);
-  ASSERT_EQ(real_reader->GetStartTimestamp(), std::optional<uint64_t>{fork_ts})
+  ASSERT_EQ(real_reader->GetStartTimestamp(), fork_ts)
       << "test precondition: the plain reader must start exactly at fork_ts";
 
   for (int i = 0; i < 5; ++i) {
@@ -244,14 +244,14 @@ TEST_F(VersioningHistoricalAccessTest, DropDuringOpenReadDoesNotReclaim) {
   ASSERT_TRUE(historical.has_value());
 
   Mem()->ReleaseForkPin(fork_ts);
-  EXPECT_EQ(Mem()->OldestForkPin(), std::optional<uint64_t>{fork_ts}) << "reader must self-pin fork_ts";
+  EXPECT_EQ(Mem()->OldestForkPin(), fork_ts) << "reader must self-pin fork_ts";
   Gc(*storage);
   EXPECT_GT(Unreleased(), 0) << "the reader's self-pin must keep the history alive after the branch pin is released";
   ExpectNoLabels(**historical, gid, 5);
-  EXPECT_EQ(Mem()->OldestForkPin(), std::optional<uint64_t>{fork_ts});
+  EXPECT_EQ(Mem()->OldestForkPin(), fork_ts);
 
   historical->reset();
-  EXPECT_EQ(Mem()->OldestForkPin(), std::nullopt);
+  EXPECT_EQ(Mem()->OldestForkPin(), memgraph::storage::InMemoryStorage::kNoForkPin);
   Gc(*storage);
   EXPECT_EQ(0, Unreleased());
 }
@@ -364,7 +364,7 @@ TEST_F(VersioningHistoricalAccessTest, ConcurrentMainWritersAndHistoricalReaders
   EXPECT_EQ(mismatches.load(), 0);
   EXPECT_GT(reads.load(), 0);
   Mem()->ReleaseForkPin(fork_ts);
-  EXPECT_EQ(Mem()->OldestForkPin(), std::nullopt);
+  EXPECT_EQ(Mem()->OldestForkPin(), memgraph::storage::InMemoryStorage::kNoForkPin);
 }
 
 // Full GC under a live pin: every GC horizon is clamped to it, and the historical label+property scan returns exactly
@@ -617,7 +617,7 @@ TEST_F(VersioningHistoricalAccessTest, RefusesWritesAndReleasesSelfPin) {
     EXPECT_THROW((void)(*historical)->DeleteLabelIndexStats(label), ms::WriteInHistoricalAccessorException);
     EXPECT_THROW((void)(*historical)->DropIndex(label), ms::WriteInHistoricalAccessorException);
   }
-  EXPECT_EQ(Mem()->OldestForkPin(), std::optional<uint64_t>{fork_ts});
+  EXPECT_EQ(Mem()->OldestForkPin(), fork_ts);
   {
     auto acc = storage->Access(ms::READ);
     EXPECT_TRUE(acc->LabelIndexReady(label)) << "a refused historical drop must not drop main's index";
@@ -632,10 +632,12 @@ TEST_F(VersioningHistoricalAccessTest, RefusesWritesAndReleasesSelfPin) {
     ASSERT_TRUE(reader.has_value());
     Commit(**reader);
     Mem()->ReleaseForkPin(fork_ts);
-    EXPECT_EQ(Mem()->OldestForkPin(), std::nullopt) << "commit must release the self-pin";
+    EXPECT_EQ(Mem()->OldestForkPin(), memgraph::storage::InMemoryStorage::kNoForkPin)
+        << "commit must release the self-pin";
     (*reader)->Abort();
   }
-  EXPECT_EQ(Mem()->OldestForkPin(), std::nullopt) << "a refused historical accessor leaked its self-pin";
+  EXPECT_EQ(Mem()->OldestForkPin(), memgraph::storage::InMemoryStorage::kNoForkPin)
+      << "a refused historical accessor leaked its self-pin";
 }
 
 // Only IN_MEMORY_TRANSACTIONAL keeps MVCC history; elsewhere a historical read would silently see live data.
@@ -646,9 +648,10 @@ TEST_F(VersioningHistoricalAccessTest, RejectsNonTransactionalStorageMode) {
   auto result = Mem()->HistoricalAccess(fork_ts);
   ASSERT_FALSE(result.has_value());
   EXPECT_EQ(result.error(), ms::InMemoryStorage::HistoricalAccessError::StorageModeNotTransactional);
-  EXPECT_EQ(Mem()->OldestForkPin(), std::optional<uint64_t>{fork_ts}) << "the refused open kept its self-pin";
+  EXPECT_EQ(Mem()->OldestForkPin(), fork_ts) << "the refused open kept its self-pin";
   Mem()->ReleaseForkPin(fork_ts);
-  EXPECT_EQ(Mem()->OldestForkPin(), std::nullopt) << "the refused open leaked its self-pin";
+  EXPECT_EQ(Mem()->OldestForkPin(), memgraph::storage::InMemoryStorage::kNoForkPin)
+      << "the refused open leaked its self-pin";
 }
 
 // Point and vector indexes hold only main's current state: the point index is reported absent and vector search
