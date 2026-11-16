@@ -4121,7 +4121,7 @@ StorageInfo InMemoryStorage::GetInfo() {
 
 bool InMemoryStorage::InitializeWalFile(std::string_view const epoch_id) {
 #ifdef MG_ENTERPRISE
-  if (suppress_wal_.load(std::memory_order_acquire)) return false;
+  if (suppress_wal_) return false;
 #endif
 
   if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL ||
@@ -5273,8 +5273,6 @@ void InMemoryStorage::BumpClockPastDurable(uint64_t min_next) {
   SetTimestampQuiescent(target);
   commit_log_->MarkFinishedInRange(first_skipped, target - 1);
 }
-
-uint64_t InMemoryStorage::OldestActiveTimestamp() { return commit_log_->OldestActive(); }
 #endif
 
 void InMemoryStorage::PrepareForNewEpoch() {
