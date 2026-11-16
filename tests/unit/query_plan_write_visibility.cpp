@@ -12,8 +12,10 @@
 // Plans for reads and writes in one query: where the planner puts command barriers, which view each read uses,
 // and which rewrites must not move a read across a write.
 
+#include <algorithm>
 #include <map>
 #include <memory>
+#include <sstream>
 #include <string>
 #include <string_view>
 #include <type_traits>
@@ -32,6 +34,7 @@
 #include "query/parameters.hpp"
 #include "query/plan/operator.hpp"
 #include "query/plan/planner.hpp"
+#include "query/plan/pretty_print.hpp"
 #include "query/plan/read_write_set.hpp"
 #include "query_plan_checker.hpp"
 #include "utils/typeinfo.hpp"
@@ -1116,6 +1119,30 @@ TEST_F(WriteVisibilityPlan, AnUnnamedCallResultIsFresh) {
       Collect<Accumulate>(Plan("MATCH (o:O) UNWIND [1, 2] AS i MERGE (n:N {id: i}) CALL (n) { RETURN n.id AS j "
                                "UNION RETURN n.id AS j } CREATE (:M {v: o.x, j: j}) SET o.x = i"))
           .empty());
+}
+
+// ---------------------------------------------------------------- EXPLAIN prints the views on request
+
+std::vector<std::string> PrintedLines(LogicalOperator &plan, bool print_views) {
+  std::stringstream out;
+  PrettyPrint(static_cast<DbAccessor const *>(nullptr), &plan, &out, nullptr, print_views);
+  std::vector<std::string> lines;
+  for (std::string line; std::getline(out, line);) lines.push_back(line);
+  return lines;
+}
+
+TEST_F(WriteVisibilityPlan, ExplainPrintsTheViewOfEachReaderOnRequest) {
+  auto &plan = Plan("CALL () { MATCH (n) SET n.x = 1 RETURN count(n) AS c } MATCH (m) WHERE m.y = c RETURN c");
+  auto const lines = PrintedLines(plan, true);
+  auto const line_of = [&](std::string_view op) {
+    auto it = std::ranges::find_if(lines, [&](auto const &line) { return line.contains(op); });
+    return it == lines.end() ? std::string{} : *it;
+  };
+  EXPECT_TRUE(line_of("ScanAll (n)").ends_with(" [view: NEW]")) << fmt::format("{}", fmt::join(lines, "\n"));
+  EXPECT_TRUE(line_of("ScanAll (m)").ends_with(" [view: OLD]")) << fmt::format("{}", fmt::join(lines, "\n"));
+  EXPECT_TRUE(line_of("Filter").ends_with(" [view: OLD]")) << fmt::format("{}", fmt::join(lines, "\n"));
+  EXPECT_TRUE(line_of("SetProperty").ends_with("SetProperty"));
+  for (auto const &line : PrintedLines(plan, false)) EXPECT_FALSE(line.contains("[view:")) << line;
 }
 
 }  // namespace
