@@ -1409,3 +1409,24 @@ Feature: Functions
             RETURN nullIf(1);
             """
         Then an error should be raised
+
+    Scenario: Temporal strings accept a date without a time and 1 to 9 fraction digits:
+        Given an empty graph
+        When executing query:
+            """
+            RETURN datetime('2024-01-02') = datetime('2024-01-02T00:00:00Z') AS datetime_date_only,
+                   localdatetime('2024-01-02') = localdatetime('2024-01-02T00:00') AS localdatetime_date_only,
+                   localtime('03:04:05.5') = localtime('03:04:05.500') AS localtime_short_fraction,
+                   localtime('03:04:05.123456789') = localtime('03:04:05.123456') AS localtime_truncated_fraction;
+            """
+        Then the result should be:
+            | datetime_date_only | localdatetime_date_only | localtime_short_fraction | localtime_truncated_fraction |
+            | true               | true                    | true                     | true                         |
+
+    Scenario: Datetime with a timezone but no time part is rejected:
+        Given an empty graph
+        When executing query:
+            """
+            RETURN datetime('2024-01-02+01:00');
+            """
+        Then an error should be raised

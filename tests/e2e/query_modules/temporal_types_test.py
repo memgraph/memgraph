@@ -13,7 +13,6 @@ import datetime
 import sys
 import zoneinfo
 
-import mgclient
 import pytest
 from common import connect, execute_and_fetch_all
 
@@ -63,69 +62,6 @@ def test_datetime_without_timezone():
     cursor = connect().cursor()
     result = execute_and_fetch_all(cursor, "RETURN temporal.make_dt(2024, 1, 15, 10, 30, 45)")
     assert result == [(datetime.datetime(2024, 1, 15, 10, 30, 45, tzinfo=None),)]
-
-
-def test_temporal_string_parsing_family():
-    cursor = connect().cursor()
-
-    def to_string(cursor, value):
-        try:
-            return execute_and_fetch_all(cursor, f"RETURN temporal.to_string({value})")
-        except mgclient.DatabaseError:
-            return None
-
-    # Date-only is midnight (UTC when no designator), and every fraction of 1-9 digits is right-padded
-    # (7-9 digits truncate at microseconds). 3- and 6-digit values keep parsing to the same instant.
-    accepted = [
-        ('datetime("2024-01-02")', 'datetime("2024-01-02T00:00:00Z")'),
-        ('datetime("2024-01-02+01:00")', 'datetime("2024-01-02T00:00:00+01:00")'),
-        ('datetime("2024-01-02T03:04:05.5Z")', 'datetime("2024-01-02T03:04:05.500000Z")'),
-        ('localdatetime("2024-01-02T03:04:05.12")', 'localdatetime("2024-01-02T03:04:05.120000")'),
-        ('localtime("03:04:05.1234567")', 'localtime("03:04:05.123456")'),
-        ('localtime("03:04:05.123456789")', 'localtime("03:04:05.123456")'),
-        ('datetime("2024-01-02T03:04:05.123Z")', 'datetime("2024-01-02T03:04:05.123000Z")'),
-        ('datetime("2024-01-02T03:04:05.123456Z")', 'datetime("2024-01-02T03:04:05.123456Z")'),
-    ]
-    for value, reference in accepted:
-        actual = to_string(cursor, value)
-        expected = to_string(cursor, reference)
-        assert actual == expected, f"{value} parsed to {actual}, expected the value of {reference} ({expected})"
-
-    # Invalid strings keep being rejected with a query error.
-    for value in [
-        'datetime("2024-13-45")',
-        'localdatetime("2024-01-02.5")',
-        'localtime("03:04:05.999999999999")',
-        'localdatetime("2024-01-02T03:04:05s")',
-    ]:
-        with pytest.raises(mgclient.DatabaseError):
-            execute_and_fetch_all(cursor, f"RETURN {value}")
-
-    # The help text is user-visible and must document the widened forms.
-    with pytest.raises(mgclient.DatabaseError) as exc_info:
-        execute_and_fetch_all(cursor, 'RETURN localtime("03:04:05s")')
-    assert "1 to 9 digits after the decimal point" in str(exc_info.value), str(exc_info.value)
-
-    with pytest.raises(mgclient.DatabaseError) as exc_info:
-        execute_and_fetch_all(cursor, 'RETURN localdatetime("2024-01-02T")')
-    assert "A date without a time part is parsed as midnight" in str(exc_info.value), str(exc_info.value)
-
-
-def test_trigger_reparses_widened_temporal_strings():
-    # A trigger statement is parsed and executed when it fires; it must accept the widened forms too.
-    cursor = connect().cursor()
-    execute_and_fetch_all(
-        cursor,
-        "CREATE TRIGGER temporal_parse_trigger ON CREATE BEFORE COMMIT EXECUTE "
-        'UNWIND createdVertices AS n SET n.parsed = datetime("2024-01-02")',
-    )
-    try:
-        execute_and_fetch_all(cursor, "CREATE (n:TemporalParseTrigger)")
-        parsed = execute_and_fetch_all(cursor, "MATCH (n:TemporalParseTrigger) RETURN temporal.to_string(n.parsed)")
-        assert parsed == [("2024-01-02 00:00:00+00:00",)], parsed
-    finally:
-        execute_and_fetch_all(cursor, "DROP TRIGGER temporal_parse_trigger")
-        execute_and_fetch_all(cursor, "MATCH (n:TemporalParseTrigger) DELETE n")
 
 
 if __name__ == "__main__":

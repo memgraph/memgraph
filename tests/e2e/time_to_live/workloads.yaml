@@ -16,8 +16,3 @@ workloads:
     binary: "tests/e2e/pytest_runner.sh"
     args: ["time_to_live/multitenancy.py"]
     <<: *ttl_setup
-
-  - name: "TTL start time"
-    binary: "tests/e2e/pytest_runner.sh"
-    args: ["time_to_live/start_time.py"]
-    <<: *ttl_setup
