@@ -2658,3 +2658,18 @@ Feature: Write visibility inside one query
             | k | x    |
             | 1 | null |
             | 2 | null |
+
+    Scenario: derive() in a read-only CALL body does not see a later SET of an earlier row
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:WvDv {k: 1, x: 0})-[:R]->(:WvDv {k: 2, x: 0})
+            """
+        When executing query:
+            """
+            UNWIND [1, 2] AS i CALL () { MATCH p = (s:WvDv {k: 1})-[:R]->(t:WvDv) WITH derive(p, {virtualEdgeType: 'V'}) AS g UNWIND g.edges AS e RETURN startNode(e).x AS sx } MATCH (a:WvDv {k: 1}) SET a.x = i RETURN i, sx
+            """
+        Then the result should be:
+            | i | sx |
+            | 1 | 0  |
+            | 2 | 0  |
