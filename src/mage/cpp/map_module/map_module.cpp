@@ -40,11 +40,13 @@ extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *mem
                      module,
                      memory);
 
-    mgp::AddFunction(Map::FromPairs,
-                     Map::kProcedureFromPairs,
-                     {mgp::Parameter(Map::kArgumentsInputList, {mgp::Type::List, mgp::Type::List})},
-                     module,
-                     memory);
+    {
+      // Pair values are nullable so null values are kept (keys must be non-null strings); the outer list stays
+      // non-nullable because the body rejects a null pair.
+      auto *func = mgp::module_add_function(module, Map::kProcedureFromPairs, Map::FromPairs);
+      mgp::func_add_arg(
+          func, Map::kArgumentsInputList, mgp::type_list(mgp::type_list(mgp::type_nullable(mgp::type_any()))));
+    }
 
     {
       // mgp::AddFunction(Map::Merge, Map::kProcedureMerge,

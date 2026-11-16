@@ -36,15 +36,16 @@ extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *mem
                  module,
                  memory);
 
-    AddProcedure(Create::SetProperties,
-                 Create::kProcedureSetProperties,
-                 mgp::ProcedureType::Write,
-                 {mgp::Parameter(Create::kArgumentsNodes, mgp::Type::Any),
-                  mgp::Parameter(Create::kArgumentsKeys, {mgp::Type::List, mgp::Type::String}),
-                  mgp::Parameter(Create::kArgumentsValues, {mgp::Type::List, mgp::Type::Any})},
-                 {mgp::Return(Create::kReturnProperties, mgp::Type::Node)},
-                 module,
-                 memory);
+    {
+      // Value list elements are nullable so a null value reaches the body (keys must be non-null strings).
+      auto *proc = mgp::module_add_write_procedure(
+          module, std::string(Create::kProcedureSetProperties).c_str(), Create::SetProperties);
+      mgp::proc_add_arg(proc, std::string(Create::kArgumentsNodes).c_str(), mgp::type_any());
+      mgp::proc_add_arg(proc, std::string(Create::kArgumentsKeys).c_str(), mgp::type_list(mgp::type_string()));
+      mgp::proc_add_arg(
+          proc, std::string(Create::kArgumentsValues).c_str(), mgp::type_list(mgp::type_nullable(mgp::type_any())));
+      mgp::proc_add_result(proc, std::string(Create::kReturnProperties).c_str(), mgp::type_node());
+    }
 
     AddProcedure(Create::Node,
                  Create::kProcedureNode,
@@ -92,15 +93,17 @@ extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *mem
                  module,
                  memory);
 
-    AddProcedure(Create::SetRelProperties,
-                 Create::kProcedureSetRelProperties,
-                 mgp::ProcedureType::Write,
-                 {mgp::Parameter(Create::kSetRelPropertiesArg1, mgp::Type::Any),
-                  mgp::Parameter(Create::kSetRelPropertiesArg2, {mgp::Type::List, mgp::Type::String}),
-                  mgp::Parameter(Create::kSetRelPropertiesArg3, {mgp::Type::List, mgp::Type::Any})},
-                 {mgp::Return(Create::kResultSetRelProperties, mgp::Type::Relationship)},
-                 module,
-                 memory);
+    {
+      // Value list elements are nullable so a null value reaches the body (keys must be non-null strings).
+      auto *proc = mgp::module_add_write_procedure(
+          module, std::string(Create::kProcedureSetRelProperties).c_str(), Create::SetRelProperties);
+      mgp::proc_add_arg(proc, std::string(Create::kSetRelPropertiesArg1).c_str(), mgp::type_any());
+      mgp::proc_add_arg(proc, std::string(Create::kSetRelPropertiesArg2).c_str(), mgp::type_list(mgp::type_string()));
+      mgp::proc_add_arg(proc,
+                        std::string(Create::kSetRelPropertiesArg3).c_str(),
+                        mgp::type_list(mgp::type_nullable(mgp::type_any())));
+      mgp::proc_add_result(proc, std::string(Create::kResultSetRelProperties).c_str(), mgp::type_relationship());
+    }
 
     AddProcedure(Create::Relationship,
                  Create::kProcedureRelationship,

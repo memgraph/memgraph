@@ -23,14 +23,14 @@ extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *mem
                      module,
                      memory);
 
-    AddProcedure(Text::Format,
-                 Text::kProcedureFormat,
-                 mgp::ProcedureType::Read,
-                 {mgp::Parameter(Text::kStringToFormat, mgp::Type::String),
-                  mgp::Parameter(Text::kParameters, {mgp::Type::List, mgp::Type::Any})},
-                 {mgp::Return(Text::kResultFormat, mgp::Type::String)},
-                 module,
-                 memory);
+    {
+      // Parameter list elements are nullable so a null parameter is rendered as the empty string by the body.
+      auto *proc = mgp::module_add_read_procedure(module, std::string(Text::kProcedureFormat).c_str(), Text::Format);
+      mgp::proc_add_arg(proc, std::string(Text::kStringToFormat).c_str(), mgp::type_string());
+      mgp::proc_add_arg(
+          proc, std::string(Text::kParameters).c_str(), mgp::type_list(mgp::type_nullable(mgp::type_any())));
+      mgp::proc_add_result(proc, std::string(Text::kResultFormat).c_str(), mgp::type_string());
+    }
 
     mgp::AddFunction(Text::IndexOf,
                      Text::kProcedureIndexOf,
