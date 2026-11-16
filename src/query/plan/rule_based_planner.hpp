@@ -638,6 +638,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
             wrote_since_with = true;
             write_occurred = true;
             plan_and_apply_comprehensions(impl::OriginatingIn(clause, pending_comprehensions));
+            input_op = PreEvaluateSetGroup(clauses, std::distance(clauses.begin(), clause_it), std::move(input_op));
             auto op = HandleWriteClause(clause, input_op, *context.symbol_table, context.bound_symbols, ScopeView());
             MG_ASSERT(op, "Expected write clause to be handled");
             input_op = std::move(op);
@@ -1191,10 +1192,66 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
   // of input_op is transferred to the newly created operator. If the clause
   // isn't handled, returns nullptr and input_op is left as is.
   /// @param create_view what a CREATE's property maps read; see @c GenCreateForPattern.
+  /// The items of one SET (`continues_previous_`) are written in order but read the graph as of the clause's start
+  /// (#4377): `SET a.x = a.y, a.y = a.x` swaps. When an item reads what an earlier item of the group starting at
+  /// `clauses[first]` writes, one Produce before the group evaluates every right-hand side (View::NEW, as a SET
+  /// right-hand side reads), and the items read its results. The AST stays as it is: a query is planned more than
+  /// once; HandleWriteClause finds the rewritten item in `pre_evaluated_items_`.
+  std::unique_ptr<LogicalOperator> PreEvaluateSetGroup(const std::vector<Clause *> &clauses, size_t first,
+                                                       std::unique_ptr<LogicalOperator> input_op) {
+    if (clauses[first]->continues_previous_) return input_op;
+    auto last = first + 1;
+    while (last < clauses.size() && clauses[last]->continues_previous_) ++last;
+    if (last - first < 2) return input_op;
+    auto const rhs_of = [](Clause *clause) -> Expression * {
+      if (auto *set = utils::Downcast<query::SetProperty>(clause)) return set->expression_;
+      if (auto *set = utils::Downcast<query::SetProperties>(clause)) return set->expression_;
+      return nullptr;
+    };
+    auto &symbol_table = *context_->symbol_table;
+    ReadWriteSet written;
+    bool reads_earlier_item = false;
+    for (auto i = first; i < last && !reads_earlier_item; ++i) {
+      if (auto *rhs = rhs_of(clauses[i])) {
+        reads_earlier_item = Conflicts(
+            CollectReadsAndWrites(*rhs, symbol_table, context_->bound_symbols, non_graph_symbols_).reads, written);
+      }
+      written.Merge(
+          CollectReadsAndWrites(*clauses[i], symbol_table, context_->bound_symbols, non_graph_symbols_).writes);
+    }
+    if (!reads_earlier_item) return input_op;
+
+    auto &storage = *context_->ast_storage;
+    std::vector<NamedExpression *> values;
+    for (auto i = first; i < last; ++i) {
+      auto *rhs = rhs_of(clauses[i]);
+      if (!rhs || utils::Downcast<PrimitiveLiteral>(rhs) || utils::Downcast<ParameterLookup>(rhs)) continue;
+      auto const &symbol = symbol_table.CreateAnonymousSymbol();
+      values.push_back(storage.template Create<NamedExpression>(symbol.name(), rhs)->MapTo(symbol));
+      auto *value = storage.template Create<Identifier>(symbol.name())->MapTo(symbol);
+      Clause *item = nullptr;
+      if (auto *set = utils::Downcast<query::SetProperty>(clauses[i])) {
+        item = storage.template Create<query::SetProperty>(set->property_lookup_, value);
+      } else {
+        auto *props = utils::Downcast<query::SetProperties>(clauses[i]);
+        item = storage.template Create<query::SetProperties>(props->identifier_, value, props->update_);
+      }
+      item->continues_previous_ = clauses[i]->continues_previous_;
+      pre_evaluated_items_[clauses[i]] = item;
+    }
+    auto produce = std::make_unique<Produce>(std::move(input_op), values);
+    produce->view_ = storage::View::NEW;
+    return produce;
+  }
+
+  /// Items of one SET whose right-hand side a Produce before the group evaluated (`PreEvaluateSetGroup`).
+  std::unordered_map<Clause const *, Clause *> pre_evaluated_items_;
+
   std::unique_ptr<LogicalOperator> HandleWriteClause(Clause *clause, std::unique_ptr<LogicalOperator> &input_op,
                                                      const SymbolTable &symbol_table,
                                                      std::unordered_set<Symbol> &bound_symbols,
                                                      storage::View create_view = storage::View::NEW) {
+    if (auto it = pre_evaluated_items_.find(clause); it != pre_evaluated_items_.end()) clause = it->second;
     if (auto *create = utils::Downcast<Create>(clause)) {
       return GenCreate(*create, std::move(input_op), symbol_table, bound_symbols, create_view);
     } else if (auto *del = utils::Downcast<query::Delete>(clause)) {
@@ -1308,12 +1365,14 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
     auto on_create = GenCreateForPattern(
         *merge.pattern_, std::move(once_with_symbols), *context_->symbol_table, context_->bound_symbols);
     on_create = splice_branch_comprehensions(std::move(on_create), merge.on_create_, context_->bound_symbols);
-    for (auto &set : merge.on_create_) {
-      on_create = HandleWriteClause(set, on_create, *context_->symbol_table, context_->bound_symbols);
+    for (size_t i = 0; i < merge.on_create_.size(); ++i) {
+      on_create = PreEvaluateSetGroup(merge.on_create_, i, std::move(on_create));
+      on_create = HandleWriteClause(merge.on_create_[i], on_create, *context_->symbol_table, context_->bound_symbols);
       MG_ASSERT(on_create, "Expected SET in MERGE ... ON CREATE");
     }
-    for (auto &set : merge.on_match_) {
-      on_match = HandleWriteClause(set, on_match, *context_->symbol_table, context_->bound_symbols);
+    for (size_t i = 0; i < merge.on_match_.size(); ++i) {
+      on_match = PreEvaluateSetGroup(merge.on_match_, i, std::move(on_match));
+      on_match = HandleWriteClause(merge.on_match_[i], on_match, *context_->symbol_table, context_->bound_symbols);
       MG_ASSERT(on_match, "Expected SET in MERGE ... ON MATCH");
     }
     return std::make_unique<plan::Merge>(std::move(input_op), std::move(on_match), std::move(on_create));
@@ -1862,7 +1921,8 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
     // Plan any comprehensions whose dependencies are now satisfied (e.g., referencing the FOREACH variable)
     plan_satisfied_comprehensions();
 
-    for (auto *clause : foreach->clauses_) {
+    for (size_t i = 0; i < foreach->clauses_.size(); ++i) {
+      auto *clause = foreach->clauses_[i];
       if (auto *nested_for_each = utils::Downcast<query::Foreach>(clause)) {
         op = HandleForeachClause(nested_for_each,
                                  std::move(op),
@@ -1876,6 +1936,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
       } else if (auto *merge = utils::Downcast<query::Merge>(clause)) {
         op = GenMerge(*merge, std::move(op), query_part.merge_matching[merge_id++], pending_comprehensions);
       } else {
+        op = PreEvaluateSetGroup(foreach->clauses_, i, std::move(op));
         op = HandleWriteClause(clause, op, symbol_table, bound_symbols);
       }
       // A body clause can bind the symbol a pending comprehension expands from, so drain after each one, as the main

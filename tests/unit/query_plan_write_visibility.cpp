@@ -23,6 +23,7 @@
 #include <string>
 #include <string_view>
 #include <type_traits>
+#include <unordered_set>
 #include <vector>
 
 #include <fmt/format.h>
@@ -888,8 +889,9 @@ TEST_F(WriteVisibilityPlan, ParserMarksTheItemsAfterTheFirstOfOneSetOrRemove) {
 }
 
 TEST_F(WriteVisibilityPlan, NoBarrierBetweenTheItemsOfOneSet) {
+  // The second item reads what the first writes, so a Produce evaluates the right-hand sides first (#4377).
   EXPECT_EQ(Chain(Plan("MATCH (a) SET a.x = 1, a.y = a.x")),
-            (Names{"EmptyResult", "SetProperty", "SetProperty", "ScanAll", "Once"}));
+            (Names{"EmptyResult", "SetProperty", "SetProperty", "Produce", "ScanAll", "Once"}));
   // Separate clauses keep their barrier.
   EXPECT_EQ(Chain(Plan("MATCH (a) SET a.x = 1 SET a.y = a.x")),
             (Names{"EmptyResult", "SetProperty", "Accumulate+", "SetProperty", "ScanAll", "Once"}));
@@ -934,8 +936,9 @@ TEST_F(WriteVisibilityPlan, WritesAgreeWithRwCheckerAndQueryParts) {
 TEST_F(WriteVisibilityPlan, OneSetEvaluatesItsRightHandSidesFirst) {
   EXPECT_EQ(Chain(Plan("MATCH (a) SET a.x = 1, a.y = a.x + 1")),
             (Names{"EmptyResult", "SetProperty", "SetProperty", "Produce", "ScanAll", "Once"}));
+  // The property cache under the Produce reads the two keys once.
   EXPECT_EQ(Chain(Plan("MATCH (a) SET a.x = a.y, a.y = a.x")),
-            (Names{"EmptyResult", "SetProperty", "SetProperty", "Produce", "ScanAll", "Once"}));
+            (Names{"EmptyResult", "SetProperty", "SetProperty", "Produce", "CacheProperties", "ScanAll", "Once"}));
   EXPECT_EQ(Chain(Plan("MATCH (a) SET a.x = 1, a.y = a.z + 1")),
             (Names{"EmptyResult", "SetProperty", "SetProperty", "ScanAll", "Once"}));
   EXPECT_FALSE(Collect<Produce>(Plan("MATCH (a) FOREACH (i IN [1] | SET a.x = i, a.y = a.x)")).empty());
@@ -1237,6 +1240,8 @@ class ViewOracle {
 
   std::vector<Mismatch> Check(LogicalOperator &root) {
     mismatches_.clear();
+    set_values_.clear();
+    CollectSetValues(root);
     if (!ContainsBatching(root)) Walk(root, false);
     return mismatches_;
   }
@@ -1336,8 +1341,10 @@ class ViewOracle {
   /// `reads_new`: the operator is in a scope whose every read is a NEW reader. `consumer_reads_new`: the operator
   /// that uses this one's rows is a clause that reads NEW; it decides a comprehension branch, whose list RollUpApply
   /// passes up to the operator above it (a SET right-hand side, a FOREACH list).
-  void Walk(LogicalOperator &op, bool reads_new, bool consumer_reads_new = false) {
-    auto const expected = reads_new ? View::NEW : View::OLD;
+  void Walk(LogicalOperator &op, bool reads_new, bool consumer_reads_new = false, bool under_set_values = false) {
+    auto const expected = reads_new || IsSetGroupProduce(op) || (Is<plan::CacheProperties>(op) && under_set_values)
+                              ? View::NEW
+                              : View::OLD;
     if (auto const actual = op.ReadView(); actual && *actual != expected) {
       mismatches_.push_back({std::string{op.GetTypeInfo().name}, expected, *actual});
     }
@@ -1345,7 +1352,8 @@ class ViewOracle {
     for (auto [child, edge] : Children(op)) {
       switch (edge) {
         case Edge::kInput:
-          Walk(*child, reads_new, is_rollup ? consumer_reads_new : ReadsNewClause(op));
+          // The property cache under a SET's Produce caches what that Produce reads.
+          Walk(*child, reads_new, is_rollup ? consumer_reads_new : ReadsNewClause(op), IsSetGroupProduce(op));
           break;
         case Edge::kBody:
           Walk(*child, reads_new || ContainsWrite(*child));
@@ -1361,7 +1369,28 @@ class ViewOracle {
     }
   }
 
+  /// The symbols SET items read their right-hand side from, when one SET evaluated them up front.
+  void CollectSetValues(LogicalOperator &op) {
+    Expression *rhs = nullptr;
+    if (auto *set = memgraph::utils::Downcast<plan::SetProperty>(&op)) rhs = set->rhs_;
+    if (auto *set = memgraph::utils::Downcast<plan::SetProperties>(&op)) rhs = set->rhs_;
+    if (auto *set = memgraph::utils::Downcast<plan::SetNestedProperty>(&op)) rhs = set->rhs_;
+    if (auto *ident = memgraph::utils::Downcast<Identifier>(rhs)) set_values_.insert(ident->symbol_pos_);
+    for (auto [child, edge] : Children(op)) CollectSetValues(*child);
+  }
+
+  /// The Produce of one SET's right-hand sides is part of that SET, which reads NEW: the planner names each value
+  /// with an anonymous symbol that a SET item reads.
+  bool IsSetGroupProduce(LogicalOperator &op) const {
+    auto *produce = memgraph::utils::Downcast<plan::Produce>(&op);
+    return produce && !produce->named_expressions_.empty() &&
+           std::ranges::all_of(produce->named_expressions_, [this](auto const *named) {
+             return named->name_.starts_with("anon") && set_values_.contains(named->symbol_pos_);
+           });
+  }
+
   std::vector<Mismatch> mismatches_;
+  std::unordered_set<int32_t> set_values_;
 };
 
 /// One planning environment per query, so the indexes of one scenario do not leak into the next.
