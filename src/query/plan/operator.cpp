@@ -6966,10 +6966,11 @@ bool SetLabels::SetLabelsCursor::Pull(Frame &frame, ExecutionContext &context) {
 
 #ifdef MG_ENTERPRISE
     // Check SET_LABEL on the existing vertex (gatekeeper check)
-    // literal-view: known: item 8
+    // The labels earlier rows and clauses gave it, as the SET-property checks read them.
+    // literal-view: write
     if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
         !context.auth_checker->Has(
-            vertex, storage::View::OLD, memgraph::query::AuthQuery::FineGrainedPrivilege::SET_LABEL)) {
+            vertex, storage::View::NEW, memgraph::query::AuthQuery::FineGrainedPrivilege::SET_LABEL)) {
       throw QueryRuntimeException("Adding label failed: missing SET LABEL or UPDATE permission on existing labels.");
     }
 #endif
@@ -7333,10 +7334,10 @@ bool RemoveLabels::RemoveLabelsCursor::Pull(Frame &frame, ExecutionContext &cont
 
 #ifdef MG_ENTERPRISE
     // Check REMOVE_LABEL on the existing vertex (gatekeeper check)
-    // literal-view: known: item 8
+    // literal-view: write
     if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
         !context.auth_checker->Has(
-            vertex, storage::View::OLD, memgraph::query::AuthQuery::FineGrainedPrivilege::REMOVE_LABEL)) {
+            vertex, storage::View::NEW, memgraph::query::AuthQuery::FineGrainedPrivilege::REMOVE_LABEL)) {
       throw QueryRuntimeException(
           "Removing label failed: missing REMOVE LABEL or UPDATE permission on existing labels.");
     }
