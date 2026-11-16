@@ -709,6 +709,9 @@ struct PatternComprehensionMatching : Matching {
 ///  * `CALL` clause or
 ///  * any of the write clauses.
 ///
+/// A part can also end with no clause: a non-optional `MATCH` after an `OPTIONAL MATCH` starts the next part, which
+/// matches on the optional's rows. A part's `matching` therefore never follows its `optional_matching`.
+///
 /// For a query `MATCH (n) MERGE (n) -[e]- (m) SET n.x = 42 MERGE (l)` the
 /// generated SingleQueryPart will have `matching` generated for the `MATCH`.
 /// `remaining_clauses` will contain `Merge`, `SetProperty` and `Merge` clauses

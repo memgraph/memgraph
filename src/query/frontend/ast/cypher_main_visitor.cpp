@@ -2056,7 +2056,6 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(MemgraphCypher::SingleQueryCon
   // consecutive SET clauses are undefined behaviour in neo4j.
   bool has_update = false;
   bool has_return = false;
-  bool has_optional_match = false;
   bool has_call_procedure = false;
   bool calls_write_procedure = false;
   bool has_any_update = false;
@@ -2120,14 +2119,9 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(MemgraphCypher::SingleQueryCon
       has_load_parquet |= is_load_parquet;
       has_load_jsonl |= is_load_jsonl;
 
-    } else if (auto *match = utils::Downcast<Match>(clause)) {
+    } else if (utils::Downcast<Match>(clause)) {
       if (has_update || has_return) {
         throw SemanticException("MATCH can't be put after RETURN clause or after an update.");
-      }
-      if (match->optional_) {
-        has_optional_match = true;
-      } else if (has_optional_match) {
-        throw SemanticException("MATCH can't be put after OPTIONAL MATCH.");
       }
       check_write_procedure("MATCH");
     } else if (utils::IsSubtype(clause_type, Create::kType) || utils::IsSubtype(clause_type, Delete::kType) ||
@@ -2152,7 +2146,7 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(MemgraphCypher::SingleQueryCon
         throw SemanticException("RETURN can't be put before WITH.");
       }
       check_write_procedure("WITH");
-      has_update = has_return = has_optional_match = false;
+      has_update = has_return = false;
     } else {
       DLOG_FATAL("Can't happen");
     }
