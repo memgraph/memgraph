@@ -615,19 +615,24 @@ InMemoryStorage::InMemoryAccessor::InMemoryAccessor(InMemoryStorage *storage,
 
 #ifdef MG_ENTERPRISE
 InMemoryStorage::InMemoryAccessor::InMemoryAccessor(HistoricalAccess tag, InMemoryStorage *storage,
-                                                    std::function<Transaction()> build_transaction,
+                                                    std::function<Transaction()> build_transaction, ForkPin fork_pin,
                                                     std::optional<std::chrono::milliseconds> timeout)
-    : Accessor(tag, storage, std::move(build_transaction), timeout), config_(storage->config_.salient.items) {}
+    : Accessor(tag, storage, std::move(build_transaction), timeout),
+      fork_pin_(std::move(fork_pin)),
+      config_(storage->config_.salient.items) {}
 
-void InMemoryStorage::InMemoryAccessor::ReleaseHistoricalPin() {
-  if (std::exchange(transaction_.holds_fork_pin_, false)) {
-    static_cast<InMemoryStorage *>(storage_)->ReleaseForkPin(transaction_.start_timestamp);
-  }
+void InMemoryStorage::ForkPin::Release() {
+  if (auto *storage = std::exchange(storage_, nullptr)) storage->ReleaseForkPin(fork_ts_);
 }
 #endif
 
 InMemoryStorage::InMemoryAccessor::InMemoryAccessor(InMemoryAccessor &&other) noexcept
-    : Accessor(std::move(other)), config_(other.config_) {}
+    : Accessor(std::move(other)),
+#ifdef MG_ENTERPRISE
+      fork_pin_(std::move(other.fork_pin_)),
+#endif
+      config_(other.config_) {
+}
 
 InMemoryStorage::InMemoryAccessor::~InMemoryAccessor() {
   if (is_transaction_active_) {
@@ -1090,9 +1095,9 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
 
 #ifdef MG_ENTERPRISE
   if (transaction_.is_historical_) [[unlikely]] {
-    // MVCC writes already threw (EnsureCommitInfoExists); refuse metadata-only ones before they take effect.
-    if (!transaction_.md_deltas.empty()) throw WriteInHistoricalAccessorException();
-    ReleaseHistoricalPin();
+    // MVCC writes throw in EnsureCommitInfoExists, metadata writes at their setters/droppers.
+    DMG_ASSERT(transaction_.md_deltas.empty(), "Historical accessor recorded a metadata delta.");
+    fork_pin_.Release();
     return {};
   }
 #endif
@@ -1921,7 +1926,7 @@ void InMemoryStorage::InMemoryAccessor::Abort(ProgressCallback const &on_progres
   if (!transaction_.is_historical_) [[likely]] {
     mem_storage->commit_log_->MarkFinished(transaction_.start_timestamp);
   } else {
-    ReleaseHistoricalPin();
+    fork_pin_.Release();
   }
 #else
   mem_storage->commit_log_->MarkFinished(transaction_.start_timestamp);
@@ -2262,6 +2267,9 @@ template <typename TIndex, typename... TArgs>
 
 std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccessor::DropIndex(LabelId label,
                                                                                               AbsentIndex absent) {
+#ifdef MG_ENTERPRISE
+  ThrowIfHistorical();
+#endif
   // UNIQUE access will be done only through schema.assert
   MG_ASSERT(type() == UNIQUE || type() == READ_ONLY || type() == READ,
             "Dropping label index requires a unique, read-only or read access to the storage!");
@@ -2281,6 +2289,9 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
 std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccessor::DropIndex(
     LabelId label, std::vector<storage::PropertyPath> &&properties, std::optional<IndexOrder> order,
     AbsentIndex absent) {
+#ifdef MG_ENTERPRISE
+  ThrowIfHistorical();
+#endif
   // UNIQUE access will be done only through schema.assert
   MG_ASSERT(type() == UNIQUE || type() == READ_ONLY || type() == READ,
             "Dropping label-property index requires a unique, read-only or read access to the storage!");
@@ -2333,6 +2344,9 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
 
 std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccessor::DropIndex(EdgeTypeId edge_type,
                                                                                               AbsentIndex absent) {
+#ifdef MG_ENTERPRISE
+  ThrowIfHistorical();
+#endif
   // UNIQUE access will be done only through schema.assert
   MG_ASSERT(type() == UNIQUE || type() == READ_ONLY || type() == READ,
             "Dropping edge-type index requires a unique, read-only or read access to the storage!");
@@ -2351,6 +2365,9 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
 std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccessor::DropIndex(EdgeTypeId edge_type,
                                                                                               PropertyId property,
                                                                                               AbsentIndex absent) {
+#ifdef MG_ENTERPRISE
+  ThrowIfHistorical();
+#endif
   // UNIQUE access will be done only through schema.assert
   MG_ASSERT(type() == UNIQUE || type() == READ_ONLY || type() == READ,
             "Dropping edge-type property index requires a unique, read-only or read access to the storage!");
@@ -2373,6 +2390,9 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
 
 std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccessor::DropGlobalEdgeIndex(
     PropertyId property, AbsentIndex absent) {
+#ifdef MG_ENTERPRISE
+  ThrowIfHistorical();
+#endif
   // UNIQUE access will be done only through schema.assert
   MG_ASSERT(type() == UNIQUE || type() == READ_ONLY || type() == READ,
             "Dropping global edge property index requires unique, read-only or read access to the storage!");
@@ -2397,6 +2417,9 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
 
 std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccessor::DropGlobalVertexIndex(
     PropertyId property, AbsentIndex absent) {
+#ifdef MG_ENTERPRISE
+  ThrowIfHistorical();
+#endif
   MG_ASSERT(type() == UNIQUE || type() == READ_ONLY || type() == READ,
             "Dropping global vertex property index requires unique, read-only or read access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
@@ -3164,7 +3187,6 @@ Transaction InMemoryStorage::CreateHistoricalTransaction(uint64_t fork_ts) {
   // commit_lock_narrowing stays false: fork_ts is a clean cut (RegisterForkPin: every commit below it was published,
   // every in-flight one minted >= it), so plain `ts < start_timestamp` visibility is exact.
   transaction.is_historical_ = true;
-  transaction.holds_fork_pin_ = true;
   return transaction;
 }
 
@@ -3179,16 +3201,11 @@ InMemoryStorage::HistoricalAccess(uint64_t fork_ts) {
     version_fork_pins_.insert(fork_ts);
     oldest_fork_pin_.store(*version_fork_pins_.begin(), std::memory_order_release);
   }
-  std::unique_ptr<Storage::Accessor> accessor;
-  try {
-    accessor.reset(new InMemoryAccessor{Storage::Accessor::historical_access,
-                                        this,
-                                        [this, fork_ts] { return CreateHistoricalTransaction(fork_ts); },
-                                        std::nullopt});
-  } catch (...) {
-    ReleaseForkPin(fork_ts);  // No accessor took ownership of the self-pin.
-    throw;
-  }
+  // The handle releases the self-pin if accessor construction throws.
+  ForkPin pin{this, fork_ts};
+  auto build_transaction = [this, fork_ts] { return CreateHistoricalTransaction(fork_ts); };
+  std::unique_ptr<Storage::Accessor> accessor{new InMemoryAccessor{
+      Storage::Accessor::historical_access, this, std::move(build_transaction), std::move(pin), std::nullopt}};
   // Read under the accessor's guard, so SetStorageMode (UNIQUE) cannot change it while the accessor lives.
   if (accessor->GetTransaction()->storage_mode != StorageMode::IN_MEMORY_TRANSACTIONAL) {
     return std::unexpected{HistoricalAccessError::StorageModeNotTransactional};  // ~accessor releases the self-pin
@@ -5837,7 +5854,17 @@ void InMemoryStorage::InMemoryAccessor::DropAllConstraints() {
   }
 }
 
+#ifdef MG_ENTERPRISE
+void InMemoryStorage::InMemoryAccessor::ThrowIfHistorical() const {
+  if (transaction_.is_historical_) [[unlikely]]
+    throw WriteInHistoricalAccessorException();
+}
+#endif
+
 void InMemoryStorage::InMemoryAccessor::SetIndexStats(const storage::LabelId &label, const LabelIndexStats &stats) {
+#ifdef MG_ENTERPRISE
+  ThrowIfHistorical();
+#endif
   static_cast<InMemoryLabelIndex *>(storage_->indices_.label_index_.get())->SetIndexStats(label, stats);
   transaction_.md_deltas.emplace_back(MetadataDelta::label_index_stats_set, label, stats);
 }
@@ -5845,6 +5872,9 @@ void InMemoryStorage::InMemoryAccessor::SetIndexStats(const storage::LabelId &la
 void InMemoryStorage::InMemoryAccessor::SetIndexStats(const storage::LabelId &label,
                                                       std::span<storage::PropertyPath const> properties,
                                                       const LabelPropertyIndexStats &stats) {
+#ifdef MG_ENTERPRISE
+  ThrowIfHistorical();
+#endif
   static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get())
       ->SetIndexStats(label, properties, stats);
   transaction_.md_deltas.emplace_back(
@@ -5852,6 +5882,9 @@ void InMemoryStorage::InMemoryAccessor::SetIndexStats(const storage::LabelId &la
 }
 
 bool InMemoryStorage::InMemoryAccessor::DeleteLabelIndexStats(const storage::LabelId &label) {
+#ifdef MG_ENTERPRISE
+  ThrowIfHistorical();
+#endif
   auto *in_mem_label_index = static_cast<InMemoryLabelIndex *>(storage_->indices_.label_index_.get());
   auto res = in_mem_label_index->DeleteIndexStats(label);
   transaction_.md_deltas.emplace_back(MetadataDelta::label_index_stats_clear, label);
@@ -5860,6 +5893,9 @@ bool InMemoryStorage::InMemoryAccessor::DeleteLabelIndexStats(const storage::Lab
 
 std::vector<std::pair<LabelId, std::vector<PropertyPath>>>
 InMemoryStorage::InMemoryAccessor::DeleteLabelPropertyIndexStats(const storage::LabelId &label) {
+#ifdef MG_ENTERPRISE
+  ThrowIfHistorical();
+#endif
   auto *in_mem_label_prop_index =
       static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get());
   auto res = in_mem_label_prop_index->DeleteIndexStats(label);

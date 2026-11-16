@@ -295,7 +295,6 @@ struct Transaction {
   // Read-only accessor at a pinned past fork_ts. That tick is later dispensed to a real transaction, so
   // finalization must release the fork pin instead of MarkFinished(start_timestamp).
   bool is_historical_{false};
-  bool holds_fork_pin_{false};
 #endif
   // The `Transaction` object is stack allocated, but the `commit_info`
   // must be heap allocated because `Delta`s have a pointer to it, and that

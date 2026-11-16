@@ -612,14 +612,16 @@ TEST_F(VersioningHistoricalAccessTest, RefusesWritesAndReleasesSelfPin) {
   {
     auto historical = Mem()->HistoricalAccess(fork_ts);
     ASSERT_TRUE(historical.has_value());
-    ASSERT_TRUE((*historical)->DropIndex(label).has_value());
-    EXPECT_THROW((void)(*historical)->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()),
+    EXPECT_THROW((*historical)->SetIndexStats(label, ms::LabelIndexStats{.count = 7, .avg_degree = 1.5}),
                  ms::WriteInHistoricalAccessorException);
+    EXPECT_THROW((void)(*historical)->DeleteLabelIndexStats(label), ms::WriteInHistoricalAccessorException);
+    EXPECT_THROW((void)(*historical)->DropIndex(label), ms::WriteInHistoricalAccessorException);
   }
   EXPECT_EQ(Mem()->OldestForkPin(), std::optional<uint64_t>{fork_ts});
   {
     auto acc = storage->Access(ms::READ);
-    EXPECT_TRUE(acc->LabelIndexReady(label)) << "a refused historical commit must not drop main's index";
+    EXPECT_TRUE(acc->LabelIndexReady(label)) << "a refused historical drop must not drop main's index";
+    EXPECT_FALSE(acc->GetIndexStats(label).has_value()) << "a refused historical stats write must not reach main";
     EXPECT_EQ(CountVertices(*acc, ms::View::OLD), 1U);
     auto v = acc->FindVertex(gid, ms::View::OLD);
     ASSERT_TRUE(v.has_value());

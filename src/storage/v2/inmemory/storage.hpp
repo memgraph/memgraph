@@ -177,6 +177,40 @@ class InMemoryStorage final : public Storage {
     EdgeTypeId edge_type;
   };
 
+#ifdef MG_ENTERPRISE
+  // Owns exactly one fork-pin registration; adopts an already-registered pin, never registers one itself.
+  class ForkPin {
+   public:
+    ForkPin() = default;
+
+    ForkPin(InMemoryStorage *storage, uint64_t fork_ts) : storage_(storage), fork_ts_(fork_ts) {}
+
+    ForkPin(ForkPin &&other) noexcept
+        : storage_(std::exchange(other.storage_, nullptr)), fork_ts_(std::exchange(other.fork_ts_, 0)) {}
+
+    ForkPin &operator=(ForkPin &&other) noexcept {
+      if (this != &other) {
+        Release();
+        storage_ = std::exchange(other.storage_, nullptr);
+        fork_ts_ = std::exchange(other.fork_ts_, 0);
+      }
+      return *this;
+    }
+
+    ForkPin(const ForkPin &) = delete;
+    ForkPin &operator=(const ForkPin &) = delete;
+
+    ~ForkPin() { Release(); }
+
+    // Idempotent: only the first call after construction or move-in releases.
+    void Release();
+
+   private:
+    InMemoryStorage *storage_{nullptr};
+    uint64_t fork_ts_{0};
+  };
+#endif
+
   class InMemoryAccessor : public Storage::Accessor {
    private:
     friend class InMemoryStorage;
@@ -186,7 +220,7 @@ class InMemoryStorage final : public Storage {
                               utils::ResourceLockGuard guard);
 #ifdef MG_ENTERPRISE
     explicit InMemoryAccessor(HistoricalAccess tag, InMemoryStorage *storage,
-                              std::function<Transaction()> build_transaction,
+                              std::function<Transaction()> build_transaction, ForkPin fork_pin,
                               std::optional<std::chrono::milliseconds> timeout = std::nullopt);
 #endif
 
@@ -200,8 +234,12 @@ class InMemoryStorage final : public Storage {
     void PublishIndexArming();
 
 #ifdef MG_ENTERPRISE
-    // Releases the HistoricalAccess self-pin on the first call (commit, Abort or destruction); later calls are no-ops.
-    void ReleaseHistoricalPin();
+    // HistoricalAccess self-pin; released on commit or Abort, otherwise on destruction.
+    ForkPin fork_pin_;
+
+    // Throws WriteInHistoricalAccessorException on a historical accessor; first statement of every READ-accepting
+    // metadata writer.
+    void ThrowIfHistorical() const;
 #endif
 
     std::optional<EdgeAccessor> CreateEdgeInternal(Vertex *from_vertex, Vertex *to_vertex, EdgeTypeId edge_type,
@@ -790,13 +828,13 @@ class InMemoryStorage final : public Storage {
             // Use non-blocking async indexer
             auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
             // Async index creation -> happens in separate transaction
-            mem_storage->async_indexer_.Enqueue(ttl_label, std::vector<storage::PropertyPath>{{ttl_property}});
+            mem_storage->async_indexer_.Enqueue(ttl_label, std::vector<storage::PropertyPath>{{ ttl_property }});
             if (ttl_info.should_run_edge_ttl) {
               mem_storage->async_indexer_.Enqueue(ttl_property);
             }
           } else {
             // Create index with unique access in same transaction
-            (void)CreateIndex(ttl_label, std::vector<storage::PropertyPath>{{ttl_property}});
+            (void)CreateIndex(ttl_label, std::vector<storage::PropertyPath>{{ ttl_property }});
             // Create edge index if needed based on TTL configuration
             if (ttl_info.should_run_edge_ttl) {
               (void)CreateGlobalEdgeIndex(ttl_property);
@@ -825,7 +863,7 @@ class InMemoryStorage final : public Storage {
         // Only if MAIN, do we proactivly drop indexes
         // REPLICA will recieve deltas from MAIN that will drop the indexes
         // Drop indices (silently fail if index already dropped )
-        (void)DropIndex(ttl_label, std::vector<storage::PropertyPath>{{ttl_property}});
+        (void)DropIndex(ttl_label, std::vector<storage::PropertyPath>{{ ttl_property }});
         // Check if edge TTL was enabled and drop edge index if needed (silently fail if index already dropped)
         if (ttl.Config().should_run_edge_ttl) {
           (void)DropGlobalEdgeIndex(ttl_property);
@@ -907,7 +945,8 @@ class InMemoryStorage final : public Storage {
   // Takes engine_lock_ (then version_fork_pin_lock_): never call with engine_lock_ held.
   uint64_t RegisterForkPin();
 
-  // Call exactly once per pin (RegisterForkPin or a HistoricalAccess self-pin); an unregistered fork_ts MG_ASSERTs.
+  // Call exactly once per RegisterForkPin pin (a HistoricalAccess self-pin is owned by its accessor's ForkPin);
+  // an unregistered fork_ts MG_ASSERTs.
   // Removes one instance of the multiset key, not all equal ones.
   void ReleaseForkPin(uint64_t fork_ts);
 
