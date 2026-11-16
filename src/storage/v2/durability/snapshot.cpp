@@ -14677,7 +14677,12 @@ std::expected<std::filesystem::path, SnapshotCreationError> CreateSnapshot(
 #ifdef MG_ENTERPRISE
   // Read after this snapshot's transaction exists: a fork before it is visible here, a fork after it has this
   // snapshot as a valid base.
-  auto const retention_floor = storage->RetentionFloor();
+  auto retention_floor = storage->RetentionFloor();
+  // A snapshot at or below the floor is itself the recovery base, so no older snapshot needs keeping.
+  if (retention_floor && (transaction->last_durable_ts_ ? *transaction->last_durable_ts_
+                                                        : transaction->start_timestamp) <= *retention_floor) {
+    retention_floor.reset();
+  }
 #endif
   auto const old_snapshot_files =
 #ifdef MG_ENTERPRISE
