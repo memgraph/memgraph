@@ -13,6 +13,8 @@
 
 #include <range/v3/all.hpp>
 
+#include "utils/logging.hpp"
+
 namespace r = ranges;
 namespace rv = r::views;
 
@@ -26,6 +28,10 @@ OrderedPropertyPaths::OrderedPropertyPaths(std::vector<PropertyPath> paths) : so
     return std::get<1>(value);
   });
   position_lookup_ = std::move(inverse_permutation);
+  // A store is read one forward pass, so a path named twice is searched for the second time behind
+  // the reader and answers Null: a wrong answer for the slot rather than a refusal. Sorting has put
+  // any repeat next to its first occurrence.
+  DMG_ASSERT(r::adjacent_find(sorted_) == sorted_.end(), "A property may be read only once in one pass");
 }
 
 auto OrderedPropertyPaths::FromPropertyIds(std::span<PropertyId const> properties) -> OrderedPropertyPaths {
