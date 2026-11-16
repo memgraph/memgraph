@@ -86,7 +86,8 @@ struct Recovered {
                 nullptr,
                 nullptr,
                 nullptr,
-                ms::durability::HistoryBounds{.recovery_bound = bound}},
+                ms::durability::HistoryBounds{.floor = bound.value_or(ms::Storage::kNoRetentionFloor),
+                                              .recover_only_to_floor = bound.has_value()}},
         tail{storage.TakeRecoveryTail()} {}
 
   double UnreleasedDeltas() { return registration.handles().unreleased_delta_objects.Value(); }
@@ -332,7 +333,7 @@ TEST_F(VersioningHistoryReplayTest, RefusesForkAtOrBeforeTheRecoveredState) {
 
   auto refused = memgraph::dbms::ReplayHistoryTail(r.storage, *r.tail, std::array{durable[0]});
   EXPECT_FALSE(refused.has_value());
-  EXPECT_FALSE(r.storage.OldestForkPin().has_value());
+  EXPECT_EQ(r.storage.OldestForkPin(), ms::InMemoryStorage::kNoForkPin);
   EXPECT_EQ(Ldt(r.storage), durable[0]) << "nothing replayed";
 
   auto pins = memgraph::dbms::ReplayHistoryTail(r.storage, *r.tail, std::span<const uint64_t>{});
@@ -372,7 +373,7 @@ TEST_F(VersioningHistoryReplayTest, EmptyTailPinsEveryForkAndBumpsTheClock) {
   EXPECT_GT(r.UnreleasedDeltas(), 0) << "the pins must keep the new commit's deltas";
   r.storage.ReleaseForkPin((*pins)[1]);
   r.storage.ReleaseForkPin((*pins)[2]);
-  EXPECT_FALSE(r.storage.OldestForkPin().has_value());
+  EXPECT_EQ(r.storage.OldestForkPin(), ms::InMemoryStorage::kNoForkPin);
   Gc(r.storage);
   EXPECT_EQ(r.UnreleasedDeltas(), 0) << "skipped ids must not hold GC back";
 }
@@ -512,5 +513,5 @@ TEST_F(VersioningHistoryReplayTest, CorruptTailWalFailsWithoutPins) {
   auto pins = memgraph::dbms::ReplayHistoryTail(r.storage, *r.tail, std::array{durable[0] + 1, durable[2] + 1});
   ASSERT_FALSE(pins.has_value());
   EXPECT_THAT(pins.error(), ::testing::HasSubstr("threw"));
-  EXPECT_FALSE(r.storage.OldestForkPin().has_value());
+  EXPECT_EQ(r.storage.OldestForkPin(), ms::InMemoryStorage::kNoForkPin);
 }
