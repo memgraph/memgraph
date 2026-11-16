@@ -11,8 +11,8 @@
 
 #include <gtest/gtest.h>
 
-#include <atomic>
 #include <memory>
+#include <stop_token>
 #include <thread>
 #include <vector>
 
@@ -106,12 +106,13 @@ TEST(EdgePropertySize, AnswersWhileTheEdgeIsBeingWritten) {
 
   constexpr auto kReaders = 4;
   constexpr auto kReadsEach = 300;
-  auto readers_running = std::atomic<int>{kReaders};
 
   // Each write is its own transaction, so the delta chain the readers walk stays short and the
-  // contention being tested is for the edge's lock rather than for the length of its history.
-  auto writer = std::jthread{[&] {
-    for (auto next = int64_t{0}; readers_running.load(std::memory_order_relaxed) != 0; ++next) {
+  // contention being tested is for the edge's lock rather than for the length of its history. The
+  // writer runs until it is asked to stop, which every jthread here is on the way out of the
+  // scope, so neither thread waits on the other to finish first.
+  auto writer = std::jthread{[&](std::stop_token const stop) {
+    for (auto next = int64_t{0}; !stop.stop_requested(); ++next) {
       auto acc = store->Access(memgraph::storage::WRITE);
       auto edge = FindEdge(*acc, ids);
       if (!edge.SetProperty(acc->NameToProperty("size_me"), PropertyValue{next}).has_value()) return;
@@ -129,7 +130,6 @@ TEST(EdgePropertySize, AnswersWhileTheEdgeIsBeingWritten) {
         auto const size = edge.GetPropertySize(acc->NameToProperty("size_me"), View::NEW);
         EXPECT_TRUE(size.has_value());
       }
-      readers_running.fetch_sub(1, std::memory_order_relaxed);
     });
   }
 }
