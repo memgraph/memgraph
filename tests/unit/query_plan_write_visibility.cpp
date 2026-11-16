@@ -367,6 +367,26 @@ TEST_F(WriteVisibilityPlan, AnAccessCheckBarrierKeepsTheWritesPending) {
 }
 #endif
 
+// ---------------------------------------------------------------- a map row is not a graph entity
+
+// A row unwound from a literal list of literal maps, or a WITH alias of a map literal whose values hold no entity,
+// is a map: r.name reads no graph property, so a later SET of n.name needs no barrier before r.name is read again.
+TEST_F(WriteVisibilityPlan, AMapRowReadsNoGraphProperty) {
+  EXPECT_EQ(Chain(Plan("UNWIND [{id: 1, name: 'a'}, {id: 2, name: 'b'}] AS r MATCH (n:P) WHERE n.id = r.id "
+                       "SET n.name = r.name SET n.alias = r.name")),
+            (Names{"EmptyResult", "SetProperty", "SetProperty", "Filter", "ScanAll", "Unwind", "Once"}));
+  EXPECT_TRUE(Collect<Accumulate>(Plan("MATCH (n:P) WITH n, {name: toString(n.id)} AS r SET n.name = r.name "
+                                       "SET n.alias = r.name"))
+                  .empty());
+}
+
+// A map that may hold an entity keeps the barrier: m.a.x reads the node's x.
+TEST_F(WriteVisibilityPlan, AMapHoldingANodeReadsItsProperties) {
+  EXPECT_FALSE(Collect<Accumulate>(Plan("MATCH (n) WITH n, {a: n} AS m SET n.x = 1 SET n.y = m.a.x")).empty());
+  EXPECT_FALSE(Collect<Accumulate>(Plan("MATCH (n) UNWIND [{a: n}] AS m SET n.x = 1 SET n.y = m.a.x")).empty());
+  EXPECT_FALSE(Collect<Accumulate>(Plan("MATCH (n) WITH n, {a: head([n])} AS m SET n.x = 1 SET n.y = m.a.x")).empty());
+}
+
 // ---------------------------------------------------------------- read-to-write drains after View::NEW readers
 
 TEST_F(WriteVisibilityPlan, DrainBetweenSetThatReadsAndALaterSetOfTheKey) {
