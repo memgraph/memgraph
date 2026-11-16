@@ -205,6 +205,9 @@ class InMemoryStorage final : public Storage {
     // Idempotent: only the first call after construction or move-in releases.
     void Release();
 
+    // The storage this pin was registered on; nullptr once released or moved-from.
+    InMemoryStorage *storage() const noexcept { return storage_; }
+
    private:
     InMemoryStorage *storage_{nullptr};
     uint64_t fork_ts_{0};
@@ -219,8 +222,7 @@ class InMemoryStorage final : public Storage {
     explicit InMemoryAccessor(InMemoryStorage *storage, std::optional<IsolationLevel> override_isolation_level,
                               utils::ResourceLockGuard guard);
 #ifdef MG_ENTERPRISE
-    explicit InMemoryAccessor(HistoricalAccess tag, InMemoryStorage *storage,
-                              std::function<Transaction()> build_transaction, ForkPin fork_pin,
+    explicit InMemoryAccessor(HistoricalAccess tag, std::function<Transaction()> build_transaction, ForkPin fork_pin,
                               std::optional<std::chrono::milliseconds> timeout = std::nullopt);
 #endif
 
@@ -236,10 +238,6 @@ class InMemoryStorage final : public Storage {
 #ifdef MG_ENTERPRISE
     // HistoricalAccess self-pin; released on commit or Abort, otherwise on destruction.
     ForkPin fork_pin_;
-
-    // Throws WriteInHistoricalAccessorException on a historical accessor; first statement of every READ-accepting
-    // metadata writer.
-    void ThrowIfHistorical() const;
 #endif
 
     std::optional<EdgeAccessor> CreateEdgeInternal(Vertex *from_vertex, Vertex *to_vertex, EdgeTypeId edge_type,
@@ -793,6 +791,7 @@ class InMemoryStorage final : public Storage {
 #ifdef MG_ENTERPRISE
     // TTL management methods
     void StartTtl(TTLReplicationArgs repl_args = {}) override {
+      ThrowIfHistorical();
       DMG_ASSERT(type() == UNIQUE, "TTL operations require unique access to the storage!");
       if (!storage_->ttl_.Config()) throw ttl::TtlException("TTL not configured!");
       // Only MAIN should be running the TTL worker, it does write operations which only MAIN should be doing
@@ -806,6 +805,7 @@ class InMemoryStorage final : public Storage {
     }
 
     void StopTtl() override {
+      ThrowIfHistorical();
       DMG_ASSERT(type() == UNIQUE, "TTL operations require unique access to the storage!");
       storage_->ttl_.Pause();
       transaction_.md_deltas.emplace_back(
@@ -813,6 +813,7 @@ class InMemoryStorage final : public Storage {
     }
 
     void ConfigureTtl(const storage::ttl::TtlInfo &ttl_info, TTLReplicationArgs repl_args = {}) override {
+      ThrowIfHistorical();
       DMG_ASSERT(type() == UNIQUE, "TTL operations require unique access to the storage!");
       auto ttl_label = NameToLabel("TTL");
       auto ttl_property = NameToProperty("ttl");
@@ -855,6 +856,7 @@ class InMemoryStorage final : public Storage {
     }
 
     void DisableTtl(TTLReplicationArgs repl_args = {}) override {
+      ThrowIfHistorical();
       DMG_ASSERT(type() == UNIQUE, "TTL operations require unique access to the storage!");
       auto ttl_label = NameToLabel("TTL");
       auto ttl_property = NameToProperty("ttl");
@@ -966,8 +968,9 @@ class InMemoryStorage final : public Storage {
   // Read-only accessor at `fork_ts` (must be a live pin, else ForkTimestampNotPinned); self-pins it until finalize.
   // SNAPSHOT_ISOLATION only; writes throw WriteInHistoricalAccessorException. Label/edge/property indexes are used only
   // if committed by fork_ts; point/text/vector indexes are not used.
-  // Blocks on main_lock_ without timeout: a caller already holding an accessor here deadlocks behind a pending UNIQUE.
-  std::expected<std::unique_ptr<Storage::Accessor>, HistoricalAccessError> HistoricalAccess(uint64_t fork_ts);
+  // Waiting for the shared lock throws SharedAccessTimeout on expiry; no timeout blocks indefinitely.
+  std::expected<std::unique_ptr<Storage::Accessor>, HistoricalAccessError> HistoricalAccess(
+      uint64_t fork_ts, std::optional<std::chrono::milliseconds> timeout = std::nullopt);
 #endif
 
   utils::FileRetainer::FileLockerAccessor::ret_type IsPathLocked();

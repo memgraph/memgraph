@@ -199,7 +199,7 @@ struct Transaction {
   void EnsureCommitInfoExists() {
     if (commit_info != nullptr) return;
 #ifdef MG_ENTERPRISE
-    // Chokepoint for every MVCC delta (mvcc.hpp); metadata deltas bypass it and are refused at commit.
+    // Chokepoint for every MVCC delta (mvcc.hpp); metadata deltas bypass it and are refused at their entry points.
     if (is_historical_) [[unlikely]] {
       throw WriteInHistoricalAccessorException();
     }
@@ -293,7 +293,8 @@ struct Transaction {
   uint64_t original_start_timestamp{};
 #ifdef MG_ENTERPRISE
   // Read-only accessor at a pinned past fork_ts. That tick is later dispensed to a real transaction, so
-  // finalization must release the fork pin instead of MarkFinished(start_timestamp).
+  // finalization must release the fork pin instead of MarkFinished(start_timestamp). MVCC writes throw in
+  // EnsureCommitInfoExists; metadata writes are refused at their entry points (ThrowIfHistorical).
   bool is_historical_{false};
 #endif
   // The `Transaction` object is stack allocated, but the `commit_info`

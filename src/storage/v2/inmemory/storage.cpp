@@ -614,12 +614,20 @@ InMemoryStorage::InMemoryAccessor::InMemoryAccessor(InMemoryStorage *storage,
     : Accessor(storage, override_isolation_level, std::move(guard)), config_(storage->config_.salient.items) {}
 
 #ifdef MG_ENTERPRISE
-InMemoryStorage::InMemoryAccessor::InMemoryAccessor(HistoricalAccess tag, InMemoryStorage *storage,
+namespace {
+// Evaluated before `fork_pin` is moved into the accessor.
+InMemoryStorage *PinnedStorage(InMemoryStorage::ForkPin const &pin) {
+  DMG_ASSERT(pin.storage() != nullptr, "Historical accessor needs a live fork pin");
+  return pin.storage();
+}
+}  // namespace
+
+InMemoryStorage::InMemoryAccessor::InMemoryAccessor(HistoricalAccess tag,
                                                     std::function<Transaction()> build_transaction, ForkPin fork_pin,
                                                     std::optional<std::chrono::milliseconds> timeout)
-    : Accessor(tag, storage, std::move(build_transaction), timeout),
+    : Accessor(tag, PinnedStorage(fork_pin), std::move(build_transaction), timeout),
       fork_pin_(std::move(fork_pin)),
-      config_(storage->config_.salient.items) {}
+      config_(static_cast<InMemoryStorage *>(storage_)->config_.salient.items) {}
 
 void InMemoryStorage::ForkPin::Release() {
   if (auto *storage = std::exchange(storage_, nullptr)) storage->ReleaseForkPin(fork_ts_);
@@ -1095,7 +1103,7 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
 
 #ifdef MG_ENTERPRISE
   if (transaction_.is_historical_) [[unlikely]] {
-    // MVCC writes throw in EnsureCommitInfoExists, metadata writes at their setters/droppers.
+    // MVCC writes throw in EnsureCommitInfoExists; metadata writes are refused at their entry points.
     DMG_ASSERT(transaction_.md_deltas.empty(), "Historical accessor recorded a metadata delta.");
     fork_pin_.Release();
     return {};
@@ -3191,21 +3199,23 @@ Transaction InMemoryStorage::CreateHistoricalTransaction(uint64_t fork_ts) {
 }
 
 std::expected<std::unique_ptr<Storage::Accessor>, InMemoryStorage::HistoricalAccessError>
-InMemoryStorage::HistoricalAccess(uint64_t fork_ts) {
+InMemoryStorage::HistoricalAccess(uint64_t fork_ts, std::optional<std::chrono::milliseconds> timeout) {
   {
     // Check and self-pin in one critical section: a concurrent DROP BRANCH must not unpin fork_ts in between.
     auto pin_guard = std::scoped_lock{version_fork_pin_lock_};
     if (!version_fork_pins_.contains(fork_ts)) {
       return std::unexpected{HistoricalAccessError::ForkTimestampNotPinned};
     }
-    // Another reference to an already-pinned fork_ts: the oldest pin is unchanged.
+    // Self-pin: a second reference to an already-pinned fork_ts, so a concurrent release of the owning pin (e.g. DROP
+    // BRANCH) cannot let GC reclaim the history this reader needs. The oldest pin is unchanged. The accessor's ForkPin
+    // releases it on commit, abort or destruction.
     version_fork_pins_.insert(fork_ts);
   }
   // The handle releases the self-pin if accessor construction throws.
   ForkPin pin{this, fork_ts};
   auto build_transaction = [this, fork_ts] { return CreateHistoricalTransaction(fork_ts); };
   std::unique_ptr<Storage::Accessor> accessor{new InMemoryAccessor{
-      Storage::Accessor::historical_access, this, std::move(build_transaction), std::move(pin), std::nullopt}};
+      Storage::Accessor::historical_access, std::move(build_transaction), std::move(pin), timeout}};
   // Read under the accessor's guard, so SetStorageMode (UNIQUE) cannot change it while the accessor lives.
   if (accessor->GetTransaction()->storage_mode != StorageMode::IN_MEMORY_TRANSACTIONAL) {
     return std::unexpected{HistoricalAccessError::StorageModeNotTransactional};  // ~accessor releases the self-pin
@@ -5853,13 +5863,6 @@ void InMemoryStorage::InMemoryAccessor::DropAllConstraints() {
     [[maybe_unused]] auto maybe_error = DropTypeConstraint(label_id, property_id, type);
   }
 }
-
-#ifdef MG_ENTERPRISE
-void InMemoryStorage::InMemoryAccessor::ThrowIfHistorical() const {
-  if (transaction_.is_historical_) [[unlikely]]
-    throw WriteInHistoricalAccessorException();
-}
-#endif
 
 void InMemoryStorage::InMemoryAccessor::SetIndexStats(const storage::LabelId &label, const LabelIndexStats &stats) {
 #ifdef MG_ENTERPRISE
