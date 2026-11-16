@@ -93,6 +93,16 @@ auto AddLabelledCounters(prometheus::Family<prometheus::Counter> &family, promet
   return counters;
 }
 
+auto AddQueryDurations(prometheus::Family<prometheus::Histogram> &family, prometheus::Labels labels)
+    -> std::array<HistogramHandle, kQueryOutcomes.size()> {
+  std::array<HistogramHandle, kQueryOutcomes.size()> histograms;
+  for (auto const &[histogram, outcome] : rv::zip(histograms, kQueryOutcomes)) {
+    labels.insert_or_assign("outcome", std::string{outcome});
+    histogram.histogram = &family.Add(labels, kLatencyBuckets);
+  }
+  return histograms;
+}
+
 void RemoveDurabilityThroughput(std::string_view instance_name,
                                 prometheus::Family<prometheus::Histogram> &throughput_family,
                                 DurabilityThroughput &throughput) {
@@ -692,6 +702,11 @@ PrometheusMetrics::PrometheusMetrics()
                                           .Name("memgraph_query_execution_latency_seconds")
                                           .Help("Query execution latency in seconds")
                                           .Register(registry_)},
+      query_duration_family_{prometheus::BuildHistogram()
+                                 .Name("memgraph_query_duration_seconds")
+                                 .Help("Server time per query, from parsing to its last result or commit, by "
+                                       "outcome: success, failure, or aborted")
+                                 .Register(registry_)},
       snapshot_creation_latency_family_{prometheus::BuildHistogram()
                                             .Name("memgraph_snapshot_creation_latency_seconds")
                                             .Help("Snapshot creation latency in seconds")
@@ -855,6 +870,7 @@ PrometheusMetrics::PrometheusMetrics()
   // Incremented only when a query fires outside any database context.
   global.transient_errors = &transient_errors_family_.Add(no_labels);
   global.aborted_queries = AddLabelledCounters(aborted_queries_family_, no_labels, "reason", kAbortedQueryReasons);
+  global.query_duration_seconds = AddQueryDurations(query_duration_family_, no_labels);
   global.failed_query = &failed_query_family_.Add(no_labels);
   global.failed_prepare = &failed_prepare_family_.Add(no_labels);
   global.failed_pull = &failed_pull_family_.Add(no_labels);
@@ -1055,6 +1071,7 @@ DatabaseMetricHandles PrometheusMetrics::CreateHandles(uint64_t entry_id) {
       .write_write_conflicts = {&write_write_conflicts_family_.Add(labels)},
       .transient_errors = {&transient_errors_family_.Add(labels)},
       .aborted_queries = AddLabelledCounters(aborted_queries_family_, labels, "reason", kAbortedQueryReasons),
+      .query_duration_seconds = AddQueryDurations(query_duration_family_, labels),
       .unreleased_delta_objects = {&unreleased_delta_objects_family_.Add(labels)},
       .read_query = {&read_query_family_.Add(labels)},
       .write_query = {&write_query_family_.Add(labels)},
@@ -1233,6 +1250,7 @@ void PrometheusMetrics::RemoveHandlesFromFamilies(DatabaseMetricHandles const &h
   write_write_conflicts_family_.Remove(h.write_write_conflicts.get());
   transient_errors_family_.Remove(h.transient_errors.get());
   for (auto const &counter : h.aborted_queries) aborted_queries_family_.Remove(counter.get());
+  for (auto const &histogram : h.query_duration_seconds) query_duration_family_.Remove(histogram.get());
   unreleased_delta_objects_family_.Remove(h.unreleased_delta_objects.get());
   read_query_family_.Remove(h.read_query.get());
   write_query_family_.Remove(h.write_query.get());

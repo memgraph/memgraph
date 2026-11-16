@@ -19,6 +19,7 @@ from common import connect, execute_and_fetch_all
 
 ABORTED_QUERIES = re.compile(r"^memgraph_aborted_queries_total\{(.*)\} (\S+)$", re.MULTILINE)
 LABEL = re.compile(r'(\w+)="([^"]*)"')
+QUERY_DURATION_COUNT = re.compile(r"^memgraph_query_duration_seconds_count\{(.*)\} (\S+)$", re.MULTILINE)
 
 
 def aborted_queries(reason, database="memgraph"):
@@ -29,6 +30,32 @@ def aborted_queries(reason, database="memgraph"):
         if found.get("reason") == reason and found.get("database") == database:
             return float(value)
     return None
+
+
+def query_durations(outcome, database="memgraph"):
+    with urllib.request.urlopen("http://localhost:9091/metrics") as response:
+        body = response.read().decode("utf-8")
+    for labels, value in QUERY_DURATION_COUNT.findall(body):
+        found = dict(LABEL.findall(labels))
+        if found.get("outcome") == outcome and found.get("database") == database:
+            return float(value)
+    return None
+
+
+def test_query_duration_is_observed_once_per_query_by_outcome(connect):
+    cursor = connect.cursor()
+    before = {outcome: query_durations(outcome) for outcome in ("success", "failure", "aborted")}
+    assert None not in before.values()
+
+    execute_and_fetch_all(cursor, "RETURN 1;")
+    with pytest.raises(mgclient.DatabaseError):
+        execute_and_fetch_all(cursor, "RETURN 1/0;")
+    with pytest.raises(mgclient.DatabaseError):
+        execute_and_fetch_all(cursor, "UNWIND range(1, 100000) AS x UNWIND range(1, 100000) AS y RETURN count(*);")
+
+    assert query_durations("success") == before["success"] + 1
+    assert query_durations("failure") == before["failure"] + 1
+    assert query_durations("aborted") == before["aborted"] + 1
 
 
 def test_memory_limit_abort_is_counted(connect):

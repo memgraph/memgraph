@@ -113,6 +113,7 @@ EXPECTED_OPENMETRICS_PER_DB_FAMILIES = {
     "write_write_conflicts_total",
     "transient_errors_total",
     "aborted_queries_total",
+    "query_duration_seconds",
     "unreleased_delta_objects",
     "gc_index_sweeps_total",
     # QueryType

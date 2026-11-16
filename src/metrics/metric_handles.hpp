@@ -62,6 +62,11 @@ inline constexpr std::array<CounterLabelValue, 4> kAbortedQueryReasons{{
     {.label = "shutdown", .info_name = "AbortedQueriesShutdown"},
 }};
 
+enum class QueryOutcome : uint8_t { SUCCESS, FAILURE, ABORTED };
+
+// Indexed by QueryOutcome.
+inline constexpr std::array<std::string_view, 3> kQueryOutcomes{"success", "failure", "aborted"};
+
 struct CounterHandle {
   prometheus::Counter *counter{nullptr};
 
@@ -200,6 +205,8 @@ struct DatabaseMetricHandles {
   CounterHandle transient_errors;
   // Indexed by AbortedQueryReason.
   std::array<CounterHandle, kAbortedQueryReasons.size()> aborted_queries;
+  // Indexed by QueryOutcome.
+  std::array<HistogramHandle, kQueryOutcomes.size()> query_duration_seconds;
   GaugeHandle unreleased_delta_objects;
 
   // Query type

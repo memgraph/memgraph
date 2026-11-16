@@ -111,6 +111,8 @@ struct GlobalMetricHandles {
   prometheus::Counter *transient_errors;
   // Indexed by AbortedQueryReason.
   std::array<CounterHandle, kAbortedQueryReasons.size()> aborted_queries;
+  // Indexed by QueryOutcome.
+  std::array<HistogramHandle, kQueryOutcomes.size()> query_duration_seconds;
   prometheus::Counter *failed_query;
   prometheus::Counter *failed_prepare;
   prometheus::Counter *failed_pull;
@@ -494,6 +496,7 @@ class PrometheusMetrics {
 
   // Per-database metric families — histograms
   prometheus::Family<prometheus::Histogram> &query_execution_latency_family_;
+  prometheus::Family<prometheus::Histogram> &query_duration_family_;
   prometheus::Family<prometheus::Histogram> &snapshot_creation_latency_family_;
   prometheus::Family<prometheus::Histogram> &snapshot_recovery_latency_family_;
 
