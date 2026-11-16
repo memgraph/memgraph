@@ -603,7 +603,7 @@ TEST(TemporalTest, LocalTimeParsing) {
   ASSERT_THROW(memgraph::utils::ParseLocalTimeParameters("19:20:21.999999999999"),
                memgraph::utils::temporal::InvalidArgumentException);
 
-  // The help text is user-visible and must document the accepted fraction widths (A4).
+  // The help text is user-visible and must document the accepted fraction widths.
   try {
     static_cast<void>(memgraph::utils::ParseLocalTimeParameters("19:20:21s"));
     FAIL() << "a non-fraction suffix must be rejected";
@@ -643,7 +643,7 @@ void test_LocalDateTimeParsing() {
   EXPECT_THROW(memgraph::utils::ParseLocalDateTimeParameters("2024-13-45"),
                memgraph::utils::temporal::InvalidArgumentException);
 
-  // The help text is user-visible and must document the date-only form (A4).
+  // The help text is user-visible and must document the date-only form.
   try {
     static_cast<void>(memgraph::utils::ParseLocalDateTimeParameters("2024-01-02T"));
     FAIL() << "an empty time part must be rejected";

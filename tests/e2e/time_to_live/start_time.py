@@ -17,8 +17,7 @@ from common import connect
 
 
 def test_ttl_start_time_fraction(connect):
-    # The TTL start time goes through the local-time parser: fractions of 1-9 digits are accepted and
-    # keep their microsecond value, so configuring TTL must not fail.
+    # TTL start time goes through the local-time parser, so 1-9 digit fractions must keep their microsecond value.
     memgraph = connect.cursor()
     for start_time in ("03:04:05.5", "03:04:05.123456"):
         try:

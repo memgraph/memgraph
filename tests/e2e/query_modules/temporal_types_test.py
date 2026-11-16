@@ -101,7 +101,7 @@ def test_temporal_string_parsing_family():
         with pytest.raises(mgclient.DatabaseError):
             execute_and_fetch_all(cursor, f"RETURN {value}")
 
-    # The help text is user-visible and must document the widened forms (A4).
+    # The help text is user-visible and must document the widened forms.
     with pytest.raises(mgclient.DatabaseError) as exc_info:
         execute_and_fetch_all(cursor, 'RETURN localtime("03:04:05s")')
     assert "1 to 9 digits after the decimal point" in str(exc_info.value), str(exc_info.value)
@@ -112,7 +112,7 @@ def test_temporal_string_parsing_family():
 
 
 def test_trigger_reparses_widened_temporal_strings():
-    # A trigger statement is parsed and executed when it fires; it must accept the widened forms too (A13).
+    # A trigger statement is parsed and executed when it fires; it must accept the widened forms too.
     cursor = connect().cursor()
     execute_and_fetch_all(
         cursor,

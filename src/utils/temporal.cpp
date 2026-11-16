@@ -258,7 +258,7 @@ struct DateTimeLayout {
   std::string_view designator;
 };
 
-// Length of a leading date prefix (YYYY-MM-DD, YYYYMMDD or YYYY-MM); 0 when the string does not start with a date.
+// Length of a leading date prefix (YYYY-MM-DD, YYYYMMDD, YYYY-MM or YYYYMM); 0 if absent.
 size_t DatePrefixLength(std::string_view string) {
   if (!ParseNumber<int64_t>(string, 4)) {
     return 0;
@@ -298,7 +298,7 @@ DateTimeLayout SplitDateTime(std::string_view string) {
   return {.date_time = string};
 }
 
-// Reads a 1-9 digit second fraction, right-padded to nanoseconds and truncated to microseconds.
+// Reads up to 9 fraction digits, right-padded to nanoseconds and truncated to microseconds; excess stays in `string`.
 int64_t ParseFractionMicros(std::string_view &string) {
   size_t digits = 0;
   while (digits < string.size() && string[digits] >= '0' && string[digits] <= '9') {
