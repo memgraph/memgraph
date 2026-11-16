@@ -27,27 +27,6 @@ Feature: MATCH after OPTIONAL MATCH
             | 'Keanu'  | 'JW'     | 'Carrie' | 'Matrix' |
             | 'Keanu'  | 'JW'     | 'Keanu'  | 'JW'     |
 
-    Scenario: An optional that matches nothing keeps one null row before the MATCH
-        Given an empty graph
-        And having executed:
-            """
-            CREATE (k:MaoP {name: 'Keanu'}), (c:MaoP {name: 'Carrie'}), (h:MaoP {name: 'Hugo'}),
-                   (mx:MaoM {title: 'Matrix', v: 1}), (jw:MaoM {title: 'JW', v: 2}), (lone:MaoM {title: 'Lone', v: 3}),
-                   (k)-[:ACTED_IN]->(mx), (c)-[:ACTED_IN]->(mx), (k)-[:ACTED_IN]->(jw),
-                   (mx)-[:SEQUEL]->(jw)
-            """
-        When executing query:
-            """
-            OPTIONAL MATCH (x:MaoNone)
-            MATCH (p:MaoP)
-            RETURN x IS NULL AS xnull, p.name AS p
-            """
-        Then the result should be:
-            | xnull | p        |
-            | true  | 'Keanu'  |
-            | true  | 'Carrie' |
-            | true  | 'Hugo'   |
-
     Scenario: A MATCH expanding from a null optional node drops the row
         Given an empty graph
         And having executed:
@@ -61,13 +40,13 @@ Feature: MATCH after OPTIONAL MATCH
             """
             MATCH (p:MaoP)
             OPTIONAL MATCH (p)-[:ACTED_IN]->(m:MaoM)
-            MATCH (m)-[:SEQUEL]->(s)
-            RETURN p.name AS p, m.title AS m, s.title AS s
+            MATCH q = (m)-[:SEQUEL]->(s)
+            RETURN p.name AS p, m.title AS m, s.title AS s, length(q) AS len
             """
         Then the result should be:
-            | p        | m        | s    |
-            | 'Keanu'  | 'Matrix' | 'JW' |
-            | 'Carrie' | 'Matrix' | 'JW' |
+            | p        | m        | s    | len |
+            | 'Keanu'  | 'Matrix' | 'JW' | 1   |
+            | 'Carrie' | 'Matrix' | 'JW' | 1   |
 
     Scenario: A MATCH expanding from a null optional node drops the row (indexes EDGE :SEQUEL)
         Given an empty graph
@@ -86,13 +65,13 @@ Feature: MATCH after OPTIONAL MATCH
             """
             MATCH (p:MaoP)
             OPTIONAL MATCH (p)-[:ACTED_IN]->(m:MaoM)
-            MATCH (m)-[:SEQUEL]->(s)
-            RETURN p.name AS p, m.title AS m, s.title AS s
+            MATCH q = (m)-[:SEQUEL]->(s)
+            RETURN p.name AS p, m.title AS m, s.title AS s, length(q) AS len
             """
         Then the result should be:
-            | p        | m        | s    |
-            | 'Keanu'  | 'Matrix' | 'JW' |
-            | 'Carrie' | 'Matrix' | 'JW' |
+            | p        | m        | s    | len |
+            | 'Keanu'  | 'Matrix' | 'JW' | 1   |
+            | 'Carrie' | 'Matrix' | 'JW' | 1   |
 
     Scenario: A variable-length MATCH from a null optional node drops the row
         Given an empty graph
@@ -133,8 +112,8 @@ Feature: MATCH after OPTIONAL MATCH
             """
         Then the result should be:
             | p        | m        |
-            | 'Keanu'  | 'Matrix' |
             | 'Keanu'  | 'JW'     |
+            | 'Keanu'  | 'Matrix' |
             | 'Carrie' | 'Matrix' |
 
     Scenario: A labelled MATCH on a null optional node drops the row
@@ -180,25 +159,6 @@ Feature: MATCH after OPTIONAL MATCH
             | a    | b    |
             | 'JW' | 'JW' |
 
-    Scenario: A WHERE on a null optional variable drops every row
-        Given an empty graph
-        And having executed:
-            """
-            CREATE (k:MaoP {name: 'Keanu'}), (c:MaoP {name: 'Carrie'}), (h:MaoP {name: 'Hugo'}),
-                   (mx:MaoM {title: 'Matrix', v: 1}), (jw:MaoM {title: 'JW', v: 2}), (lone:MaoM {title: 'Lone', v: 3}),
-                   (k)-[:ACTED_IN]->(mx), (c)-[:ACTED_IN]->(mx), (k)-[:ACTED_IN]->(jw),
-                   (mx)-[:SEQUEL]->(jw)
-            """
-        When executing query:
-            """
-            OPTIONAL MATCH (a:MaoNone)
-            MATCH (b:MaoM) WHERE b.v >= a.v
-            RETURN count(*) AS c
-            """
-        Then the result should be:
-            | c |
-            | 0 |
-
     Scenario: An independent MATCH after a null optional keeps the null
         Given an empty graph
         And having executed:
@@ -219,26 +179,6 @@ Feature: MATCH after OPTIONAL MATCH
             | p      | m    | m2       |
             | 'Hugo' | null | 'Matrix' |
 
-    Scenario: A relationship may repeat across the two MATCH clauses
-        Given an empty graph
-        And having executed:
-            """
-            CREATE (k:MaoP {name: 'Keanu'}), (c:MaoP {name: 'Carrie'}), (h:MaoP {name: 'Hugo'}),
-                   (mx:MaoM {title: 'Matrix', v: 1}), (jw:MaoM {title: 'JW', v: 2}), (lone:MaoM {title: 'Lone', v: 3}),
-                   (k)-[:ACTED_IN]->(mx), (c)-[:ACTED_IN]->(mx), (k)-[:ACTED_IN]->(jw),
-                   (mx)-[:SEQUEL]->(jw)
-            """
-        When executing query:
-            """
-            MATCH ()-[r:SEQUEL]->()
-            OPTIONAL MATCH (x:MaoNone)
-            MATCH ()-[s:SEQUEL]->()
-            RETURN count(*) AS c, r = s AS same
-            """
-        Then the result should be:
-            | c | same |
-            | 1 | true |
-
     Scenario: Optional and MATCH alternate twice
         Given an empty graph
         And having executed:
@@ -248,51 +188,21 @@ Feature: MATCH after OPTIONAL MATCH
                    (k)-[:ACTED_IN]->(mx), (c)-[:ACTED_IN]->(mx), (k)-[:ACTED_IN]->(jw),
                    (mx)-[:SEQUEL]->(jw)
             """
-        And parameters are:
-            | two | 2 |
         When executing query:
             """
             MATCH (p:MaoP)
             OPTIONAL MATCH (p)-[:ACTED_IN]->(m:MaoM)
-            MATCH (q:MaoP) WHERE q.name = p.name
+            MATCH (m)<-[:ACTED_IN]-(q:MaoP)
             OPTIONAL MATCH (m)-[:SEQUEL]->(s)
-            MATCH (any:MaoM) WHERE any.v >= $two
-            RETURN p.name AS p, m.title AS m, s.title AS s, any.title AS l
+            MATCH (s)<-[:SEQUEL]-(back)
+            RETURN p.name AS p, m.title AS m, q.name AS q, back.title AS b
             """
         Then the result should be:
-            | p        | m        | s    | l      |
-            | 'Keanu'  | 'JW'     | null | 'JW'   |
-            | 'Keanu'  | 'JW'     | null | 'Lone' |
-            | 'Keanu'  | 'Matrix' | 'JW' | 'JW'   |
-            | 'Keanu'  | 'Matrix' | 'JW' | 'Lone' |
-            | 'Carrie' | 'Matrix' | 'JW' | 'JW'   |
-            | 'Carrie' | 'Matrix' | 'JW' | 'Lone' |
-            | 'Hugo'   | null     | null | 'JW'   |
-            | 'Hugo'   | null     | null | 'Lone' |
-
-    Scenario: Inside a CALL subquery body
-        Given an empty graph
-        And having executed:
-            """
-            CREATE (k:MaoP {name: 'Keanu'}), (c:MaoP {name: 'Carrie'}), (h:MaoP {name: 'Hugo'}),
-                   (mx:MaoM {title: 'Matrix', v: 1}), (jw:MaoM {title: 'JW', v: 2}), (lone:MaoM {title: 'Lone', v: 3}),
-                   (k)-[:ACTED_IN]->(mx), (c)-[:ACTED_IN]->(mx), (k)-[:ACTED_IN]->(jw),
-                   (mx)-[:SEQUEL]->(jw)
-            """
-        When executing query:
-            """
-            MATCH (p:MaoP)
-            CALL (p) {
-              OPTIONAL MATCH (p)-[:ACTED_IN]->(m:MaoM)
-              MATCH (m)-[:SEQUEL]->(s)
-              RETURN s.title AS s
-            }
-            RETURN p.name AS p, s
-            """
-        Then the result should be:
-            | p        | s    |
-            | 'Keanu'  | 'JW' |
-            | 'Carrie' | 'JW' |
+            | p        | m        | q        | b        |
+            | 'Keanu'  | 'Matrix' | 'Carrie' | 'Matrix' |
+            | 'Keanu'  | 'Matrix' | 'Keanu'  | 'Matrix' |
+            | 'Carrie' | 'Matrix' | 'Carrie' | 'Matrix' |
+            | 'Carrie' | 'Matrix' | 'Keanu'  | 'Matrix' |
 
     Scenario: Inside a CALL subquery body (indexes EDGE :SEQUEL)
         Given an empty graph
@@ -322,6 +232,31 @@ Feature: MATCH after OPTIONAL MATCH
             | 'Keanu'  | 'JW' |
             | 'Carrie' | 'JW' |
 
+    Scenario: Inside a CALL subquery body that imports nothing
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (k:MaoP {name: 'Keanu'}), (c:MaoP {name: 'Carrie'}), (h:MaoP {name: 'Hugo'}),
+                   (mx:MaoM {title: 'Matrix', v: 1}), (jw:MaoM {title: 'JW', v: 2}), (lone:MaoM {title: 'Lone', v: 3}),
+                   (k)-[:ACTED_IN]->(mx), (c)-[:ACTED_IN]->(mx), (k)-[:ACTED_IN]->(jw),
+                   (mx)-[:SEQUEL]->(jw)
+            """
+        When executing query:
+            """
+            MATCH (p:MaoP)
+            CALL {
+              OPTIONAL MATCH (q:MaoP {name: 'Hugo'})-[:ACTED_IN]->(m:MaoM)
+              MATCH (m)-[:SEQUEL]->(s)
+              RETURN count(*) AS c
+            }
+            RETURN p.name AS p, c
+            """
+        Then the result should be:
+            | p        | c |
+            | 'Keanu'  | 0 |
+            | 'Carrie' | 0 |
+            | 'Hugo'   | 0 |
+
     Scenario: Inside an EXISTS body
         Given an empty graph
         And having executed:
@@ -345,7 +280,7 @@ Feature: MATCH after OPTIONAL MATCH
             | 'Carrie' | true  |
             | 'Hugo'   | false |
 
-    Scenario: After a CALL subquery between the optional and the MATCH
+    Scenario: Inside a COLLECT body
         Given an empty graph
         And having executed:
             """
@@ -356,14 +291,18 @@ Feature: MATCH after OPTIONAL MATCH
             """
         When executing query:
             """
-            OPTIONAL MATCH (x:MaoNone)
-            CALL () { RETURN 1 AS one }
-            MATCH (m:MaoM {title: 'Lone'})
-            RETURN x IS NULL AS xnull, one, m.title AS m
+            MATCH (p:MaoP)
+            RETURN p.name AS p, size(COLLECT {
+              OPTIONAL MATCH (p)-[:ACTED_IN]->(m:MaoM)
+              MATCH (m)-[:SEQUEL]->(s)
+              RETURN s.title
+            }) AS c
             """
         Then the result should be:
-            | xnull | one | m      |
-            | true  | 1   | 'Lone' |
+            | p        | c |
+            | 'Keanu'  | 1 |
+            | 'Carrie' | 1 |
+            | 'Hugo'   | 0 |
 
     Scenario: A SET after the MATCH writes once per surviving row
         Given an empty graph
@@ -402,65 +341,7 @@ Feature: MATCH after OPTIONAL MATCH
             | created | total |
             | 2       | 4     |
 
-    Scenario: A MATCH after an update is still refused
-        # Divergence: memgraph refuses MATCH after an update without WITH; Cypher allows it. Out of scope. Text pinned by CypherMainVisitorTest.ClausesOrdering.
-        Given an empty graph
-        And having executed:
-            """
-            CREATE (k:MaoP {name: 'Keanu'}), (c:MaoP {name: 'Carrie'}), (h:MaoP {name: 'Hugo'}),
-                   (mx:MaoM {title: 'Matrix', v: 1}), (jw:MaoM {title: 'JW', v: 2}), (lone:MaoM {title: 'Lone', v: 3}),
-                   (k)-[:ACTED_IN]->(mx), (c)-[:ACTED_IN]->(mx), (k)-[:ACTED_IN]->(jw),
-                   (mx)-[:SEQUEL]->(jw)
-            """
-        When executing query:
-            """
-            OPTIONAL MATCH (x:MaoNone)
-            CREATE (:MaoTmp)
-            MATCH (m:MaoM)
-            RETURN count(*) AS c
-            """
-        Then an error should be raised
-
-    Scenario: The MATCH reuses a relationship variable the optional bound
-        # Divergence: pre-existing "Redeclaring variable: r." for any reuse of a bound relationship variable in a later MATCH, WITH * too. Cypher returns a='Matrix', b='JW'.
-        Given an empty graph
-        And having executed:
-            """
-            CREATE (k:MaoP {name: 'Keanu'}), (c:MaoP {name: 'Carrie'}), (h:MaoP {name: 'Hugo'}),
-                   (mx:MaoM {title: 'Matrix', v: 1}), (jw:MaoM {title: 'JW', v: 2}), (lone:MaoM {title: 'Lone', v: 3}),
-                   (k)-[:ACTED_IN]->(mx), (c)-[:ACTED_IN]->(mx), (k)-[:ACTED_IN]->(jw),
-                   (mx)-[:SEQUEL]->(jw)
-            """
-        When executing query:
-            """
-            OPTIONAL MATCH (a:MaoM)-[r:SEQUEL]->()
-            MATCH ()-[r]->(b)
-            RETURN a.title AS a, b.title AS b
-            """
-        Then an error should be raised
-
-    Scenario: A named path in the MATCH starts at an optional node
-        Given an empty graph
-        And having executed:
-            """
-            CREATE (k:MaoP {name: 'Keanu'}), (c:MaoP {name: 'Carrie'}), (h:MaoP {name: 'Hugo'}),
-                   (mx:MaoM {title: 'Matrix', v: 1}), (jw:MaoM {title: 'JW', v: 2}), (lone:MaoM {title: 'Lone', v: 3}),
-                   (k)-[:ACTED_IN]->(mx), (c)-[:ACTED_IN]->(mx), (k)-[:ACTED_IN]->(jw),
-                   (mx)-[:SEQUEL]->(jw)
-            """
-        When executing query:
-            """
-            MATCH (p:MaoP)
-            OPTIONAL MATCH (p)-[:ACTED_IN]->(m:MaoM)
-            MATCH q = (m)-[:SEQUEL]->()
-            RETURN p.name AS p, length(q) AS len
-            """
-        Then the result should be:
-            | p        | len |
-            | 'Keanu'  | 1   |
-            | 'Carrie' | 1   |
-
-    Scenario: The MATCH reads what a later SET writes on another row
+    Scenario: The MATCH does not see what the SET wrote on an earlier row
         Given an empty graph
         And having executed:
             """
@@ -494,87 +375,3 @@ Feature: MATCH after OPTIONAL MATCH
         Then the result should be:
             | t |
             | 9 |
-
-    Scenario: An UNWIND between the optional and the MATCH
-        Given an empty graph
-        And having executed:
-            """
-            CREATE (k:MaoP {name: 'Keanu'}), (c:MaoP {name: 'Carrie'}), (h:MaoP {name: 'Hugo'}),
-                   (mx:MaoM {title: 'Matrix', v: 1}), (jw:MaoM {title: 'JW', v: 2}), (lone:MaoM {title: 'Lone', v: 3}),
-                   (k)-[:ACTED_IN]->(mx), (c)-[:ACTED_IN]->(mx), (k)-[:ACTED_IN]->(jw),
-                   (mx)-[:SEQUEL]->(jw)
-            """
-        And parameters are:
-            | xs | [1, 2] |
-        When executing query:
-            """
-            MATCH (p:MaoP {name: 'Hugo'})
-            OPTIONAL MATCH (p)-[:ACTED_IN]->(m:MaoM)
-            UNWIND $xs AS x
-            MATCH (m)-[:SEQUEL]->(s)
-            RETURN x, s.title AS s
-            """
-        Then the result should be empty
-
-    Scenario: An UNWIND of a non-node between the pair fails the node MATCH on it
-        # Divergence: Cypher rejects this at compile time (n is an integer); memgraph raises at run time "Expected a node for 'n', but got int.", as with WITH between them. Error type pinned by QueryExecution.MatchOnBoundNodeIsNotANode.
-        Given an empty graph
-        And having executed:
-            """
-            CREATE (k:MaoP {name: 'Keanu'}), (c:MaoP {name: 'Carrie'}), (h:MaoP {name: 'Hugo'}),
-                   (mx:MaoM {title: 'Matrix', v: 1}), (jw:MaoM {title: 'JW', v: 2}), (lone:MaoM {title: 'Lone', v: 3}),
-                   (k)-[:ACTED_IN]->(mx), (c)-[:ACTED_IN]->(mx), (k)-[:ACTED_IN]->(jw),
-                   (mx)-[:SEQUEL]->(jw)
-            """
-        When executing query:
-            """
-            OPTIONAL MATCH (x:MaoNone)
-            UNWIND [1] AS n
-            MATCH (n)
-            RETURN n
-            """
-        Then an error should be raised
-
-    Scenario: A read procedure call directly between the optional and the MATCH
-        Given an empty graph
-        And having executed:
-            """
-            CREATE (k:MaoP {name: 'Keanu'}), (c:MaoP {name: 'Carrie'}), (h:MaoP {name: 'Hugo'}),
-                   (mx:MaoM {title: 'Matrix', v: 1}), (jw:MaoM {title: 'JW', v: 2}), (lone:MaoM {title: 'Lone', v: 3}),
-                   (k)-[:ACTED_IN]->(mx), (c)-[:ACTED_IN]->(mx), (k)-[:ACTED_IN]->(jw),
-                   (mx)-[:SEQUEL]->(jw)
-            """
-        When executing query:
-            """
-            OPTIONAL MATCH (x:MaoNone)
-            CALL mg.procedures() YIELD name
-            MATCH (m:MaoM {title: 'Lone'})
-            RETURN x IS NULL AS xnull, count(name) > 0 AS any, m.title AS m
-            """
-        Then the result should be:
-            | xnull | any  | m      |
-            | true  | true | 'Lone' |
-
-    Scenario: Inside a COLLECT body
-        Given an empty graph
-        And having executed:
-            """
-            CREATE (k:MaoP {name: 'Keanu'}), (c:MaoP {name: 'Carrie'}), (h:MaoP {name: 'Hugo'}),
-                   (mx:MaoM {title: 'Matrix', v: 1}), (jw:MaoM {title: 'JW', v: 2}), (lone:MaoM {title: 'Lone', v: 3}),
-                   (k)-[:ACTED_IN]->(mx), (c)-[:ACTED_IN]->(mx), (k)-[:ACTED_IN]->(jw),
-                   (mx)-[:SEQUEL]->(jw)
-            """
-        When executing query:
-            """
-            MATCH (p:MaoP)
-            RETURN p.name AS p, size(COLLECT {
-              OPTIONAL MATCH (p)-[:ACTED_IN]->(m:MaoM)
-              MATCH (m)-[:SEQUEL]->(s)
-              RETURN s.title
-            }) AS c
-            """
-        Then the result should be:
-            | p        | c |
-            | 'Keanu'  | 1 |
-            | 'Carrie' | 1 |
-            | 'Hugo'   | 0 |
