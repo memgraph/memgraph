@@ -2119,7 +2119,7 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(MemgraphCypher::SingleQueryCon
       has_load_parquet |= is_load_parquet;
       has_load_jsonl |= is_load_jsonl;
 
-    } else if (utils::Downcast<Match>(clause)) {
+    } else if (utils::IsSubtype(clause_type, Match::kType)) {
       if (has_update || has_return) {
         throw SemanticException("MATCH can't be put after RETURN clause or after an update.");
       }
