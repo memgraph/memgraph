@@ -9,6 +9,7 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
+import concurrent.futures
 import os
 import sys
 from functools import partial
@@ -162,10 +163,18 @@ def test_regions_survive_coordinator_restart(test_name):
     expected = [("eu-west", [], False), ("us-east", [], False)]
     assert_region_info_on_all_coordinators(expected)
 
-    for coordinator in ("coordinator_1", "coordinator_2", "coordinator_3"):
+    coordinators = ("coordinator_1", "coordinator_2", "coordinator_3")
+    for coordinator in coordinators:
         interactive_mg_runner.kill(instances_description, coordinator)
-    for coordinator in ("coordinator_1", "coordinator_2", "coordinator_3"):
-        interactive_mg_runner.start(instances_description, coordinator)
+    # A restarted coordinator opens its Bolt port only after it rejoins a Raft quorum, so starting them one by one
+    # would block on the first; start them concurrently.
+    with concurrent.futures.ThreadPoolExecutor(len(coordinators)) as executor:
+        futures = [
+            executor.submit(interactive_mg_runner.start, instances_description, coordinator)
+            for coordinator in coordinators
+        ]
+        for future in concurrent.futures.as_completed(futures):
+            future.result()
 
     assert_region_info_on_all_coordinators(expected)
 
