@@ -460,7 +460,7 @@ TEST_F(VersioningRecoveryEquivalenceTest, BaseEdgeOverlaysRecordTheirBaseEdgeLiv
   };
   std::string live;
   {
-    memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/false)};
+    TestDatabase db{MakeConfig(/*recover_on_startup=*/false)};
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
     base = CreateBase(db);
     ASSERT_TRUE(db.version_store()->CreateBranch("b").has_value());
@@ -478,7 +478,7 @@ TEST_F(VersioningRecoveryEquivalenceTest, BaseEdgeOverlaysRecordTheirBaseEdgeLiv
     expect_base_records(*ctx);
     live = Visible(Capture(db, *ctx, base));
   }
-  memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/true)};
+  TestDatabase db{MakeConfig(/*recover_on_startup=*/true)};
   const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
   auto ctx = Checkout(db, "b");
   ASSERT_NE(ctx, nullptr);
