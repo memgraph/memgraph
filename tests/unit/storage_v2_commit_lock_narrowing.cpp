@@ -1148,4 +1148,24 @@ TEST_F(LockFreeReadSnapshotRecovery, ForkPinInsideCommitWindow_ExcludesTheInFlig
   RunGc(*store);
   EXPECT_EQ(store->VertexStoreSize(), 0U);
 }
+
+// With a live pin and no active transactions GC must not take the idle free-immediately path (narrowing ON).
+TEST_F(LockFreeReadSnapshotRecovery, ForkPinBlocksGcIdleShortcut_ON) {
+  auto store = MakeWalStorageManualGc(storage_directory);
+  const auto victim = CreateVertexWithProp(*store, 1);
+  const auto fork_ts = store->RegisterForkPin();
+  {
+    auto acc = store->Access(memgraph::storage::WRITE);
+    auto vertex = acc->FindVertex(victim, View::OLD);
+    ASSERT_TRUE(acc->DeleteVertex(&*vertex).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+  RunGc(*store);
+  RunGc(*store);
+  EXPECT_EQ(store->VertexStoreSize(), 1U) << "a vertex the fork still sees was reclaimed";
+  store->ReleaseForkPin(fork_ts);
+  RunGc(*store);
+  RunGc(*store);
+  EXPECT_EQ(store->VertexStoreSize(), 0U);
+}
 #endif  // MG_ENTERPRISE
