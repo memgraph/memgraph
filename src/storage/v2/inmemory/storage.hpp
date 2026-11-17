@@ -41,6 +41,8 @@
 #include "storage/v2/inmemory/light_edge_guard.hpp"
 #include "storage/v2/inmemory/replication/recovery.hpp"
 #include "storage/v2/inmemory/snapshot_info.hpp"
+#include "storage/v2/inmemory/storagefwd.hpp"
+#include "storage/v2/inmemory/wal_apply.hpp"
 #include "storage/v2/replication/replication_client.hpp"
 #include "storage/v2/replication/replication_transaction.hpp"
 #include "storage/v2/schema_info.hpp"
@@ -1134,6 +1136,12 @@ class InMemoryStorage final : public Storage {
   uint64_t GetCommitTimestamp();
 
   void PrepareForNewEpoch() override;
+
+  // Applies one transaction's deltas read from `decoder` (a replication stream or a WAL file, see
+  // WalApplyOptions::mode). The count of consumed deltas also includes skipped (already applied) ones.
+  // Returns nullopt if applying a delta failed.
+  std::optional<SingleTxnDeltasProcessingResult> ApplyWalTransaction(durability::BaseDecoder *decoder, uint64_t version,
+                                                                     const WalApplyOptions &options);
 
   EdgeInfo FindEdge(Gid edge_gid);
 
