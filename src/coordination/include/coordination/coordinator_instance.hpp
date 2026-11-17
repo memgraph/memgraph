@@ -65,8 +65,7 @@ class CoordinatorInstance {
   // We don't need to open lock and close the lock since we need only one writing to raft log here.
   // If some of the actions fail like sending rpc, demoting or rpc failed, we clear in-memory structures that we have.
   // If writing to raft succeeds, we know what everything up to that point passed so all good.
-  [[nodiscard]] auto RegisterReplicationInstance(RegisterInstanceConfig const &register_config)
-      -> RegisterInstanceCoordinatorStatus;
+  [[nodiscard]] auto RegisterReplicationInstance(DataInstanceConfig const &config) -> RegisterInstanceCoordinatorStatus;
 
   [[nodiscard]] auto UnregisterReplicationInstance(std::string_view instance_name)
       -> UnregisterInstanceCoordinatorStatus;

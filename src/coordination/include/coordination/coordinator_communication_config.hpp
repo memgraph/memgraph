@@ -96,6 +96,14 @@ struct ReplicationClientInfo {
   friend bool operator==(ReplicationClientInfo const &, ReplicationClientInfo const &) = default;
 };
 
+// The coordinator-to-coordinator forward format of DataInstanceConfig before data instances had regions.
+struct DataInstanceConfigV1 {
+  std::string instance_name;
+  io::network::Endpoint mgt_server;
+  io::network::Endpoint bolt_server;
+  ReplicationClientInfo replication_client_info;
+};
+
 struct DataInstanceConfig {
   auto BoltSocketAddress() const -> std::string { return bolt_server.SocketAddress(); }
 
@@ -109,17 +117,17 @@ struct DataInstanceConfig {
   io::network::Endpoint mgt_server;
   io::network::Endpoint bolt_server;
   ReplicationClientInfo replication_client_info;
-
-  friend bool operator==(DataInstanceConfig const &, DataInstanceConfig const &) = default;
-};
-
-struct RegisterInstanceConfig {
-  DataInstanceConfig config;
   std::optional<std::string> region;
 
-  static auto Upgrade(DataInstanceConfig const &prev) -> RegisterInstanceConfig {
-    return RegisterInstanceConfig{.config = prev, .region = std::nullopt};
+  static auto Upgrade(DataInstanceConfigV1 const &prev) -> DataInstanceConfig {
+    return DataInstanceConfig{.instance_name = prev.instance_name,
+                              .mgt_server = prev.mgt_server,
+                              .bolt_server = prev.bolt_server,
+                              .replication_client_info = prev.replication_client_info,
+                              .region = std::nullopt};
   }
+
+  friend bool operator==(DataInstanceConfig const &, DataInstanceConfig const &) = default;
 };
 
 struct LeaderCoordinatorData {

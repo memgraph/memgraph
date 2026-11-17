@@ -314,7 +314,7 @@ using UpdateConfigRpcV1 = rpc::RequestResponse<UpdateConfigReqV1, UpdateConfigRe
 }  // namespace memgraph::coordination
 
 namespace {
-auto MakeDataInstanceConfig() -> memgraph::coordination::DataInstanceConfig {
+auto MakeDataInstanceConfigV1() -> memgraph::coordination::DataInstanceConfigV1 {
   return {
       .instance_name = "instance_1",
       .mgt_server = Endpoint{"localhost", 10011},
@@ -325,9 +325,10 @@ auto MakeDataInstanceConfig() -> memgraph::coordination::DataInstanceConfig {
 }
 }  // namespace
 
-// RegisterInstanceReq v2 carries the instance's region and RegisterInstanceRes v2 the leader's exact status. A v1
-// request upgrades to no region, and the v2 status downgrades to the v1 success flag.
+// RegisterInstanceReq v2 carries the instance's region inside DataInstanceConfig and RegisterInstanceRes v2 the
+// leader's exact status. A v1 request upgrades to no region, and the v2 status downgrades to the v1 success flag.
 TEST(RpcVersioning, RegisterInstanceRpc) {
+  using memgraph::coordination::DataInstanceConfig;
   using memgraph::coordination::RegisterInstanceCoordinatorStatus;
   Endpoint const endpoint{"localhost", port};
 
@@ -338,7 +339,7 @@ TEST(RpcVersioning, RegisterInstanceRpc) {
     rpc_server.AwaitShutdown();
   }};
 
-  std::optional<memgraph::coordination::RegisterInstanceConfig> received;
+  std::optional<DataInstanceConfig> received;
   auto status = RegisterInstanceCoordinatorStatus::SUCCESS;
 
   rpc_server.Register<memgraph::coordination::RegisterInstanceRpc>(
@@ -358,28 +359,31 @@ TEST(RpcVersioning, RegisterInstanceRpc) {
 
   ClientContext client_context;
   Client client{endpoint, &client_context};
-  auto const config = MakeDataInstanceConfig();
+  auto const config_v1 = MakeDataInstanceConfigV1();
+  auto config = DataInstanceConfig::Upgrade(config_v1);
+  config.region = "eu-west";
   {
     status = RegisterInstanceCoordinatorStatus::NO_SUCH_REGION;
-    auto stream = client.Stream<memgraph::coordination::RegisterInstanceRpc>(
-        memgraph::coordination::RegisterInstanceConfig{.config = config, .region = "eu-west"});
+    auto stream = client.Stream<memgraph::coordination::RegisterInstanceRpc>(config);
     auto reply = stream.SendAndWait();
     EXPECT_EQ(reply.arg_, RegisterInstanceCoordinatorStatus::NO_SUCH_REGION);
     ASSERT_TRUE(received.has_value());
-    EXPECT_EQ(received->config, config);
-    EXPECT_EQ(received->region, "eu-west");
+    EXPECT_EQ(*received, config);
   }
   {
     status = RegisterInstanceCoordinatorStatus::SUCCESS;
-    auto stream = client.Stream<memgraph::coordination::RegisterInstanceRpcV1>(config);
+    auto stream = client.Stream<memgraph::coordination::RegisterInstanceRpcV1>(config_v1);
     auto reply = stream.SendAndWait();
     EXPECT_TRUE(reply.arg_);
-    EXPECT_EQ(received->config, config);
+    EXPECT_EQ(received->instance_name, config_v1.instance_name);
+    EXPECT_EQ(received->mgt_server, config_v1.mgt_server);
+    EXPECT_EQ(received->bolt_server, config_v1.bolt_server);
+    EXPECT_EQ(received->replication_client_info, config_v1.replication_client_info);
     EXPECT_FALSE(received->region.has_value());
   }
   {
     status = RegisterInstanceCoordinatorStatus::NAME_EXISTS;
-    auto stream = client.Stream<memgraph::coordination::RegisterInstanceRpcV1>(config);
+    auto stream = client.Stream<memgraph::coordination::RegisterInstanceRpcV1>(config_v1);
     auto reply = stream.SendAndWait();
     EXPECT_FALSE(reply.arg_);
   }

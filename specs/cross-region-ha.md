@@ -142,8 +142,8 @@ Once a primary region is set, the leader's reconciliation loop (the instance suc
 
 ## Implementation Decisions
 
-**`DataInstanceContext`.** Gains `std::optional<std::string> region`. Serialized to JSON only when set; a missing key
-reads back as `nullopt`.
+**`DataInstanceConfig`.** Gains `std::optional<std::string> region`, next to the other operator-supplied settings that
+REGISTER sets and UPDATE CONFIG edits. Serialized to JSON only when set; a missing key reads back as `nullopt`.
 
 **`ReplicationClientInfo::replication_mode`.** Becomes `std::optional<ReplicationMode>` everywhere: Raft JSON and the
 wire. Stored as `nullopt` for every instance after the switch. The registration-time SYNC/STRICT_SYNC mixing check does
@@ -152,8 +152,11 @@ not apply to instances without a stored mode.
 **RPC versioning.** `DemoteMainToReplicaRpc`, `RegisterReplicaOnMainRpc` and `PromoteToMainRpc` get new versions
 carrying the optional mode, with `Upgrade`/`Downgrade`. `Downgrade()` maps `nullopt` to ASYNC. On a data instance,
 receiving `nullopt` in the register-replica path (`DoRegisterReplica`) is a hard failure: log and fail the RPC.
-`StateCheckRpc`'s `InstanceState` gets a new version reporting each registered replica's mode. `UpdateConfigRpc`
-(coordinator-to-coordinator forward) gets a new version for the optional bolt endpoint and optional region.
+`StateCheckRpc`'s `InstanceState` gets a new version reporting each registered replica's mode. The
+coordinator-to-coordinator forwards `RegisterInstanceRpc` (data instance config with region) and `UpdateConfigRpc`
+(optional bolt endpoint and optional region) get a new version whose response carries the leader's exact status. All
+slices ship together, so each RPC is bumped at most once relative to master; a later slice that changes an already
+bumped RPC edits that new version instead of adding another.
 
 **`CoordinatorClusterState` / delta.** Gains the set of regions, `std::optional<std::string> primary_region`,
 `region_replication_mode` and `prefer_reading_from_primary_region`, threaded through the delta, `DoAction`,

@@ -57,7 +57,7 @@ void CoordinatorInstanceManagementServerHandlers::Register(CoordinatorInstanceMa
           slk::Reader *req_reader,
           slk::Builder *res_builder) -> void {
         CoordinatorInstanceManagementServerHandlers::FwdRequestHandler<RegisterInstanceRpc>(
-            [&coordinator_instance](RegisterInstanceConfig const &config) -> RegisterInstanceCoordinatorStatus {
+            [&coordinator_instance](DataInstanceConfig const &config) -> RegisterInstanceCoordinatorStatus {
               return coordinator_instance.RegisterReplicationInstance(config);
             },
             request_version,

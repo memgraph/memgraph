@@ -440,18 +440,20 @@ TEST_F(CoordinatorClusterStateTest, DataInstanceRegionMarshalling) {
                          .replication_client_info = {.instance_name = "instance1",
                                                      .replication_mode = ReplicationMode::SYNC,
                                                      .replication_server = Endpoint{"127.0.0.1", 10'001}}};
+  auto config_with_region = config;
+  config_with_region.region = "eu";
   auto const uuid = UUID{};
   std::vector<DataInstanceContext> data_instances{
-      DataInstanceContext{.config = config, .status = ReplicationRole::REPLICA, .instance_uuid = uuid, .region = "eu"},
+      DataInstanceContext{.config = config_with_region, .status = ReplicationRole::REPLICA, .instance_uuid = uuid},
       DataInstanceContext{.config = config, .status = ReplicationRole::MAIN, .instance_uuid = uuid}};
 
-  // The region is written only when set.
-  nlohmann::json const with_region = data_instances[0];
-  nlohmann::json const without_region = data_instances[1];
+  // The region is written only when set, so configs from logs written before regions existed load without one.
+  nlohmann::json const with_region = config_with_region;
+  nlohmann::json const without_region = config;
   ASSERT_EQ(with_region.at(memgraph::coordination::kRegion.data()), "eu");
   ASSERT_FALSE(without_region.contains(memgraph::coordination::kRegion.data()));
-  ASSERT_EQ(with_region.get<DataInstanceContext>(), data_instances[0]);
-  ASSERT_EQ(without_region.get<DataInstanceContext>(), data_instances[1]);
+  ASSERT_EQ(with_region.get<DataInstanceConfig>(), config_with_region);
+  ASSERT_EQ(without_region.get<DataInstanceConfig>(), config);
 
   CoordinatorClusterState cluster_state{};
   // NOLINTNEXTLINE

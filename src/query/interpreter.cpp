@@ -880,13 +880,13 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
                                             .replication_mode = convertFromCoordinatorToReplicationMode(sync_mode),
                                             .replication_server = *maybe_replication_server};
 
-    auto coordinator_client_config = coordination::DataInstanceConfig{.instance_name = std::string(instance_name),
-                                                                      .mgt_server = *maybe_management_server,
-                                                                      .bolt_server = *maybe_bolt_server,
-                                                                      .replication_client_info = repl_config};
+    auto const coordinator_client_config = coordination::DataInstanceConfig{.instance_name = std::string(instance_name),
+                                                                            .mgt_server = *maybe_management_server,
+                                                                            .bolt_server = *maybe_bolt_server,
+                                                                            .replication_client_info = repl_config,
+                                                                            .region = region};
 
-    switch (coordinator_handler_.RegisterReplicationInstance(
-        coordination::RegisterInstanceConfig{.config = std::move(coordinator_client_config), .region = region})) {
+    switch (coordinator_handler_.RegisterReplicationInstance(coordinator_client_config)) {
       using enum coordination::RegisterInstanceCoordinatorStatus;
       case NO_SUCH_REGION:
         throw QueryRuntimeException("Region '{}' doesn't exist.", *region);

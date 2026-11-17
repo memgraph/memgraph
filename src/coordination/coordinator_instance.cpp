@@ -737,17 +737,16 @@ auto CoordinatorInstance::DemoteInstanceToReplica(std::string_view instance_name
   return DemoteInstanceCoordinatorStatus::SUCCESS;
 }
 
-auto CoordinatorInstance::RegisterReplicationInstance(RegisterInstanceConfig const &register_config)
+auto CoordinatorInstance::RegisterReplicationInstance(DataInstanceConfig const &config)
     -> RegisterInstanceCoordinatorStatus {
-  auto const &config = register_config.config;
-  if (register_config.region.has_value() && !RegionNameIsWellFormed(*register_config.region)) {
+  if (config.region.has_value() && !RegionNameIsWellFormed(*config.region)) {
     return RegisterInstanceCoordinatorStatus::INVALID_REGION_NAME;
   }
 
   // TODO: (andi) Can I move further down this lock
   auto lock = std::lock_guard{coord_instance_lock_};
 
-  if (auto const res = ForwardStatusToLeader<RegisterInstanceRpc, RegisterInstanceCoordinatorStatus>(register_config);
+  if (auto const res = ForwardStatusToLeader<RegisterInstanceRpc, RegisterInstanceCoordinatorStatus>(config);
       res.has_value()) {
     return *res;
   }
@@ -756,7 +755,7 @@ auto CoordinatorInstance::RegisterReplicationInstance(RegisterInstanceConfig con
     return RegisterInstanceCoordinatorStatus::NOT_LEADER;
   }
 
-  if (register_config.region.has_value() && !raft_state_->GetRegions().contains(*register_config.region)) {
+  if (config.region.has_value() && !raft_state_->GetRegions().contains(*config.region)) {
     return RegisterInstanceCoordinatorStatus::NO_SUCH_REGION;
   }
 
@@ -799,7 +798,7 @@ auto CoordinatorInstance::RegisterReplicationInstance(RegisterInstanceConfig con
 
   auto const curr_main_uuid = raft_state_->GetCurrentMainUUID();
 
-  data_instances.emplace_back(config, ReplicationRole::REPLICA, curr_main_uuid, register_config.region);
+  data_instances.emplace_back(config, ReplicationRole::REPLICA, curr_main_uuid);
 
   // NOLINTNEXTLINE
   CoordinatorClusterStateDelta const delta_state{.data_instances_ = std::move(data_instances)};
@@ -1317,7 +1316,7 @@ auto CoordinatorInstance::DropRegion(std::string_view const region_name) const -
     return DropRegionStatus::NO_SUCH_REGION;
   }
   if (std::ranges::any_of(raft_state_->GetDataInstancesContext(),
-                          [region_name](auto const &instance) { return instance.region == region_name; })) {
+                          [region_name](auto const &instance) { return instance.config.region == region_name; })) {
     return DropRegionStatus::REGION_HAS_INSTANCES;
   }
   regions.erase(it);
@@ -1929,8 +1928,8 @@ auto CoordinatorInstance::ShowRegionInfoAsLeader() const -> std::optional<std::v
 
   std::map<std::string, std::vector<std::string>, std::less<>> instances_by_region;
   for (auto const &instance : raft_state_->GetDataInstancesContext()) {
-    if (instance.region.has_value()) {
-      instances_by_region[*instance.region].push_back(instance.config.instance_name);
+    if (instance.config.region.has_value()) {
+      instances_by_region[*instance.config.region].push_back(instance.config.instance_name);
     }
   }
 
@@ -2107,7 +2106,7 @@ auto CoordinatorInstance::UpdateConfig(UpdateInstanceConfig const &config) -> Up
       repl_instance_it->config.bolt_server = *config.bolt_endpoint;
     }
     if (config.region.has_value()) {
-      repl_instance_it->region = *config.region;
+      repl_instance_it->config.region = *config.region;
     }
 
     // NOLINTNEXTLINE

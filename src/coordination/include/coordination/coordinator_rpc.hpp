@@ -554,8 +554,8 @@ using RemoveCoordinatorRpc = rpc::RequestResponse<RemoveCoordinatorReq, RemoveCo
 
 // v2 carries the instance's optional region and answers with the leader's exact status.
 using RegisterInstanceReqV1 =
-    SingleArgMsg<utils::TypeId::COORD_REGISTER_INSTANCE_REQ, "RegisterInstanceReq", 1, DataInstanceConfig>;
-using RegisterInstanceReq = UpgradeableSingleArgMsg<RegisterInstanceReqV1, RegisterInstanceConfig>;
+    SingleArgMsg<utils::TypeId::COORD_REGISTER_INSTANCE_REQ, "RegisterInstanceReq", 1, DataInstanceConfigV1>;
+using RegisterInstanceReq = UpgradeableSingleArgMsg<RegisterInstanceReqV1, DataInstanceConfig>;
 using RegisterInstanceResV1 = SingleArgMsg<utils::TypeId::COORD_REGISTER_INSTANCE_RES, "RegisterInstanceRes", 1, bool>;
 using RegisterInstanceRes = StatusResMsg<RegisterInstanceResV1, RegisterInstanceCoordinatorStatus>;
 using RegisterInstanceRpc = rpc::RequestResponse<RegisterInstanceReq, RegisterInstanceRes>;

@@ -76,7 +76,6 @@ constexpr std::string_view kRoles = "roles";
 constexpr std::string_view kRoleName = "name";
 constexpr std::string_view kRolePermissions = "permissions";
 constexpr std::string_view kRegions = "regions";
-constexpr std::string_view kRegion = "region";
 constexpr std::string_view kConfig{"config"};
 constexpr std::string_view kStatus{"status"};
 // CoordinatorInstanceConfig
@@ -92,5 +91,6 @@ constexpr std::string_view kReplicationServer{"replication_server"};
 // DataInstanceConfig
 constexpr std::string_view kMgtServer{"mgt_server"};
 constexpr std::string_view kReplicationClientInfo{"replication_client_info"};
+constexpr std::string_view kRegion{"region"};
 
 }  // namespace memgraph::coordination

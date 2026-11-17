@@ -239,11 +239,26 @@ inline void Load(coordination::RegionInfo *obj, Reader *reader) {
   Load(&obj->is_primary_region, reader);
 }
 
+inline void Save(coordination::DataInstanceConfigV1 const &config, Builder *builder) {
+  Save(config.instance_name, builder);
+  Save(config.replication_client_info, builder);
+  Save(config.bolt_server, builder);
+  Save(config.mgt_server, builder);
+}
+
+inline void Load(coordination::DataInstanceConfigV1 *obj, Reader *reader) {
+  Load(&obj->instance_name, reader);
+  Load(&obj->replication_client_info, reader);
+  Load(&obj->bolt_server, reader);
+  Load(&obj->mgt_server, reader);
+}
+
 inline void Save(coordination::DataInstanceConfig const &config, Builder *builder) {
   Save(config.instance_name, builder);
   Save(config.replication_client_info, builder);
   Save(config.bolt_server, builder);
   Save(config.mgt_server, builder);
+  Save(config.region, builder);
 }
 
 inline void Load(coordination::DataInstanceConfig *obj, Reader *reader) {
@@ -251,15 +266,6 @@ inline void Load(coordination::DataInstanceConfig *obj, Reader *reader) {
   Load(&obj->replication_client_info, reader);
   Load(&obj->bolt_server, reader);
   Load(&obj->mgt_server, reader);
-}
-
-inline void Save(coordination::RegisterInstanceConfig const &obj, Builder *builder) {
-  Save(obj.config, builder);
-  Save(obj.region, builder);
-}
-
-inline void Load(coordination::RegisterInstanceConfig *obj, Reader *reader) {
-  Load(&obj->config, reader);
   Load(&obj->region, reader);
 }
 
