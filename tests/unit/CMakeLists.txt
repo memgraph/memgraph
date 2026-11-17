@@ -953,6 +953,16 @@ add_unit_test(storage_v2_edge_inmemory
     LINK_TARGETS mg::storage
 )
 
+# A reader that kept an edge's lock across a nested read of the same edge would spin against a
+# writer with nothing asserting on it, so the defect this pins wedges rather than fails. The
+# default cap names it either way; this test answers in a fraction of a second, so a far tighter
+# one still trips only on a hang and reports it sooner.
+add_unit_test(storage_v2_property_size
+    SOURCES storage_v2_property_size.cpp
+    LINK_TARGETS mg::storage
+    TEST_PROPERTIES TIMEOUT 120
+)
+
 add_unit_test(storage_v2_light_edges
     SOURCES storage_v2_light_edges.cpp
     LINK_TARGETS mg::storage mg-dbms
