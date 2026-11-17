@@ -30,7 +30,9 @@ struct LedgerBranch {
 };
 
 struct LedgerContents {
-  uint64_t next_number{2};
+  // Id the next created branch gets. Ids are never reused, even across drops. 1 is main (implicit, never stored), so
+  // the first branch is 2.
+  uint64_t next_branch_id{2};
   std::vector<LedgerBranch> branches;
 };
 
