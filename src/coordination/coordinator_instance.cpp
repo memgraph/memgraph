@@ -1926,6 +1926,9 @@ auto CoordinatorInstance::ShowRegionInfoAsLeader() const -> std::optional<std::v
     return std::nullopt;
   }
 
+  // Leader writes append to Raft under the unique lock, so regions and instances are read from the same state.
+  auto lock = std::shared_lock{coord_instance_lock_};
+
   // Seeded with every region so empty regions get a row too; the map is ordered, so rows come out sorted by name.
   std::map<std::string, std::vector<std::string>, std::less<>> instances_by_region;
   for (auto const &region : raft_state_->GetRegions()) {
