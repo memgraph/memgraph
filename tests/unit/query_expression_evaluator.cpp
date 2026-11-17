@@ -3851,7 +3851,9 @@ TYPED_TEST(FunctionTest, Reverse) {
   CompareList(input.ValueList()[0], nested);
   ASSERT_TRUE(input.ValueList()[1].IsMap());
   EXPECT_EQ(input.ValueList()[3].ValueInt(), -1);
+}
 
+TYPED_TEST(FunctionTest, ReverseInvalidType) {
   // An argument of any other type is rejected by a message that names the whole
   // accepted set, so `list` has to be part of it.
   try {
@@ -3859,9 +3861,8 @@ TYPED_TEST(FunctionTest, Reverse) {
     FAIL() << "expected REVERSE to reject an integer argument";
   } catch (const QueryRuntimeException &e) {
     const std::string message{e.what()};
-    EXPECT_NE(message.find("null"), std::string::npos) << message;
-    EXPECT_NE(message.find("string"), std::string::npos) << message;
-    EXPECT_NE(message.find("list"), std::string::npos) << message;
+    EXPECT_NE(message.find("'reverse' argument at position 1 must be either"), std::string::npos) << message;
+    EXPECT_NE(message.find("'null', 'string' or 'list'"), std::string::npos) << message;
   }
 }
 
