@@ -358,6 +358,12 @@ TEST_F(WriteVisibilityPlan, ACreateThatReadsNewDrainsBeforeALaterWriteOfWhatItRe
       (Names{"EmptyResult", "SetProperty", "Accumulate+", "CreateNode", "CreateExpand", "ScanAll", "Unwind", "Once"}));
 }
 
+// A node the same CREATE made is new on every row, so no other row's later write can reach what the map read.
+TEST_F(WriteVisibilityPlan, ACreateThatReadsOnlyItsOwnNodesNeedsNoDrain) {
+  EXPECT_TRUE(Collect<Accumulate>(Plan("CREATE (a:A {v: 1}), (b:B {w: a.v}) SET a.v = 2")).empty());
+  EXPECT_TRUE(Collect<Accumulate>(Plan("UNWIND [1, 2] AS i CREATE (a {v: i}), (b {w: a.v}) SET a.v = 2")).empty());
+}
+
 #ifdef MG_ENTERPRISE
 // ---------------------------------------------------------------- barriers only the access check needs
 
