@@ -1167,6 +1167,12 @@ TEST_F(WriteVisibilityPlan, OneSetEvaluatesItsRightHandSidesFirst) {
   EXPECT_FALSE(Collect<Produce>(Plan("MERGE (a:L {k: 1}) ON MATCH SET a.x = 1, a.y = a.x")).empty());
   // One Produce for the whole run: a second one after the first item would read its write.
   EXPECT_EQ(Collect<Produce>(Plan("MATCH (a) SET a.x = a.y, a.y = a.x, a.z = a.x")).size(), 1);
+  // The first item has no earlier item to read, so any read of the variable there needs no snapshot.
+  for (auto const *query : {"MATCH (a) SET a.x = id(a), a.z = 1",
+                            "MATCH (a) SET a.x = a['y'], a.z = 1",
+                            "MATCH (a) SET a.x = properties(a).y, a.z = 1"}) {
+    EXPECT_TRUE(Collect<Produce>(Plan(query)).empty()) << query;
+  }
 }
 
 // Any read of the run's variable other than a lookup of an unwritten key needs the snapshot: a subscript, a map
@@ -1194,6 +1200,56 @@ TEST_F(WriteVisibilityPlan, TheBarrierAfterASetRunKeepsItsSymbols) {
       EXPECT_TRUE(std::ranges::any_of(accumulate->symbols_, [](auto const &symbol) { return symbol.name() == "n"; }));
     }
   }
+}
+
+/// The Produce right below a SET item: the one that evaluates a SET run's values.
+std::vector<Produce *> SetRunProduces(LogicalOperator &plan) {
+  std::vector<Produce *> produces;
+  for (auto *set : Collect<plan::SetProperty>(plan)) {
+    if (auto *produce = memgraph::utils::Downcast<Produce>(set->input().get())) produces.push_back(produce);
+  }
+  return produces;
+}
+
+// The run's Produce evaluates only the run's values; copying every bound value per row made a collected list
+// quadratic.
+TEST_F(WriteVisibilityPlan, TheSetRunProduceEvaluatesOnlyItsValues) {
+  for (auto const *query : {
+           "WITH [1, 2, 3] AS big MATCH (n:N) SET n.a = n.b, n.b = n.a CALL () { CREATE (:X) } RETURN n.a, big",
+           "UNWIND [1, 2] AS k MERGE (n:N {k: k}) ON MATCH SET n.a = n.b, n.b = n.a CALL () { CREATE (:X) } RETURN n.k",
+           "MATCH (n:N) WITH collect(n) AS ns FOREACH (x IN ns | SET x.a = x.b, x.b = x.a)",
+           "MATCH p = (n:N)-->() SET n.a = n.b, n.b = n.a CALL () { CREATE (:X) } RETURN p",
+       }) {
+    SCOPED_TRACE(query);
+    auto const produces = SetRunProduces(Plan(query));
+    ASSERT_EQ(produces.size(), 1);
+    for (auto const *named : produces.front()->named_expressions_) {
+      auto const *ident = memgraph::utils::Downcast<Identifier>(named->expression_);
+      EXPECT_FALSE(ident && ident->symbol_pos_ == named->symbol_pos_) << named->name_;
+    }
+  }
+}
+
+// It still lists the symbols below it, in the plan and in a clone of it, for the operators and rewriters above.
+TEST_F(WriteVisibilityPlan, TheSetRunProduceListsTheSymbolsBelowIt) {
+  auto &plan = Plan(
+      "WITH [1, 2, 3] AS big MATCH p = (n:N)-->() SET n.a = n.b, n.b = n.a CALL () { CREATE (:X) } RETURN n.a, big, p");
+  auto const clone = plan.Clone(&storage_);
+  for (auto *root : {&plan, clone.get()}) {
+    auto const produces = SetRunProduces(*root);
+    ASSERT_EQ(produces.size(), 1);
+    std::set<std::string> names;
+    for (auto const &symbol : produces.front()->ModifiedSymbols(symbol_table_)) names.insert(symbol.name());
+    for (auto const *name : {"big", "n", "p"}) EXPECT_TRUE(names.contains(name)) << name;
+  }
+}
+
+// A body after a SET run seeks on the run's variable: the index rewriter takes the bound symbols from below.
+TEST_F(WriteVisibilityPlan, ABodyAfterASetRunStillSeeksOnItsVariable) {
+  LabelPropertyIndex("L", "p");
+  auto &plan =
+      Plan("MATCH (n:N) SET n.a = n.b, n.b = n.a CALL (n) { MATCH (m:L) WHERE m.p = n.k CREATE (:X) } RETURN n.a");
+  EXPECT_EQ(Collect<ScanAllByLabelProperties>(plan).size(), 1);
 }
 
 // ---------------------------------------------------------------- each write fences a filter on its own
