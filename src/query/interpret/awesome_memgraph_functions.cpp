@@ -1573,6 +1573,16 @@ TypedValue Trim(const TypedValue *args, int64_t nargs, const FunctionContext &ct
 }
 
 TypedValue Reverse(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
+  FType<Or<Null, String, List>>("reverse", args, nargs);
+  if (args[0].IsList()) {
+    // A new list with the top-level order turned around; the elements themselves
+    // are copied as they are, so nested values keep their own order.
+    const auto &input = args[0].ValueList();
+    TypedValue::TVector res(ctx.memory);
+    res.reserve(input.size());
+    for (auto it = input.rbegin(); it != input.rend(); ++it) res.emplace_back(TypedValue(*it, ctx.memory));
+    return TypedValue(std::move(res));
+  }
   return CallStringFunction(args, nargs, ctx.memory, "reverse", [&](const auto &str) {
     TypedValue::TString res(ctx.memory);
     utils::ReverseUtf8(&res, str);
