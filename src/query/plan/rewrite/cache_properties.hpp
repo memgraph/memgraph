@@ -67,7 +67,7 @@ namespace impl {
 /// and keeps reading properties as it did.
 class PropertyLookupCacher final : public ExpressionVisitor<void> {
  public:
-  enum class Phase : uint8_t { GATHER, PROBE, REPLACE, RETUNE };
+  enum class Phase : uint8_t { GATHER, PROBE, REPLACE };
 
   PropertyLookupCacher(SymbolTable *symbol_table, AstStorage *ast_storage)
       : symbol_table_(symbol_table), ast_storage_(ast_storage) {}
@@ -193,23 +193,12 @@ class PropertyLookupCacher final : public ExpressionVisitor<void> {
         return;
       }
       case Phase::PROBE: {
-        // Retuning acts on any lookup of a symbol read in one pass, and replacing on a subset of
-        // those, so one found here is one a later phase would write to.
+        // Replacing acts on a lookup of a symbol read in one pass, so one found here is one it
+        // would write to.
         auto const &symbol = symbol_table_->at(*identifier);
         if (std::ranges::any_of(cached_, [&symbol](auto const &entry) { return entry.first == symbol; })) {
           probe_found_ = true;
         }
-        return;
-      }
-      case Phase::RETUNE: {
-        auto const &symbol = symbol_table_->at(*identifier);
-        auto const group =
-            std::ranges::find_if(cached_, [&symbol](auto const &entry) { return entry.first == symbol; });
-        if (group == cached_.end()) return;
-        // A lookup still standing on a symbol whose properties were read in one pass is one the
-        // pass could not take, because it sits where it may never be evaluated. Loading every
-        // property for it would read the record a second time over, so it reads its own.
-        op.evaluation_mode_ = PropertyLookup::EvaluationMode::GET_OWN_PROPERTY;
         return;
       }
       case Phase::REPLACE: {
@@ -226,17 +215,6 @@ class PropertyLookupCacher final : public ExpressionVisitor<void> {
         return;
       }
     }
-  }
-
-  /// Whether this phase reaches what only retuning acts on. Probing asks what retuning would do,
-  /// so it has to reach as far.
-  auto Retuning() const -> bool { return phase_ == Phase::RETUNE || phase_ == Phase::PROBE; }
-
-  /// Descends where the caching phases will not, so that only retuning sees these.
-  void DescendOnlyToRetune(Expression *&first, Expression *&second) {
-    if (!Retuning()) return;
-    AcceptExpression(first);
-    AcceptExpression(second);
   }
 
   void AcceptExpression(Expression *&expr) {
@@ -332,25 +310,15 @@ class PropertyLookupCacher final : public ExpressionVisitor<void> {
   NOT_ENTERED(EdgeTypesTest)
   NOT_ENTERED(RegexMatch)
 
+  // A short circuit may never evaluate what it holds, so reading ahead for it has the same fault as
+  // the group above. A literal is built from its entries rather than read from a frame, so a lookup
+  // inside one is reached through the entry rather than here.
+  NOT_ENTERED(AndOperator)
+  NOT_ENTERED(OrOperator)
+  NOT_ENTERED(ListLiteral)
+  NOT_ENTERED(MapLiteral)
+
 #undef NOT_ENTERED
-
-  // Entered to retune and nothing else: a short circuit may never evaluate what it holds, and a
-  // literal is built from its entries rather than read from a frame, so nothing inside is read
-  // ahead. Retuning settles only how a lookup left here reads, never whether or when it runs, and
-  // these are the ones that otherwise read the record a second time over.
-  void Visit(AndOperator &op) override { DescendOnlyToRetune(op.expression1_, op.expression2_); }
-
-  void Visit(OrOperator &op) override { DescendOnlyToRetune(op.expression1_, op.expression2_); }
-
-  void Visit(ListLiteral &op) override {
-    if (!Retuning()) return;
-    for (auto *&element : op.elements_) AcceptExpression(element);
-  }
-
-  void Visit(MapLiteral &op) override {
-    if (!Retuning()) return;
-    for (auto &[_, element] : op.elements_) AcceptExpression(element);
-  }
 
   SymbolTable *symbol_table_;
   AstStorage *ast_storage_;
@@ -400,9 +368,6 @@ class CachePropertiesRewriter final : public HierarchicalLogicalOperatorVisitor 
     for (auto *&named_expression : op.named_expressions_) {
       cacher.Run(PropertyLookupCacher::Phase::REPLACE, named_expression);
     }
-    for (auto *&named_expression : op.named_expressions_) {
-      cacher.Run(PropertyLookupCacher::Phase::RETUNE, named_expression);
-    }
 
     op.set_input(std::make_shared<CacheProperties>(input, std::move(groups)));
     return true;
@@ -432,9 +397,6 @@ class CachePropertiesRewriter final : public HierarchicalLogicalOperatorVisitor 
     }
     for (auto *expression : owned) {
       cacher.Run(PropertyLookupCacher::Phase::REPLACE, *expression);
-    }
-    for (auto *expression : owned) {
-      cacher.Run(PropertyLookupCacher::Phase::RETUNE, *expression);
     }
 
     op.set_input(std::make_shared<CacheProperties>(input, std::move(groups)));
