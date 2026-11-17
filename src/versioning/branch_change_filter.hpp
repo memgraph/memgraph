@@ -13,6 +13,7 @@
 
 #include <array>
 #include <atomic>
+#include <bit>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -22,46 +23,11 @@
 
 namespace memgraph::versioning {
 
-// Branch-side change filters. Reading a MAIN-resident vertex with the global, coarse `branched()` bit set costs a
-// diff-engine FindVertex (BranchContext::ResolveVertex). A per-branch, per-kind gid filter answers "did this branch
-// change this kind on gid G?" first: clear => read the base copy; set => resolve (a false positive only wastes one).
-// Correctness rests on no false negatives: every branch mutation of gid MUST insert into the matching kind filter.
-//
-// Coverage: only BASE vertices and base edges (gids below the diff engine's gid floor) are answered here. Branch-native
-// gids (at or above the floor) live in the diff engine alone and are never resolved through these filters, so their
-// creation records nothing. Base-object writes record per kind: label and property writes, edge creation/deletion at
-// both endpoints (RecordEdgeChange), vertex deletion (RecordVertexDeleted), base-edge property writes and deletion
-// (RecordBaseEdge*).
-
-// Per-kind change filters of one branch, owned by BranchCore (branch_engine.hpp) and shared by its sessions;
-// insert-only. `property_field_` is keyed by (gid, pid) and gates point reads GetProperty(gid, pid); `property_`
-// gates whole-map Properties(). A pid bitset gates the fine filter first, so a never-written pid skips the probe
-// even once the bloom saturates.
-//
-// EVERY property mutation must record (gid, pid) for each affected pid: SetProperty (one), Init/UpdateProperties (the
-// map's keys), ClearProperties (the cleared map's keys). A miss is a stale read.
-//
-// There is deliberately no `any_change` catch-all: every value/adjacency read on a branch MUST gate on a dedicated kind
-// filter that ALL of that kind's mutation sites populate.
-//
-// Size is fixed (a bloom cannot resize); saturation only raises the false-positive rate toward all-resolve, never
-// toward incorrectness. InsertedKeys() is the saturation gauge: compare each count with the capacity noted on
-// kFilterWords.
+// Per-kind gid bloom filters of one branch, shared by its sessions. A miss means the branch never changed that kind on
+// that base object, so every mutation site must Record before writing. Insert-only; a rolled-back write leaves its bit.
 class BranchChangeFilters {
  public:
-  // Per filter, how many inserts set at least one new bit: an approximate (lower-bound) count of distinct keys.
-  struct InsertedKeyCounts {
-    uint64_t label{0};
-    uint64_t property{0};
-    uint64_t edge{0};
-    uint64_t property_field{0};
-    uint64_t deleted{0};
-    uint64_t base_edge_property{0};
-    uint64_t base_edge_deleted{0};
-  };
-
-  // 32 KiB per filter, 224 KiB per branch. ~12k keys at ~1% false-positive, ~45k at ~10% (uniform-hash estimate).
-  // Power of two (mask).
+  // 32 KiB per filter; power of two.
   static constexpr size_t kFilterWords = 4096;
   static_assert((kFilterWords & (kFilterWords - 1)) == 0, "kFilterWords must be a power of two");
 
@@ -89,16 +55,19 @@ class BranchChangeFilters {
     property_field_.Insert(storage::Gid::FromUint(CombineGidProp(gid, pid)));
   }
 
+  // False if no property field `pid` was ever recorded on this branch.
+  [[nodiscard]] bool MayHavePropertyTouched(storage::PropertyId pid) const noexcept {
+    return (pid_gate_[PidWord(pid)].load(std::memory_order_acquire) & PidBit(pid)) != 0;
+  }
+
   [[nodiscard]] bool MayHavePropertyFieldChange(storage::Gid gid, storage::PropertyId pid) const noexcept {
-    if ((pid_gate_[PidWord(pid)].load(std::memory_order_acquire) & PidBit(pid)) == 0) return false;
+    if (!MayHavePropertyTouched(pid)) return false;
     return property_field_.MayContain(storage::Gid::FromUint(CombineGidProp(gid, pid)));
   }
 
-  // Records `endpoint_gid`'s adjacency as possibly changed. Call for BOTH endpoints of a changed edge,
-  // since expansion from either side reads incident edges keyed by that vertex's gid.
+  // Call for BOTH endpoints of a changed edge.
   void RecordEdgeChange(storage::Gid endpoint_gid) noexcept { edge_.Insert(endpoint_gid); }
 
-  // Records that this branch marked base vertex `gid` deleted. Call before the marker write.
   void RecordVertexDeleted(storage::Gid gid) noexcept {
     any_vertex_deleted_.store(true, std::memory_order_release);
     deleted_.Insert(gid);
@@ -108,7 +77,6 @@ class BranchChangeFilters {
     return any_vertex_deleted_.load(std::memory_order_acquire) && deleted_.MayContain(gid);
   }
 
-  // False until the branch first marks any vertex deleted: lets a per-edge check skip even loading the neighbour.
   [[nodiscard]] bool MayHaveAnyVertexDeleted() const noexcept {
     return any_vertex_deleted_.load(std::memory_order_acquire);
   }
@@ -119,7 +87,7 @@ class BranchChangeFilters {
 
   [[nodiscard]] bool MayHaveEdgeChange(storage::Gid gid) const noexcept { return edge_.MayContain(gid); }
 
-  // Base-edge writes are keyed by the EDGE's gid (a different gid space), so they get their own filters and pid gate.
+  // Keyed by the EDGE's gid (a different gid space): own filters and pid gate.
   void RecordBaseEdgeProperty(storage::Gid edge_gid, storage::PropertyId pid) noexcept {
     edge_pid_gate_[PidWord(pid)].fetch_or(PidBit(pid), std::memory_order_release);
     base_edge_property_.Insert(edge_gid);
@@ -140,38 +108,18 @@ class BranchChangeFilters {
     return base_edge_deleted_.MayContain(edge_gid);
   }
 
-  [[nodiscard]] InsertedKeyCounts InsertedKeys() const noexcept {
-    return {.label = label_.inserted_keys(),
-            .property = property_.inserted_keys(),
-            .edge = edge_.inserted_keys(),
-            .property_field = property_field_.inserted_keys(),
-            .deleted = deleted_.inserted_keys(),
-            .base_edge_property = base_edge_property_.inserted_keys(),
-            .base_edge_deleted = base_edge_deleted_.inserted_keys()};
-  }
-
  private:
-  // Monotonic (insert-only) lock-free approximate-membership filter keyed by gid. Register-blocked bloom, k=2: one gid
-  // maps to one 64-bit word with two bits set.
-  //
-  // Insert is a release fetch_or and MayContain an acquire load, so a reader that sees the bit also sees the setting
-  // query's writes regardless of thread (Bolt sessions share an io_context pool); concurrent same-word inserts lose no
-  // update. The bit is set before the owning transaction commits and survives a rollback (false positive, never stale).
-  // Parallel plans only fan out read-only paths (IsPathReadOnly, plan/rewrite/parallel_rewrite.hpp), so no write races
-  // a read fan-out within one query.
+  // Lock-free register-blocked bloom, k=2. Insert is a release fetch_or, MayContain an acquire load.
   class MonotonicGidFilter {
    public:
     explicit MonotonicGidFilter(size_t num_words)
-        : index_mask_(num_words - 1), words_(std::make_unique<std::atomic<uint64_t>[]>(num_words)) {}
+        : index_shift_(64U - static_cast<unsigned>(std::bit_width(num_words) - 1)),
+          words_(std::make_unique<std::atomic<uint64_t>[]>(num_words)) {}
 
     void Insert(storage::Gid gid) noexcept {
       auto const [idx, bits] = Locate(gid);
-      auto const before = words_[idx].fetch_or(bits, std::memory_order_release);
-      if ((before & bits) != bits) inserted_keys_.fetch_add(1, std::memory_order_relaxed);
+      words_[idx].fetch_or(bits, std::memory_order_release);
     }
-
-    // Gauge only, hence relaxed.
-    [[nodiscard]] uint64_t inserted_keys() const noexcept { return inserted_keys_.load(std::memory_order_relaxed); }
 
     [[nodiscard]] bool MayContain(storage::Gid gid) const noexcept {
       auto const [idx, bits] = Locate(gid);
@@ -185,23 +133,19 @@ class BranchChangeFilters {
     };
 
     [[nodiscard]] Slot Locate(storage::Gid gid) const noexcept {
-      // Fibonacci hash, sliced: word index from the high bits, two bit positions from disjoint low 6-bit fields.
-      // Kept over a full-avalanche hash on purpose: gids are dense and sequential, and a multiplicative hash maps
-      // consecutive gids to distinct bit patterns (fewest collisions on a dense run) for one multiply per probe.
+      // Fibonacci hash; word and both bit positions come from disjoint high bits of the product.
       uint64_t const h = gid.AsUint() * 0x9E3779B97F4A7C15ULL;
-      size_t const idx = (h >> 40U) & index_mask_;
-      uint64_t const bit_a = 1ULL << (h & 63U);
-      uint64_t const bit_b = 1ULL << ((h >> 6U) & 63U);
+      size_t const idx = h >> index_shift_;
+      uint64_t const bit_a = 1ULL << ((h >> 46U) & 63U);
+      uint64_t const bit_b = 1ULL << ((h >> 40U) & 63U);
       return {idx, bit_a | bit_b};
     }
 
-    size_t index_mask_;
+    unsigned index_shift_;
     std::unique_ptr<std::atomic<uint64_t>[]> words_;
-    std::atomic<uint64_t> inserted_keys_{0};
   };
 
-  // Folds (gid, pid) into one 64-bit key; collisions are bloom false positives. A real hash, not an XOR: XOR of two
-  // small structured integers collides systematically. The per-process seed is fine for an in-memory filter.
+  // A real hash, not an XOR: XOR of small structured integers collides systematically.
   [[nodiscard]] static uint64_t CombineGidProp(storage::Gid gid, storage::PropertyId pid) noexcept {
     return absl::HashOf(gid.AsUint(), pid.AsUint());
   }

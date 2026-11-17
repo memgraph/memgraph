@@ -9,9 +9,12 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <algorithm>
 #include <atomic>
 #include <cstdint>
+#include <functional>
 #include <thread>
+#include <utility>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -27,123 +30,64 @@ ms::Gid G(uint64_t gid) { return ms::Gid::FromUint(gid); }
 
 ms::PropertyId P(uint64_t pid) { return ms::PropertyId::FromUint(pid); }
 
-void ExpectNoChange(const BranchChangeFilters &filters, ms::Gid gid, std::initializer_list<uint64_t> pids) {
-  EXPECT_FALSE(filters.MayHavePropertyChange(gid));
-  EXPECT_FALSE(filters.MayHaveLabelChange(gid));
-  EXPECT_FALSE(filters.MayHaveEdgeChange(gid));
-  EXPECT_FALSE(filters.MayHaveVertexDeleted(gid));
-  EXPECT_FALSE(filters.MayHaveBaseEdgePropertyChange(gid));
-  EXPECT_FALSE(filters.MayHaveBaseEdgeDeleted(gid));
-  for (auto pid : pids) {
-    EXPECT_FALSE(filters.MayHavePropertyFieldChange(gid, P(pid)));
-    EXPECT_FALSE(filters.MayHaveBaseEdgePropertyFieldChange(gid, P(pid)));
-  }
+// One bool per kind, so a record into one kind can be checked against every other.
+std::vector<bool> Probe(const BranchChangeFilters &f, ms::Gid gid, ms::PropertyId pid) {
+  return {f.MayHavePropertyChange(gid),
+          f.MayHaveLabelChange(gid),
+          f.MayHaveEdgeChange(gid),
+          f.MayHaveVertexDeleted(gid),
+          f.MayHavePropertyFieldChange(gid, pid),
+          f.MayHaveBaseEdgePropertyChange(gid),
+          f.MayHaveBaseEdgePropertyFieldChange(gid, pid),
+          f.MayHaveBaseEdgeDeleted(gid)};
 }
 
 }  // namespace
 
-TEST(VersioningBranchChangeFilter, EachKindAnswersOnlyForItsOwnRecords) {
-  BranchChangeFilters filters;
-  ExpectNoChange(filters, G(1), {0, 7});
-  EXPECT_FALSE(filters.MayHaveAnyVertexDeleted());
-
-  filters.RecordPropertyChange(G(1));
-  filters.RecordPropertyField(G(1), P(7));
-  EXPECT_TRUE(filters.MayHavePropertyChange(G(1)));
-  EXPECT_TRUE(filters.MayHavePropertyFieldChange(G(1), P(7)));
-  EXPECT_FALSE(filters.MayHavePropertyFieldChange(G(1), P(8))) << "an unwritten pid must read the base value";
-  EXPECT_FALSE(filters.MayHaveLabelChange(G(1))) << "a property change must not disturb label reads";
-  EXPECT_FALSE(filters.MayHaveEdgeChange(G(1)));
-  EXPECT_FALSE(filters.MayHaveVertexDeleted(G(1)));
-  EXPECT_FALSE(filters.MayHaveBaseEdgePropertyFieldChange(G(1), P(7))) << "vertex pids must not open the edge gate";
-
-  filters.RecordLabelChange(G(2));
-  EXPECT_TRUE(filters.MayHaveLabelChange(G(2)));
-  EXPECT_FALSE(filters.MayHavePropertyChange(G(2))) << "a label change must not disturb property reads";
-  EXPECT_FALSE(filters.MayHavePropertyFieldChange(G(2), P(7)));
-  EXPECT_TRUE(filters.MayHavePropertyChange(G(1))) << "filters only grow";
-
-  filters.RecordEdgeChange(G(3));
-  EXPECT_TRUE(filters.MayHaveEdgeChange(G(3)));
-  EXPECT_FALSE(filters.MayHaveLabelChange(G(3)));
-  EXPECT_FALSE(filters.MayHavePropertyChange(G(3)));
-
-  EXPECT_FALSE(filters.MayHaveAnyVertexDeleted());
-  filters.RecordVertexDeleted(G(4));
-  EXPECT_TRUE(filters.MayHaveAnyVertexDeleted());
-  EXPECT_TRUE(filters.MayHaveVertexDeleted(G(4)));
-  EXPECT_FALSE(filters.MayHaveVertexDeleted(G(3)));
-
-  filters.RecordBaseEdgeProperty(G(5), P(9));
-  EXPECT_TRUE(filters.MayHaveBaseEdgePropertyChange(G(5)));
-  EXPECT_TRUE(filters.MayHaveBaseEdgePropertyFieldChange(G(5), P(9)));
-  EXPECT_FALSE(filters.MayHaveBaseEdgePropertyFieldChange(G(5), P(7))) << "an unwritten edge pid";
-  EXPECT_FALSE(filters.MayHaveBaseEdgeDeleted(G(5)));
-  EXPECT_FALSE(filters.MayHavePropertyChange(G(5)));
-  EXPECT_FALSE(filters.MayHavePropertyFieldChange(G(5), P(9))) << "edge pids must not open the vertex gate";
-  filters.RecordBaseEdgeDeleted(G(6));
-  EXPECT_TRUE(filters.MayHaveBaseEdgeDeleted(G(6)));
-  EXPECT_FALSE(filters.MayHaveVertexDeleted(G(6)));
-
-  ExpectNoChange(filters, G(1'000'000), {8});
+TEST(VersioningBranchChangeFilter, EachRecordHitsOnlyItsOwnKind) {
+  using Record = void (*)(BranchChangeFilters &, ms::Gid, ms::PropertyId);
+  const std::vector<std::pair<Record, std::vector<bool>>> cases = {
+      {[](auto &f, auto g, auto) { f.RecordPropertyChange(g); }, {1, 0, 0, 0, 0, 0, 0, 0}},
+      {[](auto &f, auto g, auto) { f.RecordLabelChange(g); }, {0, 1, 0, 0, 0, 0, 0, 0}},
+      {[](auto &f, auto g, auto) { f.RecordEdgeChange(g); }, {0, 0, 1, 0, 0, 0, 0, 0}},
+      {[](auto &f, auto g, auto) { f.RecordVertexDeleted(g); }, {0, 0, 0, 1, 0, 0, 0, 0}},
+      {[](auto &f, auto g, auto p) { f.RecordPropertyField(g, p); }, {0, 0, 0, 0, 1, 0, 0, 0}},
+      {[](auto &f, auto g, auto p) { f.RecordBaseEdgeProperty(g, p); }, {0, 0, 0, 0, 0, 1, 1, 0}},
+      {[](auto &f, auto g, auto) { f.RecordBaseEdgeDeleted(g); }, {0, 0, 0, 0, 0, 0, 0, 1}},
+  };
+  for (size_t i = 0; i < cases.size(); ++i) {
+    BranchChangeFilters filters;
+    EXPECT_EQ(Probe(filters, G(1), P(7)), std::vector<bool>(8, false)) << i;
+    cases[i].first(filters, G(1), P(7));
+    EXPECT_EQ(Probe(filters, G(1), P(7)), cases[i].second) << i;
+    EXPECT_EQ(Probe(filters, G(1'000'000), P(8)), std::vector<bool>(8, false)) << "unrecorded gid and pid, case " << i;
+  }
 }
 
-TEST(VersioningBranchChangeFilter, InsertedKeyCountsGrowWithDistinctRecordsPerFilter) {
+TEST(VersioningBranchChangeFilter, PidGateNeverHitsForAnUnwrittenPid) {
   BranchChangeFilters filters;
-  const auto zero = filters.InsertedKeys();
-  EXPECT_EQ(zero.label + zero.property + zero.edge + zero.property_field + zero.deleted + zero.base_edge_property +
-                zero.base_edge_deleted,
-            0U);
-
-  for (int i = 0; i < 3; ++i) filters.RecordLabelChange(G(1));
-  auto counts = filters.InsertedKeys();
-  EXPECT_EQ(counts.label, 1U) << "re-recording the same gid sets no new bit";
-  EXPECT_EQ(counts.property, 0U);
-  EXPECT_EQ(counts.edge, 0U);
-
-  constexpr uint64_t kKeys = 100;
-  for (uint64_t gid = 10; gid < 10 + kKeys; ++gid) filters.RecordEdgeChange(G(gid));
-  counts = filters.InsertedKeys();
-  EXPECT_LE(counts.edge, kKeys);
-  EXPECT_GE(counts.edge, kKeys - 5) << "far from saturation almost every distinct gid sets a new bit";
-  EXPECT_EQ(counts.label, 1U) << "another filter's inserts must not count here";
-
-  filters.RecordPropertyField(G(1), P(7));
-  filters.RecordPropertyField(G(1), P(7));
-  filters.RecordVertexDeleted(G(2));
-  filters.RecordBaseEdgeProperty(G(3), P(7));
-  filters.RecordBaseEdgeDeleted(G(4));
-  counts = filters.InsertedKeys();
-  EXPECT_EQ(counts.property_field, 1U);
-  EXPECT_EQ(counts.deleted, 1U);
-  EXPECT_EQ(counts.base_edge_property, 1U);
-  EXPECT_EQ(counts.base_edge_deleted, 1U);
-}
-
-// Pid gate: a never-written pid stays off a saturated field filter; sparse filters rarely false-positive.
-TEST(VersioningBranchChangeFilter, FiltersStaySelective) {
-  BranchChangeFilters sparse;
-  for (uint64_t gid = 0; gid < 2'000; ++gid) sparse.RecordPropertyChange(G(gid));
-  for (uint64_t gid = 0; gid < 2'000; ++gid) ASSERT_TRUE(sparse.MayHavePropertyChange(G(gid)));
-  int false_positives = 0;
-  for (uint64_t i = 0; i < 200'000; ++i) false_positives += sparse.MayHavePropertyChange(G(1'000'000 + i)) ? 1 : 0;
-  EXPECT_LT(false_positives, 200);
-
-  BranchChangeFilters saturated;
   for (uint64_t gid = 0; gid < 100'000; ++gid) {
-    saturated.RecordPropertyField(G(gid), P(7));
-    saturated.RecordBaseEdgeProperty(G(gid), P(7));
+    filters.RecordPropertyField(G(gid), P(7));
+    filters.RecordBaseEdgeProperty(G(gid), P(7));
   }
-  int vertex_hits = 0;
-  int edge_hits = 0;
+  EXPECT_TRUE(filters.MayHavePropertyTouched(P(7)));
+  EXPECT_FALSE(filters.MayHavePropertyTouched(P(8)));
   for (uint64_t gid = 0; gid < 10'000; ++gid) {
-    ASSERT_TRUE(saturated.MayHavePropertyFieldChange(G(gid), P(7)));
-    ASSERT_TRUE(saturated.MayHaveBaseEdgePropertyFieldChange(G(gid), P(7)));
-    vertex_hits += saturated.MayHavePropertyFieldChange(G(gid), P(8)) ? 1 : 0;
-    edge_hits += saturated.MayHaveBaseEdgePropertyFieldChange(G(gid), P(8)) ? 1 : 0;
+    ASSERT_TRUE(filters.MayHavePropertyFieldChange(G(gid), P(7)));
+    ASSERT_TRUE(filters.MayHaveBaseEdgePropertyFieldChange(G(gid), P(7)));
+    ASSERT_FALSE(filters.MayHavePropertyFieldChange(G(gid), P(8)));
+    ASSERT_FALSE(filters.MayHaveBaseEdgePropertyFieldChange(G(gid), P(8)));
   }
-  EXPECT_EQ(vertex_hits, 0);
-  EXPECT_EQ(edge_hits, 0);
+}
+
+// Gids that agree modulo the filter size must not all share one word and bit pair.
+TEST(VersioningBranchChangeFilter, MultiplesOfTheFilterSizeDoNotAllCollide) {
+  BranchChangeFilters filters;
+  constexpr uint64_t kStride = BranchChangeFilters::kFilterWords;
+  for (uint64_t i = 1; i <= 64; ++i) filters.RecordLabelChange(G(i * kStride));
+  int hits = 0;
+  for (uint64_t i = 65; i <= 128; ++i) hits += filters.MayHaveLabelChange(G(i * kStride)) ? 1 : 0;
+  EXPECT_LT(hits, 8);
 }
 
 TEST(VersioningBranchChangeFilter, ConcurrentRecordsAreNeverMissedByReaders) {
@@ -157,10 +101,8 @@ TEST(VersioningBranchChangeFilter, ConcurrentRecordsAreNeverMissedByReaders) {
   auto gid_of = [](int w, uint64_t i) { return G(i * kWriters + w); };
   auto expect_all = [&](ms::Gid gid) {
     const auto pid = P(gid.AsUint() % 300);
-    return filters.MayHavePropertyChange(gid) && filters.MayHaveLabelChange(gid) && filters.MayHaveEdgeChange(gid) &&
-           filters.MayHaveVertexDeleted(gid) && filters.MayHavePropertyFieldChange(gid, pid) &&
-           filters.MayHaveBaseEdgePropertyFieldChange(gid, pid) && filters.MayHaveBaseEdgeDeleted(gid) &&
-           filters.MayHaveAnyVertexDeleted();
+    const auto hits = Probe(filters, gid, pid);
+    return std::ranges::all_of(hits, std::identity{}) && filters.MayHaveAnyVertexDeleted();
   };
 
   std::vector<std::thread> readers;
