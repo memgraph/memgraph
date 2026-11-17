@@ -493,6 +493,12 @@ SLK_SINGLE_ARG_MSG(coordination::GetRolePrivilegesReq)
 SLK_SINGLE_ARG_MSG(coordination::GetRolePrivilegesRes)
 SLK_SINGLE_ARG_MSG(coordination::SetCoordinatorSettingReq)
 SLK_SINGLE_ARG_MSG(coordination::SetCoordinatorSettingRes)
+SLK_SINGLE_ARG_MSG(coordination::AddRegionReq)
+SLK_SINGLE_ARG_MSG(coordination::AddRegionRes)
+SLK_SINGLE_ARG_MSG(coordination::DropRegionReq)
+SLK_SINGLE_ARG_MSG(coordination::DropRegionRes)
+SLK_EMPTY_MSG(coordination::ShowRegionInfoReq)
+SLK_SINGLE_ARG_MSG(coordination::ShowRegionInfoRes)
 }  // namespace slk
 
 }  // namespace memgraph

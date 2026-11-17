@@ -41,6 +41,7 @@
 
 #ifdef MG_ENTERPRISE
 #include "coordination/instance_status.hpp"
+#include "coordination/region_info.hpp"
 #include "coordination/replication_lag_info.hpp"
 #include "coordination/utils.hpp"
 #include "metrics/scoped_gauge.hpp"
@@ -190,6 +191,15 @@ class CoordinatorQueryHandler {
 
   /// Both return nullopt if the leader couldn't be reached.
   virtual std::optional<std::vector<std::pair<std::string, std::string>>> ShowCoordinatorSettings() = 0;
+
+  /// @throw QueryRuntimeException if an error occurred.
+  virtual void AddRegion(std::string_view region_name) = 0;
+
+  /// @throw QueryRuntimeException if an error occurred.
+  virtual void DropRegion(std::string_view region_name) = 0;
+
+  /// nullopt if the leader couldn't be reached.
+  virtual std::optional<std::vector<coordination::RegionInfo>> ShowRegionInfo() = 0;
 
   /// @throw QueryRuntimeException if an error occurred.
   virtual void CreateRole(std::string_view role_name, bool if_not_exists) = 0;

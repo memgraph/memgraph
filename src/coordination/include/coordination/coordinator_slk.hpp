@@ -17,6 +17,7 @@
 #include "coordination/coordinator_communication_config.hpp"
 #include "coordination/instance_state.hpp"
 #include "coordination/instance_status.hpp"
+#include "coordination/region_info.hpp"
 #include "coordination/replication_lag_info.hpp"
 #include "replication_coordination_glue/common.hpp"
 #include "slk/serialization.hpp"
@@ -212,6 +213,18 @@ inline void Save(coordination::CoordinatorRole const &obj, Builder *builder) {
 inline void Load(coordination::CoordinatorRole *obj, Reader *reader) {
   Load(&obj->name, reader);
   Load(&obj->permissions, reader);
+}
+
+inline void Save(coordination::RegionInfo const &obj, Builder *builder) {
+  Save(obj.name, builder);
+  Save(obj.instances, builder);
+  Save(obj.is_primary_region, builder);
+}
+
+inline void Load(coordination::RegionInfo *obj, Reader *reader) {
+  Load(&obj->name, reader);
+  Load(&obj->instances, reader);
+  Load(&obj->is_primary_region, reader);
 }
 
 inline void Save(coordination::DataInstanceConfig const &config, Builder *builder) {

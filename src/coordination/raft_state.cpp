@@ -661,6 +661,8 @@ auto RaftState::GetGlobalReadOnly() const -> bool { return state_machine_->GetGl
 
 auto RaftState::GetRoles() const -> std::vector<CoordinatorRole> { return state_machine_->GetRoles(); }
 
+auto RaftState::GetRegions() const -> std::set<std::string> { return state_machine_->GetRegions(); }
+
 }  // namespace memgraph::coordination
 
 // namespace memgraph::coordination

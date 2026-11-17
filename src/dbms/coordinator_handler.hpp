@@ -56,6 +56,12 @@ class CoordinatorHandler {
 
   auto DropRole(std::string_view role_name) const -> coordination::DropRoleStatus;
 
+  auto AddRegion(std::string_view region_name) const -> coordination::AddRegionStatus;
+
+  auto DropRegion(std::string_view region_name) const -> coordination::DropRegionStatus;
+
+  auto ShowRegionInfo() const -> std::optional<std::vector<coordination::RegionInfo>>;
+
   auto GetRoles() const -> std::optional<std::vector<coordination::CoordinatorRole>>;
 
   auto GrantPrivilege(std::string_view role_name, uint64_t privileges) const -> coordination::GrantPrivilegeStatus;

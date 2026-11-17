@@ -1400,6 +1400,34 @@ def test_sso_privilege_enforcement(test_name):
     assert not sso_connects(leader_port, "oidc", "bare")
 
 
+def test_sso_region_query_privileges(test_name):
+    # SHOW REGION INFO needs only COORDINATOR_READ; ADD REGION and DROP REGION need COORDINATOR_WRITE.
+    def bootstrap(cursor):
+        create_role_with_privilege(cursor, "reader", grant="COORDINATOR_READ")
+        create_role_with_privilege(cursor, "writer", grant="COORDINATOR_WRITE")
+
+    start_sso_cluster(test_name, bootstrap)
+    leader_port = sso_wait_for_ready_leader_port()
+
+    def show_region_info(token):
+        return [tuple(row) for row in sso_run(leader_port, "oidc", token, "SHOW REGION INFO")]
+
+    sso_run(leader_port, "oidc", "writer", "ADD REGION 'eu-west'")
+
+    assert show_region_info("reader") == [("eu-west", [], False)]
+
+    for query in ["ADD REGION 'us-east'", "DROP REGION 'eu-west'"]:
+        try:
+            sso_run(leader_port, "oidc", "reader", query)
+            assert False, f"A COORDINATOR_READ session must not run {query}"
+        except Exception as e:
+            assert "required privilege" in str(e), f"Unexpected error for {query}: {e}"
+
+    assert show_region_info("writer") == [("eu-west", [], False)]
+    sso_run(leader_port, "oidc", "writer", "DROP REGION 'eu-west'")
+    assert show_region_info("writer") == []
+
+
 def test_sso_privilege_revocation_applies_to_connected_session(test_name):
     # REVOKE / DROP ROLE downgrades an already-connected SSO session without a reconnect: the effective mask is
     # recomputed from the session's roles on every privilege check rather than captured once at login. Long-lived

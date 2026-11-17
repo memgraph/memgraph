@@ -3369,7 +3369,10 @@ class CoordinatorQuery : public memgraph::query::Query {
     SHOW_COORDINATOR_SETTINGS,
     SHOW_REPLICATION_LAG,
     UPDATE_CONFIG,
-    SHOW_ROUTING_TABLE
+    SHOW_ROUTING_TABLE,
+    ADD_REGION,
+    DROP_REGION,
+    SHOW_REGION_INFO
   };
 
   enum class SyncMode : uint8_t { SYNC, ASYNC, STRICT_SYNC };
@@ -3387,6 +3390,7 @@ class CoordinatorQuery : public memgraph::query::Query {
   SyncMode sync_mode_;
   Expression *setting_name_{nullptr};
   Expression *setting_value_{nullptr};
+  Expression *region_name_{nullptr};
 
   CoordinatorQuery *Clone(AstStorage *storage) const override {
     auto *object = storage->Create<CoordinatorQuery>();
@@ -3400,6 +3404,7 @@ class CoordinatorQuery : public memgraph::query::Query {
     }
     object->setting_name_ = setting_name_ ? setting_name_->Clone(storage) : nullptr;
     object->setting_value_ = setting_value_ ? setting_value_->Clone(storage) : nullptr;
+    object->region_name_ = region_name_ ? region_name_->Clone(storage) : nullptr;
 
     return object;
   }

@@ -27,6 +27,7 @@
 #include "coordination/coordinator_ops_status.hpp"
 #include "coordination/instance_status.hpp"
 #include "coordination/raft_state.hpp"
+#include "coordination/region_info.hpp"
 #include "coordination/replication_instance_client.hpp"
 #include "coordination/replication_instance_connector.hpp"
 #include "utils/resource_lock.hpp"
@@ -98,6 +99,10 @@ class CoordinatorInstance {
 
   auto DropRole(std::string_view role_name) const -> DropRoleStatus;
 
+  auto AddRegion(std::string_view region_name) const -> AddRegionStatus;
+
+  auto DropRegion(std::string_view region_name) const -> DropRegionStatus;
+
   // Strong read of the committed role set: served locally if this coordinator is the ready leader, otherwise
   // forwarded to the leader. Returns nullopt when the leader is unreachable -- never local replicated state, so
   // consumers (SSO authentication, privilege checks, SHOW ROLES) fail closed instead of acting on stale roles.
@@ -152,9 +157,11 @@ class CoordinatorInstance {
   // Both return nullopt if the leader couldn't be reached.
   auto ShowCoordinatorSettings() const -> std::optional<std::vector<std::pair<std::string, std::string>>>;
   auto ShowReplicationLag() const -> std::optional<ReplicationLagResult>;
+  auto ShowRegionInfo() const -> std::optional<std::vector<RegionInfo>>;
 
-  // nullopt if this coordinator isn't a ready leader.
+  // Both return nullopt if this coordinator isn't a ready leader.
   auto ShowCoordinatorSettingsAsLeader() const -> std::optional<std::vector<std::pair<std::string, std::string>>>;
+  auto ShowRegionInfoAsLeader() const -> std::optional<std::vector<RegionInfo>>;
   // Carries the reason instead of nullopt so a forwarding follower can report why the leader has no lag data.
   auto ShowReplicationLagAsLeader() const -> ReplicationLagResult;
 

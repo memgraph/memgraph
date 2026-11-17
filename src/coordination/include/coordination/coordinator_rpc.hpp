@@ -24,6 +24,7 @@
 #include "coordination/coordinator_slk.hpp"
 #include "coordination/instance_state.hpp"
 #include "coordination/instance_status.hpp"
+#include "coordination/region_info.hpp"
 #include "coordination/replication_lag_info.hpp"
 #include "coordination/utils.hpp"
 #include "replication_coordination_glue/common.hpp"
@@ -682,6 +683,23 @@ using SetCoordinatorSettingRes =
                  std::optional<SetCoordinatorSettingStatus>>;
 using SetCoordinatorSettingRpc = rpc::RequestResponse<SetCoordinatorSettingReq, SetCoordinatorSettingRes>;
 
+// Region writes carry the region name and follow the write-status convention above.
+using AddRegionReq = SingleArgMsg<utils::TypeId::COORD_ADD_REGION_REQ, "AddRegionReq", 1, std::string>;
+using AddRegionRes =
+    SingleArgMsg<utils::TypeId::COORD_ADD_REGION_RES, "AddRegionRes", 1, std::optional<AddRegionStatus>>;
+using AddRegionRpc = rpc::RequestResponse<AddRegionReq, AddRegionRes>;
+
+using DropRegionReq = SingleArgMsg<utils::TypeId::COORD_DROP_REGION_REQ, "DropRegionReq", 1, std::string>;
+using DropRegionRes =
+    SingleArgMsg<utils::TypeId::COORD_DROP_REGION_RES, "DropRegionRes", 1, std::optional<DropRegionStatus>>;
+using DropRegionRpc = rpc::RequestResponse<DropRegionReq, DropRegionRes>;
+
+using ShowRegionInfoReq = EmptyReq<utils::TypeId::COORD_SHOW_REGION_INFO_REQ, "ShowRegionInfoReq", 1>;
+// nullopt when the leader couldn't serve the request.
+using ShowRegionInfoRes = SingleArgMsg<utils::TypeId::COORD_SHOW_REGION_INFO_RES, "ShowRegionInfoRes", 1,
+                                       std::optional<std::vector<RegionInfo>>>;
+using ShowRegionInfoRpc = rpc::RequestResponse<ShowRegionInfoReq, ShowRegionInfoRes>;
+
 }  // namespace memgraph::coordination
 
 // SLK serialization declarations
@@ -759,6 +777,9 @@ DECLARE_SLK_FREE_FUNCTIONS(coordination::GrantPrivilegeRpc)
 DECLARE_SLK_FREE_FUNCTIONS(coordination::RevokePrivilegeRpc)
 DECLARE_SLK_FREE_FUNCTIONS(coordination::GetRolePrivilegesRpc)
 DECLARE_SLK_FREE_FUNCTIONS(coordination::SetCoordinatorSettingRpc)
+DECLARE_SLK_FREE_FUNCTIONS(coordination::AddRegionRpc)
+DECLARE_SLK_FREE_FUNCTIONS(coordination::DropRegionRpc)
+DECLARE_SLK_FREE_FUNCTIONS(coordination::ShowRegionInfoRpc)
 
 DECLARE_SLK_SERIALIZATION_FUNCTIONS(coordination::UpdateDataInstanceConfigReqV1)
 DECLARE_SLK_SERIALIZATION_FUNCTIONS(coordination::UpdateDataInstanceConfigReq)
