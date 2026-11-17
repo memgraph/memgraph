@@ -28,6 +28,8 @@ namespace memgraph::dbms {
 // per `fork_ts` right before the first txn with durable ts >= it (after all if none), then bumps the clock past the
 // last durable ts and to at least the newest `fork_ts`. Returns the pins (local MVCC timestamps, not durable ones) in
 // `fork_ts` order, caller-owned. `fork_ts` must be ascending (duplicates allowed) and past `tail.reached_timestamp`.
+// Precondition: called while the Database is being constructed, before `storage` is published (no sessions, triggers,
+// streams or TTL). Periodic snapshots are paused for its duration; GC may run, fork pins protect the history.
 // Nothing else may write to `storage` until it returns. On failure no pin is held and `storage` is partially
 // replayed, so it must be discarded.
 std::expected<std::vector<uint64_t>, std::string> ReplayHistoryTail(storage::InMemoryStorage &storage,
