@@ -9270,15 +9270,16 @@ TYPED_TEST(TestPlanner, CachePropertiesAnAggregationReadingTwoPropertiesOnceEach
   CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), aggr, ExpectProduce());
 }
 
-// A CASE may never evaluate the branch its lookup sits in, so repeating a property inside one earns
-// no pass.
+// A CASE evaluates one branch or the other, so a property named in a branch is read for some rows
+// and not for others, and repeating it there earns no pass. The property sits in the branches
+// rather than in the condition, which is the part a CASE always evaluates.
 TYPED_TEST(TestPlanner, CachePropertiesAnAggregationsConditionalLookupsEarnNoPass) {
   CachePropertiesFlagGuard guard{true};
   FakeDbAccessor dba;
-  auto prop = dba.Property("active");
+  auto prop = dba.Property("value");
   auto conditional = [&] {
     return this->storage.template Create<memgraph::query::IfOperator>(
-        PROPERTY_LOOKUP(dba, "n", prop), LITERAL(1), LITERAL(0));
+        LESS(LITERAL(1), LITERAL(2)), PROPERTY_LOOKUP(dba, "n", prop), PROPERTY_LOOKUP(dba, "n", prop));
   };
   auto first = SUM(conditional(), false);
   auto second = SUM(conditional(), false);
