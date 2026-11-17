@@ -9945,6 +9945,36 @@ TEST_P(CypherMainVisitorTest, CreateDatabaseStillWorks) {
     EXPECT_EQ(query->db_name_, "production_db");
     EXPECT_FALSE(query->force_);
   }
+
+  // CREATE DATABASE ... IF NOT EXISTS (modifier after the name) carries its own action, not CREATE.
+  {
+    auto *query = dynamic_cast<MultiDatabaseQuery *>(ast_generator.ParseQuery("CREATE DATABASE testdb IF NOT EXISTS"));
+    ASSERT_NE(query, nullptr);
+    EXPECT_EQ(query->action_, MultiDatabaseQuery::Action::CREATE_IF_NOT_EXISTS);
+    EXPECT_EQ(query->db_name_, "testdb");
+    EXPECT_FALSE(query->force_);
+  }
+
+  // The before-name spelling of IF NOT EXISTS parses to the same action.
+  {
+    auto *query = dynamic_cast<MultiDatabaseQuery *>(ast_generator.ParseQuery("CREATE DATABASE IF NOT EXISTS testdb"));
+    ASSERT_NE(query, nullptr);
+    EXPECT_EQ(query->action_, MultiDatabaseQuery::Action::CREATE_IF_NOT_EXISTS);
+    EXPECT_EQ(query->db_name_, "testdb");
+    EXPECT_FALSE(query->force_);
+  }
+
+  // CREATE OR REPLACE DATABASE carries REPLACE with the same name/force defaults.
+  {
+    auto *query = dynamic_cast<MultiDatabaseQuery *>(ast_generator.ParseQuery("CREATE OR REPLACE DATABASE testdb"));
+    ASSERT_NE(query, nullptr);
+    EXPECT_EQ(query->action_, MultiDatabaseQuery::Action::REPLACE);
+    EXPECT_EQ(query->db_name_, "testdb");
+    EXPECT_FALSE(query->force_);
+  }
+
+  // The two modifiers are mutually exclusive: combining them stays a syntax error.
+  TestInvalidQuery("CREATE OR REPLACE DATABASE testdb IF NOT EXISTS", ast_generator);
 }
 
 TEST_P(CypherMainVisitorTest, SuspendResumeDatabase) {
