@@ -1726,13 +1726,19 @@ class ViewOracle {
   }
 
   /// The Produce of one SET's right-hand sides is part of that SET, which reads NEW: the planner names each value
-  /// with an anonymous symbol that a SET item reads.
+  /// with an anonymous symbol that a SET item reads, and passes every other symbol through unchanged.
   bool IsSetGroupProduce(LogicalOperator &op) const {
     auto *produce = memgraph::utils::Downcast<plan::Produce>(&op);
-    return produce && !produce->named_expressions_.empty() &&
-           std::ranges::all_of(produce->named_expressions_, [this](auto const *named) {
-             return named->name_.starts_with("anon") && set_values_.contains(named->symbol_pos_);
-           });
+    auto const is_value = [this](auto const *named) {
+      return named->name_.starts_with("anon") && set_values_.contains(named->symbol_pos_);
+    };
+    auto const passes_through = [](auto const *named) {
+      auto const *ident = memgraph::utils::Downcast<Identifier>(named->expression_);
+      return ident && ident->symbol_pos_ == named->symbol_pos_;
+    };
+    return produce && std::ranges::any_of(produce->named_expressions_, is_value) &&
+           std::ranges::all_of(produce->named_expressions_,
+                               [&](auto const *named) { return is_value(named) || passes_through(named); });
   }
 
   std::vector<Mismatch> mismatches_;
