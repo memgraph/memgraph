@@ -1271,7 +1271,11 @@ class PropertyOfFinder final : public HierarchicalTreeVisitor {
   using HierarchicalTreeVisitor::PreVisit;
   using HierarchicalTreeVisitor::Visit;
 
-  bool Visit(Identifier & /*ident*/) override { return true; }
+  // Any other read of the variable (a subscript, a map projection, properties()) may read a written key.
+  bool Visit(Identifier &ident) override {
+    if (IsSymbol(ident)) found = true;
+    return !found;
+  }
 
   bool Visit(PrimitiveLiteral & /*literal*/) override { return true; }
 
@@ -1281,16 +1285,16 @@ class PropertyOfFinder final : public HierarchicalTreeVisitor {
 
   bool PreVisit(PropertyLookup &lookup) override {
     auto *object = utils::Downcast<Identifier>(lookup.expression_);
-    if (object && object->symbol_pos_ >= 0 && symbol_table_.at(*object) == symbol_ &&
-        keys_.contains(lookup.property_path_.front().name)) {
-      found = true;
-    }
-    return !found;
+    if (!object || !IsSymbol(*object)) return !found;
+    if (keys_.contains(lookup.property_path_.front().name)) found = true;
+    return false;
   }
 
   bool found{false};
 
  private:
+  bool IsSymbol(Identifier &ident) const { return ident.symbol_pos_ >= 0 && symbol_table_.at(ident) == symbol_; }
+
   const Symbol &symbol_;
   const std::set<std::string> &keys_;
   const SymbolTable &symbol_table_;

@@ -268,7 +268,8 @@ std::optional<std::unordered_set<Symbol>> SymbolsReadAfter(const QueryPart &quer
 /// repeat a row lie between. Anything else, an expand, an UNWIND or a CALL among them, answers false.
 bool IsRowUnique(const LogicalOperator &plan, Symbol symbol);
 
-/// Whether @p expression looks up a property of @p symbol named in @p keys.
+/// Whether @p expression may read a property of @p symbol named in @p keys: a lookup of one, or any other read of
+/// the variable.
 bool ReadsPropertyOf(Expression &expression, const Symbol &symbol, const std::set<std::string> &keys,
                      const SymbolTable &symbol_table);
 
