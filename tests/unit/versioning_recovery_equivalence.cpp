@@ -468,7 +468,7 @@ TEST_F(VersioningRecoveryEquivalenceTest, EveryKeyChangingWriterLeavesTheSameInd
   std::pair<Keys, Keys> live_keys;
   std::string live;
   {
-    memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/false)};
+    TestDatabase db{MakeConfig(/*recover_on_startup=*/false)};
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
     base = CreateBase(db);
     {
@@ -570,7 +570,7 @@ TEST_F(VersioningRecoveryEquivalenceTest, EveryKeyChangingWriterLeavesTheSameInd
                     {base.v4.AsUint(), ints({11})}}));
     live = Visible(Capture(db, *ctx, base));
   }
-  memgraph::dbms::Database db{MakeConfig(/*recover_on_startup=*/true)};
+  TestDatabase db{MakeConfig(/*recover_on_startup=*/true)};
   const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
   auto ctx = Checkout(db, "b");
   ASSERT_NE(ctx, nullptr);
