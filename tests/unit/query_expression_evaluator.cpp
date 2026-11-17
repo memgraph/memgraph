@@ -3858,9 +3858,7 @@ TYPED_TEST(FunctionTest, ReverseInvalidType) {
     this->EvaluateFunction("REVERSE", 132);
     FAIL() << "expected REVERSE to reject an integer argument";
   } catch (const QueryRuntimeException &e) {
-    const std::string message{e.what()};
-    EXPECT_NE(message.find("'reverse' argument at position 1 must be either"), std::string::npos) << message;
-    EXPECT_NE(message.find("'null', 'string' or 'list'"), std::string::npos) << message;
+    EXPECT_EQ(std::string{e.what()}, "'reverse' argument at position 1 must be either 'null', 'string' or 'list'.");
   }
 }
 
