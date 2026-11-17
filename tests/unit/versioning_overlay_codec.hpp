@@ -26,12 +26,12 @@
 #include "utils/logging.hpp"
 #include "versioning/overlay_state.hpp"
 
-// The unit tests' codec for an overlay's whole state: OverlayState <-> the overlay's labels and properties in the
-// encoding of overlay_state.hpp. Production code does not use it.
+// Test-only codec: OverlayState <-> an overlay's labels and properties (encoding in overlay_state.hpp), written through
+// the product WriteKey.
 namespace memgraph::versioning {
 
-// What an overlay holds, unpacked. The mutators keep it canonical: a label or property is never both added and removed,
-// a removed property carries no value, and a deleted object carries nothing else.
+// What an overlay holds, unpacked and canonical: nothing both added and removed, a removed property has no value, a
+// deleted object nothing else.
 struct OverlayState {
   bool deleted{false};
   std::vector<storage::LabelId> added_labels;     // sorted
@@ -110,29 +110,29 @@ std::optional<storage::Error> ApplyProperties(Accessor &overlay, const OverlaySt
                                               const OverlayState &after) {
   auto const old_props = before.properties.Properties();
   auto const new_props = after.properties.Properties();
+  auto const write = [&](storage::PropertyId pid, const storage::PropertyValue &value, bool in_base, bool marked) {
+    auto r = WriteKey(overlay, pid, value, in_base, marked);
+    return r ? std::nullopt : std::optional{r.error()};
+  };
   for (auto const &[pid, value] : new_props) {
     auto const it = old_props.find(pid);
     if (it != old_props.end() && it->second == value) continue;
-    if (auto r = overlay.SetProperty(pid, value); !r) return r.error();
+    if (auto e = write(pid, value, false, std::ranges::binary_search(before.removed_pids, pid))) return e;
   }
   for (auto const &entry : old_props) {
-    if (new_props.contains(entry.first)) continue;
-    if (auto r = overlay.SetProperty(entry.first, storage::PropertyValue{}); !r) return r.error();
+    if (new_props.contains(entry.first) || std::ranges::binary_search(after.removed_pids, entry.first)) continue;
+    if (auto e = write(entry.first, storage::PropertyValue{}, false, false)) return e;
   }
   for (auto const pid : after.removed_pids) {
     if (std::ranges::binary_search(before.removed_pids, pid)) continue;
-    if (auto r = overlay.SetProperty(Mark(pid), storage::PropertyValue{true}); !r) return r.error();
-  }
-  for (auto const pid : before.removed_pids) {
-    if (std::ranges::binary_search(after.removed_pids, pid)) continue;
-    if (auto r = overlay.SetProperty(Mark(pid), storage::PropertyValue{}); !r) return r.error();
+    if (auto e = write(pid, storage::PropertyValue{}, true, false)) return e;
   }
   return std::nullopt;
 }
 
 inline void DecodeProperty(OverlayState &state, storage::PropertyId pid, const storage::PropertyValue &value) {
   if (storage::IsReservedId(pid)) {
-    state.removed_pids.push_back(Strip(pid));
+    state.removed_pids.push_back(storage::StripReservedId(pid));
   } else {
     state.properties.SetProperty(pid, value);
   }
@@ -147,12 +147,10 @@ inline storage::Result<OverlayState> Decode(const storage::VertexAccessor &overl
   auto props = overlay.Properties(view);
   if (!props) return std::unexpected(props.error());
   OverlayState state;
+  if (HasDeleteLabel(*labels)) return OverlayState{.deleted = true};
   for (auto const l : *labels) {
-    if (l == kDeleteLabel) {
-      return OverlayState{.deleted = true};
-    }
     if (storage::IsReservedId(l)) {
-      state.removed_labels.push_back(Strip(l));
+      state.removed_labels.push_back(storage::StripReservedId(l));
     } else {
       state.added_labels.push_back(l);
     }

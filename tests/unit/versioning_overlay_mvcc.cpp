@@ -9,15 +9,11 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-// An overlay is a stock object, so the engine's own MVCC versions, conflicts, aborts and collects it. These tests pin
-// what a branch relies on: first-writer-wins, snapshot/read-committed visibility, atomic commits, safe collection.
+// LinkEdgeMarker (overlay_state.hpp): visibility, conflicts and edge_count_ balance of the stock-created marker
+// entries.
 
-#include <atomic>
-#include <chrono>
 #include <cstdint>
 #include <memory>
-#include <random>
-#include <thread>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -26,39 +22,32 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/isolation_level.hpp"
-#include "storage/v2/property_value.hpp"
 #include "storage/v2/vertex_info_cache.hpp"
 #include "tests/test_commit_args_helper.hpp"
-#include "tests/unit/versioning_overlay_codec.hpp"
 #include "utils/on_scope_exit.hpp"
 #include "versioning/overlay_state.hpp"
 
 namespace ms = memgraph::storage;
 namespace overlay = memgraph::versioning::overlay;
-using memgraph::versioning::OverlayState;
 
 namespace {
-
-ms::LabelId L(uint32_t id) { return ms::LabelId::FromUint(id); }
-
-ms::PropertyId P(uint32_t id) { return ms::PropertyId::FromUint(id); }
-
-ms::PropertyValue V(int64_t v) { return ms::PropertyValue{v}; }
 
 constexpr auto kSnapshot = ms::IsolationLevel::SNAPSHOT_ISOLATION;
 constexpr auto kReadCommitted = ms::IsolationLevel::READ_COMMITTED;
 
-class OverlayMvccTest : public testing::Test {
+class LinkEdgeMarkerTest : public testing::Test {
  protected:
   void SetUp() override {
     ms::Config config;
     config.gc = {.type = ms::Config::Gc::Type::NONE};
     storage = std::make_unique<ms::InMemoryStorage>(config);
+    type = storage->NameToEdgeType("T");
+    edge_overlay = std::make_unique<ms::Edge>(ms::Gid::FromUint(5000), nullptr);
+    u = CreateOverlay();
+    v = CreateOverlay();
   }
 
-  std::unique_ptr<ms::Storage::Accessor> Writer(ms::IsolationLevel level = kSnapshot) {
-    return storage->Access(ms::WRITE, level, std::nullopt);
-  }
+  std::unique_ptr<ms::Storage::Accessor> Writer() { return storage->Access(ms::WRITE, kSnapshot, std::nullopt); }
 
   std::unique_ptr<ms::Storage::Accessor> Reader(ms::IsolationLevel level = kSnapshot) {
     return storage->Access(ms::READ, level, std::nullopt);
@@ -70,319 +59,10 @@ class OverlayMvccTest : public testing::Test {
 
   ms::Gid CreateOverlay() {
     auto acc = Writer();
-    auto v = acc->CreateVertex();
-    auto const gid = v.Gid();
+    auto vertex = acc->CreateVertex();
+    auto const gid = vertex.Gid();
     Commit(*acc);
     return gid;
-  }
-
-  static OverlayState Read(ms::Storage::Accessor &acc, ms::Gid gid, ms::View view = ms::View::NEW) {
-    auto v = acc.FindVertex(gid, view);
-    EXPECT_TRUE(v.has_value());
-    auto state = overlay::Decode(*v, view);
-    EXPECT_TRUE(state.has_value());
-    return std::move(*state);
-  }
-
-  // Returns the error of the first failed write, if any.
-  template <typename Edit>
-  static std::optional<ms::Error> Write(ms::Storage::Accessor &acc, ms::Gid gid, Edit &&edit) {
-    auto v = acc.FindVertex(gid, ms::View::NEW);
-    EXPECT_TRUE(v.has_value());
-    auto before = overlay::Decode(*v, ms::View::NEW);
-    EXPECT_TRUE(before.has_value());
-    auto after = before->Copy();
-    edit(after);
-    return overlay::Apply(*v, *before, after);
-  }
-
-  std::unique_ptr<ms::InMemoryStorage> storage;
-};
-
-}  // namespace
-
-TEST_F(OverlayMvccTest, TheFirstWriterOfAnOverlayWinsAndTheSecondMustAbort) {
-  for (bool first_commits_first : {true, false}) {
-    SCOPED_TRACE(first_commits_first);
-    auto const gid = CreateOverlay();
-    auto a = Writer();
-    auto b = Writer();
-
-    EXPECT_FALSE(Write(*a, gid, [](OverlayState &s) { s.SetProperty(P(1), V(1)); }));
-    auto const err = Write(*b, gid, [](OverlayState &s) { s.SetProperty(P(2), V(2)); });
-    ASSERT_TRUE(err.has_value());
-    EXPECT_EQ(*err, ms::Error::SERIALIZATION_ERROR);
-
-    if (first_commits_first) Commit(*a);
-    b->Abort();
-    if (!first_commits_first) Commit(*a);
-
-    auto check = Reader();
-    auto const state = Read(*check, gid);
-    EXPECT_EQ(state.properties.Properties().size(), 1U);
-    EXPECT_EQ(state.properties.Properties().at(P(1)), V(1));
-    check->Abort();
-  }
-}
-
-TEST_F(OverlayMvccTest, ALaterWriterConflictsWithACommitItsSnapshotDoesNotSee) {
-  auto const gid = CreateOverlay();
-  auto late = Writer();  // its snapshot predates the commit below
-  {
-    auto early = Writer();
-    EXPECT_FALSE(Write(*early, gid, [](OverlayState &s) { s.AddLabel(L(1)); }));
-    Commit(*early);
-  }
-  auto const err = Write(*late, gid, [](OverlayState &s) { s.AddLabel(L(2)); });
-  ASSERT_TRUE(err.has_value());
-  EXPECT_EQ(*err, ms::Error::SERIALIZATION_ERROR);
-  late->Abort();
-}
-
-TEST_F(OverlayMvccTest, WritersOfDifferentOverlaysDoNotConflict) {
-  auto const g1 = CreateOverlay();
-  auto const g2 = CreateOverlay();
-  auto a = Writer();
-  auto b = Writer();
-  EXPECT_FALSE(Write(*a, g1, [](OverlayState &s) { s.SetProperty(P(1), V(1)); }));
-  EXPECT_FALSE(Write(*b, g2, [](OverlayState &s) { s.SetProperty(P(1), V(2)); }));
-  Commit(*a);
-  Commit(*b);
-
-  auto r = Reader();
-  EXPECT_EQ(Read(*r, g1, ms::View::OLD).properties.Properties().at(P(1)), V(1));
-  EXPECT_EQ(Read(*r, g2, ms::View::OLD).properties.Properties().at(P(1)), V(2));
-  r->Abort();
-}
-
-TEST_F(OverlayMvccTest, ASnapshotReaderKeepsTheOldStateAndAReadCommittedOneSeesTheNew) {
-  auto const gid = CreateOverlay();
-  auto snapshot = Reader(kSnapshot);
-  auto read_committed = Reader(kReadCommitted);
-  auto const before_snapshot = Read(*snapshot, gid, ms::View::OLD);
-  EXPECT_TRUE(before_snapshot.properties.Properties().empty());
-
-  {
-    auto w = Writer();
-    EXPECT_FALSE(Write(*w, gid, [](OverlayState &s) {
-      s.SetProperty(P(1), V(1));
-      s.RemoveLabel(L(7));
-      s.RemoveProperty(P(9));
-    }));
-    Commit(*w);
-  }
-
-  auto const old_state = Read(*snapshot, gid, ms::View::OLD);
-  EXPECT_TRUE(old_state.properties.Properties().empty());
-  EXPECT_TRUE(old_state.removed_labels.empty());
-  EXPECT_TRUE(old_state.removed_pids.empty());
-
-  auto const new_state = Read(*read_committed, gid, ms::View::OLD);
-  EXPECT_EQ(new_state.properties.Properties().at(P(1)), V(1));
-  EXPECT_EQ(new_state.removed_labels, std::vector{L(7)});
-  EXPECT_EQ(new_state.removed_pids, std::vector{P(9)});
-  snapshot->Abort();
-  read_committed->Abort();
-}
-
-TEST_F(OverlayMvccTest, AnAbortRestoresTheOverlay) {
-  auto const gid = CreateOverlay();
-  {
-    auto w = Writer();
-    EXPECT_FALSE(Write(*w, gid, [](OverlayState &s) {
-      s.SetProperty(P(1), V(1));
-      s.AddLabel(L(3));
-    }));
-    Commit(*w);
-  }
-  auto const committed = [&] {
-    auto r = Reader();
-    auto state = Read(*r, gid);
-    r->Abort();
-    return state;
-  }();
-
-  {
-    auto w = Writer();
-    EXPECT_FALSE(Write(*w, gid, [](OverlayState &s) {
-      s.SetProperty(P(1), V(2));
-      s.RemoveProperty(P(1));
-      s.RemoveLabel(L(4));
-      s.DropAddedLabel(L(3));
-    }));
-    auto const inside = Read(*w, gid);
-    EXPECT_NE(inside.removed_pids, committed.removed_pids);
-    w->Abort();
-  }
-  {
-    auto w = Writer();
-    EXPECT_FALSE(Write(*w, gid, [](OverlayState &s) { s.MarkDeleted(); }));
-    EXPECT_TRUE(Read(*w, gid).deleted);
-    EXPECT_TRUE(*overlay::IsDeleted(*w->FindVertex(gid, ms::View::NEW), ms::View::NEW));
-    w->Abort();
-  }
-
-  auto r = Reader();
-  EXPECT_FALSE(*overlay::IsDeleted(*r->FindVertex(gid, ms::View::NEW), ms::View::NEW));
-  auto const state = Read(*r, gid);
-  EXPECT_FALSE(state.deleted);
-  EXPECT_EQ(state.added_labels, committed.added_labels);
-  EXPECT_EQ(state.removed_labels, committed.removed_labels);
-  EXPECT_EQ(state.removed_pids, committed.removed_pids);
-  EXPECT_EQ(state.properties.Properties(), committed.properties.Properties());
-  r->Abort();
-}
-
-TEST_F(OverlayMvccTest, ACommitOfSeveralOverlaysIsAllOrNothingForConcurrentSnapshots) {
-  auto const g1 = CreateOverlay();
-  auto const g2 = CreateOverlay();
-  auto const g3 = CreateOverlay();
-  auto before = Reader();
-  auto w = Writer();
-  for (auto gid : {g1, g2, g3}) {
-    EXPECT_FALSE(Write(*w, gid, [](OverlayState &s) { s.SetProperty(P(1), V(5)); }));
-  }
-  auto during = Reader();
-  Commit(*w);
-  auto after = Reader();
-
-  for (auto gid : {g1, g2, g3}) {
-    EXPECT_TRUE(Read(*before, gid, ms::View::OLD).properties.Properties().empty());
-    EXPECT_TRUE(Read(*during, gid, ms::View::OLD).properties.Properties().empty());
-    EXPECT_EQ(Read(*after, gid, ms::View::OLD).properties.Properties().at(P(1)), V(5));
-  }
-  before->Abort();
-  during->Abort();
-  after->Abort();
-}
-
-TEST_F(OverlayMvccTest, CollectionKeepsTheStateAPinnedReaderStillNeeds) {
-  auto const gid = CreateOverlay();
-  auto pinned = Reader();
-  EXPECT_TRUE(Read(*pinned, gid, ms::View::OLD).properties.Properties().empty());
-
-  for (int64_t i = 1; i <= 5; ++i) {
-    auto w = Writer();
-    EXPECT_FALSE(Write(*w, gid, [i](OverlayState &s) { s.SetProperty(P(1), V(i)); }));
-    Commit(*w);
-    storage->FreeMemory({}, false);
-  }
-  EXPECT_TRUE(Read(*pinned, gid, ms::View::OLD).properties.Properties().empty())
-      << "a collection cycle reclaimed what a pinned snapshot still reads";
-  pinned->Abort();
-
-  storage->FreeMemory({}, false);
-  storage->FreeMemory({}, false);
-  auto r = Reader();
-  EXPECT_EQ(Read(*r, gid, ms::View::OLD).properties.Properties().at(P(1)), V(5));
-  r->Abort();
-
-  {
-    auto w = Writer();
-    EXPECT_FALSE(Write(*w, gid, [](OverlayState &s) { s.MarkDeleted(); }));
-    Commit(*w);
-  }
-  storage->FreeMemory({}, false);
-  storage->FreeMemory({}, false);
-  auto after_delete = Reader();
-  EXPECT_TRUE(Read(*after_delete, gid).deleted) << "a collected delete marker must still read as deleted";
-  after_delete->Abort();
-}
-
-// Each writer keeps P(1) == P(2); a snapshot reader seeing them differ saw a torn commit or collected version.
-// Read-committed readers are only exercised, not asserted: a commit landing mid-read can tear a multi-key read.
-TEST_F(OverlayMvccTest, WritersReadersAndCollectionNeverShowATornOverlay) {
-  constexpr int kOverlays = 4;
-  constexpr int kWriters = 4;
-  constexpr int kReaders = 3;
-  constexpr int kWritesPerWriter = 150;
-  std::vector<ms::Gid> gids;
-  for (int i = 0; i < kOverlays; ++i) gids.push_back(CreateOverlay());
-
-  std::atomic<bool> stop{false};
-  std::atomic<int> torn{0};
-  std::atomic<int> committed{0};
-
-  std::vector<std::thread> readers;
-  for (int r = 0; r < kReaders; ++r) {
-    readers.emplace_back([&, r] {
-      while (!stop.load(std::memory_order_acquire)) {
-        auto acc = Reader(r % 2 == 0 ? kSnapshot : kReadCommitted);
-        for (auto gid : gids) {
-          auto v = acc->FindVertex(gid, ms::View::OLD);
-          if (!v) continue;
-          auto state = overlay::Decode(*v, ms::View::OLD);
-          if (!state) continue;
-          auto const props = state->properties.Properties();
-          auto const p1 = props.find(P(1));
-          auto const p2 = props.find(P(2));
-          bool const torn_read =
-              (p1 == props.end()) != (p2 == props.end()) || (p1 != props.end() && p1->second != p2->second);
-          if (torn_read && r % 2 == 0) torn.fetch_add(1);
-        }
-        acc->Abort();
-      }
-    });
-  }
-  std::thread collector{[&] {
-    while (!stop.load(std::memory_order_acquire)) {
-      storage->FreeMemory({}, false);
-      std::this_thread::sleep_for(std::chrono::milliseconds{1});
-    }
-  }};
-
-  std::vector<std::thread> writers;
-  for (int w = 0; w < kWriters; ++w) {
-    writers.emplace_back([&, w] {
-      std::mt19937 rng{static_cast<uint32_t>(w)};
-      for (int i = 0; i < kWritesPerWriter;) {
-        auto const gid = gids[rng() % kOverlays];
-        auto acc = Writer();
-        auto const value = (static_cast<int64_t>(w) * 1000000) + i;
-        auto const err = Write(*acc, gid, [value](OverlayState &s) {
-          s.SetProperty(P(1), V(value));
-          s.SetProperty(P(2), V(value));
-        });
-        if (err) {
-          acc->Abort();
-          continue;
-        }
-        if (acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value()) {
-          committed.fetch_add(1);
-          ++i;
-        }
-      }
-    });
-  }
-  for (auto &t : writers) t.join();
-  stop.store(true, std::memory_order_release);
-  for (auto &t : readers) t.join();
-  collector.join();
-
-  EXPECT_EQ(torn.load(), 0);
-  EXPECT_EQ(committed.load(), kWriters * kWritesPerWriter);
-  auto r = Reader();
-  for (auto gid : gids) {
-    auto const props = Read(*r, gid, ms::View::OLD).properties.Properties();
-    ASSERT_EQ(props.size(), 2U);
-    EXPECT_EQ(props.at(P(1)), props.at(P(2)));
-  }
-  r->Abort();
-}
-
-// A deleted base edge is an entry of type Mark(T) in both endpoint overlays' adjacency, written with stock vertex
-// deltas.
-
-namespace {
-
-class EdgeMarkerTest : public OverlayMvccTest {
- protected:
-  void SetUp() override {
-    OverlayMvccTest::SetUp();
-    type = storage->NameToEdgeType("T");
-    edge_overlay = std::make_unique<ms::Edge>(ms::Gid::FromUint(5000), nullptr);
-    u = CreateOverlay();
-    v = CreateOverlay();
   }
 
   bool Link(ms::Storage::Accessor &acc, ms::EdgeDirection direction, ms::Gid overlay, ms::Gid other) {
@@ -412,6 +92,7 @@ class EdgeMarkerTest : public OverlayMvccTest {
     return count;
   }
 
+  std::unique_ptr<ms::InMemoryStorage> storage;
   ms::EdgeTypeId type;
   std::unique_ptr<ms::Edge> edge_overlay;
   ms::Gid u, v;
@@ -419,7 +100,7 @@ class EdgeMarkerTest : public OverlayMvccTest {
 
 }  // namespace
 
-TEST_F(EdgeMarkerTest, AMarkerEntryIsVisibleByViewAsAnEdgeCreationIs) {
+TEST_F(LinkEdgeMarkerTest, AMarkerEntryIsVisibleByViewAsAnEdgeCreationIs) {
   auto writer = Writer();
   auto snapshot = Reader(kSnapshot);
   auto read_committed = Reader(kReadCommitted);
@@ -448,7 +129,7 @@ TEST_F(EdgeMarkerTest, AMarkerEntryIsVisibleByViewAsAnEdgeCreationIs) {
 
 // LinkEdgeMarker must invalidate the delta-chain cache as a stock edge creation does. Filling it takes a walk over
 // >= threshold deltas, which the writer only meets in another transaction's in-flight ones, hence create-then-abort.
-TEST_F(EdgeMarkerTest, AMarkerIsVisibleToTheWritersOwnCachedExpansion) {
+TEST_F(LinkEdgeMarkerTest, AMarkerIsVisibleToTheWritersOwnCachedExpansion) {
   auto const saved_threshold = FLAGS_delta_chain_cache_threshold;
   FLAGS_delta_chain_cache_threshold = 2;
   auto const restore_threshold =
@@ -492,7 +173,7 @@ TEST_F(EdgeMarkerTest, AMarkerIsVisibleToTheWritersOwnCachedExpansion) {
   writer->Abort();
 }
 
-TEST_F(EdgeMarkerTest, AnAbortRemovesTheEntriesAndLeavesTheEdgeCountAsItWas) {
+TEST_F(LinkEdgeMarkerTest, AnAbortRemovesTheEntriesAndLeavesTheEdgeCountAsItWas) {
   auto const before = storage->edge_count_.load();
   {
     auto writer = Writer();
@@ -503,18 +184,41 @@ TEST_F(EdgeMarkerTest, AnAbortRemovesTheEntriesAndLeavesTheEdgeCountAsItWas) {
     EXPECT_EQ(storage->edge_count_.load(), before) << "a marker is no edge";
     writer->Abort();
   }
-  EXPECT_EQ(storage->edge_count_.load(), before) << "the abort undoes each out-entry as it undoes an edge creation";
+  EXPECT_EQ(storage->edge_count_.load(), before);
   auto reader = Reader(kReadCommitted);
   EXPECT_EQ(Entries(*reader, u, ms::EdgeDirection::OUT, ms::View::NEW), 0U);
   EXPECT_EQ(Entries(*reader, v, ms::EdgeDirection::IN, ms::View::NEW), 0U);
+}
 
-  auto committed = Writer();
-  ASSERT_TRUE(LinkBoth(*committed));
-  Commit(*committed);
+TEST_F(LinkEdgeMarkerTest, ACommitThenCollectionLeavesTheEdgeCountAsItWas) {
+  auto const before = storage->edge_count_.load();
+  auto writer = Writer();
+  ASSERT_TRUE(LinkBoth(*writer));
+  Commit(*writer);
+  writer.reset();
+  static_cast<ms::Storage &>(*storage).FreeMemory();
   EXPECT_EQ(storage->edge_count_.load(), before);
 }
 
-TEST_F(EdgeMarkerTest, ASecondMarkerOnOneOverlayConflicts) {
+// OUT links, IN is refused by a concurrent writer of the other overlay: the transaction can only abort, balanced.
+TEST_F(LinkEdgeMarkerTest, AHalfLinkedPairAbortsBalanced) {
+  auto const before = storage->edge_count_.load();
+  auto blocker = Writer();
+  ASSERT_TRUE(Link(*blocker, ms::EdgeDirection::IN, v, v));
+  auto writer = Writer();
+  ASSERT_TRUE(Link(*writer, ms::EdgeDirection::OUT, u, v));
+  EXPECT_FALSE(Link(*writer, ms::EdgeDirection::IN, v, u));
+  EXPECT_TRUE(writer->TransactionHasSerializationError());
+  writer->Abort();
+  blocker->Abort();
+
+  EXPECT_EQ(storage->edge_count_.load(), before);
+  auto reader = Reader(kReadCommitted);
+  EXPECT_EQ(Entries(*reader, u, ms::EdgeDirection::OUT, ms::View::NEW), 0U);
+  EXPECT_EQ(Entries(*reader, v, ms::EdgeDirection::IN, ms::View::NEW), 0U);
+}
+
+TEST_F(LinkEdgeMarkerTest, ASecondMarkerOnOneOverlayConflicts) {
   auto first = Writer();
   auto second = Writer();
   ASSERT_TRUE(Link(*first, ms::EdgeDirection::OUT, u, v));
@@ -524,7 +228,7 @@ TEST_F(EdgeMarkerTest, ASecondMarkerOnOneOverlayConflicts) {
   first->Abort();
 }
 
-TEST_F(EdgeMarkerTest, AnEdgeCreatedOnAnOverlayConflictsWithAnInFlightMarkerInEitherOrder) {
+TEST_F(LinkEdgeMarkerTest, AnEdgeCreatedOnAnOverlayConflictsWithAnInFlightMarkerInEitherOrder) {
   auto const create = [&](ms::Storage::Accessor &acc) {
     auto from = acc.FindVertex(u, ms::View::NEW);
     auto to = acc.FindVertex(v, ms::View::NEW);
@@ -552,21 +256,7 @@ TEST_F(EdgeMarkerTest, AnEdgeCreatedOnAnOverlayConflictsWithAnInFlightMarkerInEi
   }
 }
 
-TEST_F(EdgeMarkerTest, AWriterKeepsWritingTheOverlayAfterItsOwnMarker) {
-  auto writer = Writer();
-  ASSERT_TRUE(Link(*writer, ms::EdgeDirection::OUT, u, v));
-  EXPECT_FALSE(Write(*writer, u, [](OverlayState &s) { s.SetProperty(P(1), V(1)); }));
-  auto from = writer->FindVertex(u, ms::View::NEW);
-  auto to = writer->FindVertex(v, ms::View::NEW);
-  ASSERT_TRUE(from.has_value() && to.has_value());
-  EXPECT_TRUE(static_cast<ms::ReplicationAccessor &>(*writer)
-                  .CreateEdgeEx(&*from, &*to, type, ms::Gid::FromUint(9001))
-                  .has_value());
-  EXPECT_TRUE(Link(*writer, ms::EdgeDirection::OUT, u, v)) << "and a second marker";
-  Commit(*writer);
-}
-
-TEST_F(EdgeMarkerTest, ASelfLoopIsOneEntryPerList) {
+TEST_F(LinkEdgeMarkerTest, ASelfLoopIsOneEntryPerList) {
   auto writer = Writer();
   ASSERT_TRUE(Link(*writer, ms::EdgeDirection::OUT, u, u));
   ASSERT_TRUE(Link(*writer, ms::EdgeDirection::IN, u, u));
