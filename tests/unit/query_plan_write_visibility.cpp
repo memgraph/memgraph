@@ -1084,6 +1084,21 @@ TEST_F(WriteVisibilityPlan, OneSetEvaluatesItsRightHandSidesFirst) {
   EXPECT_FALSE(Collect<Produce>(Plan("MERGE (a:L {k: 1}) ON MATCH SET a.x = 1, a.y = a.x")).empty());
 }
 
+// The Produce before a SET run passes every bound symbol through, so a barrier above it keeps them.
+TEST_F(WriteVisibilityPlan, TheBarrierAfterASetRunKeepsItsSymbols) {
+  for (auto const *query : {
+           "MATCH (n:N) SET n.a = n.b, n.b = n.a CALL () { CREATE (:X) } RETURN n.a, n.b",
+           "UNWIND [1, 2] AS k MERGE (n:N {k: k}) ON MATCH SET n.a = n.b, n.b = n.a CALL () { CREATE (:X) } RETURN n.k",
+       }) {
+    SCOPED_TRACE(query);
+    auto const accumulates = Collect<Accumulate>(Plan(query));
+    ASSERT_FALSE(accumulates.empty());
+    for (auto const *accumulate : accumulates) {
+      EXPECT_TRUE(std::ranges::any_of(accumulate->symbols_, [](auto const &symbol) { return symbol.name() == "n"; }));
+    }
+  }
+}
+
 // ---------------------------------------------------------------- each write fences a filter on its own
 
 // Under batching no barrier is planned, so a CALL ... YIELD WHERE sits directly on the write before it, and the write's

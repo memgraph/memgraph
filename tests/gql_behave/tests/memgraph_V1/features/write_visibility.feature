@@ -2760,6 +2760,21 @@ Feature: Write visibility inside one query
             | v |
             | 1 |
 
+    Scenario: A writing CALL after a SET run keeps the node the run set
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:WvSr {a: 1, b: 10}), (:WvSr {a: 2, b: 20})
+            """
+        When executing query:
+            """
+            MATCH (n:WvSr) SET n.a = n.b, n.b = n.a CALL () { CREATE (:WvSx) } RETURN n.a AS a, n.b AS b ORDER BY a
+            """
+        Then the result should be, in order:
+            | a  | b |
+            | 10 | 1 |
+            | 20 | 2 |
+
     Scenario: An index scan before an IN TRANSACTIONS call returns a node once after its batch writes it
         Given an empty graph
         And with new index :WvBt(p)
