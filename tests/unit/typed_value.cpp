@@ -655,6 +655,20 @@ TYPED_TEST(TypedValueArithmeticTest, Sum) {
     }
   }
 
+  // The merge branch may only dispatch on the operand types: adding two non-map values must still
+  // allocate nothing on the operand's resource.
+  {
+    memgraph::utils::MemoryTrackingResource non_map_memory(memgraph::utils::NewDeleteResource(), 4096);
+    TypedValue const tagged_int{2, &non_map_memory};
+    TypedValue const tagged_double{3.5, &non_map_memory};
+    ASSERT_EQ(non_map_memory.GetAllocatedBytes(), 0) << "an inline scalar should need no allocation";
+    auto const int_sum = tagged_int + tagged_int;
+    auto const mixed_sum = tagged_int + tagged_double;
+    EXPECT_EQ(int_sum.ValueInt(), 4);
+    EXPECT_FLOAT_EQ(mixed_sum.ValueDouble(), 5.5);
+    EXPECT_EQ(non_map_memory.GetAllocatedBytes(), 0) << "adding two non-map values allocated on the operand's resource";
+  }
+
   // Temporal Types
   // Duration
   EXPECT_NO_THROW(TypedValue(memgraph::utils::Duration(1)) + TypedValue(memgraph::utils::Duration(1)));
