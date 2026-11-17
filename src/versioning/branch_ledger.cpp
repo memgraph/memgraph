@@ -18,7 +18,7 @@
 #include <fmt/format.h>
 #include <nlohmann/json.hpp>
 
-#include "versioning/name.hpp"
+#include "versioning/branch_info.hpp"
 
 namespace memgraph::versioning {
 
@@ -30,10 +30,10 @@ std::optional<std::string> Validate(const LedgerContents &contents) {
   std::set<std::string_view> names;
   std::set<uint64_t> numbers;
   for (const auto &[name, info] : contents.branches) {
-    if (auto invalid = ValidateBranchName(name)) return fmt::format("branch '{}': {}", name, *invalid);
+    if (const auto valid = ValidateBranchName(name); !valid) return fmt::format("branch '{}': {}", name, valid.error());
     if (info.parent != "main") {
-      if (auto invalid = ValidateBranchName(info.parent)) {
-        return fmt::format("branch '{}' has parent '{}': {}", name, info.parent, *invalid);
+      if (const auto valid = ValidateBranchName(info.parent); !valid) {
+        return fmt::format("branch '{}' has parent '{}': {}", name, info.parent, valid.error());
       }
     }
     if (info.parent == name) return fmt::format("branch '{}' is its own parent", name);
@@ -117,21 +117,21 @@ std::expected<LedgerContents, std::string> Deserialize(std::string_view payload)
 }  // namespace
 
 BranchLedger::BranchLedger(kvstore::KVStore &store, const utils::UUID &db_uuid)
-    : store_(&store), key_(std::string{kBranchLedgerKeyPrefix} + std::string{db_uuid}) {}
+    : store_(store), key_(std::string{kBranchLedgerKeyPrefix} + std::string{db_uuid}) {}
 
 std::expected<void, std::string> BranchLedger::Write(const LedgerContents &contents) const {
   // Also keeps dump() from throwing: valid names are ASCII.
   if (auto invalid = Validate(contents)) {
     return std::unexpected(fmt::format("Branch ledger: refusing to write an invalid registry: {}.", *invalid));
   }
-  if (!store_->Put(key_, Serialize(contents)) || !store_->SyncWal()) {
+  if (!store_.Put(key_, Serialize(contents)) || !store_.SyncWal()) {
     return std::unexpected(fmt::format("Branch ledger: cannot persist '{}'.", key_));
   }
   return {};
 }
 
 std::expected<std::optional<LedgerContents>, std::string> BranchLedger::Read() const {
-  const auto value = store_->Get(key_);
+  const auto value = store_.Get(key_);
   if (!value) return std::optional<LedgerContents>{};
   auto parsed = Deserialize(*value);
   if (!parsed) return std::unexpected(fmt::format("Branch ledger '{}' is unreadable: {}.", key_, parsed.error()));

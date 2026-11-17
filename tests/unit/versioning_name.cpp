@@ -15,7 +15,7 @@
 
 #include "gtest/gtest.h"
 
-#include "versioning/name.hpp"
+#include "versioning/branch_info.hpp"
 
 using memgraph::versioning::ValidateBranchName;
 
@@ -67,8 +67,9 @@ TEST(VersioningName, InvalidNamesAreRejectedByTheMatchingRule) {
   }};
   for (const auto &[input, message_part] : kRejections) {
     const auto error = ValidateBranchName(input);
-    ASSERT_TRUE(error.has_value()) << "expected '" << input << "' to be rejected";
-    EXPECT_NE(error->find(message_part), std::string::npos) << "input '" << input << "' got message: " << *error;
+    ASSERT_FALSE(error.has_value()) << "expected '" << input << "' to be rejected";
+    EXPECT_NE(error.error().find(message_part), std::string::npos)
+        << "input '" << input << "' got message: " << error.error();
   }
 }
 
@@ -91,7 +92,7 @@ TEST(VersioningName, ValidNamesAreAccepted) {
                                        "0",
                                        "9",
                                        "zZ0-9Aa"}) {
-    EXPECT_EQ(ValidateBranchName(input), std::nullopt) << "input '" << input << "'";
+    EXPECT_TRUE(ValidateBranchName(input).has_value()) << "input '" << input << "'";
   }
 }
 
@@ -99,11 +100,11 @@ TEST(VersioningName, NameLengthIsBoundedAt63) {
   std::string ok(63, 'x');
   ok.front() = 'a';
   ok.back() = '9';
-  EXPECT_EQ(ValidateBranchName(ok), std::nullopt) << "input '" << ok << "'";
+  EXPECT_TRUE(ValidateBranchName(ok).has_value()) << "input '" << ok << "'";
 
   std::string too_long = ok + 'x';
   ASSERT_EQ(too_long.size(), 64);
   const auto error = ValidateBranchName(too_long);
-  ASSERT_TRUE(error.has_value()) << "expected the 64-char name to be rejected";
-  EXPECT_NE(error->find(kLengthMsg), std::string::npos) << "got message: " << *error;
+  ASSERT_FALSE(error.has_value()) << "expected the 64-char name to be rejected";
+  EXPECT_NE(error.error().find(kLengthMsg), std::string::npos) << "got message: " << error.error();
 }

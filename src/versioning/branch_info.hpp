@@ -11,12 +11,18 @@
 
 #pragma once
 
-#include <algorithm>
 #include <cstdint>
+#include <expected>
 #include <optional>
 #include <string>
+#include <string_view>
 
 namespace memgraph::versioning {
+
+// Ok if `name` is a valid branch name, else a user-facing error.
+// Valid: 1..63 chars of [A-Za-z0-9._-], alphanumeric at both ends. Exact "main" is reserved;
+// '@' is rejected as the <database>@<branch> separator.
+std::expected<void, std::string> ValidateBranchName(std::string_view name);
 
 enum class GidKind : uint8_t { kVertex, kEdge };
 
@@ -46,7 +52,8 @@ struct BranchInfo {
 inline uint64_t GidsHeldBelow(const BranchInfo &info, GidKind kind) {
   const auto &floor = kind == GidKind::kVertex ? info.vertex_gid_floor : info.edge_gid_floor;
   const auto &ceiling = kind == GidKind::kVertex ? info.vertex_gid_ceiling : info.edge_gid_ceiling;
-  return std::max(floor.value_or(0), ceiling.value_or(0));
+  // Validate rejects a ceiling below the floor, so the ceiling, when set, is the larger.
+  return ceiling.value_or(floor.value_or(0));
 }
 
 }  // namespace memgraph::versioning

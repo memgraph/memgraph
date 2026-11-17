@@ -24,7 +24,7 @@ using memgraph::versioning::GateError;
 using memgraph::versioning::GateErrorMessage;
 using memgraph::versioning::GateOperation;
 using memgraph::versioning::GateState;
-using memgraph::versioning::StartupConfigError;
+using memgraph::versioning::ValidateStartupConfig;
 
 TEST(VersioningGate, ExhaustiveTruthTableHonoursPrecedence) {
   for (const auto op : {GateOperation::kObserve, GateOperation::kCreate}) {
@@ -44,7 +44,9 @@ TEST(VersioningGate, ExhaustiveTruthTableHonoursPrecedence) {
       } else if (creating && !state.durable) {
         expected = GateError::kNotDurable;
       }
-      EXPECT_EQ(CheckVersioningGate(op, state), expected) << "creating=" << creating << " bits=" << bits;
+      const auto result = CheckVersioningGate(op, state);
+      EXPECT_EQ(result ? std::nullopt : std::optional{result.error()}, expected)
+          << "creating=" << creating << " bits=" << bits;
     }
   }
 }
@@ -75,7 +77,7 @@ TEST(VersioningGate, BranchesDurableNeedsWalAndRecoveryOnStartup) {
   }
 }
 
-TEST(VersioningGate, StartupConfigErrorNamesTheSettingThatCannotHostBranches) {
+TEST(VersioningGate, ValidateStartupConfigNamesTheSettingThatCannotHostBranches) {
   using SnapshotWalMode = memgraph::storage::Config::Durability::SnapshotWalMode;
   using memgraph::storage::StorageMode;
   const auto config_with = [](SnapshotWalMode wal, bool recover) {
@@ -85,21 +87,21 @@ TEST(VersioningGate, StartupConfigErrorNamesTheSettingThatCannotHostBranches) {
     return config;
   };
   const auto durable = config_with(SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL, true);
-  EXPECT_EQ(StartupConfigError(StorageMode::IN_MEMORY_TRANSACTIONAL, durable), std::nullopt);
+  EXPECT_TRUE(ValidateStartupConfig(StorageMode::IN_MEMORY_TRANSACTIONAL, durable).has_value());
 
   for (const auto mode : {StorageMode::IN_MEMORY_ANALYTICAL, StorageMode::ON_DISK_TRANSACTIONAL}) {
-    const auto error = StartupConfigError(mode, durable);
-    ASSERT_TRUE(error.has_value());
-    EXPECT_NE(error->find("IN_MEMORY_TRANSACTIONAL"), std::string::npos) << *error;
-    EXPECT_NE(error->find("--experimental-enabled=versioning"), std::string::npos) << *error;
+    const auto error = ValidateStartupConfig(mode, durable);
+    ASSERT_FALSE(error.has_value());
+    EXPECT_NE(error.error().find("IN_MEMORY_TRANSACTIONAL"), std::string::npos) << error.error();
+    EXPECT_NE(error.error().find("--experimental-enabled=versioning"), std::string::npos) << error.error();
   }
   for (const auto &config : {config_with(SnapshotWalMode::DISABLED, true),
                              config_with(SnapshotWalMode::PERIODIC_SNAPSHOT, true),
                              config_with(SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL, false)}) {
-    const auto error = StartupConfigError(StorageMode::IN_MEMORY_TRANSACTIONAL, config);
-    ASSERT_TRUE(error.has_value());
-    EXPECT_NE(error->find("--data-recovery-on-startup=true"), std::string::npos) << *error;
-    EXPECT_NE(error->find("PERIODIC_SNAPSHOT_WITH_WAL"), std::string::npos) << *error;
+    const auto error = ValidateStartupConfig(StorageMode::IN_MEMORY_TRANSACTIONAL, config);
+    ASSERT_FALSE(error.has_value());
+    EXPECT_NE(error.error().find("--data-recovery-on-startup=true"), std::string::npos) << error.error();
+    EXPECT_NE(error.error().find("PERIODIC_SNAPSHOT_WITH_WAL"), std::string::npos) << error.error();
   }
 }
 
