@@ -318,7 +318,6 @@ class ReadWriteCollector final : public HierarchicalTreeVisitor {
     result.reads.NoteKeySymbol(KeySymbolOf(atom));
   }
 
-  /// Records the variable a key is read or written through; any other object makes the set's keys mixed.
   /// The variable a property key is reached through, or nullopt for an object that is no variable.
   std::optional<Symbol> KeySymbolOf(Expression *object) const {
     auto *ident = utils::Downcast<Identifier>(object);

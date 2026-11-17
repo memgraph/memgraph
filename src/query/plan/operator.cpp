@@ -7540,6 +7540,7 @@ class AccumulateCursor : public Cursor {
     cache_.clear();
     cache_it_ = cache_.begin();
     pulled_all_input_ = false;
+    // TODO: no test pins this reset; it matters only when the licence changes between two runs of the barrier.
     passes_through_.reset();
   }
 

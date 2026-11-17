@@ -325,7 +325,7 @@ class LogicalOperator : public utils::Visitable<HierarchicalLogicalOperatorVisit
    * nor `m` after Produce. On the other hand, modified symbols from Expand
    * contain `e` and `m`, as well as `n`, while output symbols are empty.
    * Modified symbols from ScanAll contain only `n`, while output symbols are
-   * also empty.
+   * also empty. The exception is the Produce that evaluates a SET run's values: it keeps its input's symbols too.
    */
   virtual std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const = 0;
 
@@ -1292,6 +1292,7 @@ class Filter : public memgraph::query::plan::LogicalOperator {
 /// every input Pull (typically a MATCH/RETURN query).
 /// When the input is not provided (typically a standalone
 /// RETURN clause) the Produce's pull succeeds exactly once.
+/// A Produce ends the scope of the symbols below it, except one that evaluates a SET run's values.
 class Produce : public memgraph::query::plan::LogicalOperator {
  public:
   static const utils::TypeInfo kType;

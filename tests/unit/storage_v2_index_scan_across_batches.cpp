@@ -375,7 +375,7 @@ TEST_F(OwnBatchWrite, AnElementTheBatchCreatedBeforeTheScanStaysVisible) {
 }
 
 // Known residual of the per-scan flag: once the batch wrote before the scan opened, the scan cannot tell its own
-// later entries from earlier ones (a bookkeeping write before a batched update). A per-entry stamp fixes it.
+// later entries from earlier ones (a write before a batched update). A documented gap: index entries do not grow.
 TEST_F(OwnBatchWrite, DISABLED_AWriteBeforeTheScanOpenedStillHidesItsLaterEntries) {
   Index([&](auto &acc) { return acc.CreateIndex(label, {ms::PropertyPath{property}}).has_value(); });
   auto const gids = Vertices();

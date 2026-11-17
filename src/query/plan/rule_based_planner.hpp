@@ -865,6 +865,8 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
             if (subquery->writes) {
               wrote_since_with = true;
               if (!has_periodic_commit) {
+                // TODO: barrier_symbols() suffices; ModifiedSymbols also caches what nothing reads after (the values
+                // of a SET run's Produce, a collected list), so the barrier holds an extra copy per row.
                 input_op = std::make_unique<Accumulate>(
                     std::move(input_op), input_op->ModifiedSymbols(*context.symbol_table), is_root_query);
                 if (BarriersOn()) {
@@ -984,7 +986,8 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
     kBatching,      ///< periodic commit, or a read-only IN TRANSACTIONS body: no barriers, reads use View::NEW
   };
   ReadScope read_scope_{ReadScope::kRoot};
-  /// Symbols that hold a row of a file, never a graph entity: a lookup on them reads nothing from the graph.
+  /// Symbols that hold data, never a graph entity (an entity-free UNWIND row, a WITH alias of an entity-free map
+  /// literal): a lookup on them reads nothing from the graph.
   std::unordered_set<Symbol> non_graph_symbols_;
 
   bool BarriersOn() const { return read_scope_ == ReadScope::kRoot || read_scope_ == ReadScope::kWritingTree; }
