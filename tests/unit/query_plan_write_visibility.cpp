@@ -1187,7 +1187,7 @@ TEST_F(WriteVisibilityPlan, OneSetSnapshotsEveryReadOfItsVariable) {
   }
 }
 
-// The Produce before a SET run passes every bound symbol through, so a barrier above it keeps them.
+// The Produce before a SET run lists the symbols below it, so a barrier above it keeps them.
 TEST_F(WriteVisibilityPlan, TheBarrierAfterASetRunKeepsItsSymbols) {
   for (auto const *query : {
            "MATCH (n:N) SET n.a = n.b, n.b = n.a CALL () { CREATE (:X) } RETURN n.a, n.b",
@@ -1849,19 +1849,13 @@ class ViewOracle {
   }
 
   /// The Produce of one SET's right-hand sides is part of that SET, which reads NEW: the planner names each value
-  /// with an anonymous symbol that a SET item reads, and passes every other symbol through unchanged.
+  /// with an anonymous symbol that a SET item reads.
   bool IsSetGroupProduce(LogicalOperator &op) const {
     auto *produce = memgraph::utils::Downcast<plan::Produce>(&op);
-    auto const is_value = [this](auto const *named) {
-      return named->name_.starts_with("anon") && set_values_.contains(named->symbol_pos_);
-    };
-    auto const passes_through = [](auto const *named) {
-      auto const *ident = memgraph::utils::Downcast<Identifier>(named->expression_);
-      return ident && ident->symbol_pos_ == named->symbol_pos_;
-    };
-    return produce && std::ranges::any_of(produce->named_expressions_, is_value) &&
-           std::ranges::all_of(produce->named_expressions_,
-                               [&](auto const *named) { return is_value(named) || passes_through(named); });
+    return produce && produce->keeps_input_symbols_ && !produce->named_expressions_.empty() &&
+           std::ranges::all_of(produce->named_expressions_, [this](auto const *named) {
+             return named->name_.starts_with("anon") && set_values_.contains(named->symbol_pos_);
+           });
   }
 
   std::vector<Mismatch> mismatches_;

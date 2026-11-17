@@ -1305,14 +1305,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
     if (!reads_earlier_item) return input_op;
 
     auto &storage = *context_->ast_storage;
-    // The bound symbols pass through, so an operator above that lists the Produce's symbols keeps them.
-    std::vector<Symbol> bound(context_->bound_symbols.begin(), context_->bound_symbols.end());
-    std::ranges::sort(bound, std::less<>{}, &Symbol::position);
     std::vector<NamedExpression *> values;
-    for (const auto &symbol : bound) {
-      auto *ident = storage.template Create<Identifier>(symbol.name())->MapTo(symbol);
-      values.push_back(storage.template Create<NamedExpression>(symbol.name(), ident)->MapTo(symbol));
-    }
     for (auto i = first; i < last; ++i) {
       auto *set = utils::Downcast<query::SetProperty>(clauses[i]);
       if (utils::Downcast<PrimitiveLiteral>(set->expression_) || utils::Downcast<ParameterLookup>(set->expression_)) {
@@ -1327,6 +1320,8 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
     }
     auto produce = std::make_unique<Produce>(std::move(input_op), values);
     produce->view_ = storage::View::NEW;
+    // An operator above that lists the symbols below (a barrier, the index rewriter) keeps them.
+    produce->keeps_input_symbols_ = true;
     return produce;
   }
 

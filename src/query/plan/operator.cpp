@@ -5804,7 +5804,12 @@ std::vector<Symbol> Produce::OutputSymbols(const SymbolTable &symbol_table) cons
   return symbols;
 }
 
-std::vector<Symbol> Produce::ModifiedSymbols(const SymbolTable &table) const { return OutputSymbols(table); }
+std::vector<Symbol> Produce::ModifiedSymbols(const SymbolTable &table) const {
+  if (!keeps_input_symbols_) return OutputSymbols(table);
+  auto symbols = input_->ModifiedSymbols(table);
+  std::ranges::move(OutputSymbols(table), std::back_inserter(symbols));
+  return symbols;
+}
 
 std::unique_ptr<LogicalOperator> Produce::Clone(AstStorage *storage) const {
   auto object = std::make_unique<Produce>();
@@ -5814,6 +5819,7 @@ std::unique_ptr<LogicalOperator> Produce::Clone(AstStorage *storage) const {
     object->named_expressions_[i2] = named_expressions_[i2] ? named_expressions_[i2]->Clone(storage) : nullptr;
   }
   object->view_ = view_;
+  object->keeps_input_symbols_ = keeps_input_symbols_;
   return object;
 }
 

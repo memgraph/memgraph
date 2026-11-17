@@ -1316,6 +1316,8 @@ class Produce : public memgraph::query::plan::LogicalOperator {
   std::vector<NamedExpression *> named_expressions_;
   /// The view its expressions read; the planner sets it.
   storage::View view_{storage::View::NEW};
+  /// A SET run's values: the symbols below stay listed in ModifiedSymbols without being evaluated again.
+  bool keeps_input_symbols_{false};
 
   std::optional<storage::View> ReadView() const override { return view_; }
 
