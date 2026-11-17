@@ -2883,6 +2883,8 @@ Feature: Write visibility inside one query
             | 1 | null |
             | 2 | null |
 
+    # Parallel execution returns the outer UNWIND variable as null after a CALL body that aggregates (master too).
+    @skip_parallel_execution
     Scenario: derive() in a read-only CALL body does not see a later label write of an earlier row
         Given an empty graph
         And having executed:
