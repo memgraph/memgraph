@@ -11,7 +11,6 @@
 
 #pragma once
 
-#include <array>
 #include <atomic>
 #include <cstdint>
 #include <expected>
@@ -26,27 +25,20 @@
 #include "versioning/branch_change_filter.hpp"
 #include "versioning/branch_info.hpp"
 #include "versioning/edge_overlay_index.hpp"
-#include "versioning/index_key_parts.hpp"
 #include "versioning/overlay_index.hpp"
 
 namespace memgraph::versioning {
 
-// Shared per-branch state: one per live branch, shared by every session that has it checked out. Session-mutated
-// state lives in the diff engine (MVCC) or in the lock-free atomics here.
-//
-// The diff engine shares main's NameIdMapper, so every name has the same id on both sides; the overlay markers'
-// reserved ids (overlay_state.hpp) are not names and the WAL encoder strips them before a name lookup. Enum-type ids
-// differ (the enum store is mirrored, not shared).
-//
-// Changes to base vertices and edges are stock MVCC deltas on overlays owned by the OverlayIndex / EdgeOverlayIndex,
-// not entries of the diff engine's vertices_ / edges_.
-//
-// Branch-native creates take gids from main's counters (unique across main and all branches while the process runs);
-// across a restart the ledger's gid ceilings (ReserveNativeGid) keep main's counters above every gid a branch took,
-// without reading the branch's WAL. `Build` records main's counters as floors: below is a base object, at or above is
-// native.
-//
-// Must not outlive the Database's storage (the owning registry is destroyed before storage_).
+// The diff engine's config: main's, with durability, auto-creation and per-commit extras switched off.
+// `live_mode` is main's current storage mode, which may differ from its startup config.
+storage::Config DiffEngineConfig(const storage::Config &main_config, storage::StorageMode live_mode);
+
+// Shared per-branch state, one per live branch and shared by every session that has it checked out. Session writes live
+// in the diff engine (MVCC) or in the lock-free filters here. The diff engine shares main's NameIdMapper, so names have
+// one id on both sides. Changes to base objects are MVCC deltas on overlays owned by the overlay indexes, not entries
+// of the diff engine's vertices_/edges_. Native gids come from main's counters; Build records them as floors (below =
+// base object, at or above = native) and the ledger's ceilings keep them above every native gid across restarts. Must
+// not outlive the Database's storage.
 class BranchCore {
  public:
   // Build fails if fork_ts is no longer pinned.
@@ -61,9 +53,8 @@ class BranchCore {
   };
 
   // Builds an empty, non-durable diff engine, records the gid floors (main's counters unless `recorded` supplies them)
-  // and mirrors main's enum definitions. The engine always has properties_on_edges: base-edge overlays are heavy Edge
-  // objects whatever main's config says, so any code that interprets an EdgeRef read from main must consult MAIN's
-  // config (`main().config_`), not the diff engine's.
+  // and mirrors main's enum definitions. The engine has properties_on_edges and heavy edges whatever main's config
+  // says, so code that interprets an EdgeRef read from main must consult MAIN's config (`main().config_`).
   static std::expected<std::shared_ptr<BranchCore>, BuildError> Build(
       storage::InMemoryStorage &main, uint64_t fork_ts, std::optional<RecordedFloors> recorded = std::nullopt);
 
@@ -99,9 +90,6 @@ class BranchCore {
   // durable ceiling, extending it first when it is not. Throws if the ledger cannot be written; the gid stays unused.
   void ReserveNativeGid(GidKind kind, uint64_t gid);
 
-  // The parts of the label+property keys of the indexes the diff engine mirrors; empty while it mirrors none.
-  const IndexKeyParts &key_parts() const noexcept { return key_parts_; }
-
   // Per-kind change filters (branch_change_filter.hpp); lock-free, safe for concurrent sessions.
   void RecordLabelChange(storage::Gid gid) noexcept { change_filters_.RecordLabelChange(gid); }
 
@@ -111,44 +99,18 @@ class BranchCore {
     change_filters_.RecordEdgeChange(endpoint_gid, direction);
   }
 
-  // Call before the overlay write.
-  void RecordVertexDeleted(storage::Gid gid) noexcept { change_filters_.RecordVertexDeleted(gid); }
-
   bool MayHaveVertexDeleted(storage::Gid gid) const noexcept { return change_filters_.MayHaveVertexDeleted(gid); }
 
   bool MayHaveAnyVertexDeleted() const noexcept { return change_filters_.MayHaveAnyVertexDeleted(); }
 
-  // Lock-free gates (monotonic bloom over id mod 256): a clear bit means the branch has not written the label's
-  // membership or the property's value of any base object. A txn visible to a reader set the bit (release, in
-  // Record*Touched before its commit), and the reader observes that commit only via timestamp synchronisation, so a
-  // clear bit (acquire) is exact. A false "maybe" only costs the slow path.
-  bool MayHaveLabelTouched(storage::LabelId label) const noexcept {
-    return (label_touched_gate_[GateWord(label.AsUint())].load(std::memory_order_acquire) & GateBit(label.AsUint())) !=
-           0;
-  }
+  // Clear: the branch never wrote the label on a base vertex (touched) or Mark(label) on an overlay (marked).
+  bool MayHaveLabelTouched(storage::LabelId label) const noexcept { return change_filters_.MayHaveLabelTouched(label); }
 
-  // Clear: the branch never wrote Mark(label) on an overlay, so the marker read can be skipped.
-  bool MayHaveLabelMarked(storage::LabelId label) const noexcept {
-    return (label_marked_gate_[GateWord(label.AsUint())].load(std::memory_order_acquire) & GateBit(label.AsUint())) !=
-           0;
-  }
+  bool MayHaveLabelMarked(storage::LabelId label) const noexcept { return change_filters_.MayHaveLabelMarked(label); }
 
-  // Clear: no property field `pid` was ever recorded (RecordPropertyFieldChange) on this branch.
+  // Clear: no property field `pid` was ever recorded on this branch.
   bool MayHavePropertyTouched(storage::PropertyId pid) const noexcept {
     return change_filters_.MayHavePropertyTouched(pid);
-  }
-
-  // Call before the overlay write; a rolled-back write leaves the bit set (superset, never a miss).
-  void RecordLabelTouched(storage::LabelId label) noexcept {
-    label_touched_gate_[GateWord(label.AsUint())].fetch_or(GateBit(label.AsUint()), std::memory_order_release);
-  }
-
-  void RecordLabelMarked(storage::LabelId label) noexcept {
-    label_marked_gate_[GateWord(label.AsUint())].fetch_or(GateBit(label.AsUint()), std::memory_order_release);
-  }
-
-  void RecordPropertyFieldChange(storage::Gid gid, storage::PropertyId pid) noexcept {
-    change_filters_.RecordPropertyField(gid, pid);
   }
 
   bool MayHavePropertyFieldChange(storage::Gid gid, storage::PropertyId pid) const noexcept {
@@ -163,13 +125,7 @@ class BranchCore {
     return change_filters_.MayHaveEdgeChange(gid, direction);
   }
 
-  // Base-edge filters (keyed by edge gid); call the Record* before the overlay write.
-  void RecordBaseEdgeProperty(storage::Gid edge_gid, storage::PropertyId pid) noexcept {
-    change_filters_.RecordBaseEdgeProperty(edge_gid, pid);
-  }
-
-  void RecordBaseEdgeDeleted(storage::Gid edge_gid) noexcept { change_filters_.RecordBaseEdgeDeleted(edge_gid); }
-
+  // Base-edge filters, keyed by edge gid.
   bool MayHaveBaseEdgePropertyChange(storage::Gid edge_gid) const noexcept {
     return change_filters_.MayHaveBaseEdgePropertyChange(edge_gid);
   }
@@ -202,20 +158,9 @@ class BranchCore {
   std::atomic<uint64_t> vertex_gid_ceiling_;
   std::atomic<uint64_t> edge_gid_ceiling_;
   GidReserver gid_reserver_;
-  // Set once by Build, before the core is shared.
-  IndexKeyParts key_parts_;
   std::unique_ptr<storage::InMemoryStorage> diff_engine_;
 
   BranchChangeFilters change_filters_;
-
-  static constexpr size_t kTouchedGateBits = 256;
-
-  static size_t GateWord(uint64_t id) noexcept { return (id % kTouchedGateBits) >> 6U; }
-
-  static uint64_t GateBit(uint64_t id) noexcept { return 1ULL << (id & 63U); }
-
-  std::array<std::atomic<uint64_t>, kTouchedGateBits / 64> label_touched_gate_{};
-  std::array<std::atomic<uint64_t>, kTouchedGateBits / 64> label_marked_gate_{};
 
   // Own the overlays the diff engine's deltas and indexes point at. Declared after diff_engine_ and teardown_scope_, so
   // they are destroyed before the scope and after the engine, which ~BranchCore resets first.
