@@ -203,6 +203,35 @@ TYPED_TEST(QueryPlanTest, AccessCheckOnlyAccumulatePassesThroughWithoutAChecker)
   EXPECT_EQ(count(true, true), 1);
   EXPECT_EQ(count(false, false), 1);
 }
+
+// The barrier decides once per run whether to pass rows through: a licence that lapses after it cached its input
+// must not send the next Pull to the exhausted input and lose the cached rows.
+TYPED_TEST(QueryPlanTest, AccessCheckOnlyAccumulateKeepsItsCachedRowsWhenTheLicenceLapses) {
+  memgraph::license::global_license_checker.EnableTesting();
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
+  memgraph::query::DbAccessor dba(storage_dba.get());
+  SymbolTable symbol_table;
+  auto input_expr = this->storage.template Create<PrimitiveLiteral>(
+      std::vector<memgraph::storage::ExternalPropertyValue>{memgraph::storage::ExternalPropertyValue(1),
+                                                            memgraph::storage::ExternalPropertyValue(2),
+                                                            memgraph::storage::ExternalPropertyValue(3)});
+  auto x = symbol_table.CreateSymbol("x", true);
+  auto unwind = std::make_shared<plan::Unwind>(nullptr, input_expr, x);
+  auto accumulate = std::make_shared<Accumulate>(unwind, std::vector<Symbol>{x}, true);
+  accumulate->access_check_only_ = true;
+  AllowEverythingFineGrainedAuthChecker auth_checker;
+  auto context = MakeContext(this->storage, symbol_table, &dba);
+  context.auth_checker = &auth_checker;
+  Frame frame(context.symbol_table.max_position());
+  auto cursor = accumulate->MakeCursor(memgraph::utils::NewDeleteResource(), TestMetricHandles());
+
+  ASSERT_TRUE(cursor->Pull(frame, context));
+  memgraph::license::global_license_checker.DisableTesting();
+  int rows = 1;
+  while (cursor->Pull(frame, context)) ++rows;
+  memgraph::license::global_license_checker.EnableTesting();
+  EXPECT_EQ(rows, 3);
+}
 #endif
 
 /** Test fixture for all the aggregation ops in one return. */

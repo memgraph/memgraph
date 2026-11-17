@@ -2786,6 +2786,17 @@ Feature: Write visibility inside one query
             | 1  | ['WvDl', 'A']  |
             | 2  | ['WvDl', 'B']  |
 
+    Scenario: A barrier keeps a variable that only a dynamic edge type reads
+        Given an empty graph
+        When executing query:
+            """
+            UNWIND [{id: 1, k: 'A'}, {id: 2, k: 'B'}] AS row WITH row.id AS id, row AS r CREATE (:WvDt {id: id}) MERGE (m:WvDt {id: id}) CREATE (m)-[e:r.k]->(:WvDz) RETURN m.id AS id, type(e) AS t ORDER BY id
+            """
+        Then the result should be, in order:
+            | id | t   |
+            | 1  | 'A' |
+            | 2  | 'B' |
+
     Scenario: An index scan before an IN TRANSACTIONS call returns a node once after its batch writes it
         Given an empty graph
         And with new index :WvBt(p)

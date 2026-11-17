@@ -497,6 +497,8 @@ TEST_F(WriteVisibilityPlan, ABarrierKeepsASymbolReadOnlyThroughALabelOrALambda) 
       fmt::format("{}CREATE (:Item {{id: id}}) MERGE (m:Item {{id: id}}) REMOVE m:r.k", rows), "r"));
   EXPECT_TRUE(first_barrier_keeps(
       fmt::format("{}CREATE (:Item {{id: id}}) MERGE (m:Item {{id: id}}) CREATE (z:r.k)", rows), "r"));
+  EXPECT_TRUE(first_barrier_keeps(
+      fmt::format("{}CREATE (:Item {{id: id}}) MERGE (m:Item {{id: id}}) CREATE (m)-[e:r.k]->(:Z)", rows), "r"));
   auto const *lambda =
       "MATCH (m:M), (n:L) CREATE (:X) CREATE (:Y {c: size([(n)-[*1..1 (e, v | v.t = m.t)]->(k) | k])})";
   EXPECT_TRUE(first_barrier_keeps(lambda, "m"));
@@ -548,6 +550,8 @@ TEST_F(WriteVisibilityPlan, ANodeThatMayRepeatKeepsItsBarrier) {
            "MATCH (n:L) WITH n, n AS m SET n.x = 1 SET n.y = m.x",
            // The keys go through two variables: m may be another row's n.
            "MATCH (n:L) WITH n, head([(n)-[:T]->(o) | o]) AS m SET n.x = n.x + 1 SET n.y = m.x + n.x",
+           // The same, with the first key read through n: only the mixed keys keep the barrier.
+           "MATCH (n:L) WITH n, head([(n)-[:T]->(o) | o]) AS m SET n.x = n.x + 1 SET n.y = n.x + m.x",
            // Something else conflicts too: the comprehension reads the label the first SET adds.
            "MATCH (n:L) SET n.x = n.x + 1, n:Done SET n.y = n.x + size([(m:Done)-->() | m])",
            // Something else conflicts too: the label test reads the label the first SET adds.
