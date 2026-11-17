@@ -2800,3 +2800,56 @@ Feature: Write visibility inside one query
         Then the result should be:
             | c | lo | hi |
             | 2 | 11 | 12 |
+
+    Scenario: A PERIODIC COMMIT index scan returns a node once after its batch writes it
+        Given an empty graph
+        And with new index :WvBp(p)
+        And having executed:
+            """
+            CREATE (:WvBp {p: 1}), (:WvBp {p: 2})
+            """
+        And having executed:
+            """
+            USING PERIODIC COMMIT 1 MATCH (n:WvBp) WHERE n.p > 0 SET n.p = n.p + 10
+            """
+        When executing query:
+            """
+            MATCH (n:WvBp) RETURN n.p AS p ORDER BY p
+            """
+        Then the result should be, in order:
+            | p  |
+            | 11 |
+            | 12 |
+
+    Scenario: An edge index scan before an IN TRANSACTIONS call returns an edge once after its batch writes it
+        Given an empty graph
+        And having executed:
+            """
+            CREATE EDGE INDEX ON :WvBe(p)
+            """
+        And having executed:
+            """
+            CREATE (a:WvBa), (b:WvBa) CREATE (a)-[:WvBe {p: 1}]->(b), (a)-[:WvBe {p: 2}]->(b)
+            """
+        When executing query:
+            """
+            MATCH ()-[r:WvBe]->() WHERE r.p > 0 CALL (r) { SET r.p = r.p + 10 } IN TRANSACTIONS OF 1 ROWS WITH count(*) AS c MATCH ()-[e:WvBe]->() RETURN c, min(e.p) AS lo, max(e.p) AS hi
+            """
+        Then the result should be:
+            | c | lo | hi |
+            | 2 | 11 | 12 |
+
+    Scenario: An index scan at a later command with no earlier write returns a node once after its batch writes it
+        Given an empty graph
+        And with new index :WvBt(p)
+        And having executed:
+            """
+            CREATE (:WvBt {p: 1}), (:WvBt {p: 2})
+            """
+        When executing query:
+            """
+            OPTIONAL MATCH (z:WvBabsent) SET z.x = 1 WITH count(*) AS x MATCH (n:WvBt) WHERE n.p > 0 CALL (n) { SET n.p = n.p + 10 } IN TRANSACTIONS OF 1 ROWS WITH count(*) AS c MATCH (m:WvBt) RETURN c, min(m.p) AS lo, max(m.p) AS hi
+            """
+        Then the result should be:
+            | c | lo | hi |
+            | 2 | 11 | 12 |
