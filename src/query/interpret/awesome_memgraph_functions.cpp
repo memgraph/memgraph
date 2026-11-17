@@ -1580,7 +1580,7 @@ TypedValue Reverse(const TypedValue *args, int64_t nargs, const FunctionContext 
     const auto &input = args[0].ValueList();
     TypedValue::TVector res(ctx.memory);
     res.reserve(input.size());
-    for (auto it = input.rbegin(); it != input.rend(); ++it) res.emplace_back(TypedValue(*it, ctx.memory));
+    for (const auto &element : input | std::views::reverse) res.emplace_back(element);
     return TypedValue(std::move(res));
   }
   return CallStringFunction(args, nargs, ctx.memory, "reverse", [&](const auto &str) {
