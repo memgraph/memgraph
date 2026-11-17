@@ -412,10 +412,10 @@ class CachePropertiesRewriter final : public HierarchicalLogicalOperatorVisitor 
   /// what it groups by. `count(*)` carries nothing to read.
   ///
   /// A secondary argument, which a map collection and the graph projections take, is left out
-  /// however many lookups it holds. It is evaluated only once the row's first value has been
-  /// accepted, so a row whose first value is Null, or a repeat the aggregation is told to ignore,
-  /// never reaches it. Reading ahead for it would read a record such a row never asks about, which
-  /// on a deleted record is the difference between an answer and a refusal.
+  /// however many lookups it holds: it is reached only once the row's first value is accepted, so a
+  /// Null one, or a repeat a distinct aggregation ignores, never evaluates it. Reading ahead for it
+  /// would reach a record such a row never asks about, and on a deleted one that refuses a query
+  /// that answered.
   static auto ExpressionsOf(Aggregate &op) -> std::vector<Expression **> {
     auto owned = std::vector<Expression **>{};
     for (auto &element : op.aggregations_) {

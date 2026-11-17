@@ -355,7 +355,7 @@ TYPED_TEST(QueryExecution, ADeepVariableExpansionWalksBothWaysToEveryLength) {
       EXPECT_EQ(results[1][0].ValueInt(), 2);                                                                \
     }                                                                                                        \
     {                                                                                                        \
-      /* One property named twice, which the pass reads once and both lookups then answer from. */           \
+      /* Both lookups of one property answer it, and a property absent from a record still reads Null. */    \
       auto results = this->Execute("MATCH (n:P) RETURN n.a AS x, n.a AS y, n.b AS z ORDER BY x");            \
       ASSERT_EQ(results.size(), 2);                                                                          \
       EXPECT_EQ(results[0][0].ValueInt(), 1);                                                                \

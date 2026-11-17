@@ -373,8 +373,7 @@ void ProjectAMapOfFourProperties(benchmark::State &state) {
            "RETURN {category: i.category, region: i.region, value: i.value, quantity: i.quantity} AS m");
 }
 
-// One property named by two lookups in a projection, which is two reads of the record for it. The
-// pass reads it once and both lookups answer from the slot.
+// What a projection pays for naming one property twice.
 void ProjectOnePropertyTwice(benchmark::State &state) {
   RunQuery(state, "MATCH (:Hub)-[:HAS]->(i:Item) RETURN i.value AS v, i.value AS w");
 }
