@@ -985,6 +985,7 @@ constexpr std::string_view kCaseQueries[] = {
     R"cypher(MATCH (n:WvA4) CALL (n) { CREATE (n)-[:R]->(a:WvQ4)-[:R]->(:WvQ4) WITH a RETURN [(a)-[*]->(x) | 1] AS r } RETURN r)cypher",
     R"cypher(MATCH (n:WvA4) CALL (n) { CREATE (n)-[:R]->(a:WvQ4)-[:R]->(:WvQ4) WITH a RETURN [(a)-[*2..]->(x) | 1] AS r } RETURN r)cypher",
     R"cypher(CREATE (a:WvL {v: 1}), (b:WvL {w: a.v}) RETURN b.w AS w)cypher",
+    R"cypher(MATCH (a:WvWw) WITH a ORDER BY a.id WITH a, head([(a)-[:T]->(o) | o]) AS q SET a.x = 1 SET q.x = a.x + 1 WITH count(*) AS c MATCH (n:WvWw) RETURN n.id AS id, n.x AS x ORDER BY id)cypher",
 };
 
 // ---------------------------------------------------------------- reads the collector must not miss

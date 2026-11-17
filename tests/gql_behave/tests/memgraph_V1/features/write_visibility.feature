@@ -2760,6 +2760,24 @@ Feature: Write visibility inside one query
             | v |
             | 1 |
 
+    Scenario: A SET that writes the next row's node sees the earlier SET of every row first
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:WvWw {id: 1, x: 0})-[:T]->(:WvWw {id: 2, x: 0})-[:T]->(:WvWw {id: 3, x: 0})
+            """
+        When executing query:
+            """
+            MATCH (a:WvWw) WITH a ORDER BY a.id WITH a, head([(a)-[:T]->(o) | o]) AS q
+            SET a.x = 1 SET q.x = a.x + 1
+            WITH count(*) AS c MATCH (n:WvWw) RETURN n.id AS id, n.x AS x ORDER BY id
+            """
+        Then the result should be, in order:
+            | id | x |
+            | 1  | 1 |
+            | 2  | 2 |
+            | 3  | 3 |
+
     Scenario: A writing CALL after a SET run keeps the node the run set
         Given an empty graph
         And having executed:
