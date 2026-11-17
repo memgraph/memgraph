@@ -14,6 +14,7 @@
 
 #include <optional>
 #include <string>
+#include <string_view>
 
 #include <gtest/gtest.h>
 
@@ -24,8 +25,15 @@
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/isolation_level.hpp"
 #include "tests/test_commit_args_helper.hpp"
+#include "tests/version_store_test_peer.hpp"
 #include "utils/gatekeeper.hpp"
 #include "versioning_fixture.hpp"
+
+namespace {
+size_t CheckoutCount(const memgraph::versioning::VersionStore *store, std::string_view name) {
+  return memgraph::versioning::VersionStoreTestPeer::CheckoutCount(*store, name);
+}
+}  // namespace
 
 using memgraph::tests::versioning_fixture::ExplainText;
 using memgraph::tests::versioning_fixture::IntRows;
@@ -51,14 +59,14 @@ TEST_F(VersioningGatedTest, LeavingTheDatabaseLeavesTheBranch) {
   current_db.SetCurrentDB(*other_db_acc_opt, false);
   EXPECT_FALSE(current_db.CurrentVersion().has_value()) << "a genuine database switch must reset the branch";
   EXPECT_EQ(current_db.branch_context(), nullptr);
-  EXPECT_EQ(db->version_store()->CheckoutCount("feature"), 0U) << "the switch must release the checkout";
+  EXPECT_EQ(CheckoutCount(db->version_store(), "feature"), 0U) << "the switch must release the checkout";
 
   current_db.SetCurrentDB(*same_db_acc_opt, false);
   Attach(faker, "feature");
-  ASSERT_EQ(db->version_store()->CheckoutCount("feature"), 1U);
+  ASSERT_EQ(CheckoutCount(db->version_store(), "feature"), 1U);
 
   current_db.ResetDB();
-  EXPECT_EQ(db->version_store()->CheckoutCount("feature"), 0U) << "ResetDB must release the checkout";
+  EXPECT_EQ(CheckoutCount(db->version_store(), "feature"), 0U) << "ResetDB must release the checkout";
   EXPECT_EQ(current_db.branch_context(), nullptr);
   EXPECT_FALSE(current_db.CurrentVersion().has_value());
 
@@ -72,15 +80,15 @@ TEST_F(VersioningGatedTest, LeavingTheDatabaseLeavesTheBranch) {
 TEST_F(VersioningGatedTest, ReleaseDbIfMarkedLeavesTheBranch) {
   Fork("feature");
   auto &current_db = faker.interpreter.current_db_;
-  ASSERT_EQ(db->version_store()->CheckoutCount("feature"), 1U);
+  ASSERT_EQ(CheckoutCount(db->version_store(), "feature"), 1U);
 
   EXPECT_FALSE(current_db.ReleaseDbIfMarked()) << "an unmarked database must be kept";
-  EXPECT_EQ(db->version_store()->CheckoutCount("feature"), 1U);
+  EXPECT_EQ(CheckoutCount(db->version_store(), "feature"), 1U);
 
   db.prepare_for_deletion();
   ASSERT_TRUE(current_db.ReleaseDbIfMarked());
 
-  EXPECT_EQ(db->version_store()->CheckoutCount("feature"), 0U) << "the checkout must be released with the database";
+  EXPECT_EQ(CheckoutCount(db->version_store(), "feature"), 0U) << "the checkout must be released with the database";
   EXPECT_EQ(current_db.branch_context(), nullptr);
   EXPECT_FALSE(current_db.CurrentVersion().has_value());
 }
@@ -96,7 +104,7 @@ TEST_F(VersioningGatedTest, ReApplyingSameDatabaseAccessPreservesCheckout) {
   EXPECT_EQ(current_db.CurrentVersion(), "feature");
   // A real checkout also holds a BranchContext and a checkout slot; a same-database re-apply must keep both.
   EXPECT_NE(current_db.branch_context(), nullptr);
-  EXPECT_EQ(db->version_store()->CheckoutCount("feature"), 1U);
+  EXPECT_EQ(CheckoutCount(db->version_store(), "feature"), 1U);
   const auto number = db->version_store()->Get("feature")->id;
   EXPECT_EQ(current_db.foreign_branch_number(), number);
   EXPECT_TRUE(current_db.OnBranch(number));
@@ -120,7 +128,7 @@ TEST_F(VersioningGatedTest, BranchStateSurvivesDetachReattach) {
   check_branch();
 
   faker.interpreter.current_db_.LeaveBranch();
-  EXPECT_EQ(db->version_store()->CheckoutCount("b"), 0U);
+  EXPECT_EQ(CheckoutCount(db->version_store(), "b"), 0U);
   Attach(faker, "b");
   ASSERT_EQ(faker.interpreter.current_db_.CurrentVersion(), "b");
   check_branch();
@@ -141,21 +149,21 @@ TEST_F(VersioningGatedTest, ParkedBranchIsRestoredAfterTheTransactionOrDiscarded
   current_db.ParkSessionBranch();
   EXPECT_FALSE(current_db.CurrentVersion().has_value());
   EXPECT_EQ(current_db.foreign_branch_number(), 0U);
-  EXPECT_EQ(version_store->CheckoutCount("b"), 1U) << "a parked branch keeps its checkout";
+  EXPECT_EQ(CheckoutCount(version_store, "b"), 1U) << "a parked branch keeps its checkout";
   Attach(faker, "other");
   EXPECT_EQ(IntRows(faker, "MATCH (n) RETURN count(n)"), (Rows{{0}}));
   EXPECT_EQ(current_db.CurrentVersion(), "b") << "the transaction's end restores the parked branch";
   EXPECT_EQ(current_db.foreign_branch_number(), version_store->Get("b")->id);
-  EXPECT_EQ(version_store->CheckoutCount("other"), 0U);
-  EXPECT_EQ(version_store->CheckoutCount("b"), 1U);
+  EXPECT_EQ(CheckoutCount(version_store, "other"), 0U);
+  EXPECT_EQ(CheckoutCount(version_store, "b"), 1U);
 
   current_db.ParkSessionBranch();
   Attach(faker, "other");
   current_db.DiscardParkedBranch();
   EXPECT_EQ(IntRows(faker, "MATCH (n) RETURN count(n)"), (Rows{{0}}));
   EXPECT_EQ(current_db.CurrentVersion(), "other");
-  EXPECT_EQ(version_store->CheckoutCount("b"), 0U);
-  EXPECT_EQ(version_store->CheckoutCount("other"), 1U);
+  EXPECT_EQ(CheckoutCount(version_store, "b"), 0U);
+  EXPECT_EQ(CheckoutCount(version_store, "other"), 1U);
 }
 
 // A nested session (mgp_execute_query) joins the caller's branch with a checkout of its own, released when it ends.
@@ -169,9 +177,9 @@ TEST_F(VersioningGatedTest, NestedSessionAttachesToTheCallersBranch) {
     EXPECT_EQ(nested.current_db_.CurrentVersion(), "b");
     ASSERT_NE(nested.current_db_.branch_context(), nullptr);
     EXPECT_EQ(nested.current_db_.branch_context()->core(), outer.core());
-    EXPECT_EQ(version_store->CheckoutCount("b"), 2U);
+    EXPECT_EQ(CheckoutCount(version_store, "b"), 2U);
   }
-  EXPECT_EQ(version_store->CheckoutCount("b"), 1U) << "a destroyed session must release its checkout";
+  EXPECT_EQ(CheckoutCount(version_store, "b"), 1U) << "a destroyed session must release its checkout";
 
   ASSERT_TRUE(version_store->ForceDropBranch("b"));
   memgraph::query::Interpreter nested{&interpreter_context, db};
