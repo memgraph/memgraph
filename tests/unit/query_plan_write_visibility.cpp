@@ -1127,6 +1127,18 @@ TEST_F(WriteVisibilityPlan, OneSetEvaluatesItsRightHandSidesFirst) {
   EXPECT_FALSE(Collect<Produce>(Plan("MERGE (a:L {k: 1}) ON MATCH SET a.x = 1, a.y = a.x")).empty());
 }
 
+// Any read of the run's variable other than a lookup of an unwritten key needs the snapshot: a subscript, a map
+// projection, properties().
+TEST_F(WriteVisibilityPlan, OneSetSnapshotsEveryReadOfItsVariable) {
+  for (auto const *query : {
+           "MATCH (a) SET a.x = 1, a.y = a['x']",
+           "MATCH (a) SET a.x = 1, a.y = a{.*}.x",
+           "MATCH (a) SET a.x = 1, a.y = properties(a).x",
+       }) {
+    EXPECT_FALSE(Collect<Produce>(Plan(query)).empty()) << query;
+  }
+}
+
 // The Produce before a SET run passes every bound symbol through, so a barrier above it keeps them.
 TEST_F(WriteVisibilityPlan, TheBarrierAfterASetRunKeepsItsSymbols) {
   for (auto const *query : {

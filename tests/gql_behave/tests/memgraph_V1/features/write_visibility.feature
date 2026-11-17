@@ -2853,3 +2853,17 @@ Feature: Write visibility inside one query
         Then the result should be:
             | c | lo | hi |
             | 2 | 11 | 12 |
+
+    Scenario: A SET item reads, through a subscript, the value a property had before an earlier item
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:WvSs {x: 0})
+            """
+        When executing query:
+            """
+            MATCH (a:WvSs) SET a.x = 1, a.y = a['x'], a.z = properties(a).x RETURN a.y AS y, a.z AS z
+            """
+        Then the result should be:
+            | y | z |
+            | 0 | 0 |
