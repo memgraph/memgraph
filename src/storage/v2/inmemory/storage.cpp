@@ -1029,7 +1029,7 @@ void InMemoryStorage::InMemoryAccessor::CheckForFastDiscardOfDeltas() {
   bool const no_newer_transactions = mem_storage->transaction_id_ == transaction_.transaction_id + 1;
 #ifdef MG_ENTERPRISE
   // A reader at fork pin P undoes deltas with commit_ts >= P, so the oldest pin must be strictly > commit_ts;
-  // P == C is reachable because RegisterForkPin does not increment timestamp_.
+  // P == C is reachable only under commit-lock narrowing (the fork bound can equal a minted-unpublished commit).
   if (no_older_transactions && no_newer_transactions &&
       mem_storage->oldest_fork_pin_.load(std::memory_order_acquire) > *commit_timestamp_) [[unlikely]] {
 #else
@@ -3063,18 +3063,23 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
 }
 
 #ifdef MG_ENTERPRISE
-uint64_t InMemoryStorage::VisibleCommitBoundLocked() const {
-  // Narrowing: the published watermark is inclusive, so +1; minted-unpublished commits land at or above it.
-  // Otherwise timestamp_ (not consumed: no increment).
-  return config_.experimental_commit_lock_narrowing ? last_committed_mvcc_ts_.load(std::memory_order_acquire) + 1
-                                                    : timestamp_;
+uint64_t InMemoryStorage::MintForkTsLocked() {
+  // The fork consumes its own timestamp like a transaction start: no reader or writer shares it, and the GC idle
+  // shortcut (mark_timestamp == OldestActive) cannot fire while a pin exists, since mark_timestamp > the pin.
+  // No transaction owns the id, so it is finished at once and OldestActive does not stall on it (the fork pin, not
+  // the commit log, protects the history).
+  const uint64_t id = timestamp_++;
+  commit_log_->MarkFinished(id);
+  // Narrowing: like a narrowing transaction's frozen snapshot, the bound stays the published watermark + 1
+  // (<= id); a minted-but-unpublished commit below the consumed id would become visible when it publishes.
+  return config_.experimental_commit_lock_narrowing ? last_committed_mvcc_ts_.load(std::memory_order_acquire) + 1 : id;
 }
 
 uint64_t InMemoryStorage::RegisterForkPin() {
   // Capture and pin under engine_lock_: CheckForFastDiscardOfDeltas reads the pin under it, so no commit can mint
   // a timestamp >= fork_ts and fast-discard its deltas before the pin is visible.
   auto engine_guard = std::scoped_lock{engine_lock_};
-  const uint64_t fork_ts = VisibleCommitBoundLocked();
+  const uint64_t fork_ts = MintForkTsLocked();
   auto pin_guard = std::scoped_lock{version_fork_pin_lock_};
   version_fork_pins_.insert(fork_ts);
   oldest_fork_pin_.store(*version_fork_pins_.begin(), std::memory_order_release);
