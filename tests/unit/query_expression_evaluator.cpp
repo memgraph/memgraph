@@ -3830,8 +3830,8 @@ TYPED_TEST(FunctionTest, Reverse) {
   auto empty = MakeTypedValueList();
   CompareList(this->EvaluateFunction("REVERSE", empty), empty);
 
-  // Only the order of the top-level elements changes: a nested list and a map are
-  // copied as they are, not reversed themselves, and the input list keeps its order.
+  // Only the order of the top-level elements changes: nested values are copied
+  // as they are, and the input list keeps its order.
   auto nested = MakeTypedValueList(1, 2);
   auto map = TypedValue(std::map<std::string, TypedValue>{{"key", TypedValue(7)}});
   auto input = MakeTypedValueList(nested, map, TypedValue(), TypedValue(-1));
@@ -3854,8 +3854,6 @@ TYPED_TEST(FunctionTest, Reverse) {
 }
 
 TYPED_TEST(FunctionTest, ReverseInvalidType) {
-  // An argument of any other type is rejected by a message that names the whole
-  // accepted set, so `list` has to be part of it.
   try {
     this->EvaluateFunction("REVERSE", 132);
     FAIL() << "expected REVERSE to reject an integer argument";
