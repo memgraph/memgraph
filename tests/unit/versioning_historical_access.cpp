@@ -117,6 +117,19 @@ class VersioningHistoricalAccessTest : public StorageV2GcMetricsTest {
     if (!historical) return std::nullopt;
     return ReadProp(**historical, gid, prop);
   }
+
+  void ExpectTransientReadsKeepOpenReaderHistory(bool narrowing);
+  void ExpectCommitAfterForkInvisibleToHistoricalReads();
+};
+
+// Same fixture with commit-lock narrowing, where the fork bound is the published watermark + 1 and can equal the start
+// timestamp of a transaction that began before the fork.
+class VersioningHistoricalAccessNarrowingTest : public VersioningHistoricalAccessTest {
+ protected:
+  void SetUp() override {
+    VersioningHistoricalAccessTest::SetUp();
+    InitStorage(std::chrono::seconds(3600), true);
+  }
 };
 
 // HistoricalAccess must force SNAPSHOT_ISOLATION: under an inherited READ_COMMITTED/READ_UNCOMMITTED ambient level the
@@ -202,15 +215,24 @@ TEST_F(VersioningHistoricalAccessTest, NewerPinHistorySurvivesOlderPinRelease) {
   Mem()->ReleaseForkPin(pin_b);
 }
 
-// Transient historical readers must not mark the shared fork_ts finished in the commit log: RegisterForkPin does not
-// advance timestamp_, so `real_reader` starts at fork_ts and would lose its deltas to GC.
-TEST_F(VersioningHistoricalAccessTest, TransientReadsDoNotReleaseSharedForkTimestamp) {
+// Transient historical readers must not mark fork_ts finished in the commit log. Without narrowing the fork consumes
+// its own timestamp (no real transaction can share it); with narrowing the bound is the watermark + 1, so a reader
+// that began before the fork shares it and would lose its deltas to GC if a historical reader finalized it.
+void VersioningHistoricalAccessTest::ExpectTransientReadsKeepOpenReaderHistory(bool narrowing) {
   const auto gid = CommitNewVertex(*storage, storage->NameToProperty("p"), 1);
-  const uint64_t fork_ts = Mem()->RegisterForkPin();
 
-  auto real_reader = storage->Access(ms::READ);
-  ASSERT_EQ(real_reader->GetStartTimestamp(), fork_ts)
-      << "test precondition: the plain reader must start exactly at fork_ts";
+  decltype(storage->Access(ms::READ)) real_reader;
+  uint64_t fork_ts = 0;
+  if (narrowing) {
+    real_reader = storage->Access(ms::READ);
+    fork_ts = Mem()->RegisterForkPin();
+    ASSERT_EQ(real_reader->GetStartTimestamp(), fork_ts)
+        << "test precondition: the earlier reader must start exactly at fork_ts";
+  } else {
+    fork_ts = Mem()->RegisterForkPin();
+    real_reader = storage->Access(ms::READ);
+    ASSERT_LT(fork_ts, real_reader->GetStartTimestamp()) << "the fork must consume its own timestamp";
+  }
 
   for (int i = 0; i < 5; ++i) {
     auto historical = Mem()->HistoricalAccess(fork_ts);
@@ -218,20 +240,28 @@ TEST_F(VersioningHistoricalAccessTest, TransientReadsDoNotReleaseSharedForkTimes
     ASSERT_TRUE((*historical)->FindVertex(gid, ms::View::OLD).has_value());
   }
 
-  // Post-fork commits real_reader must undo through; it is older, so no fast-discard shortcut.
+  // Post-fork commits real_reader must undo through; it is older than them, so no fast-discard shortcut.
   CommitLabels(*storage, gid, 5);
   ASSERT_GT(Unreleased(), 0);
 
   // From here only commit_log_ state gates retention; the pin can no longer mask the regression.
   Mem()->ReleaseForkPin(fork_ts);
   Gc(*storage);
-  EXPECT_GT(Unreleased(), 0) << "real_reader (start_timestamp == fork_ts, still open) needs this history regardless "
-                                "of the fork pin; the transient historical reads must not have finalized it";
+  EXPECT_GT(Unreleased(), 0) << "real_reader (still open) needs this history regardless of the fork pin; the "
+                                "transient historical reads must not have finalized it";
   ExpectNoLabels(*real_reader, gid, 5);
 
   real_reader.reset();
   Gc(*storage);
   EXPECT_EQ(0, Unreleased());
+}
+
+TEST_F(VersioningHistoricalAccessTest, TransientReadsDoNotReleaseSharedForkTimestamp) {
+  ExpectTransientReadsKeepOpenReaderHistory(false);
+}
+
+TEST_F(VersioningHistoricalAccessNarrowingTest, TransientReadsDoNotReleaseSharedForkTimestamp) {
+  ExpectTransientReadsKeepOpenReaderHistory(true);
 }
 
 // Dropping the branch (ReleaseForkPin) while a historical reader is open must not let GC reclaim its history.
@@ -257,9 +287,10 @@ TEST_F(VersioningHistoricalAccessTest, DropDuringOpenReadDoesNotReclaim) {
   EXPECT_EQ(0, Unreleased());
 }
 
-// A commit minting commit_ts == fork_ts (writer opened pre-fork, committed post-fork) must stay invisible at the pin,
-// through later writes and GC; a '>=' off-by-one in the fast-discard gate would free the deltas.
-TEST_F(VersioningHistoricalAccessTest, HistoricalReadStableAcrossCommitAtForkAndLaterWrites) {
+// A commit of a writer opened pre-fork and committed post-fork must stay invisible at the pin, through later writes and
+// GC. The exact commit_ts == fork_ts boundary is only reachable under narrowing, with an in-flight commit (see
+// HistoricalReadAtForkStableWhenInFlightCommitPublishes_ON).
+void VersioningHistoricalAccessTest::ExpectCommitAfterForkInvisibleToHistoricalReads() {
   const auto prop = storage->NameToProperty("p");
   const auto gid = CommitNewVertex(*storage, prop, 1);
   auto expect_fork_state = [&](ms::Storage::Accessor &acc) {
@@ -276,6 +307,7 @@ TEST_F(VersioningHistoricalAccessTest, HistoricalReadStableAcrossCommitAtForkAnd
   }
 
   const uint64_t fork_ts = Mem()->RegisterForkPin();
+  ASSERT_LE(writer->GetStartTimestamp(), fork_ts) << "test precondition: the writer began before the fork";
   auto historical = Mem()->HistoricalAccess(fork_ts);
   ASSERT_TRUE(historical.has_value());
   expect_fork_state(**historical);
@@ -288,7 +320,7 @@ TEST_F(VersioningHistoricalAccessTest, HistoricalReadStableAcrossCommitAtForkAnd
   }
 
   Gc(*storage);
-  EXPECT_GT(Unreleased(), 0) << "the pin at P == C must keep the deltas";
+  EXPECT_GT(Unreleased(), 0) << "the pin must keep the deltas the fork reads through";
   expect_fork_state(**historical);
   {
     auto fresh = Mem()->HistoricalAccess(fork_ts);
@@ -300,6 +332,14 @@ TEST_F(VersioningHistoricalAccessTest, HistoricalReadStableAcrossCommitAtForkAnd
   Mem()->ReleaseForkPin(fork_ts);
   Gc(*storage);
   EXPECT_EQ(0, Unreleased());
+}
+
+TEST_F(VersioningHistoricalAccessTest, HistoricalReadStableAcrossCommitAfterForkAndLaterWrites) {
+  ExpectCommitAfterForkInvisibleToHistoricalReads();
+}
+
+TEST_F(VersioningHistoricalAccessNarrowingTest, HistoricalReadStableAcrossCommitAfterForkAndLaterWrites) {
+  ExpectCommitAfterForkInvisibleToHistoricalReads();
 }
 
 // Main writers commit while historical readers open and read at one pin and GC runs: every read returns the fork state.
@@ -500,8 +540,8 @@ TEST_F(VersioningHistoricalAccessTest, HistoricalEdgeTypeIndexScanReturnsForkSta
 }
 
 // An index committed after fork_ts is not ready for that reader (the fork state was never indexed by it), while plain
-// accessors and a later-pinned reader use it; an index committed exactly at fork_ts (C == P, IsVisible is <=) is ready
-// and serves the fork state, because it was populated with writers excluded.
+// accessors and a later-pinned reader use it. The fork consumes its own timestamp, so an index whose commit began after
+// the fork (even with the fork registered mid-commit) is not ready for it, but its scan still returns the fork state.
 TEST_F(VersioningHistoricalAccessTest, IndexVisibilityAtForkTimestampBoundary) {
   const auto label = storage->NameToLabel("L");
   const auto edge_type = storage->NameToEdgeType("E");
@@ -539,7 +579,7 @@ TEST_F(VersioningHistoricalAccessTest, IndexVisibilityAtForkTimestampBoundary) {
   Mem()->ReleaseForkPin(pin_before);
   Mem()->ReleaseForkPin(pin_after);
 
-  // Index committed exactly at fork_ts, on a fresh label/property.
+  // Index committed after fork_ts (the fork is registered while the index accessor is open), on a fresh label/property.
   const auto label2 = storage->NameToLabel("L2");
   const auto prop2 = storage->NameToProperty("q");
   const std::array paths2{ms::PropertyPath{prop2}};
@@ -563,9 +603,6 @@ TEST_F(VersioningHistoricalAccessTest, IndexVisibilityAtForkTimestampBoundary) {
     fork_ts = Mem()->RegisterForkPin();
     Commit(*index_acc);
   }
-  const uint64_t probe = Mem()->RegisterForkPin();
-  ASSERT_EQ(probe, fork_ts + 1) << "test precondition: the index commit minted exactly fork_ts";
-  Mem()->ReleaseForkPin(probe);
 
   {
     auto acc = storage->Access(ms::WRITE);
@@ -584,7 +621,7 @@ TEST_F(VersioningHistoricalAccessTest, IndexVisibilityAtForkTimestampBoundary) {
   auto historical = Mem()->HistoricalAccess(fork_ts);
   ASSERT_TRUE(historical.has_value());
   auto &hist_acc = **historical;
-  EXPECT_TRUE(hist_acc.LabelPropertyIndexReady(label2, paths2));
+  EXPECT_FALSE(hist_acc.LabelPropertyIndexReady(label2, paths2));
   std::vector<int64_t> values;
   for (auto v : hist_acc.Vertices(label2, paths2, std::array{ms::PropertyValueRange::IsNotNull()}, ms::View::OLD)) {
     values.push_back(v.GetProperty(prop2, ms::View::OLD).value_or(ms::PropertyValue()).ValueInt());

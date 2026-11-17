@@ -292,8 +292,9 @@ struct Transaction {
   // Set at construction; never reassigned. Stable across PeriodicCommit.
   uint64_t original_start_timestamp{};
 #ifdef MG_ENTERPRISE
-  // Read-only accessor at a pinned past fork_ts. That tick is later dispensed to a real transaction, so
-  // finalization must release the fork pin instead of MarkFinished(start_timestamp). MVCC writes throw in
+  // Read-only accessor at a pinned past fork_ts. fork_ts is not this transaction's own commit-log id (it may be
+  // another transaction's start tick under narrowing, and is already finished otherwise), so finalization releases
+  // the fork pin instead of MarkFinished(start_timestamp). MVCC writes throw in
   // EnsureCommitInfoExists; metadata writes are refused at their entry points (ThrowIfHistorical).
   bool is_historical_{false};
 #endif
