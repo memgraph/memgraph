@@ -359,7 +359,8 @@ TEST_F(VersioningHistoryReplayTest, EmptyTailPinsEveryForkAndBumpsTheClock) {
   auto pins = memgraph::dbms::ReplayHistoryTail(r.storage, tail, std::array{reached + 1, reached + 1, far});
   ASSERT_TRUE(pins.has_value()) << pins.error();
   ASSERT_EQ(pins->size(), 3U);
-  EXPECT_EQ((*pins)[0], (*pins)[1]);
+  EXPECT_LT((*pins)[0], (*pins)[1]) << "every fork pin consumes its own timestamp";
+  EXPECT_LT((*pins)[1], (*pins)[2]);
   EXPECT_EQ(r.storage.LastCommittedMvccTimestamp(), far - 1);
   r.storage.BumpClockPastDurable(10);
   EXPECT_EQ(r.storage.LastCommittedMvccTimestamp(), far - 1) << "a lower target leaves the clock alone";
@@ -423,7 +424,9 @@ TEST_F(VersioningHistoryReplayTest, ReplayMatchesUnboundedRecovery) {
     ASSERT_TRUE(pins.has_value()) << pins.error();
     ASSERT_EQ(pins->size(), forks.size());
     EXPECT_EQ(WalFiles(kDirB), wals_before) << "tail replay must not write the WAL";
-    EXPECT_EQ(r.storage.LastCommittedMvccTimestamp() + 1, r.storage.timestamp_);
+    EXPECT_GE(r.storage.timestamp_, std::max(unbounded_ldt + 1, forks.back()))
+        << "the clock sits past the newest fork and the durable state";
+    for (auto const pin : *pins) EXPECT_LT(pin, r.storage.timestamp_) << "pins consume ids below the clock";
 
     EXPECT_EQ(DumpLatest(r.storage), unbounded_graph);
     auto const info = r.storage.repl_storage_state_.commit_ts_info_.load();
