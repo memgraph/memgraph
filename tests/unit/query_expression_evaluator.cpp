@@ -3831,7 +3831,7 @@ TYPED_TEST(FunctionTest, Reverse) {
   CompareList(this->EvaluateFunction("REVERSE", empty), empty);
 
   // Only the order of the top-level elements changes: a nested list and a map are
-  // moved as they are, not reversed themselves, and the input list keeps its order.
+  // copied as they are, not reversed themselves, and the input list keeps its order.
   auto nested = MakeTypedValueList(1, 2);
   auto map = TypedValue(std::map<std::string, TypedValue>{{"key", TypedValue(7)}});
   auto input = MakeTypedValueList(nested, map, TypedValue(), TypedValue(-1));

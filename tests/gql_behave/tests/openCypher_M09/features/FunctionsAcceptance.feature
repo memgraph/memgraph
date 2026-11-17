@@ -147,27 +147,13 @@ Feature: FunctionsAcceptance
       | reverse('raksO') |
       | 'Oskar'          |
     And no side effects
-
-  Scenario: `reverse()` on a list
-    Given any graph
     When executing query:
       """
-      RETURN reverse(['a', 'b', 'c'])
+      RETURN reverse(['a', 'b', 'c']), reverse([])
       """
     Then the result should be:
-      | reverse(['a', 'b', 'c']) |
-      | ['c', 'b', 'a']          |
-    And no side effects
-
-  Scenario: `reverse()` on an empty list
-    Given any graph
-    When executing query:
-      """
-      RETURN reverse([])
-      """
-    Then the result should be:
-      | reverse([]) |
-      | []          |
+      | reverse(['a', 'b', 'c']) | reverse([]) |
+      | ['c', 'b', 'a']          | []          |
     And no side effects
 
   Scenario: `exists()` with dynamic property lookup
