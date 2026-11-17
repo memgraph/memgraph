@@ -634,6 +634,8 @@ void InMemoryStorage::ForkPin::Release() {
 }
 #endif
 
+// Accessor(std::move(other)) moves only the base subobject; other's own members are still intact.
+// NOLINTBEGIN(bugprone-use-after-move)
 InMemoryStorage::InMemoryAccessor::InMemoryAccessor(InMemoryAccessor &&other) noexcept
     : Accessor(std::move(other)),
 #ifdef MG_ENTERPRISE
@@ -641,6 +643,8 @@ InMemoryStorage::InMemoryAccessor::InMemoryAccessor(InMemoryAccessor &&other) no
 #endif
       config_(other.config_) {
 }
+
+// NOLINTEND(bugprone-use-after-move)
 
 InMemoryStorage::InMemoryAccessor::~InMemoryAccessor() {
   if (is_transaction_active_) {
