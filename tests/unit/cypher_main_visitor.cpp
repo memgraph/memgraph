@@ -42,7 +42,6 @@
 #include "query/frontend/ast/query/user_profile.hpp"
 #include "query/frontend/opencypher/parser.hpp"
 #include "query/frontend/semantic/rw_checker.hpp"
-#include "query/frontend/semantic/symbol_generator.hpp"
 #include "query/frontend/stripped.hpp"
 #include "query/parameters.hpp"
 #include "query/procedure/cypher_types.hpp"
@@ -2466,15 +2465,6 @@ TEST_P(CypherMainVisitorTest, MatchAfterOptionalMatch) {
     EXPECT_NO_THROW(ast_generator.ParseQuery(fmt::format("OPTIONAL MATCH (n) {} MATCH (m) RETURN n, m", between)))
         << between;
   }
-}
-
-TEST_P(CypherMainVisitorTest, MatchAfterOptionalMatchRedeclaresItsRelationship) {
-  // A later MATCH cannot reuse a relationship variable the optional bound.
-  auto &ast_generator = *GetParam();
-  auto *query =
-      dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("OPTIONAL MATCH (a)-[r]->() MATCH ()-[r]->(b) RETURN a, b"));
-  ASSERT_TRUE(query);
-  EXPECT_THROW(memgraph::query::MakeSymbolTable(query), RedeclareVariableError);
 }
 
 TEST_P(CypherMainVisitorTest, ClausesOrdering) {

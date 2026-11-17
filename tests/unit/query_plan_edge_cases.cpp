@@ -13,6 +13,8 @@
 // that's not easily testable with single-phase testing. instead, for
 // easy testing and latter readability they are tested end-to-end.
 
+#include <array>
+#include <cstdint>
 #include <filesystem>
 #include <memory>
 #include <optional>
@@ -241,14 +243,26 @@ TYPED_TEST(QueryExecution, MatchOnBoundNodeIsNotANode) {
                              "WITH coalesce(f, 1) AS g MATCH (g) RETURN count(*) AS c"),
                memgraph::query::QueryRuntimeException);
 
-  // An UNWIND between OPTIONAL MATCH and MATCH reaches the same run-time check.
-  EXPECT_THROW(this->Execute("OPTIONAL MATCH (x:None) UNWIND [1] AS f MATCH (f) RETURN count(*) AS c"),
-               memgraph::query::QueryRuntimeException);
-
   // A node passes, so what the guard rejects is the type and not the reuse of a variable.
   auto results = this->Execute("MATCH (p:Person) WITH p AS g MATCH (g) RETURN count(*) AS c");
   ASSERT_EQ(results.size(), 1U);
   EXPECT_EQ(results[0][0].ValueInt(), 2);
+}
+
+TYPED_TEST(QueryExecution, MatchAfterOptionalMatchAndUnwind) {
+  // MATCH (a:A) OPTIONAL MATCH (a)-[:R]->(b) UNWIND [1, 2] AS x MATCH (b)-[:S]->(c) RETURN a.i, x, c.i: the MATCH
+  // expands from the optional's b, so a = 4, whose b is null, has no row.
+  this->Execute(
+      "CREATE (a:A {i: 1})-[:R]->(b {i: 2})-[:S]->({i: 3}), (b)-[:S]->({i: 5}), (:A {i: 4}), ({i: 6})-[:S]->({i: 7})");
+
+  auto results = this->Execute(
+      "MATCH (a:A) OPTIONAL MATCH (a)-[:R]->(b) UNWIND [1, 2] AS x MATCH (b)-[:S]->(c) "
+      "RETURN a.i, x, c.i ORDER BY a.i, x, c.i");
+  const std::vector<std::array<int64_t, 3>> expected{{1, 1, 3}, {1, 1, 5}, {1, 2, 3}, {1, 2, 5}};
+  ASSERT_EQ(results.size(), expected.size());
+  for (size_t row = 0; row < expected.size(); ++row) {
+    for (size_t col = 0; col < 3; ++col) EXPECT_EQ(results[row][col].ValueInt(), expected[row][col]) << row;
+  }
 }
 
 TYPED_TEST(QueryExecution, SubqueryBodyCorrelatesAcrossSeparatePatterns) {

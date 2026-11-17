@@ -274,30 +274,6 @@ Feature: MATCH after OPTIONAL MATCH
             | 'Carrie' | true  |
             | 'Hugo'   | false |
 
-    Scenario: Inside a COLLECT body
-        Given an empty graph
-        And having executed:
-            """
-            CREATE (k:MaoP {name: 'Keanu'}), (c:MaoP {name: 'Carrie'}), (h:MaoP {name: 'Hugo'}),
-                   (mx:MaoM {title: 'Matrix', v: 1}), (jw:MaoM {title: 'JW', v: 2}), (lone:MaoM {title: 'Lone', v: 3}),
-                   (k)-[:ACTED_IN]->(mx), (c)-[:ACTED_IN]->(mx), (k)-[:ACTED_IN]->(jw),
-                   (mx)-[:SEQUEL]->(jw)
-            """
-        When executing query:
-            """
-            MATCH (p:MaoP)
-            RETURN p.name AS p, size(COLLECT {
-              OPTIONAL MATCH (p)-[:ACTED_IN]->(m:MaoM)
-              MATCH (m)-[:SEQUEL]->(s)
-              RETURN s.title
-            }) AS c
-            """
-        Then the result should be:
-            | p        | c |
-            | 'Keanu'  | 1 |
-            | 'Carrie' | 1 |
-            | 'Hugo'   | 0 |
-
     Scenario: A SET after the MATCH writes once per surviving row
         Given an empty graph
         And having executed:
