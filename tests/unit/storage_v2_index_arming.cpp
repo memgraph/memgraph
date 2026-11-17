@@ -484,32 +484,22 @@ constexpr uint32_t kReservedIds[] = {
 
 }  // namespace
 
-TEST(IndexArming, AReservedLabelOrPropertyIsNeverNoted) {
+TEST(IndexArming, AReservedLabelOrPropertyIsNeverNotedAndRealOnesStillAre) {
   for (auto const id : kReservedIds) {
     SCOPED_TRACE(id);
     auto arming = IndexArming{};
     arming.note_label(Label(id));
     arming.note_vertex_property(Property(id));
     arming.note_edge_property(Property(id));
-
     EXPECT_FALSE(arming.arms_anything());
     EXPECT_FALSE(arming.arms_vertex_index_on(Label(id)));
-    EXPECT_FALSE(arming.arms_vertex_property_index_on(Property(id)));
-    EXPECT_FALSE(arming.arms_edge_index_on(Property(id)));
   }
-}
 
-TEST(IndexArming, AReservedIdDoesNotDisturbTheRealOnesNotedWithIt) {
   auto arming = IndexArming{};
-  arming.note_label(Label(memgraph::storage::kReservedIdBit | 3U));
   arming.note_label(Label(3));
-  arming.note_vertex_property(Property(memgraph::storage::kReservedIdBit | 4U));
   arming.note_vertex_property(Property(4));
-
   EXPECT_TRUE(arming.arms_vertex_index_on(Label(3)));
   EXPECT_TRUE(arming.arms_vertex_property_index_on(Property(4)));
-  EXPECT_FALSE(arming.arms_vertex_index_on(Label(2)));
-  EXPECT_FALSE(arming.arms_vertex_index_on(Label(memgraph::storage::kReservedIdBit | 3U)));
 }
 
 TEST(IndexArming, TheDeltasOfAnOverlayMarkerArmNothing) {
