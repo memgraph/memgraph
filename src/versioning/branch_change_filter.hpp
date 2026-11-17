@@ -50,6 +50,26 @@ class BranchChangeFilters {
 
   void RecordPropertyChange(storage::Gid gid) noexcept { property_.Insert(gid); }
 
+  // Label gates (id mod 256, no gid): "touched" = the label was written on a base vertex, "marked" = Mark(label) was
+  // written on an overlay. A clear bit lets readers skip the per-gid work.
+  void RecordLabelTouched(storage::LabelId label) noexcept {
+    label_touched_gate_[GateWord(label.AsUint())].fetch_or(GateBit(label.AsUint()), std::memory_order_release);
+  }
+
+  void RecordLabelMarked(storage::LabelId label) noexcept {
+    label_marked_gate_[GateWord(label.AsUint())].fetch_or(GateBit(label.AsUint()), std::memory_order_release);
+  }
+
+  [[nodiscard]] bool MayHaveLabelTouched(storage::LabelId label) const noexcept {
+    return (label_touched_gate_[GateWord(label.AsUint())].load(std::memory_order_acquire) & GateBit(label.AsUint())) !=
+           0;
+  }
+
+  [[nodiscard]] bool MayHaveLabelMarked(storage::LabelId label) const noexcept {
+    return (label_marked_gate_[GateWord(label.AsUint())].load(std::memory_order_acquire) & GateBit(label.AsUint())) !=
+           0;
+  }
+
   void RecordPropertyField(storage::Gid gid, storage::PropertyId pid) noexcept {
     pid_gate_[PidWord(pid)].fetch_or(PidBit(pid), std::memory_order_release);
     property_field_.Insert(storage::Gid::FromUint(CombineGidProp(gid, pid)));
@@ -150,15 +170,21 @@ class BranchChangeFilters {
     return absl::HashOf(gid.AsUint(), pid.AsUint());
   }
 
-  // Aliased pids (pid mod 256) only yield false positives.
+  // Aliased ids (id mod 256) only yield false positives.
   static constexpr size_t kPidGateBits = 256;
 
-  [[nodiscard]] static size_t PidWord(storage::PropertyId pid) noexcept { return (pid.AsUint() % kPidGateBits) >> 6U; }
+  [[nodiscard]] static size_t GateWord(uint64_t id) noexcept { return (id % kPidGateBits) >> 6U; }
 
-  [[nodiscard]] static uint64_t PidBit(storage::PropertyId pid) noexcept { return 1ULL << (pid.AsUint() & 63U); }
+  [[nodiscard]] static uint64_t GateBit(uint64_t id) noexcept { return 1ULL << (id & 63U); }
+
+  [[nodiscard]] static size_t PidWord(storage::PropertyId pid) noexcept { return GateWord(pid.AsUint()); }
+
+  [[nodiscard]] static uint64_t PidBit(storage::PropertyId pid) noexcept { return GateBit(pid.AsUint()); }
 
   std::array<std::atomic<uint64_t>, kPidGateBits / 64> pid_gate_{};
   std::array<std::atomic<uint64_t>, kPidGateBits / 64> edge_pid_gate_{};
+  std::array<std::atomic<uint64_t>, kPidGateBits / 64> label_touched_gate_{};
+  std::array<std::atomic<uint64_t>, kPidGateBits / 64> label_marked_gate_{};
   std::atomic<bool> any_vertex_deleted_{false};
   MonotonicGidFilter property_;
   MonotonicGidFilter label_;
