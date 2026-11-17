@@ -125,14 +125,18 @@ class PropertyLookupCacher final : public ExpressionVisitor<void> {
   /// so the whole mapping is one allocation.
   using CachedSymbolsOfProperty = std::vector<std::pair<PropertyIndex, Symbol>>;
 
-  /// What a symbol's lookups must show before a pass of its own pays for itself.
+  /// What a symbol's lookups must show before a pass of its own pays for itself. What separates the
+  /// two is where the value the pass read is going: into a frame slot the operator was going to
+  /// write anyway, or into something else.
   enum class Bar : uint8_t {
-    /// Two properties to read together. What a projection asks for, because the value a slot holds
-    /// is the value the row returns, so the slot costs the projection nothing.
-    kTwoPropertiesToRead,
-    /// One property asked for twice. What an aggregation asks for: it compares a value and discards
-    /// it, so a slot is added cost there, and only a read the pass saves pays for one.
-    kAPropertyReadTwice,
+    /// Anything the pass would save, which is either a second property to read alongside the first
+    /// or a second lookup of one property. What a projection asks for, because the slot holds the
+    /// value its row returns and so costs the projection nothing.
+    kAnythingToSave,
+    /// A read the pass removes, which only a property named by more than one lookup gives it. What
+    /// an aggregation asks for: it compares a value and discards it, so each slot is cost it would
+    /// not otherwise pay, and batching reads it was going to make once each buys nothing.
+    kAReadToRemove,
   };
 
   /// The symbols worth a pass of their own, by the standard the reading operator sets. A symbol
@@ -140,8 +144,9 @@ class PropertyLookupCacher final : public ExpressionVisitor<void> {
   auto Candidates(Bar bar) const -> std::vector<Gathered> {
     auto worthwhile = std::vector<Gathered>{};
     for (auto const &gathered : gathered_) {
-      auto const pays =
-          bar == Bar::kTwoPropertiesToRead ? gathered.properties.size() >= 2 : gathered.AnyPropertyReadTwice();
+      auto const pays = bar == Bar::kAnythingToSave
+                            ? (gathered.properties.size() >= 2 || gathered.AnyPropertyReadTwice())
+                            : gathered.AnyPropertyReadTwice();
       if (!pays) continue;
       worthwhile.push_back(gathered);
     }
@@ -354,7 +359,7 @@ class CachePropertiesRewriter final : public HierarchicalLogicalOperatorVisitor 
       cacher.Run(PropertyLookupCacher::Phase::GATHER, named_expression);
     }
 
-    auto groups = DrawGroups(cacher, *input, pool, PropertyLookupCacher::Bar::kTwoPropertiesToRead);
+    auto groups = DrawGroups(cacher, *input, pool, PropertyLookupCacher::Bar::kAnythingToSave);
     if (groups.empty()) return true;
 
     // The planner may weigh several candidate plans for one query, and they share the expressions
@@ -389,7 +394,7 @@ class CachePropertiesRewriter final : public HierarchicalLogicalOperatorVisitor 
       cacher.Run(PropertyLookupCacher::Phase::GATHER, *expression);
     }
 
-    auto groups = DrawGroups(cacher, *input, pool, PropertyLookupCacher::Bar::kAPropertyReadTwice);
+    auto groups = DrawGroups(cacher, *input, pool, PropertyLookupCacher::Bar::kAReadToRemove);
     if (groups.empty()) return true;
 
     for (auto *expression : owned) {

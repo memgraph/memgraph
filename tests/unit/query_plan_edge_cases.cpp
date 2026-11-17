@@ -355,6 +355,17 @@ TYPED_TEST(QueryExecution, ADeepVariableExpansionWalksBothWaysToEveryLength) {
       EXPECT_EQ(results[1][0].ValueInt(), 2);                                                                \
     }                                                                                                        \
     {                                                                                                        \
+      /* One property named twice, which the pass reads once and both lookups then answer from. */           \
+      auto results = this->Execute("MATCH (n:P) RETURN n.a AS x, n.a AS y, n.b AS z ORDER BY x");            \
+      ASSERT_EQ(results.size(), 2);                                                                          \
+      EXPECT_EQ(results[0][0].ValueInt(), 1);                                                                \
+      EXPECT_EQ(results[0][1].ValueInt(), 1);                                                                \
+      EXPECT_EQ(results[0][2].ValueString(), "x");                                                           \
+      EXPECT_EQ(results[1][0].ValueInt(), 2);                                                                \
+      EXPECT_EQ(results[1][1].ValueInt(), 2);                                                                \
+      EXPECT_EQ(results[1][2].type(), BoltValue::Type::Null);                                                \
+    }                                                                                                        \
+    {                                                                                                        \
       /* One lookup each is not worth a pass of its own, whether or not they share a symbol. */              \
       auto results = this->Execute("MATCH (n:P), (m:P) RETURN n.id AS x, m.a AS y ORDER BY x, y");           \
       ASSERT_EQ(results.size(), 4);                                                                          \

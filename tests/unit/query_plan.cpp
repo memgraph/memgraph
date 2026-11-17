@@ -9138,9 +9138,9 @@ TYPED_TEST(TestPlanner, CachePropertiesSingleLookupDoesNotFire) {
   CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectProduce());
 }
 
-// Reading one property twice is still one property to read, so there is nothing a pass of its own
-// would save: one pass for one property is what a lookup already does.
-TYPED_TEST(TestPlanner, CachePropertiesCountARepeatedLookupOnce) {
+// Two lookups of one property are two reads of the record, and the pass makes them one. It reads
+// the one property, so the group holds one however many lookups asked for it.
+TYPED_TEST(TestPlanner, CachePropertiesAProjectionReadingOnePropertyTwice) {
   CachePropertiesFlagGuard guard{true};
   FakeDbAccessor dba;
   auto prop_a = PROPERTY_PAIR(dba, "a");
@@ -9149,7 +9149,7 @@ TYPED_TEST(TestPlanner, CachePropertiesCountARepeatedLookupOnce) {
                    RETURN(PROPERTY_LOOKUP(dba, "n", prop_a), AS("x"), PROPERTY_LOOKUP(dba, "n", prop_a), AS("y"))));
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
-  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectProduce());
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectCacheProperties("n", 1), ExpectProduce());
 }
 
 // As above where a repeat sits beside a distinct property: the pass reads two properties, not the
