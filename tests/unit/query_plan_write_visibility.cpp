@@ -559,6 +559,14 @@ TEST_F(WriteVisibilityPlan, ARowUniqueCreateThatReadsItsOwnWritesKeepsItsBarrier
   EXPECT_EQ(Views<CreateNode>(node), (std::vector{View::OLD}));
 }
 
+// A switch skips only the barrier its reader needed: a later reader of a pending key through another variable keeps
+// one.
+TEST_F(WriteVisibilityPlan, ASwitchedCreateKeepsTheWritesPendingForALaterReader) {
+  EXPECT_FALSE(Collect<Accumulate>(Plan("MATCH (a:L) WITH a, head([(a)-[:T]->(o) | o]) AS q SET a.x = 1, a.y = 1 "
+                                        "CREATE (:M {v: a.x}) CREATE (:N {w: q.y})"))
+                   .empty());
+}
+
 // A switched CREATE's read is a View::NEW read: a later write of its key through another variable drains first.
 TEST_F(WriteVisibilityPlan, ASwitchedCreateDrainsBeforeAWriteOfItsKeyThroughAnotherVariable) {
   EXPECT_FALSE(
