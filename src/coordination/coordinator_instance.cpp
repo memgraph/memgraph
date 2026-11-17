@@ -1287,6 +1287,10 @@ auto CoordinatorInstance::AddRegion(std::string_view const region_name) const ->
 }
 
 auto CoordinatorInstance::DropRegion(std::string_view const region_name) const -> DropRegionStatus {
+  if (!RegionNameIsWellFormed(region_name)) {
+    return DropRegionStatus::INVALID_REGION_NAME;
+  }
+
   if (auto const res = ForwardStatusToLeader<DropRegionRpc, DropRegionStatus>(std::string{region_name});
       res.has_value()) {
     return *res;

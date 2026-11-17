@@ -542,6 +542,10 @@ class ReplQueryHandler {
 };
 
 #ifdef MG_ENTERPRISE
+// Doesn't echo the rejected name: it may be invalid UTF-8, which the client could not decode.
+constexpr std::string_view kInvalidRegionNameMessage{
+    "Invalid region name. It must be 1 to 128 characters long and contain only letters, digits, '-', '_' and '.'."};
+
 class CoordQueryHandler final : public query::CoordinatorQueryHandler {
  public:
   explicit CoordQueryHandler(coordination::CoordinatorState &coordinator_state)
@@ -714,10 +718,7 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
       case coordination::AddRegionStatus::RAFT_LOG_ERROR:
         throw QueryRuntimeException("Writing to Raft log failed. Please retry the operation.");
       case coordination::AddRegionStatus::INVALID_REGION_NAME:
-        throw QueryRuntimeException(
-            "Invalid region name '{}'. It must be 1 to 128 characters long and contain only letters, digits, '-', '_' "
-            "and '.'.",
-            region_name);
+        throw QueryRuntimeException(kInvalidRegionNameMessage);
     }
   }
 
@@ -735,6 +736,8 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
         throw QueryRuntimeException(GetLeaderFailedForwardedQueryMessage());
       case coordination::DropRegionStatus::RAFT_LOG_ERROR:
         throw QueryRuntimeException("Writing to Raft log failed. Please retry the operation.");
+      case coordination::DropRegionStatus::INVALID_REGION_NAME:
+        throw QueryRuntimeException(kInvalidRegionNameMessage);
     }
   }
 

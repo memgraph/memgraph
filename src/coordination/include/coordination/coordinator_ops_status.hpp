@@ -82,7 +82,8 @@ enum class DropRegionStatus : uint8_t {
   NOT_LEADER,
   RAFT_LOG_ERROR,
   LEADER_NOT_FOUND,
-  LEADER_FAILED
+  LEADER_FAILED,
+  INVALID_REGION_NAME
 };
 
 enum class RegisterInstanceCoordinatorStatus : uint8_t {
