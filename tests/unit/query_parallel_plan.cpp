@@ -303,11 +303,15 @@ TYPED_TEST(TestPlanner, MultiAgg) {
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 
+  // Three aggregations read one property, so it is read once per row for each of them, and the pass
+  // that reads it once sits with them inside the parallel region. Each thread builds its own cursor
+  // chain, so the pass each one runs is its own.
   CheckPlan(planner.plan(),
             symbol_table,
             ExpectScanParallel(),
             ExpectParallelMerge(),
             ExpectScanChunk(),
+            ExpectCacheProperties("n", 1),
             ExpectAggregate({min_agg, max_agg, count_agg}, {}),
             ExpectAggregateParallel(),
             ExpectProduce());
@@ -705,11 +709,13 @@ TYPED_TEST(TestPlanner, ParallelExecutionMinMaxWithOrderBy) {
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 
+  // Both aggregations read the one property, so the pass below them reads it once per row.
   CheckPlan(planner.plan(),
             symbol_table,
             ExpectScanParallel(),
             ExpectParallelMerge(),
             ExpectScanChunk(),
+            ExpectCacheProperties("n", 1),
             ExpectAggregate({min_agg, max_agg}, {}),
             ExpectAggregateParallel(),
             ExpectProduce(),

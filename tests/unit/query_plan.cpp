@@ -9236,4 +9236,59 @@ TYPED_TEST(TestPlanner, CachePropertiesTwoSymbolsDoNotFire) {
   CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectExpand(), ExpectProduce());
 }
 
+// An aggregation evaluates its own expressions per input row, so a property several of them read is
+// read once per row for each of them. The pass belongs below the aggregation, where the record is.
+TYPED_TEST(TestPlanner, CachePropertiesAnAggregationReadingOnePropertySeveralTimes) {
+  CachePropertiesFlagGuard guard{true};
+  FakeDbAccessor dba;
+  auto prop = dba.Property("value");
+  auto sum = SUM(PROPERTY_LOOKUP(dba, "n", prop), false);
+  auto avg = AVG(PROPERTY_LOOKUP(dba, "n", prop), false);
+  auto min = AGG_MIN(PROPERTY_LOOKUP(dba, "n", prop), false);
+  auto max = AGG_MAX(PROPERTY_LOOKUP(dba, "n", prop), false);
+  auto *query =
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN(sum, AS("s"), avg, AS("a"), min, AS("lo"), max, AS("hi"))));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto aggr = ExpectAggregate({sum, avg, min, max}, {});
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectCacheProperties("n", 1), aggr, ExpectProduce());
+}
+
+// An aggregation compares a value and discards it, so a frame slot is cost it would not otherwise
+// pay, and reading two properties together saves it nothing when each is read once anyway. A
+// projection asks for less than this, because the slot holds the value its row returns.
+TYPED_TEST(TestPlanner, CachePropertiesAnAggregationReadingTwoPropertiesOnceEachDoesNotFire) {
+  CachePropertiesFlagGuard guard{true};
+  FakeDbAccessor dba;
+  auto prop_a = dba.Property("a");
+  auto prop_b = dba.Property("b");
+  auto sum = SUM(PROPERTY_LOOKUP(dba, "n", prop_a), false);
+  auto count = COUNT(PROPERTY_LOOKUP(dba, "n", prop_b), false);
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN(sum, AS("s"), count, AS("c"))));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto aggr = ExpectAggregate({sum, count}, {});
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), aggr, ExpectProduce());
+}
+
+// A grouping key is evaluated per input row just as what is aggregated is, so a property read as
+// both is read twice for one record.
+TYPED_TEST(TestPlanner, CachePropertiesAnAggregationReadingItsGroupingKeyAgain) {
+  CachePropertiesFlagGuard guard{true};
+  FakeDbAccessor dba;
+  auto prop = dba.Property("b");
+  auto count = COUNT(PROPERTY_LOOKUP(dba, "n", prop), false);
+  auto group_by = PROPERTY_LOOKUP(dba, "n", prop);
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN(group_by, AS("k"), count, AS("c"))));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  // The aggregation now groups on what the pass read into a frame slot, so its key is an identifier
+  // where it was a lookup. This expectation compares the kind of expression rather than which one,
+  // so it says that the key reads a slot. The projection above keeps a lookup of its own, which is
+  // what still answers the key: the execution tests are what pin that.
+  auto reads_the_pass = IDENT("read_by_the_pass");
+  auto aggr = ExpectAggregate({count}, {reads_the_pass});
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectCacheProperties("n", 1), aggr, ExpectProduce());
+}
+
 }  // namespace
