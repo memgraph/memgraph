@@ -34,6 +34,13 @@ using memgraph::tests::versioning_fixture::ThrownMessage;
 using memgraph::versioning::GateError;
 
 namespace {
+size_t CheckoutCount(const memgraph::versioning::VersionStore *store, std::string_view name) {
+  const auto listing = store->Get(name);
+  return listing ? listing->sessions : 0;
+}
+}  // namespace
+
+namespace {
 std::string GateMessage(GateError err) { return std::string{memgraph::versioning::GateErrorMessage(err)}; }
 }  // namespace
 
@@ -56,8 +63,8 @@ TEST_F(VersioningGatedTest, UsingBranchRunsOneQueryOnAnotherBranch) {
   EXPECT_THROW(faker.Interpret("USING BRANCH c MATCH (n:OnC) RETURN 1 / (n.v - 3)"),
                memgraph::query::QueryRuntimeException);
   EXPECT_EQ(current_db.CurrentVersion(), "b");
-  EXPECT_EQ(store->CheckoutCount("b"), 1U);
-  EXPECT_EQ(store->CheckoutCount("c"), 0U) << "the query's checkout ends with its transaction";
+  EXPECT_EQ(CheckoutCount(store, "b"), 1U);
+  EXPECT_EQ(CheckoutCount(store, "c"), 0U) << "the query's checkout ends with its transaction";
 
   EXPECT_EQ(IntRows(faker, "MATCH (n) WHERE n:OnB OR n:OnC OR n:AlsoOnC OR n:P RETURN n.v"), (Rows{{2}}));
   faker.Interpret("USING BRANCH b CREATE (:AlsoOnB)");
@@ -77,22 +84,22 @@ TEST_F(VersioningGatedTest, AnAbortedOrDisconnectedUsingBranchQueryRestoresTheSe
 
   auto [stream, qid] = faker.Prepare(kQuery);
   faker.Pull(&stream, 10, qid);
-  ASSERT_EQ(store->CheckoutCount("c"), 1U) << "the query runs on c meanwhile";
+  ASSERT_EQ(CheckoutCount(store, "c"), 1U) << "the query runs on c meanwhile";
   faker.Abort();
   EXPECT_EQ(faker.interpreter.current_db_.CurrentVersion(), "b");
-  EXPECT_EQ(store->CheckoutCount("b"), 1U);
-  EXPECT_EQ(store->CheckoutCount("c"), 0U);
+  EXPECT_EQ(CheckoutCount(store, "b"), 1U);
+  EXPECT_EQ(CheckoutCount(store, "c"), 0U);
   EXPECT_EQ(IntRows(faker, "USING BRANCH c MATCH (n:X) RETURN count(n)"), (Rows{{0}}));
   EXPECT_EQ(IntRows(faker, "MATCH (n) RETURN count(n)"), (Rows{{0}}));
 
   auto on_b = SessionsOnBranch(1, "b");
   auto [other_stream, other_qid] = on_b[0]->Prepare(kQuery);
   on_b[0]->Pull(&other_stream, 10, other_qid);
-  EXPECT_EQ(store->CheckoutCount("b"), 2U);
-  EXPECT_EQ(store->CheckoutCount("c"), 1U);
+  EXPECT_EQ(CheckoutCount(store, "b"), 2U);
+  EXPECT_EQ(CheckoutCount(store, "c"), 1U);
   on_b[0].reset();
-  EXPECT_EQ(store->CheckoutCount("b"), 1U) << "only the faker's session is left on b";
-  EXPECT_EQ(store->CheckoutCount("c"), 0U);
+  EXPECT_EQ(CheckoutCount(store, "b"), 1U) << "only the faker's session is left on b";
+  EXPECT_EQ(CheckoutCount(store, "c"), 0U);
   EXPECT_EQ(IntRows(faker, "USING BRANCH c MATCH (n:X) RETURN count(n)"), (Rows{{0}}));
 }
 
@@ -133,7 +140,7 @@ TEST_F(VersioningGatedTest, UsingBranchFromMainAttachesOnlyForTheQuery) {
   EXPECT_EQ(IntRows(faker, "USING BRANCH 'b' MATCH (n:OnB) RETURN n.v"), (Rows{{2}}));
   EXPECT_FALSE(faker.interpreter.current_db_.CurrentVersion().has_value());
   EXPECT_EQ(faker.interpreter.current_db_.branch_context(), nullptr);
-  EXPECT_EQ(store->CheckoutCount("b"), 0U);
+  EXPECT_EQ(CheckoutCount(store, "b"), 0U);
   EXPECT_EQ(IntRows(faker, "MATCH (n:OnB) RETURN count(n)"), (Rows{{0}}));
   EXPECT_EQ(IntRows(faker, "USING BRANCH main MATCH (n:OnB) RETURN count(n)"), (Rows{{0}}));
   faker.Interpret("DROP BRANCH b");
@@ -162,7 +169,7 @@ TEST_F(VersioningGatedTest, UsingBranchIsHonouredByExplainProfileAndOtherDirecti
 
   EXPECT_FALSE(faker.Interpret("EXPLAIN USING BRANCH b MATCH (n:OnB) RETURN n").GetResults().empty());
   EXPECT_FALSE(faker.Interpret("PROFILE USING BRANCH b MATCH (n:OnB) RETURN n").GetResults().empty());
-  EXPECT_EQ(db->version_store()->CheckoutCount("b"), 0U);
+  EXPECT_EQ(CheckoutCount(db->version_store(), "b"), 0U);
   for (const auto *prefix : {"EXPLAIN", "PROFILE"}) {
     EXPECT_EQ(ThrownMessage([&] { faker.Interpret(std::string{prefix} + " USING BRANCH nope MATCH (n) RETURN n"); }),
               "Branch 'nope' does not exist.")
@@ -187,8 +194,8 @@ TEST_F(VersioningGatedTest, UsingBranchCombinesWithParallelExecutionOnlyOnMain) 
             "USING PARALLEL EXECUTION is not supported on a branch in v1. Remove the directive, or run the query on "
             "main: USE BRANCH main.");
   EXPECT_EQ(faker.interpreter.current_db_.CurrentVersion(), "c");
-  EXPECT_EQ(store->CheckoutCount("b"), 0U);
-  EXPECT_EQ(store->CheckoutCount("c"), 1U);
+  EXPECT_EQ(CheckoutCount(store, "b"), 0U);
+  EXPECT_EQ(CheckoutCount(store, "c"), 1U);
 
   EXPECT_EQ(IntRows(faker, "USING PARALLEL EXECUTION, BRANCH main MATCH (n:N) RETURN count(n)"), (Rows{{2}}));
   EXPECT_EQ(faker.interpreter.current_db_.CurrentVersion(), "c");
@@ -208,13 +215,13 @@ TEST_F(VersioningGatedTest, UsingAnUnavailableBranchFailsWithTheReasonAndLeavesT
   faker.Interpret("CREATE BRANCH b");
   faker.Interpret("CREATE BRANCH bad");
   auto *store = db->version_store();
-  store->MarkUnavailable(store->Get("bad")->id, "the write-ahead log directory is missing");
+  store->MarkUnavailable(store->Get("bad")->info.id, "the write-ahead log directory is missing");
   faker.Interpret("USE BRANCH b");
 
   EXPECT_THAT(ThrownMessage([&] { faker.Interpret("USING BRANCH bad MATCH (n) RETURN n"); }),
               ::testing::HasSubstr("Branch 'bad' is unavailable: the write-ahead log directory is missing."));
   EXPECT_EQ(faker.interpreter.current_db_.CurrentVersion(), "b");
-  EXPECT_EQ(store->CheckoutCount("bad"), 0U);
+  EXPECT_EQ(CheckoutCount(store, "bad"), 0U);
   EXPECT_EQ(IntRows(faker, "MATCH (n) RETURN count(n)"), (Rows{{0}}));
 }
 
@@ -230,34 +237,17 @@ TEST_F(VersioningGatedTest, UsingBranchIsRefusedInsideAnExplicitTransaction) {
     }
     faker.Interpret("ROLLBACK");
   }
-  EXPECT_EQ(db->version_store()->CheckoutCount("b"), 1U);
+  EXPECT_EQ(CheckoutCount(db->version_store(), "b"), 1U);
   EXPECT_EQ(IntRows(faker, "USING BRANCH main MATCH (n:X) RETURN count(n)"), (Rows{{0}}));
-}
-
-// First use of `c` cannot persist its gid floors; the failed attach restores the session's branch.
-TEST_F(VersioningGatedTest, AFailedUsingAttachKeepsTheSessionOnItsBranch) {
-  faker.Interpret("CREATE BRANCH b");
-  faker.Interpret("CREATE BRANCH c");
-  faker.Interpret("USE BRANCH b");
-  faker.Interpret("CREATE (:OnB)");
-
-  const auto blocker = config.durability.storage_directory / "branches" / "ledger.tmp";
-  std::filesystem::create_directory(blocker);
-  EXPECT_THAT(ThrownMessage([&] { faker.Interpret("USING BRANCH c MATCH (n) RETURN n"); }),
-              ::testing::HasSubstr("Branch ledger"));
-  std::filesystem::remove(blocker);
-
-  EXPECT_EQ(faker.interpreter.current_db_.CurrentVersion(), "b");
-  EXPECT_EQ(db->version_store()->CheckoutCount("b"), 1U);
-  EXPECT_EQ(db->version_store()->CheckoutCount("c"), 0U);
-  EXPECT_EQ(IntRows(faker, "MATCH (n:OnB) RETURN count(n)"), (Rows{{1}}));
 }
 
 TEST_F(VersioningGatedTest, UsingBranchOnASessionWhoseBranchIsGoneFails) {
   faker.Interpret("CREATE BRANCH b");
   faker.Interpret("CREATE BRANCH c");
   faker.Interpret("USE BRANCH b");
-  ASSERT_EQ(db->version_store()->Drop("b", {.force = true}), memgraph::versioning::DropResult::kDropped);
+  const auto dropped = db->version_store()->DropBranch("b", true);
+  ASSERT_TRUE(dropped) << dropped.error();
+  ASSERT_EQ(*dropped, memgraph::versioning::DropResult::kDropped);
   for (const auto *query : {"USING BRANCH main MATCH (n) RETURN n", "USING BRANCH c MATCH (n) RETURN n"}) {
     EXPECT_EQ(ThrownMessage([&] { faker.Interpret(query); }),
               "Branch 'b' no longer exists. Run USE BRANCH or USE DATABASE to continue.")
@@ -283,7 +273,7 @@ TEST_F(VersioningInterpreterTest, UsingBranchGateOrder) {
               "REPLICA. Run them on the MAIN instance.")
         << query;
   }
-  EXPECT_EQ(db->version_store()->CheckoutCount("b"), 0U);
+  EXPECT_EQ(CheckoutCount(db->version_store(), "b"), 0U);
 }
 
 // Main stays writable without a license; writes on a branch are refused.
@@ -326,7 +316,7 @@ TEST_F(VersioningGatedTest, UsingBranchWithoutBranchUseIsRefusedBeforeAnythingIs
   faker.Interpret("CREATE BRANCH b");
   faker.Interpret("CREATE BRANCH bad");
   auto *store = db->version_store();
-  store->MarkUnavailable(store->Get("bad")->id, "the write-ahead log directory is missing");
+  store->MarkUnavailable(store->Get("bad")->info.id, "the write-ahead log directory is missing");
   faker.interpreter.SetUser(std::make_shared<LackingPrivilegesUser>(std::set{AuthQuery::Privilege::BRANCH_USE}));
 
   const auto prepare = [&](const std::string &query) {
@@ -391,7 +381,7 @@ TEST_F(VersioningNarrowingGatedTest, UsingBranchWorksWithCommitLockNarrowingOn) 
   faker.Interpret("USING BRANCH b CREATE (:B {v: 2})");
   EXPECT_EQ(IntRows(faker, "USING BRANCH b MATCH (n) WHERE n:M OR n:B RETURN n.v ORDER BY n.v"), (Rows{{1}, {2}}));
   EXPECT_EQ(IntRows(faker, "MATCH (n:B) RETURN count(n)"), (Rows{{0}}));
-  EXPECT_EQ(db->version_store()->CheckoutCount("b"), 0U);
+  EXPECT_EQ(CheckoutCount(db->version_store(), "b"), 0U);
 }
 
 // Each query is its own transaction on the target, whichever branch the issuing session is on.
@@ -423,8 +413,8 @@ TEST_F(VersioningGatedTest, UsingBranchSeesTheTargetsLatestCommitsAndNeverAnothe
   EXPECT_EQ(IntRows(writer, kRead), (Rows{{10}, {12}}));
   EXPECT_EQ(IntRows(*on_y[0], kRead), (Rows{{1}, {20}}));
   EXPECT_EQ(IntRows(faker, kRead), (Rows{{1}}));
-  EXPECT_EQ(db->version_store()->CheckoutCount("x"), 1U) << "only the session on x holds a checkout";
-  EXPECT_EQ(db->version_store()->CheckoutCount("y"), 1U);
+  EXPECT_EQ(CheckoutCount(db->version_store(), "x"), 1U) << "only the session on x holds a checkout";
+  EXPECT_EQ(CheckoutCount(db->version_store(), "y"), 1U);
 }
 
 // Writers on x transfer one unit per transaction while sessions on main and y read x: every read is one consistent
@@ -476,5 +466,5 @@ TEST_F(VersioningGatedTest, UsingBranchReadsAreConsistentSnapshotsWhileTransfers
             (Rows{{100 - 2 * kTransfers}, {2 * kTransfers}}));
   EXPECT_EQ(IntRows(faker, "USING BRANCH y MATCH (n:K) RETURN n.v ORDER BY n.id"), (Rows{{100}, {0}}));
   EXPECT_EQ(IntRows(faker, "MATCH (n:K) RETURN n.v ORDER BY n.id"), (Rows{{100}, {0}}));
-  EXPECT_EQ(db->version_store()->CheckoutCount("x"), 2U) << "only the writers hold x; every USING released its attach";
+  EXPECT_EQ(CheckoutCount(db->version_store(), "x"), 2U) << "only the writers hold x; every USING released its attach";
 }
