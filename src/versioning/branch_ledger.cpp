@@ -24,22 +24,16 @@ namespace memgraph::versioning {
 
 namespace {
 
-// What Read accepts and Write persists. A parent need only be a valid name, not a listed branch.
+// What Read accepts and Write persists.
 std::optional<std::string> Validate(const LedgerContents &contents) {
-  if (contents.next_number < 2) return fmt::format("next_number {} is below 2", contents.next_number);
+  if (contents.next_branch_id < 2) return fmt::format("next_branch_id {} is below 2", contents.next_branch_id);
   std::set<std::string_view> names;
-  std::set<uint64_t> numbers;
+  std::set<uint64_t> ids;
   for (const auto &[name, info] : contents.branches) {
     if (const auto valid = ValidateBranchName(name); !valid) return fmt::format("branch '{}': {}", name, valid.error());
-    if (info.parent != "main") {
-      if (const auto valid = ValidateBranchName(info.parent); !valid) {
-        return fmt::format("branch '{}' has parent '{}': {}", name, info.parent, valid.error());
-      }
-    }
-    if (info.parent == name) return fmt::format("branch '{}' is its own parent", name);
-    if (info.number < 2 || info.number >= contents.next_number) {
+    if (info.id < 2 || info.id >= contents.next_branch_id) {
       return fmt::format(
-          "branch '{}' has number {} outside [2, next_number {})", name, info.number, contents.next_number);
+          "branch '{}' has id {} outside [2, next_branch_id {})", name, info.id, contents.next_branch_id);
     }
     if (info.vertex_gid_floor && info.vertex_gid_ceiling && *info.vertex_gid_ceiling < *info.vertex_gid_floor) {
       return fmt::format("branch '{}' has a vertex gid ceiling below its floor", name);
@@ -48,7 +42,7 @@ std::optional<std::string> Validate(const LedgerContents &contents) {
       return fmt::format("branch '{}' has an edge gid ceiling below its floor", name);
     }
     if (!names.insert(name).second) return fmt::format("branch '{}' is listed twice", name);
-    if (!numbers.insert(info.number).second) return fmt::format("branch number {} is used twice", info.number);
+    if (!ids.insert(info.id).second) return fmt::format("branch id {} is used twice", info.id);
   }
   return std::nullopt;
 }
@@ -69,8 +63,7 @@ std::string Serialize(const LedgerContents &contents) {
   nlohmann::json branches = nlohmann::json::array();
   for (const auto &[name, info] : contents.branches) {
     nlohmann::json b{{"name", name},
-                     {"number", info.number},
-                     {"parent", info.parent},
+                     {"id", info.id},
                      // Persist the recorded boundary, not the runtime pin: they differ after startup restore.
                      {"fork_ts", info.durable_fork_ts}};
     if (info.vertex_gid_floor) b["vertex_gid_floor"] = *info.vertex_gid_floor;
@@ -80,8 +73,9 @@ std::string Serialize(const LedgerContents &contents) {
     if (info.created_at_us) b["created_at_us"] = *info.created_at_us;
     branches.push_back(std::move(b));
   }
-  const nlohmann::json root{
-      {"version", BranchLedger::kVersion}, {"next_number", contents.next_number}, {"branches", std::move(branches)}};
+  const nlohmann::json root{{"version", BranchLedger::kVersion},
+                            {"next_branch_id", contents.next_branch_id},
+                            {"branches", std::move(branches)}};
   return root.dump();
 }
 
@@ -91,13 +85,12 @@ std::expected<LedgerContents, std::string> Deserialize(std::string_view payload)
     const auto root = nlohmann::json::parse(payload);
     const auto version = Unsigned(root.at("version"), "version");
     if (version != BranchLedger::kVersion) throw std::invalid_argument(fmt::format("unsupported version {}", version));
-    out.next_number = Unsigned(root.at("next_number"), "next_number");
+    out.next_branch_id = Unsigned(root.at("next_branch_id"), "next_branch_id");
     const auto &branches = root.at("branches");
     if (!branches.is_array()) throw std::invalid_argument("'branches' is not an array");
     for (const auto &b : branches) {
       out.branches.push_back({.name = b.at("name").get<std::string>(),
-                              .info = {.number = Unsigned(b.at("number"), "number"),
-                                       .parent = b.at("parent").get<std::string>(),
+                              .info = {.id = Unsigned(b.at("id"), "id"),
                                        .fork_ts = Unsigned(b.at("fork_ts"), "fork_ts"),
                                        .vertex_gid_floor = OptionalUnsigned(b, "vertex_gid_floor"),
                                        .edge_gid_floor = OptionalUnsigned(b, "edge_gid_floor"),

@@ -27,9 +27,8 @@ std::expected<void, std::string> ValidateBranchName(std::string_view name);
 enum class GidKind : uint8_t { kVertex, kEdge };
 
 struct BranchInfo {
-  // Never reused, even across drops; main is implicit version 1, the first branch is 2.
-  uint64_t number;
-  std::string parent;
+  // Never reused, even across drops. 1 is main (implicit, never stored), so the first branch is 2.
+  uint64_t id;
   // This process's MVCC fork-pin timestamp, held until the branch is dropped; drives visibility and GC.
   uint64_t fork_ts;
   // The fork point in main's durable timestamps; the ledger persists only this. Equal to fork_ts until a restart:
