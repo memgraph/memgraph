@@ -2759,3 +2759,18 @@ Feature: Write visibility inside one query
         Then the result should be:
             | v |
             | 1 |
+
+    Scenario: An index scan before an IN TRANSACTIONS call returns a node once after its batch writes it
+        Given an empty graph
+        And with new index :WvBt(p)
+        And having executed:
+            """
+            CREATE (:WvBt {p: 1}), (:WvBt {p: 2})
+            """
+        When executing query:
+            """
+            MATCH (n:WvBt) WHERE n.p > 0 CALL (n) { SET n.p = n.p + 10 } IN TRANSACTIONS OF 1 ROWS WITH count(*) AS c MATCH (m:WvBt) RETURN c, min(m.p) AS lo, max(m.p) AS hi
+            """
+        Then the result should be:
+            | c | lo | hi |
+            | 2 | 11 | 12 |

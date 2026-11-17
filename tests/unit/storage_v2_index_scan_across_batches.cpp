@@ -170,6 +170,75 @@ TEST_P(IndexScanAcrossBatches, EdgePropertyIndex) {
   EXPECT_EQ(seen, (std::vector{first}));
 }
 
+// A View::OLD scan at command 0 writes, in its own batch, an element it already returned. The new entry carries the
+// batch's start timestamp; after the batch commits, the scan must not return that element a second time.
+TEST_P(IndexScanAcrossBatches, OwnBatchWriteOfAReturnedVertex) {
+  if (GetParam() != ms::View::OLD) GTEST_SKIP() << "a View::NEW scan sees its own write";
+  {
+    auto acc = storage->ReadOnlyAccess();
+    ASSERT_TRUE(acc->CreateIndex(label, {ms::PropertyPath{property}}).has_value());
+    Commit(acc);
+  }
+  std::vector<ms::Gid> gids;
+  {
+    auto acc = storage->Access(ms::WRITE);
+    for (auto value : {1, 2}) {
+      auto vertex = acc->CreateVertex();
+      ASSERT_TRUE(vertex.AddLabel(label).has_value());
+      ASSERT_TRUE(vertex.SetProperty(property, ms::PropertyValue{value}).has_value());
+      gids.push_back(vertex.Gid());
+    }
+    Commit(acc);
+  }
+  auto acc = storage->Access(ms::WRITE);
+  auto iterable = acc->Vertices(
+      label, std::array{ms::PropertyPath{property}}, std::array{ms::PropertyValueRange::IsNotNull()}, ms::View::OLD);
+  std::vector<ms::Gid> seen;
+  for (auto it = iterable.begin(); it != iterable.end(); ++it) {
+    auto vertex = *it;
+    seen.push_back(vertex.Gid());
+    auto const old_value = vertex.GetProperty(property, ms::View::NEW)->ValueInt();
+    ASSERT_TRUE(vertex.SetProperty(property, ms::PropertyValue{old_value + 10}).has_value());
+    ASSERT_TRUE(acc->PeriodicCommit(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+  acc->Abort();
+  EXPECT_EQ(seen, gids);
+}
+
+TEST_P(IndexScanAcrossBatches, OwnBatchWriteOfAReturnedEdge) {
+  if (GetParam() != ms::View::OLD) GTEST_SKIP() << "a View::NEW scan sees its own write";
+  {
+    auto acc = storage->ReadOnlyAccess();
+    ASSERT_TRUE(acc->CreateIndex(edge_type, property).has_value());
+    Commit(acc);
+  }
+  std::vector<ms::Gid> gids;
+  {
+    auto acc = storage->Access(ms::WRITE);
+    auto from = acc->CreateVertex();
+    auto to = acc->CreateVertex();
+    for (auto value : {1, 2}) {
+      auto edge = acc->CreateEdge(&from, &to, edge_type);
+      ASSERT_TRUE(edge.has_value());
+      ASSERT_TRUE(edge->SetProperty(property, ms::PropertyValue{value}).has_value());
+      gids.push_back(edge->Gid());
+    }
+    Commit(acc);
+  }
+  auto acc = storage->Access(ms::WRITE);
+  auto iterable = acc->Edges(edge_type, property, ms::View::OLD);
+  std::vector<ms::Gid> seen;
+  for (auto it = iterable.begin(); it != iterable.end(); ++it) {
+    auto edge = *it;
+    seen.push_back(edge.Gid());
+    auto const old_value = edge.GetProperty(property, ms::View::NEW)->ValueInt();
+    ASSERT_TRUE(edge.SetProperty(property, ms::PropertyValue{old_value + 10}).has_value());
+    ASSERT_TRUE(acc->PeriodicCommit(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+  acc->Abort();
+  EXPECT_EQ(seen, gids);
+}
+
 INSTANTIATE_TEST_SUITE_P(Views, IndexScanAcrossBatches, ::testing::Values(ms::View::OLD, ms::View::NEW));
 
 }  // namespace
