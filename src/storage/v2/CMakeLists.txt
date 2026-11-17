@@ -64,6 +64,7 @@ target_sources(mg-storage-v2
         inmemory/replication/recovery.cpp
         inmemory/storage.cpp
         inmemory/unique_constraints.cpp
+        inmemory/wal_apply.cpp
         point_functions.cpp
         property_store.cpp
         value_field.cpp
