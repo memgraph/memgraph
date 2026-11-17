@@ -709,7 +709,6 @@ TYPED_TEST(TestPlanner, ParallelExecutionMinMaxWithOrderBy) {
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 
-  // Both aggregations read the one property, so the pass below them reads it once per row.
   CheckPlan(planner.plan(),
             symbol_table,
             ExpectScanParallel(),
