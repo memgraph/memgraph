@@ -87,10 +87,42 @@ class SubqueryReadSymbolsCollector : public UsedSymbolsCollector {
     return true;
   }
 
+  // The AST's Accept skips dynamic labels, dynamic edge types and lambdas; each may read a bound symbol.
+  bool PreVisit(NodeAtom &atom) override {
+    if (auto const labels = atom.LabelConjunction()) WalkDynamic(*labels);
+    return true;
+  }
+
+  bool PreVisit(EdgeAtom &atom) override {
+    for (auto &type : atom.edge_types_) {
+      if (auto *const *expression = std::get_if<Expression *>(&type)) (*expression)->Accept(*this);
+    }
+    for (auto *lambda : {&atom.filter_lambda_, &atom.weight_lambda_}) {
+      if (lambda->expression) lambda->expression->Accept(*this);
+    }
+    return true;
+  }
+
+  bool PreVisit(query::SetLabels &set) override {
+    WalkDynamic(set.labels_);
+    return true;
+  }
+
+  bool PreVisit(query::RemoveLabels &remove) override {
+    WalkDynamic(remove.labels_);
+    return true;
+  }
+
   /// Whether the expression holds a subquery or pattern comprehension, which the planner plans as a branch.
   bool has_branch_{false};
 
  private:
+  void WalkDynamic(const std::vector<QueryLabelType> &labels) {
+    for (const auto &label : labels) {
+      if (auto *const *expression = std::get_if<Expression *>(&label)) (*expression)->Accept(*this);
+    }
+  }
+
   // A depth, not a flag: bodies nest.
   int in_subquery_depth_{0};
 };
