@@ -126,7 +126,8 @@ inline void TryInsertEdgeTypePropertyIndex(Vertex &from_vertex, EdgeTypeId edge_
 void AdvanceUntilValid_(auto &index_iterator, const auto &end, EdgeRef &current_edge, EdgeAccessor &current_accessor,
                         PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                         const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
-                        Transaction *transaction, EdgeTypeId edge_type, Gid max_gid, uint64_t scan_start_timestamp,
+                        Transaction *transaction, EdgeTypeId edge_type, Gid max_gid,
+                        memgraph::storage::ScanStart scan_start,
                         PropertyValueRange::ValuePredicateFn const *value_predicate) {
   for (; index_iterator != end; ++index_iterator) {
     if (index_iterator->edge == current_edge.ptr) {
@@ -153,7 +154,7 @@ void AdvanceUntilValid_(auto &index_iterator, const auto &end, EdgeRef &current_
       continue;
     }
 
-    if (!CanSeeEntityWithTimestamp(index_iterator->timestamp, transaction, view, scan_start_timestamp)) {
+    if (!CanSeeEntityWithTimestamp(index_iterator->timestamp, transaction, view, scan_start)) {
       continue;
     }
 
@@ -473,7 +474,7 @@ InMemoryEdgeTypePropertyIndex::Iterable::Iterable(utils::SkipListDb<Entry>::Acce
       storage_(storage),
       transaction_(transaction),
       max_gid_(max_gid),
-      scan_start_timestamp_(transaction->start_timestamp) {}
+      scan_start_(ScanStart::Of(*transaction, view)) {}
 
 InMemoryEdgeTypePropertyIndex::Iterable::Iterator::Iterator(
     Iterable *self, utils::SkipListDb<InMemoryEdgeTypePropertyIndex::Entry>::Iterator index_iterator)
@@ -503,7 +504,7 @@ void InMemoryEdgeTypePropertyIndex::Iterable::Iterator::AdvanceUntilValid() {
                      self_->transaction_,
                      self_->edge_type_,
                      self_->max_gid_,
-                     self_->scan_start_timestamp_,
+                     self_->scan_start_,
                      self_->value_predicate_.get());
 }
 
@@ -687,7 +688,7 @@ InMemoryEdgeTypePropertyIndex::ChunkedIterable::ChunkedIterable(
       storage_(storage),
       transaction_(transaction),
       max_gid_(max_gid),
-      scan_start_timestamp_(transaction->start_timestamp) {
+      scan_start_(ScanStart::Of(*transaction, view)) {
   if (!bounds_valid_) return;
 
   // Chunk with bounds
@@ -715,7 +716,7 @@ void InMemoryEdgeTypePropertyIndex::ChunkedIterable::Iterator::AdvanceUntilValid
                      self_->transaction_,
                      self_->edge_type_,
                      self_->max_gid_,
-                     self_->scan_start_timestamp_,
+                     self_->scan_start_,
                      self_->value_predicate_.get());
 }
 

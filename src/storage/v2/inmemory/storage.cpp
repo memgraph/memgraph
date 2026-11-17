@@ -1455,6 +1455,7 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
   // So the next batch sees what this one committed. With the experiment OFF snapshot_ts equals
   // start_timestamp, so this is inert to the read path.
   transaction_.snapshot_ts = new_transaction.snapshot_ts;
+  transaction_.wrote_at_earlier_command = false;
   transaction_.commit_info.reset();
   // What the batch just committed wrote has been checked and is no longer owed. Carrying it into
   // the next batch would have every later commit re-enter its vertices into constraints none of

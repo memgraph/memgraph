@@ -26,7 +26,8 @@
 namespace {
 void AdvanceUntilValid_(auto &index_iterator, const auto &end, auto *&current_vertex,
                         memgraph::storage::VertexAccessor &current_vertex_accessor, auto *storage, auto *transaction,
-                        auto view, auto label, memgraph::storage::Gid max_gid, uint64_t scan_start_timestamp) {
+                        auto view, auto label, memgraph::storage::Gid max_gid,
+                        memgraph::storage::ScanStart scan_start) {
   for (; index_iterator != end; ++index_iterator) {
     if (index_iterator->vertex == current_vertex) {
       continue;
@@ -36,7 +37,7 @@ void AdvanceUntilValid_(auto &index_iterator, const auto &end, auto *&current_ve
       continue;
     }
 
-    if (!CanSeeEntityWithTimestamp(index_iterator->timestamp, transaction, view, scan_start_timestamp)) {
+    if (!CanSeeEntityWithTimestamp(index_iterator->timestamp, transaction, view, scan_start)) {
       continue;
     }
 
@@ -324,7 +325,7 @@ InMemoryLabelIndex::Iterable::Iterable(utils::SkipListDb<InMemoryLabelIndex::Ent
       storage_(storage),
       transaction_(transaction),
       max_gid_(max_gid),
-      scan_start_timestamp_(transaction->start_timestamp) {}
+      scan_start_(ScanStart::Of(*transaction, view)) {}
 
 InMemoryLabelIndex::Iterable::Iterator::Iterator(Iterable *self,
                                                  utils::SkipListDb<InMemoryLabelIndex::Entry>::Iterator index_iterator)
@@ -351,7 +352,7 @@ void InMemoryLabelIndex::Iterable::Iterator::AdvanceUntilValid() {
                      self_->view_,
                      self_->label_,
                      self_->max_gid_,
-                     self_->scan_start_timestamp_);
+                     self_->scan_start_);
 }
 
 uint64_t InMemoryLabelIndex::ActiveIndices::ApproximateVertexCount(LabelId label) const {
@@ -473,7 +474,7 @@ void InMemoryLabelIndex::ChunkedIterable::Iterator::AdvanceUntilValid() {
                      self_->view_,
                      self_->label_,
                      self_->max_gid_,
-                     self_->scan_start_timestamp_);
+                     self_->scan_start_);
 }
 
 InMemoryLabelIndex::ChunkedIterable::ChunkedIterable(
@@ -488,7 +489,7 @@ InMemoryLabelIndex::ChunkedIterable::ChunkedIterable(
       transaction_(transaction),
       chunks_{index_accessor_.create_chunks(num_chunks)},
       max_gid_(max_gid),
-      scan_start_timestamp_(transaction->start_timestamp) {
+      scan_start_(ScanStart::Of(*transaction, view)) {
   // Index can have duplicate entries, we need to make sure each unique entry is inside a single chunk.
   RechunkIndex<utils::SkipListDb<Entry>>(chunks_, [](const auto &a, const auto &b) { return a.vertex == b.vertex; });
 }

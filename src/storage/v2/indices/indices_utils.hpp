@@ -349,19 +349,30 @@ inline void PopulateIndexDispatch(TVerticesAccessor &vertices, TSkipListAccessor
   }
 }
 
-// Whether an index scan may see an index entry inserted at `insertion_timestamp`; if so, MVCC decides the version.
-// `scan_start_timestamp` is the transaction's start timestamp when the scan opened. Once a periodic-commit batch
-// has committed since then, an entry a later batch inserted is hidden: the scan sees the graph as of its own start,
-// whatever command the transaction is on. Until then, at command 0 an entry newer than the scan's start is hidden.
+/// Where an index scan opened: its batch, and whether that batch's own entries are the scan's to see.
+struct ScanStart {
+  uint64_t timestamp;
+  bool sees_own_batch;
+
+  static ScanStart Of(Transaction const &transaction, View view) {
+    return {transaction.start_timestamp, view == View::NEW || transaction.wrote_at_earlier_command};
+  }
+};
+
+// Whether an index scan may see an entry inserted at `insertion_timestamp`; if so, MVCC decides the version. After a
+// batch commit an entry of the scan's batch is visible only if the scan sees its own batch, and a later one never is.
 inline bool CanSeeEntityWithTimestamp(uint64_t insertion_timestamp, Transaction *transaction, View view,
-                                      uint64_t scan_start_timestamp) {
-  if (transaction->start_timestamp != scan_start_timestamp) return insertion_timestamp <= scan_start_timestamp;
+                                      ScanStart scan) {
+  if (transaction->start_timestamp != scan.timestamp) {
+    if (insertion_timestamp == scan.timestamp) return scan.sees_own_batch;
+    return insertion_timestamp < scan.timestamp;
+  }
   // Not enough information, need to rely on MVCC to fully check entry
   if (transaction->command_id != 0) return true;
   if (view == View::OLD) {
-    return insertion_timestamp < scan_start_timestamp;
+    return insertion_timestamp < scan.timestamp;
   }
-  return insertion_timestamp <= scan_start_timestamp;
+  return insertion_timestamp <= scan.timestamp;
 }
 
 // Two bounds a range may be read from: either the value types can be compared, or the pair is the

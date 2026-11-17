@@ -88,7 +88,8 @@ inline void TryInsertEdgeTypeIndex(Vertex &from_vertex, EdgeTypeId edge_type, au
 
 inline void AdvanceUntilValid_(auto &index_iterator, const auto &end_iterator, EdgeRef &current_edge_,
                                EdgeAccessor &current_accessor_, Transaction *transaction, View view,
-                               EdgeTypeId edge_type, Storage *storage, Gid max_gid, uint64_t scan_start_timestamp) {
+                               EdgeTypeId edge_type, Storage *storage, Gid max_gid,
+                               memgraph::storage::ScanStart scan_start) {
   for (; index_iterator != end_iterator; ++index_iterator) {
     if (index_iterator->edge == current_edge_.ptr) {
       continue;
@@ -98,7 +99,7 @@ inline void AdvanceUntilValid_(auto &index_iterator, const auto &end_iterator, E
       continue;
     }
 
-    if (!CanSeeEntityWithTimestamp(index_iterator->timestamp, transaction, view, scan_start_timestamp)) {
+    if (!CanSeeEntityWithTimestamp(index_iterator->timestamp, transaction, view, scan_start)) {
       continue;
     }
 
@@ -347,7 +348,7 @@ InMemoryEdgeTypeIndex::Iterable::Iterable(utils::SkipListDb<InMemoryEdgeTypeInde
       storage_(storage),
       transaction_(transaction),
       max_gid_(max_gid),
-      scan_start_timestamp_(transaction->start_timestamp) {}
+      scan_start_(ScanStart::Of(*transaction, view)) {}
 
 InMemoryEdgeTypeIndex::Iterable::Iterator::Iterator(
     Iterable *self, utils::SkipListDb<InMemoryEdgeTypeIndex::Entry>::Iterator index_iterator)
@@ -374,7 +375,7 @@ void InMemoryEdgeTypeIndex::Iterable::Iterator::AdvanceUntilValid() {
                      self_->edge_type_,
                      self_->storage_,
                      self_->max_gid_,
-                     self_->scan_start_timestamp_);
+                     self_->scan_start_);
 }
 
 void InMemoryEdgeTypeIndex::RunGC() {
@@ -463,7 +464,7 @@ InMemoryEdgeTypeIndex::ChunkedIterable::ChunkedIterable(
       transaction_(transaction),
       chunks_{index_accessor_.create_chunks(num_chunks)},
       max_gid_(max_gid),
-      scan_start_timestamp_(transaction->start_timestamp) {
+      scan_start_(ScanStart::Of(*transaction, view)) {
   // Index can have duplicate entries, we need to make sure each unique entry is inside a single chunk.
   RechunkIndex<utils::SkipListDb<Entry>>(chunks_, [](const auto &a, const auto &b) { return a.edge == b.edge; });
 }
@@ -480,7 +481,7 @@ void InMemoryEdgeTypeIndex::ChunkedIterable::Iterator::AdvanceUntilValid() {
                      self_->edge_type_,
                      self_->storage_,
                      self_->max_gid_,
-                     self_->scan_start_timestamp_);
+                     self_->scan_start_);
 }
 
 }  // namespace memgraph::storage

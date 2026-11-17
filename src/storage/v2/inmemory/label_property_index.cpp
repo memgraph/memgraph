@@ -271,8 +271,8 @@ struct Advance {
 Advance AdvanceUntilValid_(auto &index_iterator, const auto &end, auto *&current_vertex, auto &current_vertex_accessor,
                            auto *storage, auto *transaction, auto view, auto label, const auto &lower_bound,
                            const auto &upper_bound, auto &permutation_helper, memgraph::storage::Gid max_gid,
-                           uint64_t scan_start_timestamp, std::vector<bool> &match_scratch, auto const &predicates,
-                           bool use_cache = true, bool reverse_iteration = false) {
+                           memgraph::storage::ScanStart scan_start, std::vector<bool> &match_scratch,
+                           auto const &predicates, bool use_cache = true, bool reverse_iteration = false) {
   for (; index_iterator != end; ++index_iterator) {
     if (index_iterator->vertex == current_vertex) {
       continue;
@@ -376,7 +376,7 @@ Advance AdvanceUntilValid_(auto &index_iterator, const auto &end, auto *&current
       continue;
     }
 
-    if (!CanSeeEntityWithTimestamp(index_iterator->timestamp, transaction, view, scan_start_timestamp)) {
+    if (!CanSeeEntityWithTimestamp(index_iterator->timestamp, transaction, view, scan_start)) {
       continue;
     }
 
@@ -1176,7 +1176,7 @@ void InMemoryLabelPropertyIndex::Iterable<EntryT>::Iterator::AdvanceUntilValid()
                                             self_->upper_bound_,
                                             self_->permutation_helper_,
                                             self_->max_gid_,
-                                            self_->scan_start_timestamp_,
+                                            self_->scan_start_,
                                             match_scratch_,
                                             predicates,
                                             /*use_cache=*/true,
@@ -1212,7 +1212,7 @@ InMemoryLabelPropertyIndex::Iterable<EntryT>::Iterable(typename utils::SkipListD
       storage_(storage),
       transaction_(transaction),
       max_gid_(max_gid),
-      scan_start_timestamp_(transaction->start_timestamp) {
+      scan_start_(ScanStart::Of(*transaction, view)) {
   bounds_valid_ = ValidateBounds(ranges, lower_bound_, upper_bound_);  // NOLINT
   predicates_.reserve(ranges.size());
   for (auto const &range : ranges) predicates_.push_back(range.GetValuePredicate());
@@ -1571,7 +1571,7 @@ void InMemoryLabelPropertyIndex::ChunkedIterable<EntryT>::Iterator::AdvanceUntil
                             self_->upper_bound_,
                             self_->permutation_helper_,
                             self_->max_gid_,
-                            self_->scan_start_timestamp_,
+                            self_->scan_start_,
                             match_scratch_,
                             self_->predicates_,
                             /*use_cache=*/false,
@@ -1597,7 +1597,7 @@ InMemoryLabelPropertyIndex::ChunkedIterable<EntryT>::ChunkedIterable(
       storage_(storage),
       transaction_(transaction),
       max_gid_(max_gid),
-      scan_start_timestamp_(transaction->start_timestamp) {
+      scan_start_(ScanStart::Of(*transaction, view)) {
   bounds_valid_ = ValidateBounds(ranges, lower_bound_, upper_bound_);  // NOLINT
   if (!bounds_valid_) return;
 

@@ -288,6 +288,8 @@ struct Transaction {
   // `commited_transactions_` list for GC.
   std::unique_ptr<CommitInfo> commit_info{};
   uint64_t command_id{};
+  // The current batch wrote at a command before the current one.
+  bool wrote_at_earlier_command{false};
 
   delta_container deltas;
   utils::pmr::list<MetadataDelta> md_deltas;

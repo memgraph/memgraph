@@ -27,6 +27,7 @@
 #include "storage/v2/index_arming.hpp"
 #include "storage/v2/indices/edge_type_property_index.hpp"
 #include "storage/v2/indices/errors.hpp"
+#include "storage/v2/indices/indices_utils.hpp"
 #include "storage/v2/indices/label_property_index.hpp"
 #include "storage/v2/inmemory/indices_mvcc.hpp"
 #include "storage/v2/inmemory/light_edge_guard.hpp"
@@ -122,8 +123,7 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
     Storage *storage_;
     Transaction *transaction_;
     Gid max_gid_;
-    /// The batch the scan opened in: an entry a later periodic-commit batch added is not the scan's to see.
-    uint64_t scan_start_timestamp_;
+    ScanStart scan_start_;  // see CanSeeEntityWithTimestamp
   };
 
   class ChunkedIterable {
@@ -202,8 +202,7 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
     Transaction *transaction_;
     utils::SkipListDb<Entry>::ChunkCollection chunks_;
     Gid max_gid_;
-    /// The batch the scan opened in: an entry a later periodic-commit batch added is not the scan's to see.
-    uint64_t scan_start_timestamp_;
+    ScanStart scan_start_;  // see CanSeeEntityWithTimestamp
   };
 
   struct IndividualIndex {

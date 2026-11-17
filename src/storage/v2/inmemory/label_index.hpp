@@ -117,8 +117,7 @@ class InMemoryLabelIndex : public LabelIndex {
     Storage *storage_;
     Transaction *transaction_;
     Gid max_gid_;
-    /// The batch the scan opened in: an entry a later periodic-commit batch added is not the scan's to see.
-    uint64_t scan_start_timestamp_;
+    ScanStart scan_start_;  // see CanSeeEntityWithTimestamp
   };
 
   class ChunkedIterable {
@@ -181,8 +180,7 @@ class InMemoryLabelIndex : public LabelIndex {
     Transaction *transaction_;
     utils::SkipListDb<Entry>::ChunkCollection chunks_;
     Gid max_gid_;
-    /// The batch the scan opened in: an entry a later periodic-commit batch added is not the scan's to see.
-    uint64_t scan_start_timestamp_;
+    ScanStart scan_start_;  // see CanSeeEntityWithTimestamp
   };
 
   struct ActiveIndices : LabelIndex::ActiveIndices {
