@@ -503,22 +503,25 @@ TYPED_TEST(QueryExecution, AggregationCacheResultsWithFlagOn) {
 // same query has deleted is reached earlier than a lookup would reach it. There is nothing to read
 // either way, so the query refuses either way: when the read happens must not decide whether a
 // query answers.
-#define CHECK_A_DELETED_RECORD_REFUSES()                                               \
-  do {                                                                                 \
-    this->Execute("MATCH (n) DETACH DELETE n");                                        \
-    this->Execute("CREATE ({a: 1, b: 2})");                                            \
-    EXPECT_THROW(this->Execute("MATCH (n) DETACH DELETE n RETURN n.a AS a, n.b AS b"), \
-                 memgraph::query::QueryRuntimeException);                              \
+/// Reading a record the same query has deleted refuses, whatever reads it. `reads` is the clause
+/// that reads it, so a caller can ask the same question of a projection and of an aggregation.
+#define CHECK_A_DELETED_RECORD_REFUSES(reads)                                                                \
+  do {                                                                                                       \
+    this->Execute("MATCH (n) DETACH DELETE n");                                                              \
+    this->Execute("CREATE ({a: 1, b: 2})");                                                                  \
+    EXPECT_THROW(this->Execute("MATCH (n) DETACH DELETE n " reads), memgraph::query::QueryRuntimeException); \
   } while (false)
 
 TYPED_TEST(QueryExecution, ADeletedRecordRefusesWithFlagOff) {
   CachePropertiesFlagGuard guard{false};
-  CHECK_A_DELETED_RECORD_REFUSES();
+  CHECK_A_DELETED_RECORD_REFUSES("RETURN n.a AS a, n.b AS b");
+  CHECK_A_DELETED_RECORD_REFUSES("RETURN sum(n.a) AS s, max(n.a) AS m");
 }
 
 TYPED_TEST(QueryExecution, ADeletedRecordRefusesWithFlagOn) {
   CachePropertiesFlagGuard guard{true};
-  CHECK_A_DELETED_RECORD_REFUSES();
+  CHECK_A_DELETED_RECORD_REFUSES("RETURN n.a AS a, n.b AS b");
+  CHECK_A_DELETED_RECORD_REFUSES("RETURN sum(n.a) AS s, max(n.a) AS m");
 }
 
 TYPED_TEST(QueryExecution, LeftoverLookupResultsWithFlagOff) {
