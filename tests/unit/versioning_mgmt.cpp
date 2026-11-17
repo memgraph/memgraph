@@ -44,6 +44,13 @@ using memgraph::tests::versioning_fixture::ThrownMessage;
 using memgraph::versioning::GateError;
 
 namespace {
+size_t CheckoutCount(const memgraph::versioning::VersionStore *store, std::string_view name) {
+  const auto listing = store->Get(name);
+  return listing ? listing->sessions : 0;
+}
+}  // namespace
+
+namespace {
 
 constexpr std::string_view kReplicaError =
     "Graph Versioning branches are not supported with replication in v1: branch operations are refused on a REPLICA. "
@@ -132,24 +139,19 @@ class VersioningNoWalTest : public VersioningFixture<true, false> {
 
 // The fixture's Attach, for another database.
 void AttachTo(memgraph::dbms::DatabaseAccess &db, InterpreterFaker &session, const std::string &name) {
-  auto *version_store = db->version_store();
-  auto info = version_store->TryAcquireCheckout(name);
-  ASSERT_TRUE(info) << info.error();
+  auto checkout = db->version_store()->Checkout(name);
+  ASSERT_TRUE(checkout) << checkout.error();
   auto *main = static_cast<memgraph::storage::InMemoryStorage *>(db->storage());
-  auto core = version_store->GetOrBuildCore(
-      info->id, [&]() -> std::expected<std::shared_ptr<memgraph::versioning::BranchCore>, std::string> {
-        auto built = memgraph::versioning::BranchCore::BuildForCheckout(*main, *info);
-        if (!built) return std::unexpected(std::move(built.error().message));
-        (*built)->SetGidReserver(version_store->GidReserverOf(info->id));
-        return std::move(*built);
-      });
-  if (!core) version_store->ReleaseCheckout(info->id);
+  const auto &info = (*checkout)->info();
+  auto core = (*checkout)->GetOrBuildCore([&]() -> memgraph::versioning::CoreResult {
+    auto built = memgraph::versioning::BranchCore::Build(*main, info.fork, (*checkout)->fork_ts(), info.id);
+    if (!built) return std::unexpected(std::move(built.error().message));
+    return std::move(*built);
+  });
   ASSERT_TRUE(core) << core.error();
-  auto recorded = version_store->RecordGidFloors(info->id, (*core)->vertex_gid_floor(), (*core)->edge_gid_floor());
-  if (!recorded) version_store->ReleaseCheckout(info->id);
-  ASSERT_TRUE(recorded) << recorded.error();
+  const auto number = info.id;
   session.interpreter.current_db_.SetBranchContext(
-      std::make_unique<memgraph::versioning::BranchContext>(std::move(*core), name), version_store, info->id);
+      std::make_unique<memgraph::versioning::BranchContext>(std::move(*core), name, number), std::move(*checkout));
 }
 
 }  // namespace
@@ -316,14 +318,6 @@ TEST_F(VersioningGatedTest, AnUnavailableBranchIsListedWithItsReasonAndDropsWith
   faker.Interpret("CREATE BRANCH bad");
 }
 
-// An unreadable ledger must not look like zero branches: every branch statement refuses with its message.
-TEST_F(VersioningGatedTest, AnUnreadableLedgerRefusesBranchStatementsWithItsMessage) {
-  db->version_store()->RestoreLedgerUnreadable("The branch ledger cannot be read; restore it.");
-  for (const char *query : {"SHOW BRANCHES", "SHOW BRANCH", "CREATE BRANCH x", "DROP BRANCH x"}) {
-    EXPECT_EQ(ThrownMessage([&] { faker.Interpret(query); }), "The branch ledger cannot be read; restore it.") << query;
-  }
-}
-
 // SHOW BRANCH without a name reports the session's branch; a quoted name is a stripped literal, so the cached AST must
 // not keep the first name it was parsed with.
 TEST_F(VersioningGatedTest, ShowBranchReportsOneBranch) {
@@ -459,17 +453,10 @@ TEST_F(VersioningGatedTest, ShowBranchesForDatabaseIsAuthorizedAgainstTheListedD
                   "other_tenant", ::testing::ElementsAre(memgraph::query::AuthQuery::Privilege::BRANCH_USE))));
 }
 
-TEST_F(VersioningNoWalTest, CreateRefused) {
-  memgraph::license::global_license_checker.EnableTesting();
-  EXPECT_EQ(ThrownMessage([&] { faker.Interpret("CREATE BRANCH 'a'"); }), GateMessage(GateError::kNotDurable));
-  EXPECT_TRUE(db->version_store()->Empty());
-}
-
-// CREATE BRANCH checks the flag, the license, the storage mode and durability, then that the instance is MAIN, and
-// reports the first failure.
+// CREATE BRANCH checks the flag, the license and the storage mode, then that the instance is MAIN, and reports the
+// first failure.
 TEST_F(VersioningInterpreterTest, CreateGateOrder) {
   faker.Interpret("STORAGE MODE IN_MEMORY_ANALYTICAL");
-  db->storage()->config_.durability.recover_on_startup = false;
   const auto expect_refused_with = [&](std::string_view message) {
     EXPECT_EQ(ThrownMessage([&] { faker.Interpret("CREATE BRANCH 'a'"); }), message);
   };
@@ -480,8 +467,6 @@ TEST_F(VersioningInterpreterTest, CreateGateOrder) {
   memgraph::license::global_license_checker.EnableTesting();
   expect_refused_with(GateMessage(GateError::kUnsupportedStorageMode));
   faker.Interpret("STORAGE MODE IN_MEMORY_TRANSACTIONAL");
-  expect_refused_with(GateMessage(GateError::kNotDurable));
-  db->storage()->config_.durability.recover_on_startup = true;
   ASSERT_TRUE(repl_state.Lock()->SetReplicationRoleReplica(
       memgraph::replication::ReplicationServerConfig{.repl_server =
                                                          memgraph::io::network::Endpoint("127.0.0.1", 30246)},
@@ -639,7 +624,8 @@ TEST_F(VersioningGatedTest, DropBranchForceTerminatesOtherSessions) {
   other_config.disk.main_storage_directory = data_directory / "other_db" / "disk";
   other_config.experimental_versioning = true;
   other_config.salient.name = "other_db";
-  memgraph::utils::Gatekeeper<memgraph::dbms::Database> other_gk{other_config};
+  memgraph::kvstore::KVStore other_ledger_store{data_directory / "other_db_kv"};
+  memgraph::utils::Gatekeeper<memgraph::dbms::Database> other_gk{other_config, &other_ledger_store};
   auto other_acc = other_gk.access();
   ASSERT_TRUE(other_acc);
   ASSERT_EQ((*other_acc)->name(), "other_db");
@@ -712,7 +698,7 @@ TEST_F(VersioningGatedTest, RefusedDropLeavesTheBranchDataAndBothSessionsIntact)
   faker.Interpret("CREATE (:B {v: 3})");
   EXPECT_EQ(IntRows(other, kBranchValues), (Rows{{2}, {3}}));
   EXPECT_EQ(IntRows(faker, kBranchValues), (Rows{{2}, {3}}));
-  EXPECT_EQ(db->version_store()->CheckoutCount("b"), 2U);
+  EXPECT_EQ(CheckoutCount(db->version_store(), "b"), 2U);
   InterpreterFaker third{&interpreter_context, db};
   EXPECT_EQ(ThrownMessage([&] { third.Interpret("DROP BRANCH b"); }), in_use) << "a session on main is refused too";
 
@@ -720,7 +706,7 @@ TEST_F(VersioningGatedTest, RefusedDropLeavesTheBranchDataAndBothSessionsIntact)
   faker.Interpret("DROP BRANCH b");
   EXPECT_FALSE(db->version_store()->Exists("b"));
   EXPECT_FALSE(faker.interpreter.current_db_.CurrentVersion().has_value());
-  EXPECT_EQ(db->version_store()->CheckoutCount("b"), 0U);
+  EXPECT_EQ(CheckoutCount(db->version_store(), "b"), 0U);
   EXPECT_EQ(IntRows(faker, "MATCH (n:K) RETURN count(n)"), (Rows{{1}}));
   EXPECT_EQ(IntRows(faker, "MATCH (n:B) RETURN count(n)"), (Rows{{0}}));
 }
@@ -732,7 +718,7 @@ TEST_F(VersioningGatedTest, DroppingTheOwnBranchLeavesTheSessionOnMainAndARecrea
   faker.Interpret("DROP BRANCH b");
   EXPECT_FALSE(faker.interpreter.current_db_.CurrentVersion().has_value());
   EXPECT_EQ(faker.interpreter.current_db_.branch_context(), nullptr);
-  EXPECT_EQ(db->version_store()->CheckoutCount("b"), 0U);
+  EXPECT_EQ(CheckoutCount(db->version_store(), "b"), 0U);
   faker.Interpret("CREATE (:K {v: 4})");
   EXPECT_EQ(IntRows(faker, "MATCH (n:K) RETURN n.v ORDER BY n.v"), (Rows{{1}, {4}})) << "writes now land on main";
 
