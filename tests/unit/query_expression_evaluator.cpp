@@ -305,10 +305,8 @@ TYPED_TEST(ExpressionEvaluatorTest, AdditionOperator) {
   EXPECT_EQ(merged.ValueMap().at("a").ValueInt(), 2);
   EXPECT_EQ(merged.ValueMap().at("b").ValueInt(), 3);
   // A map added to a non-map still surfaces as a runtime error.
-  auto *map_literal = this->storage.template Create<MapLiteral>(std::unordered_map<PropertyIx, Expression *>{
-      {this->storage.GetPropertyIx("a"), this->storage.template Create<PrimitiveLiteral>(1)}});
   EXPECT_THROW(this->Eval(this->storage.template Create<AdditionOperator>(
-                   map_literal, this->storage.template Create<PrimitiveLiteral>(1))),
+                   left, this->storage.template Create<PrimitiveLiteral>(1))),
                QueryRuntimeException);
 }
 

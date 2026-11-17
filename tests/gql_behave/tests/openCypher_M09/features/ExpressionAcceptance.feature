@@ -248,17 +248,23 @@ Feature: ExpressionAcceptance
     Then a TypeError should be raised at runtime: InvalidElementAccess
 
   Scenario: Merging map literals lets the right operand win on a duplicate key
+    And having executed:
+      """
+      CREATE (:Item {id: 1, name: 'a'})
+      """
     When executing query:
       """
-      WITH {a: 1} AS m
+      MATCH (n:Item {id: 1})
+      WITH n, {a: 1} AS m
       RETURN {a: 1, b: 2} + {b: 3, c: 4} AS result,
              {a: {x: 1}} + {a: {y: 2}} AS nested,
              {} + {a: 1} AS left_empty, {a: 1} + {} AS right_empty,
-             m.a AS before, (m + {a: 2}).a AS after
+             m.a AS before, (m + {a: 2}).a AS after,
+             {extraLabels: labels(n)} + properties(n) AS props
       """
     Then the result should be:
-      | result             | nested       | left_empty | right_empty | before | after |
-      | {a: 1, b: 3, c: 4} | {a: {y: 2}} | {a: 1}     | {a: 1}      | 1      | 2     |
+      | result             | nested      | left_empty | right_empty | before | after | props                                    |
+      | {a: 1, b: 3, c: 4} | {a: {y: 2}} | {a: 1}     | {a: 1}      | 1      | 2     | {extraLabels: ['Item'], id: 1, name: 'a'} |
     And no side effects
 
   Scenario: Adding null and a map yields null in both directions
@@ -269,21 +275,6 @@ Feature: ExpressionAcceptance
     Then the result should be:
       | left_null | right_null |
       | null      | null       |
-    And no side effects
-
-  Scenario: Merging a map literal with properties of a node
-    And having executed:
-      """
-      CREATE (:Item {id: 1, name: 'a'})
-      """
-    When executing query:
-      """
-      MATCH (n:Item {id: 1})
-      RETURN {extraLabels: labels(n)} + properties(n) AS result
-      """
-    Then the result should be:
-      | result                                 |
-      | {extraLabels: ['Item'], id: 1, name: 'a'} |
     And no side effects
 
   Scenario: Adding a map and an integer raises an error

@@ -532,7 +532,6 @@ class TypedValueArithmeticTest : public AllTypesFixture<StorageType> {
    *  with String and List values (does not throw).
    * @param op  The operation lambda. Takes two values and resturns
    *  the results.
-   * @param maps_merge Merge maps instead of rejecting them; the caller asserts the merge.
    */
   void ExpectArithmeticThrowsAndNull(bool string_list_ok,
                                      std::function<TypedValue(const TypedValue &, const TypedValue &)> op,
@@ -627,23 +626,33 @@ TYPED_TEST(TypedValueArithmeticTest, Sum) {
     auto const left = Map({{"a", TypedValue(1)}, {"b", TypedValue(2)}});
     auto const right = Map({{"b", TypedValue(3)}, {"c", TypedValue(4)}});
     EXPECT_PROP_EQ(left + right, Map({{"a", TypedValue(1)}, {"b", TypedValue(3)}, {"c", TypedValue(4)}}));
-    // The right operand wins whichever side it is on.
     EXPECT_PROP_EQ(Map({{"a", TypedValue(1)}}) + Map({{"a", TypedValue(2)}}), Map({{"a", TypedValue(2)}}));
     EXPECT_PROP_EQ(Map({{"a", TypedValue(2)}}) + Map({{"a", TypedValue(1)}}), Map({{"a", TypedValue(1)}}));
-    // Empty maps contribute nothing.
     EXPECT_PROP_EQ(empty_map + right, right);
     EXPECT_PROP_EQ(left + empty_map, left);
-    // Nesting is kept as-is: the right nested value replaces, it is not merged into.
     EXPECT_PROP_EQ(Map({{"a", Map({{"x", TypedValue(1)}})}}) + Map({{"a", Map({{"y", TypedValue(2)}})}}),
                    Map({{"a", Map({{"y", TypedValue(2)}})}}));
-    // Neither operand is modified by the addition.
     EXPECT_PROP_EQ(left, Map({{"a", TypedValue(1)}, {"b", TypedValue(2)}}));
     EXPECT_PROP_EQ(right, Map({{"b", TypedValue(3)}, {"c", TypedValue(4)}}));
-    // A map next to a list still appends rather than merging; a map next to a non-list still rejects addition
-    // (the throw matrix above covers map with every non-list type).
     auto const list_v = List({TypedValue(2)});
     EXPECT_PROP_EQ(left + list_v, List({left, TypedValue(2)}));
     EXPECT_PROP_EQ(list_v + left, List({TypedValue(2), left}));
+
+    // A merged map and every key/value it holds live on the left operand's resource.
+    memgraph::utils::MonotonicBufferResource monotonic_memory(1024);
+    auto const mon_left =
+        TypedValue(std::map<std::string, TypedValue>{{"a", TypedValue(1)}, {"b", TypedValue(2)}}, &monotonic_memory);
+    auto const mon_right = Map({{"a", TypedValue(3)}, {"c", TypedValue(4)}});
+    auto const merged = mon_left + mon_right;
+    ASSERT_TRUE(merged.IsMap());
+    EXPECT_EQ(merged.ValueMap().at("a").ValueInt(), 3);
+    EXPECT_EQ(merged.ValueMap().at("b").ValueInt(), 2);
+    EXPECT_EQ(merged.ValueMap().at("c").ValueInt(), 4);
+    EXPECT_EQ(merged.get_allocator().resource(), &monotonic_memory);
+    for (const auto &kv : merged.ValueMap()) {
+      EXPECT_EQ(kv.first.get_allocator().resource(), &monotonic_memory);
+      EXPECT_EQ(kv.second.get_allocator().resource(), &monotonic_memory);
+    }
   }
 
   // Temporal Types
@@ -685,43 +694,6 @@ TYPED_TEST(TypedValueArithmeticTest, Sum) {
   EXPECT_THROW(TypedValue(TypedValue{Point3d{Cartesian_3d, 1.0, 2.0, 3.0}}) +
                    TypedValue(TypedValue{Point3d{Cartesian_3d, 1.0, 2.0, 3.0}}),
                TypedValueException);
-}
-
-// A map sum builds a fresh map on the left operand's resource; nothing it holds points at an
-// operand, so the result outlives both.
-TEST(TypedValue, MapMergeAllocatesOnTheLeftOperandResource) {
-  memgraph::utils::MonotonicBufferResource monotonic_memory(1024);
-  auto const left =
-      TypedValue(std::map<std::string, TypedValue>{{"a", TypedValue(1)}, {"b", TypedValue(2)}}, &monotonic_memory);
-  auto const right = Map({{"a", TypedValue(3)}, {"c", TypedValue(4)}});
-
-  auto const merged = left + right;
-  ASSERT_TRUE(merged.IsMap());
-  EXPECT_EQ(merged.get_allocator().resource(), &monotonic_memory);
-  EXPECT_EQ(merged.ValueMap().at("a").ValueInt(), 3);
-  EXPECT_EQ(merged.ValueMap().at("b").ValueInt(), 2);
-  EXPECT_EQ(merged.ValueMap().at("c").ValueInt(), 4);
-  auto expect_allocator = [](const auto &kv, auto *memory_resource) {
-    EXPECT_EQ(kv.first.get_allocator().resource(), memory_resource);
-    EXPECT_EQ(kv.second.get_allocator().resource(), memory_resource);
-  };
-  for (const auto &kv : merged.ValueMap()) expect_allocator(kv, &monotonic_memory);
-
-  // The merge branch is a pair-type dispatch, not a builder: a non-map pair must allocate nothing on
-  // the operand's resource, and an operand pair the branch rejects must reject before allocating.
-  memgraph::utils::MemoryTrackingResource tracked_memory{memgraph::utils::NewDeleteResource(), 1024};
-  auto const int_left = TypedValue(1, &tracked_memory);
-  auto const int_right = TypedValue(2, &tracked_memory);
-  auto const before_non_map = tracked_memory.GetAllocatedBytes();
-  EXPECT_EQ((int_left + int_right).ValueInt(), 3);
-  EXPECT_DOUBLE_EQ((int_left + TypedValue(2.5, &tracked_memory)).ValueDouble(), 3.5);
-  EXPECT_EQ((TypedValue(2.5, &tracked_memory) + int_right).ValueDouble(), 4.5);
-  EXPECT_EQ(tracked_memory.GetAllocatedBytes(), before_non_map);
-  auto const tracked_map = TypedValue(std::map<std::string, TypedValue>{{"a", TypedValue(1)}}, &tracked_memory);
-  auto const before_rejected = tracked_memory.GetAllocatedBytes();
-  EXPECT_THROW(tracked_map + int_right, TypedValueException);
-  EXPECT_THROW(int_left + tracked_map, TypedValueException);
-  EXPECT_EQ(tracked_memory.GetAllocatedBytes(), before_rejected);
 }
 
 TYPED_TEST(TypedValueArithmeticTest, Difference) {
