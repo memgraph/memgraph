@@ -7498,7 +7498,9 @@ class AccumulateCursor : public Cursor {
     OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP("Accumulate");
 
-    if (self_.access_check_only_ && !ChecksAccess(context)) return input_cursor_->Pull(frame, context);
+    // Decided once per run: a licence that lapses after the input was cached must not drop the cached rows.
+    if (!passes_through_) passes_through_ = self_.access_check_only_ && !FineGrainedChecksActive(context);
+    if (*passes_through_) return input_cursor_->Pull(frame, context);
 
     auto &dba = *context.db_accessor;
     // cache all the input
@@ -7527,20 +7529,12 @@ class AccumulateCursor : public Cursor {
 
   void Shutdown() override { input_cursor_->Shutdown(); }
 
-  /// Whether a fine-grained access check runs in this query.
-  static bool ChecksAccess(ExecutionContext const &context) {
-#ifdef MG_ENTERPRISE
-    return context.auth_checker != nullptr && license::global_license_checker.IsEnterpriseValidFast();
-#else
-    return false;
-#endif
-  }
-
   void Reset() override {
     input_cursor_->Reset();
     cache_.clear();
     cache_it_ = cache_.begin();
     pulled_all_input_ = false;
+    passes_through_.reset();
   }
 
  private:
@@ -7549,6 +7543,7 @@ class AccumulateCursor : public Cursor {
   utils::pmr::deque<utils::pmr::vector<TypedValue>> cache_;
   decltype(cache_.begin()) cache_it_ = cache_.begin();
   bool pulled_all_input_{false};
+  std::optional<bool> passes_through_;
 };
 
 UniqueCursorPtr Accumulate::MakeCursor(utils::MemoryResource *mem,
