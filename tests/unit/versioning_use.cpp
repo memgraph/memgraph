@@ -642,12 +642,12 @@ TEST_F(VersioningGatedTest, PinnedBranchRunsOnTheBranchAndAPlainPinIsMain) {
   faker.interpreter.SelectPinnedBranch(std::nullopt);
   EXPECT_FALSE(current_db.CurrentVersion().has_value());
   EXPECT_EQ(IntRows(faker, "MATCH (n:OnB) RETURN count(n)"), (Rows{{0}}));
-  EXPECT_EQ(db->version_store()->CheckoutCount("b"), 0U);
+  EXPECT_EQ(CheckoutCount(db->version_store(), "b"), 0U);
 
   faker.interpreter.SelectPinnedBranch("b");
   faker.interpreter.SelectPinnedBranch("main");
   EXPECT_FALSE(current_db.CurrentVersion().has_value()) << "'x@main' is main";
-  EXPECT_EQ(db->version_store()->CheckoutCount("b"), 0U);
+  EXPECT_EQ(CheckoutCount(db->version_store(), "b"), 0U);
 }
 
 TEST_F(VersioningGatedTest, PinnedUnknownBranchFailsAndLeavesTheSessionWhereItWas) {
@@ -659,7 +659,7 @@ TEST_F(VersioningGatedTest, PinnedUnknownBranchFailsAndLeavesTheSessionWhereItWa
   faker.interpreter.SelectPinnedBranch("b");
   EXPECT_EQ(ThrownMessage([&] { faker.interpreter.SelectPinnedBranch("nope"); }), "Branch 'nope' does not exist.");
   EXPECT_EQ(faker.interpreter.current_db_.CurrentVersion(), "b");
-  EXPECT_EQ(db->version_store()->CheckoutCount("b"), 1U);
+  EXPECT_EQ(CheckoutCount(db->version_store(), "b"), 1U);
 }
 
 TEST_F(VersioningGatedTest, PinnedUnavailableBranchFailsWithTheReasonAndLeavesTheSessionWhereItWas) {
@@ -671,7 +671,7 @@ TEST_F(VersioningGatedTest, PinnedUnavailableBranchFailsWithTheReasonAndLeavesTh
   const auto message = ThrownMessage([&] { faker.interpreter.SelectPinnedBranch("bad"); });
   EXPECT_THAT(message, ::testing::HasSubstr("Branch 'bad' is unavailable: the branch directory is not a directory."));
   EXPECT_FALSE(faker.interpreter.current_db_.CurrentVersion().has_value());
-  EXPECT_EQ(store->CheckoutCount("bad"), 0U);
+  EXPECT_EQ(CheckoutCount(store, "bad"), 0U);
 }
 
 TEST_F(VersioningGatedTest, PinnedBranchPassesTheGateOfUseBranch) {
