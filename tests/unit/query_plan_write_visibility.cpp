@@ -254,6 +254,9 @@ TEST_F(WriteVisibilityPlan, CreateReadingAnyOtherEntityReadsOld) {
             (std::vector{View::OLD, View::OLD}));
   EXPECT_EQ(Views<CreateNode>(Plan("CREATE (a {id: 1}) CREATE (b {r: a.id, e: size([(a)-[:R]->(x) | x])})")),
             (std::vector{View::OLD, View::OLD}));
+  // A barrier ends what counts as created: after it, `a` is an earlier entity.
+  EXPECT_EQ(Views<CreateNode>(Plan("CREATE (a {id: 1}) SET a.id = 2 CREATE (b {r: a.id})")),
+            (std::vector{View::OLD, View::OLD}));
 }
 
 TEST_F(WriteVisibilityPlan, BatchingReadsNew) {
@@ -501,6 +504,10 @@ TEST_F(WriteVisibilityPlan, ANodeThatMayRepeatKeepsItsBarrier) {
            "MATCH (n:L)--(m) WITH n, m.k AS k, count(*) AS c SET n.x = n.x + c SET n.y = n.x",
            // The key is read through another variable.
            "MATCH (n:L) WITH n, n AS m SET n.x = 1 SET n.y = m.x",
+           // The keys go through two variables: m may be another row's n.
+           "MATCH (n:L) WITH n, head([(n)-[:T]->(o) | o]) AS m SET n.x = n.x + 1 SET n.y = m.x + n.x",
+           // Something else conflicts too: the comprehension reads the label the first SET adds.
+           "MATCH (n:L) SET n.x = n.x + 1, n:Done SET n.y = n.x + size([(m:Done)-->() | m])",
            // Something else conflicts too: labels() reads every label.
            "MATCH (n:L) SET n.x = 1, n:Q SET n.y = size(labels(n)) + n.x",
            // degree() reads everything, as a procedure does, through no one variable.
