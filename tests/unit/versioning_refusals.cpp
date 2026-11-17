@@ -22,10 +22,13 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include "kvstore/kvstore.hpp"
 #include "mg_procedure.h"
 #include "query/db_accessor.hpp"
 #include "query/procedure/mg_procedure_impl.hpp"
+#include "utils/uuid.hpp"
 #include "versioning/branch_engine.hpp"
+#include "versioning/branch_ledger.hpp"
 #include "versioning_fixture.hpp"
 
 using memgraph::tests::versioning_fixture::ExplainText;
@@ -51,22 +54,20 @@ constexpr QueryAndMessage kRefusedWhileBranchesExist[] = {
     {"ALTER ENUM Status UPDATE VALUE Bad TO Poor", "Cannot alter an enum while branches exist"},
 };
 
-// Hidden branches (versioning off) must also name the flag and DROP BRANCH; otherwise the message must not.
-void ExpectRefusedWith(InterpreterFaker &session, const char *query, const char *message, bool hidden = false) {
+void ExpectRefusedWith(InterpreterFaker &session, const char *query, const char *message) {
   try {
     session.Prepare(query);
     ADD_FAILURE() << "must be refused at Prepare: " << query;
   } catch (const memgraph::query::QueryRuntimeException &e) {
     EXPECT_THAT(e.what(), ::testing::HasSubstr(message)) << query;
     EXPECT_THAT(e.what(), ::testing::HasSubstr("Drop all branches first.")) << query;
-    const auto flag = ::testing::HasSubstr("--experimental-enabled=versioning");
-    EXPECT_THAT(e.what(), hidden ? ::testing::Matcher<const char *>(flag) : ::testing::Not(flag)) << query;
-    if (hidden) EXPECT_THAT(e.what(), ::testing::HasSubstr("DROP BRANCH")) << query;
   }
 }
 
-memgraph::storage::Config StandaloneConfig(const std::filesystem::path &directory, bool versioning) {
+memgraph::storage::Config StandaloneConfig(const std::filesystem::path &directory, bool versioning,
+                                           const memgraph::utils::UUID &uuid = {}) {
   memgraph::storage::Config config{};
+  config.salient.uuid = uuid;
   config.durability.storage_directory = directory;
   config.durability.recover_on_startup = true;
   config.durability.snapshot_wal_mode =
@@ -244,19 +245,31 @@ TEST_F(VersioningRefusalsTest, BranchExistenceRejectsStorageModeDropGraphAndEnum
   EXPECT_EQ(IntRows(faker, "MATCH (n) RETURN count(n)"), (Rows{{0}}));
 }
 
-// A branch that startup set aside still owns data these operations would replace; an unreadable ledger leaves the
-// branches unknown. Both keep them refused.
-TEST_F(VersioningRefusalsTest, AnUnavailableBranchAndAnUnreadableLedgerKeepGlobalOperationsRefused) {
+// A branch that startup set aside still owns data these operations would replace.
+TEST_F(VersioningRefusalsTest, AnUnavailableBranchKeepsGlobalOperationsRefused) {
   ASSERT_TRUE(db->version_store()->CreateBranch("b").has_value());
-  db->version_store()->MarkUnavailable(db->version_store()->Get("b")->id, "the write-ahead log is missing");
+  db->version_store()->MarkUnavailable(db->version_store()->Get("b")->info.id, "the write-ahead log is missing");
   for (const auto &[query, message] : kRefusedWhileBranchesExist) ExpectRefusedWith(faker, query, message);
+}
 
-  ASSERT_EQ(db->version_store()->DropBranch("b"), memgraph::versioning::DropResult::kDropped);
-  db->version_store()->RestoreLedgerUnreadable("The branch ledger cannot be read; restore it.");
+// An unreadable ledger leaves the branches unknown (no VersionStore exists); the operations stay refused.
+TEST_F(VersioningRefusalsTest, AnUnreadableLedgerKeepsGlobalOperationsRefused) {
+  const auto directory = data_directory / "unreadable_db";
+  const memgraph::utils::UUID uuid;
+  memgraph::kvstore::KVStore ledger_store{data_directory / "unreadable_db_kv"};
+  ASSERT_TRUE(
+      ledger_store.Put(std::string{memgraph::versioning::kBranchLedgerKeyPrefix} + std::string{uuid}, "not a ledger"));
+
+  memgraph::utils::Gatekeeper<memgraph::dbms::Database> gk{StandaloneConfig(directory, true, uuid), &ledger_store};
+  auto acc = gk.access();
+  ASSERT_TRUE(acc);
+  ASSERT_EQ((*acc)->version_store(), nullptr);
+  ASSERT_TRUE((*acc)->branches_unavailable().has_value());
+  InterpreterFaker unreadable{&interpreter_context, *acc};
+
   for (const auto &[query, message] : kRefusedWhileBranchesExist) {
-    EXPECT_THAT(ThrownMessage([&] { faker.Interpret(query); }),
-                ::testing::AllOf(::testing::HasSubstr("while the branches of the database are unknown"),
-                                 ::testing::HasSubstr("The branch ledger cannot be read; restore it.")))
+    EXPECT_THAT(ThrownMessage([&] { unreadable.Interpret(query); }),
+                ::testing::HasSubstr("while the branches of the database are unknown"))
         << query;
   }
 }
@@ -279,23 +292,24 @@ TEST_F(VersioningRefusalsTest, StorageModeRequestForTheCurrentModeIsANoOpWhileBr
   EXPECT_EQ(IntRows(faker, "MATCH (n:A) RETURN n.x"), (Rows{{1}}));
 }
 
-// Branches hidden because versioning is off still refuse.
-TEST_F(VersioningRefusalsTest, HiddenBranchesKeepDatabaseGlobalOperationsRefused) {
-  const auto directory = data_directory / "hidden_db";
+// With versioning off the ledger is not looked at, as on master: no VersionStore, nothing refuses.
+TEST_F(VersioningRefusalsTest, VersioningOffLeavesDatabaseGlobalOperationsUnrefused) {
+  const auto directory = data_directory / "off_db";
+  const memgraph::utils::UUID uuid;
+  memgraph::kvstore::KVStore ledger_store{data_directory / "off_db_kv"};
   {
-    memgraph::utils::Gatekeeper<memgraph::dbms::Database> gk{StandaloneConfig(directory, true)};
+    memgraph::utils::Gatekeeper<memgraph::dbms::Database> gk{StandaloneConfig(directory, true, uuid), &ledger_store};
     auto acc = gk.access();
     ASSERT_TRUE(acc);
     ASSERT_TRUE((*acc)->version_store()->CreateBranch("b").has_value());
   }
 
-  memgraph::utils::Gatekeeper<memgraph::dbms::Database> gk{StandaloneConfig(directory, false)};
+  memgraph::utils::Gatekeeper<memgraph::dbms::Database> gk{StandaloneConfig(directory, false, uuid), &ledger_store};
   auto acc = gk.access();
   ASSERT_TRUE(acc);
-  ASSERT_FALSE((*acc)->version_store()->Empty());
-  InterpreterFaker hidden{&interpreter_context, *acc};
-
-  for (const auto &[query, message] : kRefusedWhileBranchesExist) ExpectRefusedWith(hidden, query, message, true);
+  ASSERT_EQ((*acc)->version_store(), nullptr);
+  InterpreterFaker off{&interpreter_context, *acc};
+  EXPECT_NO_THROW(off.Interpret("CREATE ENUM Mood VALUES { Happy, Sad }"));
 }
 
 // STORAGE MODE checks at Prepare and again under the switch's exclusive hold, so a branch created between refuses it.
@@ -338,7 +352,9 @@ TEST_F(VersioningRefusalsTest, RecoverSnapshotRefusedForBranchCreatedAfterPrepar
 
 // The switch to on-disk re-checks under the Database's exclusive access, which needs the session to be its only holder.
 TEST_F(VersioningRefusalsTest, OnDiskSwitchRefusedForBranchCreatedAfterPrepare) {
-  memgraph::utils::Gatekeeper<memgraph::dbms::Database> gk{StandaloneConfig(data_directory / "on_disk_db", true)};
+  memgraph::kvstore::KVStore ledger_store{data_directory / "on_disk_db_kv"};
+  memgraph::utils::Gatekeeper<memgraph::dbms::Database> gk{StandaloneConfig(data_directory / "on_disk_db", true),
+                                                           &ledger_store};
   InterpreterFaker session{&interpreter_context, *gk.access()};
   auto *const version_store = session.interpreter.current_db_.db_acc_->get()->version_store();
 

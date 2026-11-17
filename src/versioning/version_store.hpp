@@ -198,6 +198,10 @@ class VersionStore {
   // True iff no branches exist (`main` is not counted). Gates storage-global destructive ops.
   bool Empty() const;
 
+  // Holds the registry exclusively, no branch can be created, dropped or checked out meanwhile, iff no branches exist;
+  // otherwise an unowned lock. Do not call Empty() on this thread while it is held.
+  std::unique_lock<std::shared_mutex> LockIfEmpty();
+
   // Attaches a session to `name`; any number may. The session leaves by destroying the handle, which must happen before
   // the store is destroyed. Refuses unknown and unavailable branches.
   std::expected<BranchCheckout, std::string> Checkout(std::string_view name);

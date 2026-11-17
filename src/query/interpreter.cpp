@@ -33,6 +33,7 @@
 #include <range/v3/view/join.hpp>
 #include <range/v3/view/transform.hpp>
 #include <ranges>
+#include <shared_mutex>
 #include <string_view>
 #include <thread>
 #include <tuple>
@@ -499,19 +500,12 @@ constexpr std::string_view kReplacesBranchData = "it would replace the data ever
 constexpr std::string_view kEnumStoreCopiedPerBranch =
     "in v1 each branch keeps its own copy of the enum store, so the change would not reach it";
 
-void ThrowIfBranchesExist(const versioning::VersionStore *vs, std::string_view action, std::string_view reason) {
-  if (vs != nullptr && !vs->Empty()) {
-    if (const auto unreadable = vs->LedgerUnreadable()) {
-      throw QueryRuntimeException("Cannot {} while the branches of the database are unknown: {}", action, *unreadable);
-    }
-    throw QueryRuntimeException(
-        "Cannot {} while branches exist: {}. Drop all branches first.{}",
-        action,
-        reason,
-        vs->HasHidden()
-            ? " They are hidden because graph versioning is disabled: list them with SHOW BRANCHES and drop "
-              "them with DROP BRANCH, or start Memgraph with --experimental-enabled=versioning."
-            : "");
+void ThrowIfBranchesExist(dbms::Database &db, std::string_view action, std::string_view reason) {
+  if (const auto &unavailable = db.branches_unavailable()) {
+    throw QueryRuntimeException("Cannot {} while the branches of the database are unknown: {}", action, *unavailable);
+  }
+  if (const auto *vs = db.version_store(); vs != nullptr && !vs->Empty()) {
+    throw QueryRuntimeException("Cannot {} while branches exist: {}. Drop all branches first.", action, reason);
   }
 }
 
@@ -6922,7 +6916,7 @@ Callback SwitchMemoryDevice(storage::StorageMode current_mode, storage::StorageM
       constexpr auto kSwitchToDiskExclusiveTimeout = std::chrono::seconds{3};
       if (!db.try_exclusively(kSwitchToDiskExclusiveTimeout, [](auto &in) {
 #ifdef MG_ENTERPRISE
-            ThrowIfBranchesExist(in.version_store(), "switch storage mode", kReplacesBranchData);
+            ThrowIfBranchesExist(in, "switch storage mode", kReplacesBranchData);
 #endif
             if (!in.streams()->GetStreamInfo().empty()) {
               throw utils::BasicException(
@@ -7038,7 +7032,7 @@ PreparedQuery PrepareStorageModeQuery(ParsedQuery parsed_query, const bool in_ex
   // A request for the current mode replaces nothing. Re-checked under the exclusive hold the switch takes, since a
   // branch can appear after this check.
   if (requested_mode != current_mode) {
-    ThrowIfBranchesExist(db_acc->version_store(), "switch storage mode", kReplacesBranchData);
+    ThrowIfBranchesExist(*db_acc.get(), "switch storage mode", kReplacesBranchData);
   }
 #endif
 
@@ -7082,10 +7076,10 @@ PreparedQuery PrepareStorageModeQuery(ParsedQuery parsed_query, const bool in_ex
 #ifdef MG_ENTERPRISE
     callback = [requested_mode,
                 storage = static_cast<storage::InMemoryStorage *>(db_acc->storage()),
-                version_store = db_acc->version_store()] {
+                database = db_acc.get()] {
       storage->SetStorageMode(requested_mode, [&] {
         if (requested_mode != storage->GetStorageMode()) {
-          ThrowIfBranchesExist(version_store, "switch storage mode", kReplacesBranchData);
+          ThrowIfBranchesExist(*database, "switch storage mode", kReplacesBranchData);
         }
       });
     };
@@ -7113,7 +7107,7 @@ PreparedQuery PrepareDropGraphQuery(ParsedQuery parsed_query, CurrentDB &current
   MG_ASSERT(current_db.db_acc_, "Drop graph query expects a current DB");
   memgraph::dbms::DatabaseAccess &db_acc = *current_db.db_acc_;
 #ifdef MG_ENTERPRISE
-  ThrowIfBranchesExist(db_acc->version_store(), "drop the graph", kReplacesBranchData);
+  ThrowIfBranchesExist(*db_acc.get(), "drop the graph", kReplacesBranchData);
 #endif
 
   MG_ASSERT(current_db.db_transactional_accessor_, "Drop graph query expects a current DB transaction");
@@ -7233,7 +7227,7 @@ PreparedQuery PrepareRecoverSnapshotQuery(ParsedQuery parsed_query, bool in_expl
 
   MG_ASSERT(current_db.db_acc_, "Recover Snapshot query expects a current DB");
 #ifdef MG_ENTERPRISE
-  ThrowIfBranchesExist(current_db.db_acc_->get()->version_store(), "recover a snapshot", kReplacesBranchData);
+  ThrowIfBranchesExist(*current_db.db_acc_->get(), "recover a snapshot", kReplacesBranchData);
 #endif
   storage::Storage *storage = current_db.db_acc_->get()->storage();
 
@@ -7276,11 +7270,11 @@ PreparedQuery PrepareRecoverSnapshotQuery(ParsedQuery parsed_query, bool in_expl
           -> std::optional<QueryHandlerResult> {
 #ifdef MG_ENTERPRISE
         // Prepare's check can be stale: no branch may be created from here until the recovery is done.
-        std::unique_lock<std::mutex> registry_lock;
+        std::unique_lock<std::shared_mutex> registry_lock;
         if (auto *const version_store = db_acc->version_store()) {
-          registry_lock = version_store->LockRegistry();
-          ThrowIfBranchesExist(version_store, "recover a snapshot", kReplacesBranchData);
+          registry_lock = version_store->LockIfEmpty();
         }
+        if (!registry_lock.owns_lock()) ThrowIfBranchesExist(*db_acc.get(), "recover a snapshot", kReplacesBranchData);
 #endif
         auto *mem_storage = static_cast<storage::InMemoryStorage *>(db_acc->storage());
         if (auto maybe_error = mem_storage->RecoverSnapshot(path, force, replication_role, std::move(s3_cfg));
@@ -9698,7 +9692,7 @@ PreparedQuery PrepareShowMemoryInfoQuery([[maybe_unused]] ParsedQuery parsed_que
 PreparedQuery PrepareCreateEnumQuery(ParsedQuery parsed_query, CurrentDB &current_db) {
   MG_ASSERT(current_db.db_acc_, "Create Enum query expects a current DB");
 #ifdef MG_ENTERPRISE
-  ThrowIfBranchesExist(current_db.db_acc_->get()->version_store(), "create an enum", kEnumStoreCopiedPerBranch);
+  ThrowIfBranchesExist(*current_db.db_acc_->get(), "create an enum", kEnumStoreCopiedPerBranch);
 #endif
 
   auto *create_enum_query = utils::Downcast<CreateEnumQuery>(parsed_query.query);
@@ -9751,7 +9745,7 @@ PreparedQuery PrepareShowEnumsQuery(ParsedQuery parsed_query, CurrentDB &current
 PreparedQuery PrepareEnumAlterAddQuery(ParsedQuery parsed_query, CurrentDB &current_db) {
   MG_ASSERT(current_db.db_acc_, "Alter Enum query expects a current DB");
 #ifdef MG_ENTERPRISE
-  ThrowIfBranchesExist(current_db.db_acc_->get()->version_store(), "alter an enum", kEnumStoreCopiedPerBranch);
+  ThrowIfBranchesExist(*current_db.db_acc_->get(), "alter an enum", kEnumStoreCopiedPerBranch);
 #endif
 
   auto *alter_enum_add_query = utils::Downcast<AlterEnumAddValueQuery>(parsed_query.query);
@@ -9784,7 +9778,7 @@ PreparedQuery PrepareEnumAlterAddQuery(ParsedQuery parsed_query, CurrentDB &curr
 PreparedQuery PrepareEnumAlterUpdateQuery(ParsedQuery parsed_query, CurrentDB &current_db) {
   MG_ASSERT(current_db.db_acc_, "Alter Enum query expects a current DB");
 #ifdef MG_ENTERPRISE
-  ThrowIfBranchesExist(current_db.db_acc_->get()->version_store(), "alter an enum", kEnumStoreCopiedPerBranch);
+  ThrowIfBranchesExist(*current_db.db_acc_->get(), "alter an enum", kEnumStoreCopiedPerBranch);
 #endif
 
   auto *alter_enum_update_query = utils::Downcast<AlterEnumUpdateValueQuery>(parsed_query.query);
