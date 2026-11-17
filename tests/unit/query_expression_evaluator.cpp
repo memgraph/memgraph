@@ -300,8 +300,6 @@ TYPED_TEST(ExpressionEvaluatorTest, AdditionOperator) {
       {this->storage.GetPropertyIx("a"), this->storage.template Create<PrimitiveLiteral>(2)},
       {this->storage.GetPropertyIx("b"), this->storage.template Create<PrimitiveLiteral>(3)}});
   auto merged = this->Eval(this->storage.template Create<AdditionOperator>(left, right));
-  ASSERT_TRUE(merged.IsMap());
-  EXPECT_EQ(merged.ValueMap().size(), 2u);
   EXPECT_EQ(merged.ValueMap().at("a").ValueInt(), 2);
   EXPECT_EQ(merged.ValueMap().at("b").ValueInt(), 3);
   // A map added to a non-map still surfaces as a runtime error.

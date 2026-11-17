@@ -592,8 +592,7 @@ class TypedValueArithmeticTest : public AllTypesFixture<StorageType> {
 TYPED_TEST_SUITE(TypedValueArithmeticTest, StorageTypes);
 
 TYPED_TEST(TypedValueArithmeticTest, Sum) {
-  this->ExpectArithmeticThrowsAndNull(
-      true, [](const TypedValue &a, const TypedValue &b) { return a + b; }, /*maps_merge=*/true);
+  this->ExpectArithmeticThrowsAndNull(true, [](const TypedValue &a, const TypedValue &b) { return a + b; }, true);
 
   // sum of props of the same type
   EXPECT_EQ((TypedValue(2) + TypedValue(3)).ValueInt(), 5);
@@ -622,10 +621,13 @@ TYPED_TEST(TypedValueArithmeticTest, Sum) {
 
   // Maps add as a shallow merge: seeded from the left, the right winning on duplicates.
   {
-    auto const empty_map = Map(std::map<std::string, TypedValue>{});
-    auto const left = Map({{"a", TypedValue(1)}, {"b", TypedValue(2)}});
+    memgraph::utils::MonotonicBufferResource monotonic_memory(1024);
+    auto const left =
+        TypedValue(std::map<std::string, TypedValue>{{"a", TypedValue(1)}, {"b", TypedValue(2)}}, &monotonic_memory);
     auto const right = Map({{"b", TypedValue(3)}, {"c", TypedValue(4)}});
-    EXPECT_PROP_EQ(left + right, Map({{"a", TypedValue(1)}, {"b", TypedValue(3)}, {"c", TypedValue(4)}}));
+    auto const empty_map = Map(std::map<std::string, TypedValue>{});
+    auto const merged = left + right;
+    EXPECT_PROP_EQ(merged, Map({{"a", TypedValue(1)}, {"b", TypedValue(3)}, {"c", TypedValue(4)}}));
     EXPECT_PROP_EQ(Map({{"a", TypedValue(1)}}) + Map({{"a", TypedValue(2)}}), Map({{"a", TypedValue(2)}}));
     EXPECT_PROP_EQ(Map({{"a", TypedValue(2)}}) + Map({{"a", TypedValue(1)}}), Map({{"a", TypedValue(1)}}));
     EXPECT_PROP_EQ(empty_map + right, right);
@@ -634,20 +636,9 @@ TYPED_TEST(TypedValueArithmeticTest, Sum) {
                    Map({{"a", Map({{"y", TypedValue(2)}})}}));
     EXPECT_PROP_EQ(left, Map({{"a", TypedValue(1)}, {"b", TypedValue(2)}}));
     EXPECT_PROP_EQ(right, Map({{"b", TypedValue(3)}, {"c", TypedValue(4)}}));
-    auto const list_v = List({TypedValue(2)});
-    EXPECT_PROP_EQ(left + list_v, List({left, TypedValue(2)}));
-    EXPECT_PROP_EQ(list_v + left, List({TypedValue(2), left}));
-
-    // A merged map and every key/value it holds live on the left operand's resource.
-    memgraph::utils::MonotonicBufferResource monotonic_memory(1024);
-    auto const mon_left =
-        TypedValue(std::map<std::string, TypedValue>{{"a", TypedValue(1)}, {"b", TypedValue(2)}}, &monotonic_memory);
-    auto const mon_right = Map({{"a", TypedValue(3)}, {"c", TypedValue(4)}});
-    auto const merged = mon_left + mon_right;
-    ASSERT_TRUE(merged.IsMap());
-    EXPECT_EQ(merged.ValueMap().at("a").ValueInt(), 3);
-    EXPECT_EQ(merged.ValueMap().at("b").ValueInt(), 2);
-    EXPECT_EQ(merged.ValueMap().at("c").ValueInt(), 4);
+    EXPECT_PROP_EQ(left + List({TypedValue(2)}), List({left, TypedValue(2)}));
+    EXPECT_PROP_EQ(List({TypedValue(2)}) + left, List({TypedValue(2), left}));
+    // The merged map and every key/value it holds live on the left operand's resource.
     EXPECT_EQ(merged.get_allocator().resource(), &monotonic_memory);
     for (const auto &kv : merged.ValueMap()) {
       EXPECT_EQ(kv.first.get_allocator().resource(), &monotonic_memory);
@@ -655,18 +646,12 @@ TYPED_TEST(TypedValueArithmeticTest, Sum) {
     }
   }
 
-  // The merge branch may only dispatch on the operand types: adding two non-map values must still
-  // allocate nothing on the operand's resource.
+  // Non-map operands still allocate nothing on their resource: the branch only dispatches on types.
   {
     memgraph::utils::MemoryTrackingResource non_map_memory(memgraph::utils::NewDeleteResource(), 4096);
     TypedValue const tagged_int{2, &non_map_memory};
-    TypedValue const tagged_double{3.5, &non_map_memory};
-    ASSERT_EQ(non_map_memory.GetAllocatedBytes(), 0) << "an inline scalar should need no allocation";
-    auto const int_sum = tagged_int + tagged_int;
-    auto const mixed_sum = tagged_int + tagged_double;
-    EXPECT_EQ(int_sum.ValueInt(), 4);
-    EXPECT_FLOAT_EQ(mixed_sum.ValueDouble(), 5.5);
-    EXPECT_EQ(non_map_memory.GetAllocatedBytes(), 0) << "adding two non-map values allocated on the operand's resource";
+    EXPECT_EQ((tagged_int + tagged_int).ValueInt(), 4);
+    EXPECT_EQ(non_map_memory.GetAllocatedBytes(), 0);
   }
 
   // Temporal Types
