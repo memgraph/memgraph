@@ -76,6 +76,8 @@ std::expected<std::vector<uint64_t>, std::string> ReplayHistoryTail(storage::InM
     return std::unexpected(std::move(reason));
   };
 
+  const storage::InMemoryStorage::PauseSnapshotsScope no_snapshots{storage};
+
   try {
     pin_due(tail.reached_timestamp + 1);
     {

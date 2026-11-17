@@ -1091,6 +1091,34 @@ class InMemoryStorage final : public Storage {
     InMemoryStorage &storage_;
   };
 
+  /// While alive, no snapshot runs: new periodic ticks are paused and an in-flight snapshot is waited out, since
+  /// holding `snapshot_lock_` also blocks any that is about to start. A snapshot taken mid-replay would capture a
+  /// half-replayed state. Restores the runner to the state it had at construction (it may already be paused, e.g.
+  /// analytical mode, and Scheduler's pause is a flag, not a counter, so this is not nestable).
+  class PauseSnapshotsScope {
+   public:
+    explicit PauseSnapshotsScope(InMemoryStorage &storage)
+        : storage_{storage}, was_paused_{storage.snapshot_runner_.IsPaused()} {
+      storage_.snapshot_runner_.Pause();
+      snapshot_guard_ = std::unique_lock{storage_.snapshot_lock_};
+    }
+
+    ~PauseSnapshotsScope() {
+      snapshot_guard_.unlock();
+      if (!was_paused_) storage_.snapshot_runner_.Resume();
+    }
+
+    PauseSnapshotsScope(PauseSnapshotsScope const &) = delete;
+    PauseSnapshotsScope &operator=(PauseSnapshotsScope const &) = delete;
+    PauseSnapshotsScope(PauseSnapshotsScope &&) = delete;
+    PauseSnapshotsScope &operator=(PauseSnapshotsScope &&) = delete;
+
+   private:
+    InMemoryStorage &storage_;
+    std::unique_lock<utils::ResourceLock> snapshot_guard_;
+    bool was_paused_;
+  };
+
   /// Moves the transaction clock to at least max(last durable timestamp + 1, `min_next`); replayed commits take local
   /// MVCC ids but record main's durable timestamps, so the clock can trail them. Requires no transaction in flight.
   /// Mirrors the clock move on promotion in replication_handler.cpp (MarkFinishedInRange +
