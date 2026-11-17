@@ -698,18 +698,12 @@ struct PatternComprehensionMatching : Matching {
   std::unordered_set<Symbol> external_symbols;
 };
 
-/// @brief Represents a read (+ write) part of a query. Parts are split as listed below.
+/// @brief Represents a read (+ write) part of a query. Each clause goes to one list, in written order: `MATCH` to
+/// `matching`, `OPTIONAL MATCH` to `optional_matching`, and any other clause to `remaining_clauses`.
 ///
-/// Each part ends with either:
-///
-///  * `RETURN` clause;
-///  * `WITH` clause;
-///  * `UNWIND` clause;
-///  * `CALL` clause or
-///  * any of the write clauses.
-///
-/// A part can also end with no clause: a non-optional `MATCH` after an `OPTIONAL MATCH` starts the next part, which
-/// matches on the optional's rows. A part's `matching` therefore never follows its `optional_matching`.
+/// Only a `MATCH` or `OPTIONAL MATCH` starts a new part, and only when the current part has `remaining_clauses`, or
+/// when it is a non-optional `MATCH` and the current part has `optional_matching`. So a part ends with a non-`MATCH`
+/// clause or with an `OPTIONAL MATCH`, and a part's `matching` never follows its `optional_matching`.
 ///
 /// For a query `MATCH (n) MERGE (n) -[e]- (m) SET n.x = 42 MERGE (l)` the
 /// generated SingleQueryPart will have `matching` generated for the `MATCH`.
