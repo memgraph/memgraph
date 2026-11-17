@@ -427,14 +427,18 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
       };
       // Rows that touch keys only through a variable no two rows share cannot see each other's writes. Root only: a
       // View::NEW index scan in a writing body could meet its own write again.
-      auto row_local = [&](const ReadWriteSet &reads, const ReadWriteSet &writes) {
+      auto row_local = [&](const ReadWriteSet &reads, const ReadWriteSet &writes, const ReadWriteSet &own_writes) {
         if (read_scope_ != ReadScope::kRoot) return false;
         auto const symbol = ConflictsOnlyOnKeysOf(reads, writes);
-        return symbol && input_op && impl::IsRowUnique(*input_op, *symbol);
+        if (!symbol || !input_op || !impl::IsRowUnique(*input_op, *symbol)) return false;
+        // The reader's own write of such a key through another variable can reach a later row's node first.
+        auto const own = KeysOnly(own_writes);
+        return !Conflicts(own, writes) || ConflictsOnlyOnKeysOf(own, writes) == symbol;
       };
       // A View::OLD reader misses even its own row's write without the advance, so only a View::NEW one skips it.
-      auto barrier_before = [&](const ReadWriteSet &reads, bool reads_new) {
-        if (!BarriersOn() || !Conflicts(reads, pending_writes) || (reads_new && row_local(reads, pending_writes))) {
+      auto barrier_before = [&](const ReadWriteSet &reads, bool reads_new, const ReadWriteSet &own_writes) {
+        if (!BarriersOn() || !Conflicts(reads, pending_writes) ||
+            (reads_new && row_local(reads, pending_writes, own_writes))) {
           return;
         }
         if (!ConflictsOnlyInAccessCheck(reads, pending_writes)) {
@@ -444,7 +448,9 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
         }
       };
       auto drain_before = [&](const ReadWriteSet &writes) {
-        if (!BarriersOn() || !Conflicts(pending_new_reads, writes) || row_local(pending_new_reads, writes)) return;
+        if (!BarriersOn() || !Conflicts(pending_new_reads, writes) || row_local(pending_new_reads, writes, {})) {
+          return;
+        }
         if (ConflictsOnlyInAccessCheck(pending_new_reads, writes)) {
           plan_access_check_barrier();
         } else {
@@ -470,10 +476,10 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
             // Every read of a writing CALL body is a View::NEW read, which sees what this command created.
             auto new_reads = reads;
             new_reads.symbols.clear();
-            barrier_before(new_reads, /*reads_new=*/true);
+            barrier_before(new_reads, /*reads_new=*/true, /*own_writes=*/{});
             pending_new_reads.Merge(reads);
           } else {
-            barrier_before(reads, /*reads_new=*/false);
+            barrier_before(reads, /*reads_new=*/false, /*own_writes=*/{});
           }
         }
         input_op = HandleMatching(std::move(input_op), single_query_part, *context.symbol_table, context.bound_symbols);
@@ -605,8 +611,19 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
           if (!is_projection && !clause->continues_previous_) {
             auto reads = group_access.reads;
             // View::NEW sees what this command created; only a View::OLD reader needs the advance for that.
-            if (clause_reads_new) reads.symbols.clear();
-            barrier_before(reads, clause_reads_new);
+            if (clause_reads_new) {
+              reads.symbols.clear();
+            } else if (BarriersOn() && (utils::Downcast<Create>(clause) ||
+                                        IsReadOnlyCall(*clause, single_query_part.subqueries, subquery_id))) {
+              // A View::OLD reader that reads only its own row's earlier writes reads View::NEW instead of a barrier.
+              auto new_reads = reads;
+              new_reads.symbols.clear();
+              if (Conflicts(new_reads, pending_writes) && row_local(new_reads, pending_writes, group_access.writes)) {
+                clause_reads_new = true;
+                reads = std::move(new_reads);
+              }
+            }
+            barrier_before(reads, clause_reads_new, group_access.writes);
           }
           if (!clause->continues_previous_) drain_before(group_access.writes);
           // An entity bound since the last barrier is not there at View::OLD, so the evaluator reads it at View::NEW:
@@ -729,7 +746,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
             create_reads_new = reads_only_created && !std::ranges::all_of(reads.referenced, [&](const Symbol &symbol) {
                                  return symbol.type() == Symbol::Type::VERTEX && created_here.contains(symbol);
                                });
-            auto const view = reads_only_created ? storage::View::NEW : ScopeView();
+            auto const view = reads_only_created || clause_reads_new ? storage::View::NEW : ScopeView();
             auto op = HandleWriteClause(clause, input_op, *context.symbol_table, context.bound_symbols, view);
             MG_ASSERT(op, "Expected write clause to be handled");
             input_op = std::move(op);
@@ -861,7 +878,8 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
                                       *context_->ast_storage,
                                       call_sub->cypher_query_->pre_query_directives_.commit_frequency_,
                                       call_sub->optional_,
-                                      scoped_variables);
+                                      scoped_variables,
+                                      /*read_new=*/clause_reads_new && read_scope_ == ReadScope::kRoot);
             if (subquery->writes) {
               wrote_since_with = true;
               if (!has_periodic_commit) {
@@ -991,6 +1009,14 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
   std::unordered_set<Symbol> non_graph_symbols_;
 
   bool BarriersOn() const { return read_scope_ == ReadScope::kRoot || read_scope_ == ReadScope::kWritingTree; }
+
+  /// A CALL body that writes nothing and runs once per input row, not in batches.
+  static bool IsReadOnlyCall(const Clause &clause, const std::vector<std::shared_ptr<QueryParts>> &subqueries,
+                             uint64_t next_subquery) {
+    auto const *call = utils::Downcast<const query::CallSubquery>(&clause);
+    return call && !call->cypher_query_->pre_query_directives_.commit_frequency_ && next_subquery < subqueries.size() &&
+           !subqueries[next_subquery]->writes;
+  }
 
   /// A clause that must see its own earlier rows, so it reads View::NEW: a SET/REMOVE right-hand side, MERGE,
   /// FOREACH and DELETE.
@@ -2053,7 +2079,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
   std::unique_ptr<LogicalOperator> HandleSubquery(
       std::unique_ptr<LogicalOperator> last_op, std::shared_ptr<QueryParts> subquery, SymbolTable &symbol_table,
       AstStorage &storage, Expression *commit_frequency, bool optional,
-      const std::optional<std::unordered_set<Symbol>> &scoped_variables = std::nullopt) {
+      const std::optional<std::unordered_set<Symbol>> &scoped_variables = std::nullopt, bool read_new = false) {
     std::unordered_set<Symbol> outer_scope_bound_symbols;
     outer_scope_bound_symbols.insert(std::make_move_iterator(context_->bound_symbols.begin()),
                                      std::make_move_iterator(context_->bound_symbols.end()));
@@ -2089,7 +2115,8 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
     }
     bool const enters_writing_tree = (from_root || batched_writing_body) && read_scope_ == ReadScope::kWritingTree;
     auto subquery_op = Plan(*subquery);
-    if (enters_writing_tree) impl::ReadNewThroughout(*subquery_op);
+    // A read-only body that reads only its own row's earlier writes reads View::NEW instead of a barrier.
+    if (enters_writing_tree || (read_new && !subquery->writes)) impl::ReadNewThroughout(*subquery_op);
     auto subquery_bound_symbols = subquery_op->OutputSymbols(*context_->symbol_table);
     // `OPTIONAL CALL` nulls out what the branch introduces, never what it imported: `RETURN *` projects the
     // imported variables straight back out, and those must keep the caller's values. Taken here because the move

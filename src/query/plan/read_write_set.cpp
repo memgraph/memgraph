@@ -69,7 +69,7 @@ class ReadWriteCollector final : public HierarchicalTreeVisitor {
   bool PreVisit(PropertyLookup &lookup) override {
     if (ReadsGraph(lookup.expression_)) {
       result.reads.properties.insert(lookup.property_path_.front().name);
-      result.reads.NoteKeySymbol(KeySymbolOf(lookup.expression_));
+      result.reads.NoteKey(lookup.property_path_.front().name, KeySymbolOf(lookup.expression_));
       // A node's property permission depends on its labels.
       if (!IsEdge(lookup.expression_)) ReadLabelsForAccessCheck();
     }
@@ -79,21 +79,25 @@ class ReadWriteCollector final : public HierarchicalTreeVisitor {
   bool PreVisit(AllPropertiesLookup &lookup) override {
     if (ReadsGraph(lookup.expression_)) {
       result.reads.any_property = true;
-      result.reads.NoteKeySymbol(KeySymbolOf(lookup.expression_));
+      result.reads.NoteAnyKey(KeySymbolOf(lookup.expression_));
     }
     return true;
   }
 
   bool PreVisit(SubscriptOperator &op) override {
     if (!ReadsGraph(op.expression1_) || utils::Downcast<ListLiteral>(op.expression1_)) return true;
-    result.reads.NoteKeySymbol(KeySymbolOf(op.expression1_));
     // A subscript on a node is a property read, whose permission depends on the node's labels.
     if (!IsEdge(op.expression1_)) ReadLabelsForAccessCheck();
     if (auto *key = utils::Downcast<PrimitiveLiteral>(op.expression2_)) {
-      if (key->value_.IsString()) result.reads.properties.insert(std::string{key->value_.ValueString()});
+      if (key->value_.IsString()) {
+        std::string name{key->value_.ValueString()};
+        result.reads.properties.insert(name);
+        result.reads.NoteKey(name, KeySymbolOf(op.expression1_));
+      }
       return true;
     }
     result.reads.any_property = true;
+    result.reads.NoteAnyKey(KeySymbolOf(op.expression1_));
     return true;
   }
 
@@ -195,7 +199,8 @@ class ReadWriteCollector final : public HierarchicalTreeVisitor {
 
   bool PreVisit(SetProperty &set) override {
     result.writes.properties.insert(set.property_lookup_->property_path_.front().name);
-    result.writes.NoteKeySymbol(KeySymbolOf(set.property_lookup_->expression_));
+    result.writes.NoteKey(set.property_lookup_->property_path_.front().name,
+                          KeySymbolOf(set.property_lookup_->expression_));
     // The target is an expression too: `SET (CASE WHEN a.f THEN b ELSE a END).x` reads a.f.
     set.property_lookup_->expression_->Accept(*this);
     set.expression_->Accept(*this);
@@ -204,12 +209,12 @@ class ReadWriteCollector final : public HierarchicalTreeVisitor {
 
   bool PreVisit(SetProperties &set) override {
     result.writes.any_property = true;
-    result.writes.NoteKeySymbol(KeySymbolOf(set.identifier_));
+    result.writes.NoteAnyKey(KeySymbolOf(set.identifier_));
     // `SET n = m` copies every property of an entity; any value but a map literal or a parameter may be one.
     if (!utils::Downcast<MapLiteral>(set.expression_) && !utils::Downcast<ParameterLookup>(set.expression_) &&
         ReadsGraph(set.expression_)) {
       result.reads.any_property = true;
-      result.reads.keys_mixed = true;
+      result.reads.any_key_reach.mixed = true;
     }
     set.expression_->Accept(*this);
     return false;
@@ -224,7 +229,8 @@ class ReadWriteCollector final : public HierarchicalTreeVisitor {
 
   bool PreVisit(RemoveProperty &remove) override {
     result.writes.properties.insert(remove.property_lookup_->property_path_.front().name);
-    result.writes.NoteKeySymbol(KeySymbolOf(remove.property_lookup_->expression_));
+    result.writes.NoteKey(remove.property_lookup_->property_path_.front().name,
+                          KeySymbolOf(remove.property_lookup_->expression_));
     remove.property_lookup_->expression_->Accept(*this);
     return false;
   }
@@ -310,12 +316,14 @@ class ReadWriteCollector final : public HierarchicalTreeVisitor {
   template <class TProperties>
   void ReadPropertyKeys(const TProperties &properties, Identifier *atom) {
     if (const auto *map = std::get_if<std::unordered_map<PropertyIx, Expression *>>(&properties)) {
-      if (map->empty()) return;
-      for (const auto &[key, value] : *map) result.reads.properties.insert(key.name);
+      for (const auto &[key, value] : *map) {
+        result.reads.properties.insert(key.name);
+        result.reads.NoteKey(key.name, KeySymbolOf(atom));
+      }
     } else {
       result.reads.any_property = true;
+      result.reads.NoteAnyKey(KeySymbolOf(atom));
     }
-    result.reads.NoteKeySymbol(KeySymbolOf(atom));
   }
 
   /// The variable a property key is reached through, or nullopt for an object that is no variable.
@@ -387,10 +395,21 @@ bool ReadWriteSet::Empty() const {
          !nodes && !everything && symbols.empty();
 }
 
-void ReadWriteSet::NoteKeySymbol(const std::optional<Symbol> &symbol) {
-  if (!symbol || (key_symbol && *key_symbol != *symbol)) keys_mixed = true;
-  if (!key_symbol) key_symbol = symbol;
+void KeyReach::Note(const std::optional<Symbol> &through) {
+  if (!through || (symbol && *symbol != *through)) mixed = true;
+  if (!symbol) symbol = through;
 }
+
+void KeyReach::Merge(const KeyReach &other) {
+  mixed |= other.mixed;
+  if (other.symbol) Note(other.symbol);
+}
+
+void ReadWriteSet::NoteKey(const std::string &key, const std::optional<Symbol> &through) {
+  key_reach[key].Note(through);
+}
+
+void ReadWriteSet::NoteAnyKey(const std::optional<Symbol> &through) { any_key_reach.Note(through); }
 
 void ReadWriteSet::Merge(const ReadWriteSet &other) {
   properties.insert(other.properties.begin(), other.properties.end());
@@ -403,8 +422,8 @@ void ReadWriteSet::Merge(const ReadWriteSet &other) {
   everything |= other.everything;
   access_check_labels |= other.access_check_labels;
   relabels |= other.relabels;
-  keys_mixed |= other.keys_mixed;
-  if (other.key_symbol) NoteKeySymbol(other.key_symbol);
+  for (const auto &[key, reach] : other.key_reach) key_reach[key].Merge(reach);
+  any_key_reach.Merge(other.any_key_reach);
   symbols.insert(other.symbols.begin(), other.symbols.end());
   referenced.insert(other.referenced.begin(), other.referenced.end());
 }
@@ -423,12 +442,24 @@ bool Conflicts(const ReadWriteSet &reads, const ReadWriteSet &writes) {
          (reads.nodes && writes.nodes);
 }
 
+namespace {
+
+/// The one variable @p set reaches @p key through (nullptr: any key), counting its reads of any key.
+std::optional<Symbol> ReachOf(const ReadWriteSet &set, const std::string *key) {
+  KeyReach reach;
+  if (key) {
+    if (auto it = set.key_reach.find(*key); it != set.key_reach.end()) reach.Merge(it->second);
+  }
+  if (set.any_property) reach.Merge(set.any_key_reach);
+  if (reach.mixed) return std::nullopt;
+  return reach.symbol;
+}
+
+}  // namespace
+
 std::optional<Symbol> ConflictsOnlyOnKeysOf(const ReadWriteSet &reads, const ReadWriteSet &writes) {
   // A procedure or a graph-reading function reads everything, through no one variable.
-  if (reads.everything || writes.everything || reads.keys_mixed || writes.keys_mixed || !reads.key_symbol ||
-      reads.key_symbol != writes.key_symbol) {
-    return std::nullopt;
-  }
+  if (reads.everything || writes.everything) return std::nullopt;
   auto other_reads = reads;
   auto other_writes = writes;
   for (auto *set : {&other_reads, &other_writes}) {
@@ -436,7 +467,33 @@ std::optional<Symbol> ConflictsOnlyOnKeysOf(const ReadWriteSet &reads, const Rea
     set->any_property = false;
   }
   if (Conflicts(other_reads, other_writes)) return std::nullopt;
-  return reads.key_symbol;
+  // Every key both sides touch goes through one and the same variable, on both sides.
+  std::optional<Symbol> through;
+  bool one = true;
+  auto const agree = [&](const std::string *key) {
+    for (const auto *set : {&reads, &writes}) {
+      auto const symbol = ReachOf(*set, key);
+      if (!symbol || (through && *through != *symbol)) one = false;
+      through = symbol;
+    }
+  };
+  for (const auto &key : reads.properties) {
+    if (writes.any_property || writes.properties.contains(key)) agree(&key);
+  }
+  if (reads.any_property) {
+    for (const auto &key : writes.properties) agree(&key);
+    if (writes.any_property) agree(nullptr);
+  }
+  return one ? through : std::nullopt;
+}
+
+ReadWriteSet KeysOnly(const ReadWriteSet &set) {
+  ReadWriteSet keys;
+  keys.properties = set.properties;
+  keys.any_property = set.any_property;
+  keys.key_reach = set.key_reach;
+  keys.any_key_reach = set.any_key_reach;
+  return keys;
 }
 
 bool MayHoldEntity(Expression *value, const SymbolTable &symbol_table, const std::unordered_set<Symbol> &non_graph) {

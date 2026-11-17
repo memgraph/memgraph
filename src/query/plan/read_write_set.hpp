@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <map>
 #include <optional>
 #include <set>
 #include <string>
@@ -28,6 +29,16 @@ class SymbolTable;
 namespace memgraph::query::plan {
 
 struct Matching;
+
+/// The variable a property key is read or written through: one variable, or `mixed` for two or more, or an object
+/// that is no variable.
+struct KeyReach {
+  std::optional<Symbol> symbol;
+  bool mixed{false};
+
+  void Note(const std::optional<Symbol> &through);
+  void Merge(const KeyReach &other);
+};
 
 /// What a clause reads from, or writes to, the graph. Keys are property, label and edge-type names. A read and a write
 /// conflict when they can touch the same key; an unknown key (`n[$k]`, `+= $m`, `properties(n)`) is any key.
@@ -48,10 +59,9 @@ struct ReadWriteSet {
   /// Writes only: a SET or REMOVE label changed the labels of a node that already existed, the one write an access
   /// check can see. A created node's labels are not one: whether a read finds that node at all is a real conflict.
   bool relabels{false};
-  /// The one variable every property key in this set is read or written through, when there is one (`keys_mixed`
-  /// false).
-  std::optional<Symbol> key_symbol;
-  bool keys_mixed{false};
+  /// Per key in `properties`, the variable it is read or written through; `any_key_reach` for `any_property`.
+  std::map<std::string, KeyReach> key_reach;
+  KeyReach any_key_reach;
   /// Reads: the symbols a pattern expands from or through. Writes: the symbols a CREATE or MERGE first binds, which
   /// View::OLD cannot see until the command advances.
   std::unordered_set<Symbol> symbols;
@@ -63,8 +73,10 @@ struct ReadWriteSet {
   /// with `relabels`, the second only marks a read as a View::NEW read.
   bool Empty() const;
   void Merge(const ReadWriteSet &other);
-  /// Records a key read or written through @p symbol; nullopt (an object that is no variable) mixes the keys.
-  void NoteKeySymbol(const std::optional<Symbol> &symbol);
+  /// Records @p key read or written through @p through; nullopt (an object that is no variable) mixes it.
+  void NoteKey(const std::string &key, const std::optional<Symbol> &through);
+  /// Records any key read or written through @p through.
+  void NoteAnyKey(const std::optional<Symbol> &through);
 
   void Clear() { *this = ReadWriteSet{}; }
 };
@@ -78,8 +90,11 @@ bool Conflicts(const ReadWriteSet &reads, const ReadWriteSet &writes);
 bool ConflictsOnlyInAccessCheck(const ReadWriteSet &reads, const ReadWriteSet &writes);
 
 /// The variable through which the reads and the writes touch every key they conflict on, when they conflict on
-/// property keys alone and both reach them through that one variable; nullopt otherwise.
+/// property keys alone and both reach each such key through that one variable; nullopt otherwise.
 std::optional<Symbol> ConflictsOnlyOnKeysOf(const ReadWriteSet &reads, const ReadWriteSet &writes);
+
+/// Only the property keys of @p set, and the variables they go through.
+ReadWriteSet KeysOnly(const ReadWriteSet &set);
 
 struct ReadsAndWrites {
   ReadWriteSet reads;
