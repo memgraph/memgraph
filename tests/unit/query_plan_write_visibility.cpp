@@ -548,6 +548,25 @@ TEST_F(WriteVisibilityPlan, ARowUniqueNodeReadsNewInsteadOfABarrier) {
   EXPECT_TRUE(Collect<Accumulate>(Plan("MATCH (a) SET a.x = 1 CREATE ({v: a.x}) SET a.x = 100")).empty());
 }
 
+// A CREATE that reads what it writes itself would see its own earlier rows at View::NEW: it keeps View::OLD and the
+// barrier.
+TEST_F(WriteVisibilityPlan, ARowUniqueCreateThatReadsItsOwnWritesKeepsItsBarrier) {
+  auto &expand = Plan("MATCH (a:A) SET a.x = 1 CREATE (a)-[:R]->(b {v: a.x, n: size([(:A)-[:R]->(z) | z])})");
+  EXPECT_FALSE(Collect<Accumulate>(expand).empty());
+  EXPECT_EQ(Views<CreateExpand>(expand), (std::vector{View::OLD}));
+  auto &node = Plan("MATCH (a:A) SET a.x = 1 CREATE (b:B {v: a.x, n: size([(q:B)-[*0..0]-(r) | 1])})");
+  EXPECT_FALSE(Collect<Accumulate>(node).empty());
+  EXPECT_EQ(Views<CreateNode>(node), (std::vector{View::OLD}));
+}
+
+// A switched CREATE's read is a View::NEW read: a later write of its key through another variable drains first.
+TEST_F(WriteVisibilityPlan, ASwitchedCreateDrainsBeforeAWriteOfItsKeyThroughAnotherVariable) {
+  EXPECT_FALSE(
+      Collect<Accumulate>(Plan("MATCH (a:L) WITH a, head([(a)-[:T]->(o) | o]) AS q SET a.x = 1 CREATE ({v: a.x}) "
+                               "SET q.x = 5"))
+          .empty());
+}
+
 // A MERGE reads its own pattern key through its own variable: only the keys the earlier write reached decide.
 TEST_F(WriteVisibilityPlan, AMergeReadsARowUniqueKeyWithoutABarrier) {
   for (auto const *query : {

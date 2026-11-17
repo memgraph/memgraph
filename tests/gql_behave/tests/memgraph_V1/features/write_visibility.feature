@@ -2760,6 +2760,42 @@ Feature: Write visibility inside one query
             | v |
             | 1 |
 
+    Scenario: A CREATE whose map reads the edge type it creates does not see its own earlier rows
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:WvOa {id: 1}), (:WvOa {id: 2}), (:WvOa {id: 3})
+            """
+        When executing query:
+            """
+            MATCH (a:WvOa) WITH a ORDER BY a.id SET a.x = a.id
+            CREATE (a)-[:WvOr]->(b:WvOb {v: a.x, n: size([(:WvOa)-[:WvOr]->(z) | z])})
+            RETURN b.v AS v, b.n AS n ORDER BY v
+            """
+        Then the result should be, in order:
+            | v | n |
+            | 1 | 0 |
+            | 2 | 0 |
+            | 3 | 0 |
+
+    Scenario: A CREATE whose map reads the label it creates does not see its own earlier rows
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:WvOa {id: 1}), (:WvOa {id: 2}), (:WvOa {id: 3})
+            """
+        When executing query:
+            """
+            MATCH (a:WvOa) WITH a ORDER BY a.id SET a.x = a.id
+            CREATE (b:WvOb {v: a.x, n: size([(q:WvOb)-[*0..0]-(r) | 1])})
+            RETURN b.v AS v, b.n AS n ORDER BY v
+            """
+        Then the result should be, in order:
+            | v | n |
+            | 1 | 0 |
+            | 2 | 0 |
+            | 3 | 0 |
+
     Scenario: A SET that writes the next row's node sees the earlier SET of every row first
         Given an empty graph
         And having executed:
