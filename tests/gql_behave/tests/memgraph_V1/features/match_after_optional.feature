@@ -50,10 +50,7 @@ Feature: MATCH after OPTIONAL MATCH
 
     Scenario: A MATCH expanding from a null optional node drops the row (indexes EDGE :SEQUEL)
         Given an empty graph
-        And having executed:
-            """
-            CREATE EDGE INDEX ON :SEQUEL
-            """
+        And with new edge type index :SEQUEL
         And having executed:
             """
             CREATE (k:MaoP {name: 'Keanu'}), (c:MaoP {name: 'Carrie'}), (h:MaoP {name: 'Hugo'}),
@@ -206,10 +203,7 @@ Feature: MATCH after OPTIONAL MATCH
 
     Scenario: Inside a CALL subquery body (indexes EDGE :SEQUEL)
         Given an empty graph
-        And having executed:
-            """
-            CREATE EDGE INDEX ON :SEQUEL
-            """
+        And with new edge type index :SEQUEL
         And having executed:
             """
             CREATE (k:MaoP {name: 'Keanu'}), (c:MaoP {name: 'Carrie'}), (h:MaoP {name: 'Hugo'}),
