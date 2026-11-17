@@ -15,6 +15,8 @@
 
 #include <cstdint>
 #include <expected>
+#include <filesystem>
+#include <functional>
 #include <span>
 #include <string>
 #include <vector>
@@ -22,10 +24,20 @@
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/inmemory/storagefwd.hpp"
 
+namespace memgraph::storage::durability {
+struct WalInfo;
+}  // namespace memgraph::storage::durability
+
 namespace memgraph::dbms {
 
-// Replays `tail` into the freshly recovered `storage` as MVCC txns with WAL appends suppressed, registering a fork pin
-// per `fork_ts` right before the first txn with durable ts >= it (after all if none), then bumps the clock past the
+// Applies the transactions of `wal_path` newer than the last durable timestamp as commits that do not append to the
+// WAL, calling `on_txn_begin` with each one's durable timestamp before its first delta. False when the file cannot be
+// read or replay consumes a delta count other than `wal_info.num_deltas`; throws on a decode failure.
+bool ReplayWalFile(storage::InMemoryStorage &storage, std::filesystem::path const &wal_path,
+                   storage::durability::WalInfo const &wal_info, std::function<void(uint64_t)> on_txn_begin);
+
+// Replays `tail` into the freshly recovered `storage` as MVCC txns committed without a WAL append, registering a fork
+// pin per `fork_ts` right before the first txn with durable ts >= it (after all if none), then bumps the clock past the
 // last durable ts and to at least the newest `fork_ts`. Returns the pins (local MVCC timestamps, not durable ones) in
 // `fork_ts` order, caller-owned. `fork_ts` must be ascending (duplicates allowed) and past `tail.reached_timestamp`.
 // Precondition: called while the Database is being constructed, before `storage` is published (no sessions, triggers,

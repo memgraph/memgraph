@@ -1262,28 +1262,4 @@ InMemoryReplicationHandlers::LoadWalStatus InMemoryReplicationHandlers::LoadWal(
   return LoadWalStatus{.success = true, .num_txns_committed = num_txns_committed};
 }
 
-#ifdef MG_ENTERPRISE
-bool InMemoryReplicationHandlers::ReplayWalFile(std::filesystem::path const &wal_path,
-                                                storage::durability::WalInfo const &wal_info,
-                                                storage::InMemoryStorage *storage,
-                                                std::function<void(uint64_t)> const &on_txn_begin) {
-  storage::durability::Decoder wal_decoder;
-  const auto version = wal_decoder.Initialize(wal_path, storage::durability::kWalMagic);
-  if (!version || !storage::durability::IsVersionSupported(*version)) {
-    spdlog::error("WAL file {} has no valid magic and version", wal_path);
-    return false;
-  }
-  wal_decoder.SetPosition(wal_info.offset_deltas);
-  storage::WalApplyOptions const options{.mode = storage::WalApplyMode::kWalFile, .on_txn_begin = on_txn_begin};
-  uint64_t delta_idx{0};
-  while (delta_idx < wal_info.num_deltas) {
-    auto const res = storage->ApplyWalTransaction(&wal_decoder, *version, options);
-    if (!res) return false;
-    delta_idx += res->current_delta_idx;
-  }
-  // Same check as LoadWal: overrunning the stated count means a transaction-end marker was lost.
-  return delta_idx == wal_info.num_deltas;
-}
-#endif
-
 }  // namespace memgraph::dbms

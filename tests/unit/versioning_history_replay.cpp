@@ -18,10 +18,12 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <expected>
 #include <filesystem>
 #include <optional>
 #include <span>
 #include <string>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -30,7 +32,6 @@
 
 #include "dbms/database.hpp"
 #include "dbms/inmemory/history_replay.hpp"
-#include "dbms/inmemory/replication_handlers.hpp"
 #include "flags/general.hpp"
 #include "memory/db_arena.hpp"
 #include "metrics/prometheus_metrics.hpp"
@@ -505,8 +506,7 @@ TEST_F(VersioningHistoryReplayTest, CorruptTailWalFailsWithoutPins) {
     auto info = ms::durability::ReadWalContents(wal);
     ASSERT_GT(info.num_deltas, 1U);
     --info.num_deltas;
-    const ms::InMemoryStorage::SuppressWalScope no_wal{r.storage};
-    EXPECT_FALSE(memgraph::dbms::InMemoryReplicationHandlers::ReplayWalFile(wal, info, &r.storage, [](uint64_t) {}));
+    EXPECT_FALSE(memgraph::dbms::ReplayWalFile(r.storage, wal, info, [](uint64_t) {}));
   }
 
   // Bounded recovery reads the straddling WAL, so it runs on the intact file and only then is the tail file halved.
@@ -517,4 +517,29 @@ TEST_F(VersioningHistoryReplayTest, CorruptTailWalFailsWithoutPins) {
   ASSERT_FALSE(pins.has_value());
   EXPECT_THAT(pins.error(), ::testing::HasSubstr("threw"));
   EXPECT_EQ(r.storage.OldestForkPin(), ms::InMemoryStorage::kNoForkPin);
+}
+
+// Constructing the scope aborts a snapshot in flight and never leaves the abort flag behind: whether or not one was
+// running, the first snapshot after the scope succeeds. Whether the in-flight snapshot is actually caught mid-run is a
+// race this test cannot force (no hook inside CreateSnapshot), so only the no-leak outcome is asserted.
+TEST_F(VersioningHistoryReplayTest, PauseSnapshotsScopeAbortsInFlightSnapshotWithoutLeakingTheFlag) {
+  WriteMainHistory(kDirMain, 3);
+  Recovered r{kDirMain};
+
+  {
+    ms::InMemoryStorage::PauseSnapshotsScope const scope{r.storage};
+  }
+  EXPECT_TRUE(r.storage.CreateSnapshot(true).has_value());
+
+  std::expected<std::filesystem::path, ms::InMemoryStorage::CreateSnapshotError> in_flight;
+  std::thread snapshotter{[&] { in_flight = r.storage.CreateSnapshot(true); }};
+  {
+    ms::InMemoryStorage::PauseSnapshotsScope const scope{r.storage};
+  }
+  snapshotter.join();
+  if (!in_flight.has_value()) {
+    EXPECT_EQ(in_flight.error(), ms::InMemoryStorage::CreateSnapshotError::AbortSnapshot);
+  }
+
+  EXPECT_TRUE(r.storage.CreateSnapshot(true).has_value());
 }

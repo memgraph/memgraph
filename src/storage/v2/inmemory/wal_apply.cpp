@@ -52,6 +52,7 @@ std::optional<SingleTxnDeltasProcessingResult> InMemoryStorage::ApplyWalTransact
                                                                                     const WalApplyOptions &options) {
   bool const two_phase_commit = options.mode == WalApplyMode::kStreamTwoPhase;
   bool const loading_wal = options.mode == WalApplyMode::kWalFile;
+  MG_ASSERT(options.persist_wal || !two_phase_commit, "a two-phase commit cannot skip the WAL");
 
   constexpr auto kSharedAccess = StorageAccessType::WRITE;
   constexpr auto kUniqueAccess = StorageAccessType::UNIQUE;
@@ -464,8 +465,10 @@ std::optional<SingleTxnDeltasProcessingResult> InMemoryStorage::ApplyWalTransact
           // Durability could take some time on replica
           auto in_progress_cb = report_progress;
 
-          auto const ret = commit_accessor->PrepareForCommitPhase(
-              CommitArgs::make_replica_write(commit_timestamp, two_phase_commit, std::move(in_progress_cb)));
+          auto commit_args =
+              CommitArgs::make_replica_write(commit_timestamp, two_phase_commit, std::move(in_progress_cb));
+          if (!options.persist_wal) commit_args = std::move(commit_args).without_wal();
+          auto const ret = commit_accessor->PrepareForCommitPhase(std::move(commit_args));
 
           if (!ret) {
             throw utils::BasicException("Committing failed while trying to prepare for commit on replica.");
