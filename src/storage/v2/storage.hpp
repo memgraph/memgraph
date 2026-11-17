@@ -16,6 +16,9 @@
 #include <optional>
 #include <set>
 #include <string>
+#include <unordered_map>
+#include <unordered_set>
+#include <vector>
 
 #include <nlohmann/json_fwd.hpp>
 
@@ -227,10 +230,15 @@ struct ColdTenantRecovery {
 nlohmann::json ToJson(const StorageInfo &info);
 
 struct EdgeInfoForDeletion {
+  // Each vertex that only loses some of its edges maps to the sorted, deduplicated vertices on the other end of
+  // those edges. The adjacency entry already names that vertex, so the scan over a dense vertex's edges can rule
+  // out nearly every entry by comparing a pointer, without reading the Edge object to get its gid.
+  using OpposingVertices = std::vector<Vertex *>;
+
   std::unordered_set<Gid> partial_src_edge_ids{};
   std::unordered_set<Gid> partial_dest_edge_ids{};
-  std::unordered_set<Vertex *> partial_src_vertices{};
-  std::unordered_set<Vertex *> partial_dest_vertices{};
+  std::unordered_map<Vertex *, OpposingVertices> partial_src_vertices{};
+  std::unordered_map<Vertex *, OpposingVertices> partial_dest_vertices{};
 };
 
 struct TTLReplicationArgs {
