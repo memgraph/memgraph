@@ -1823,6 +1823,13 @@ TypedValue operator+(const TypedValue &a, const TypedValue &b) {
     return TypedValue(std::move(list), a.alloc_);
   }
 
+  // Two maps merge into a fresh shallow map: seeded from the left, the right winning on duplicates.
+  if (a.IsMap() && b.IsMap()) {
+    TypedValue::TMap merged(a.ValueMap(), a.alloc_);
+    for (const auto &[key, value] : b.ValueMap()) merged.insert_or_assign(key, value);
+    return TypedValue(std::move(merged), a.alloc_);
+  }
+
   // Moved out, not copied: copying a TypedValue selects the default resource, discarding the
   // allocator the helper just gave it.
   if (auto maybe_add = MaybeDoTemporalTypeAddition(a, b); maybe_add) {
