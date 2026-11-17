@@ -45,13 +45,14 @@ class StorageV2GcMetricsTest : public testing::Test {
     uuid_ = {};
   }
 
-  void InitStorage(std::chrono::milliseconds interval) {
+  void InitStorage(std::chrono::milliseconds interval, bool commit_lock_narrowing = false) {
     memgraph::metrics::Metrics().SetStorageSnapshotResolver({});
     storage.reset();
     registration_ = {};
     memgraph::storage::Config config;
     config.salient.name = db_name_;
     config.gc = {.type = memgraph::storage::Config::Gc::Type::PERIODIC, .interval = interval};
+    config.experimental_commit_lock_narrowing = commit_lock_narrowing;
     uuid_ = memgraph::utils::UUID{};
     registration_ = memgraph::metrics::Metrics().AddDatabase(uuid_, db_name_);
     storage = std::make_unique<memgraph::storage::InMemoryStorage>(
