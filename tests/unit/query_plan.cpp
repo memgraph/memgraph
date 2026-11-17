@@ -1371,7 +1371,9 @@ TYPED_TEST(TestPlanner, MatchEdgeTypeIndexKeepsBoundEndpoint) {
 TYPED_TEST(TestPlanner, VariableStartDoesNotScanAnEdgeIntoABoundEndpoint) {
   // An edge scan writes both endpoints; a self-loop or a WITH-bound end node must keep its Expand.
   FakeDbAccessor dba;
+  // MATCH (a)-[r]->(a) RETURN r
   auto *self_loop = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("a"), EDGE("r", Direction::OUT), NODE("a"))), RETURN("r")));
+  // MATCH (m) WITH m MATCH (s)-[r]->(m) RETURN s
   auto *bound_end = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("m"))),
                                        WITH("m"),
                                        MATCH(PATTERN(NODE("s"), EDGE("r", Direction::OUT), NODE("m"))),
@@ -1395,7 +1397,6 @@ TYPED_TEST(TestPlanner, MatchEdgeTypeIndexKeepsAnExpandOverAnotherScan) {
   // the bound a sits on ScanAll (x); an edge scan would drop x and overwrite a.
   const auto settings_dir =
       std::filesystem::temp_directory_path() / ("MG_tests_unit_query_plan_cartesian_" + std::to_string(getpid()));
-  std::filesystem::remove_all(settings_dir);
   memgraph::utils::OnScopeExit remove_dir{[&] { std::filesystem::remove_all(settings_dir); }};
   memgraph::utils::Settings settings(settings_dir);
   memgraph::flags::run_time::Initialize(settings);
