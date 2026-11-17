@@ -82,6 +82,8 @@ class ReadWriteCollector final : public HierarchicalTreeVisitor {
   bool PreVisit(SubscriptOperator &op) override {
     if (!ReadsGraph(op.expression1_) || utils::Downcast<ListLiteral>(op.expression1_)) return true;
     NoteKeyAccess(result.reads, op.expression1_);
+    // A subscript on a node is a property read, whose permission depends on the node's labels.
+    if (!IsEdge(op.expression1_)) ReadLabelsForAccessCheck();
     if (auto *key = utils::Downcast<PrimitiveLiteral>(op.expression2_)) {
       if (key->value_.IsString()) result.reads.properties.insert(std::string{key->value_.ValueString()});
       return true;
