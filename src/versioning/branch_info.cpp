@@ -9,7 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "versioning/name.hpp"
+#include "versioning/branch_info.hpp"
 
 #include <fmt/format.h>
 
@@ -25,28 +25,28 @@ bool IsAlphaNum(char c) { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z'
 bool IsMiddleChar(char c) { return IsAlphaNum(c) || c == '.' || c == '_' || c == '-'; }
 }  // namespace
 
-std::optional<std::string> ValidateBranchName(std::string_view name) {
+std::expected<void, std::string> ValidateBranchName(std::string_view name) {
   if (name.empty()) {
-    return "Branch name must not be empty.";
+    return std::unexpected(std::string{"Branch name must not be empty."});
   }
   if (name == "main") {
-    return "'main' is a reserved branch name.";
+    return std::unexpected(std::string{"'main' is a reserved branch name."});
   }
   if (name.size() > kMaxBranchNameLength) {
-    return fmt::format("Branch name must be at most {} characters.", kMaxBranchNameLength);
+    return std::unexpected(fmt::format("Branch name must be at most {} characters.", kMaxBranchNameLength));
   }
   if (name.contains('@')) {
-    return "Branch name must not contain '@': it names a branch as <database>@<branch>.";
+    return std::unexpected(std::string{"Branch name must not contain '@': it names a branch as <database>@<branch>."});
   }
   for (const char c : name) {
     if (!IsMiddleChar(c)) {
-      return "Branch name may contain only letters, digits, '.', '_' and '-'.";
+      return std::unexpected(std::string{"Branch name may contain only letters, digits, '.', '_' and '-'."});
     }
   }
   if (!IsAlphaNum(name.front()) || !IsAlphaNum(name.back())) {
-    return "Branch name must start and end with an alphanumeric character.";
+    return std::unexpected(std::string{"Branch name must start and end with an alphanumeric character."});
   }
-  return std::nullopt;
+  return {};
 }
 
 }  // namespace memgraph::versioning

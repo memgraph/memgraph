@@ -38,6 +38,7 @@ inline constexpr std::string_view kBranchLedgerKeyPrefix = "branches:";
 
 // Durable registry of one database's branches: a single JSON value under "branches:<db-uuid>" in the DBMS durability
 // KVStore. Read rejects a bad payload, version or registry. Not thread-safe: the owner serializes Write/Read.
+// The store is the DBMS durability KVStore owned by DbmsHandler; it must outlive every BranchLedger.
 class BranchLedger {
  public:
   static constexpr uint32_t kVersion = 1;
@@ -52,7 +53,7 @@ class BranchLedger {
   std::expected<std::optional<LedgerContents>, std::string> Read() const;
 
  private:
-  kvstore::KVStore *store_;
+  kvstore::KVStore &store_;
   std::string key_;
 };
 

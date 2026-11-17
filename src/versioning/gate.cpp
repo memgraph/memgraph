@@ -13,13 +13,13 @@
 
 namespace memgraph::versioning {
 
-std::optional<GateError> CheckVersioningGate(GateOperation op, GateState const &state) {
+std::expected<void, GateError> CheckVersioningGate(GateOperation op, GateState const &state) {
   const bool creating = op == GateOperation::kCreate;
-  if (!state.flag_enabled) return GateError::kDisabled;
-  if (creating && !state.enterprise_valid) return GateError::kNoLicense;
-  if (!state.is_in_memory_transactional) return GateError::kUnsupportedStorageMode;
-  if (creating && !state.durable) return GateError::kNotDurable;
-  return std::nullopt;
+  if (!state.flag_enabled) return std::unexpected(GateError::kDisabled);
+  if (creating && !state.enterprise_valid) return std::unexpected(GateError::kNoLicense);
+  if (!state.is_in_memory_transactional) return std::unexpected(GateError::kUnsupportedStorageMode);
+  if (creating && !state.durable) return std::unexpected(GateError::kNotDurable);
+  return {};
 }
 
 bool BranchesDurable(const storage::Config &config) {
@@ -28,17 +28,18 @@ bool BranchesDurable(const storage::Config &config) {
              storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL;
 }
 
-std::optional<std::string> StartupConfigError(storage::StorageMode mode, const storage::Config &config) {
+std::expected<void, std::string> ValidateStartupConfig(storage::StorageMode mode, const storage::Config &config) {
   const auto error =
       CheckVersioningGate(GateOperation::kCreate,
                           {.flag_enabled = true,
                            .enterprise_valid = true,
                            .is_in_memory_transactional = mode == storage::StorageMode::IN_MEMORY_TRANSACTIONAL,
                            .durable = BranchesDurable(config)});
-  if (!error) return std::nullopt;
-  return std::string{GateErrorMessage(*error)} +
-         " Memgraph does not start with --experimental-enabled=versioning and these settings: change them, or start "
-         "without the flag.";
+  if (error) return {};
+  return std::unexpected(
+      std::string{GateErrorMessage(error.error())} +
+      " Memgraph does not start with --experimental-enabled=versioning and these settings: change them, or start "
+      "without the flag.");
 }
 
 std::string_view GateErrorMessage(GateError err) {
