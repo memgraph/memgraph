@@ -9236,8 +9236,7 @@ TYPED_TEST(TestPlanner, CachePropertiesTwoSymbolsDoNotFire) {
   CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectExpand(), ExpectProduce());
 }
 
-// An aggregation evaluates its own expressions per input row, so a property several of them read is
-// read once per row for each of them. The pass belongs below the aggregation, where the record is.
+// The pass goes below the aggregation, which is the only place the record is still there to read.
 TYPED_TEST(TestPlanner, CachePropertiesAnAggregationReadingOnePropertySeveralTimes) {
   CachePropertiesFlagGuard guard{true};
   FakeDbAccessor dba;
@@ -9267,6 +9266,25 @@ TYPED_TEST(TestPlanner, CachePropertiesAnAggregationReadingTwoPropertiesOnceEach
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN(sum, AS("s"), count, AS("c"))));
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto aggr = ExpectAggregate({sum, count}, {});
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), aggr, ExpectProduce());
+}
+
+// A map collection evaluates its key only once the row's value has been accepted, so a row whose
+// value is Null never reads the key. A repeat that only the key gives therefore earns no pass: a
+// read taken ahead for it would reach a record the row never asks about.
+TYPED_TEST(TestPlanner, CachePropertiesAnAggregationsSecondArgumentEarnsNoPass) {
+  CachePropertiesFlagGuard guard{true};
+  FakeDbAccessor dba;
+  auto prop = dba.Property("a");
+  auto collect_map =
+      this->storage.template Create<memgraph::query::Aggregation>(PROPERTY_LOOKUP(dba, "n", prop),
+                                                                  PROPERTY_LOOKUP(dba, "n", prop),
+                                                                  memgraph::query::Aggregation::Op::COLLECT_MAP,
+                                                                  false);
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN(collect_map, AS("m"))));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto aggr = ExpectAggregate({collect_map}, {});
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
   CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), aggr, ExpectProduce());
 }

@@ -396,9 +396,8 @@ TYPED_TEST(QueryExecution, CachePropertiesResultsWithFlagOn) {
   CHECK_CACHE_PROPERTIES_RESULTS();
 }
 
-/// What an aggregation answers, with the pass reading its properties and without. An aggregation
-/// evaluates its own expressions once per input row, so these are the shapes where one record's
-/// property is read more than once.
+/// What an aggregation answers, with the pass reading its properties and without. Each fixture gets
+/// a fresh plan cache, so the two have to be separate tests rather than one toggling the flag.
 #define CHECK_AGGREGATION_CACHE_RESULTS()                                                                    \
   do {                                                                                                       \
     using BoltValue = memgraph::communication::bolt::Value;                                                  \

@@ -58,10 +58,9 @@ class CachedPropertySlots {
 
 namespace impl {
 
-/// Walks the expressions one operator evaluates, counting the lookups worth reading in a pass and
-/// then swapping the chosen ones for identifiers on that pass's frame slots. A projection evaluates
-/// named expressions and an aggregation evaluates what it aggregates and groups by; what they have
-/// in common is that each of those is evaluated once for every row the operator is given.
+/// Walks the expressions one operator evaluates once per row it is given, counting the lookups
+/// worth reading in a pass and then swapping the chosen ones for identifiers on that pass's frame
+/// slots.
 ///
 /// The phases share one traversal, so a lookup it does not reach is neither counted nor replaced,
 /// and keeps reading properties as it did.
@@ -409,14 +408,18 @@ class CachePropertiesRewriter final : public HierarchicalLogicalOperatorVisitor 
   }
 
  private:
-  /// Every expression an aggregation evaluates per input row: what it aggregates, and what it
-  /// groups by. `count(*)` carries no expression to read, and the secondary argument is there only
-  /// for the aggregations that take one.
+  /// The expressions an aggregation evaluates for every row it is given: what it aggregates, and
+  /// what it groups by. `count(*)` carries nothing to read.
+  ///
+  /// A secondary argument, which a map collection and the graph projections take, is left out
+  /// however many lookups it holds. It is evaluated only once the row's first value has been
+  /// accepted, so a row whose first value is Null, or a repeat the aggregation is told to ignore,
+  /// never reaches it. Reading ahead for it would read a record such a row never asks about, which
+  /// on a deleted record is the difference between an answer and a refusal.
   static auto ExpressionsOf(Aggregate &op) -> std::vector<Expression **> {
     auto owned = std::vector<Expression **>{};
     for (auto &element : op.aggregations_) {
       if (element.arg1) owned.push_back(&element.arg1);
-      if (element.arg2) owned.push_back(&element.arg2);
     }
     for (auto &group_by : op.group_by_) {
       owned.push_back(&group_by);
