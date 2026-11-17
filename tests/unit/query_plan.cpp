@@ -9270,9 +9270,27 @@ TYPED_TEST(TestPlanner, CachePropertiesAnAggregationReadingTwoPropertiesOnceEach
   CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), aggr, ExpectProduce());
 }
 
-// A map collection evaluates its key only once the row's value has been accepted, so a row whose
-// value is Null never reads the key. A repeat that only the key gives therefore earns no pass: a
-// read taken ahead for it would reach a record the row never asks about.
+// A CASE may never evaluate the branch its lookup sits in, so repeating a property inside one earns
+// no pass.
+TYPED_TEST(TestPlanner, CachePropertiesAnAggregationsConditionalLookupsEarnNoPass) {
+  CachePropertiesFlagGuard guard{true};
+  FakeDbAccessor dba;
+  auto prop = dba.Property("active");
+  auto conditional = [&] {
+    return this->storage.template Create<memgraph::query::IfOperator>(
+        PROPERTY_LOOKUP(dba, "n", prop), LITERAL(1), LITERAL(0));
+  };
+  auto first = SUM(conditional(), false);
+  auto second = SUM(conditional(), false);
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN(first, AS("a"), second, AS("b"))));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto aggr = ExpectAggregate({first, second}, {});
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), aggr, ExpectProduce());
+}
+
+// A map collection reaches its key only once the row's value is accepted, so a repeat that only the
+// key gives earns no pass.
 TYPED_TEST(TestPlanner, CachePropertiesAnAggregationsSecondArgumentEarnsNoPass) {
   CachePropertiesFlagGuard guard{true};
   FakeDbAccessor dba;
