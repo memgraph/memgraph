@@ -344,12 +344,18 @@ TEST_F(WriteVisibilityPlan, BarrierBeforeCallBodyThatReadsAnEarlierSet) {
             (Names{"Produce", "Accumulate+", "Apply", "SetProperty", "ScanAll", "Unwind", "Once"}));
   EXPECT_EQ(Views<Produce>(Plan("UNWIND [1, 2] AS i MATCH (a) SET a.x = 1 CALL (a) { RETURN a.x AS v } RETURN v")),
             (std::vector{View::OLD, View::OLD}));
-  // A batched body and a writing body do not switch to View::NEW, even with a row-unique a.
-  for (auto const *query : {
-           "MATCH (a) SET a.x = 1 CALL (a) { RETURN a.x AS v } IN TRANSACTIONS OF 1 ROWS RETURN v",
-           "MATCH (a) SET a.x = 1 CALL (a) { CREATE ({v: a.x}) } RETURN count(*) AS c",
+  // A batched body and a writing body do not switch to View::NEW, even with a row-unique a: a barrier is the call's
+  // input.
+  for (auto const &[query, call] : {
+           std::pair{"MATCH (a) SET a.x = 1 CALL (a) { RETURN a.x AS v } IN TRANSACTIONS OF 1 ROWS RETURN v",
+                     "PeriodicSubquery"},
+           std::pair{"MATCH (a) SET a.x = 1 CALL (a) { CREATE ({v: a.x}) } RETURN count(*) AS c", "Apply"},
        }) {
-    EXPECT_FALSE(Collect<Accumulate>(Plan(query)).empty()) << query;
+    auto const chain = Chain(Plan(query));
+    auto const at = std::ranges::find(chain, call);
+    ASSERT_NE(at, chain.end()) << query;
+    ASSERT_NE(std::next(at), chain.end()) << query;
+    EXPECT_TRUE(std::next(at)->starts_with("Accumulate")) << query;
   }
 }
 
