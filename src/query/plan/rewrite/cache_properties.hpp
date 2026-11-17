@@ -408,7 +408,64 @@ class CachePropertiesRewriter final : public HierarchicalLogicalOperatorVisitor 
     return true;
   }
 
+  /// An aggregation evaluates its own expressions once per input row, so a property two of them
+  /// read is read twice for every row. The pass belongs below the aggregation, which is where the
+  /// record still is: above it only the grouping keys and the aggregated values are defined.
+  bool PostVisit(Aggregate &op) override {
+    auto input = op.input();
+    if (!input) return true;
+
+    auto owned = ExpressionsOf(op);
+    if (owned.empty()) return true;
+
+    auto pool = slots_->PoolFor(PoolKeyOf(owned));
+    auto cacher = PropertyLookupCacher{symbol_table_, ast_storage_};
+    for (auto *expression : owned) {
+      cacher.Run(PropertyLookupCacher::Phase::GATHER, *expression);
+    }
+
+    auto groups = DrawGroups(cacher, *input, pool, PropertyLookupCacher::Bar::kAPropertyReadTwice);
+    if (groups.empty()) return true;
+
+    for (auto *expression : owned) {
+      if (cacher.WouldRewrite(*expression)) *expression = (*expression)->Clone(ast_storage_);
+    }
+    for (auto *expression : owned) {
+      cacher.Run(PropertyLookupCacher::Phase::REPLACE, *expression);
+    }
+    for (auto *expression : owned) {
+      cacher.Run(PropertyLookupCacher::Phase::RETUNE, *expression);
+    }
+
+    op.set_input(std::make_shared<CacheProperties>(input, std::move(groups)));
+    return true;
+  }
+
  private:
+  /// Every expression an aggregation evaluates per input row: what it aggregates, and what it
+  /// groups by. `count(*)` carries no expression to read, and the secondary argument is there only
+  /// for the aggregations that take one.
+  static auto ExpressionsOf(Aggregate &op) -> std::vector<Expression **> {
+    auto owned = std::vector<Expression **>{};
+    for (auto &element : op.aggregations_) {
+      if (element.arg1) owned.push_back(&element.arg1);
+      if (element.arg2) owned.push_back(&element.arg2);
+    }
+    for (auto &group_by : op.group_by_) {
+      owned.push_back(&group_by);
+    }
+    return owned;
+  }
+
+  static auto PoolKeyOf(std::vector<Expression **> const &owned) -> std::vector<Tree const *> {
+    auto key = std::vector<Tree const *>{};
+    key.reserve(owned.size());
+    for (auto const *expression : owned) {
+      key.push_back(*expression);
+    }
+    return key;
+  }
+
   /// Draws the frame slots for every symbol whose lookups clear `bar`, telling the cacher which
   /// slot each property was given, and answering with the groups the pass below reads into them.
   auto DrawGroups(PropertyLookupCacher &cacher, LogicalOperator const &input, CachedPropertySlots::Pool &pool,
