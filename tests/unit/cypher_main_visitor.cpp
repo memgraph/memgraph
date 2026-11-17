@@ -812,6 +812,35 @@ TEST_P(CypherMainVisitorTest, IntegerLiteral) {
   CheckRWType(query, kRead);
 }
 
+// Every form of index that names a set of properties refuses a repeat, and none of them refuses
+// two distinct ones.
+TEST_P(CypherMainVisitorTest, IndexPropertiesCannotRepeat) {
+  auto &ast_generator = *GetParam();
+
+  ASSERT_THROW(ast_generator.ParseQuery("CREATE INDEX ON :Label(prop, prop)"), SemanticException);
+  ASSERT_THROW(ast_generator.ParseQuery("CREATE TEXT INDEX name ON :Label(prop, prop)"), SemanticException);
+  ASSERT_THROW(ast_generator.ParseQuery("CREATE TEXT EDGE INDEX name ON :Type(prop, prop)"), SemanticException);
+
+  ASSERT_NO_THROW(ast_generator.ParseQuery("CREATE INDEX ON :Label(prop, other)"));
+  ASSERT_NO_THROW(ast_generator.ParseQuery("CREATE TEXT INDEX name ON :Label(prop, other)"));
+  ASSERT_NO_THROW(ast_generator.ParseQuery("CREATE TEXT EDGE INDEX name ON :Type(prop, other)"));
+}
+
+// A path into a property is named twice only when every step matches, so two paths through one
+// outer property are distinct and allowed. A path that is a prefix of another is not: the shorter
+// one already indexes everything under it.
+TEST_P(CypherMainVisitorTest, NestedIndexPropertiesCannotRepeatOrNest) {
+  auto &ast_generator = *GetParam();
+
+  ASSERT_NO_THROW(ast_generator.ParseQuery("CREATE INDEX ON :Label(prop.inner, prop.other)"));
+  ASSERT_NO_THROW(ast_generator.ParseQuery("CREATE INDEX ON :Label(one.inner, two.inner)"));
+  ASSERT_NO_THROW(ast_generator.ParseQuery("CREATE INDEX ON :Label(prop, other.inner)"));
+  ASSERT_NO_THROW(ast_generator.ParseQuery("CREATE INDEX ON :Label(prop.a.b, prop.a.c)"));
+
+  ASSERT_THROW(ast_generator.ParseQuery("CREATE INDEX ON :Label(prop.inner, prop.inner)"), SemanticException);
+  ASSERT_THROW(ast_generator.ParseQuery("CREATE INDEX ON :Label(prop, prop.inner)"), SemanticException);
+}
+
 TEST_P(CypherMainVisitorTest, IntegerLiteralTooLarge) {
   auto &ast_generator = *GetParam();
   ASSERT_THROW(ast_generator.ParseQuery("RETURN 10000000000000000000000000"), SemanticException);

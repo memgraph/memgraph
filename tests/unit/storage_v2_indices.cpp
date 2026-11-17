@@ -2723,6 +2723,37 @@ TYPED_TEST(IndexTest, LabelPropertyDescIndexParallelScan) {
   EXPECT_EQ(total, 50);
 }
 
+// Two paths through one outer property are two distinct keys, so ordering them for a read takes
+// both: a shared first step is not a repeat.
+TYPED_TEST(IndexTest, LabelPropertyCompositeIndexOverNestedPaths) {
+  if constexpr (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
+    GTEST_SKIP() << "Not supported on disk";
+  }
+
+  auto const paths = std::vector{PropertyPath{this->prop_a, this->prop_b}, PropertyPath{this->prop_a, this->prop_c}};
+
+  {
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(!acc->CreateIndex(this->label1, paths).has_value());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    auto vertex = this->CreateVertex(acc.get());
+    ASSERT_NO_ERROR(vertex.AddLabel(this->label1));
+    ASSERT_NO_ERROR(vertex.SetProperty(
+        this->prop_a,
+        PropertyValue{PropertyValue::map_t{{this->prop_b, PropertyValue{1}}, {this->prop_c, PropertyValue{2}}}}));
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    EXPECT_TRUE(acc->LabelPropertyIndexReady(this->label1, paths));
+    // Each step of each path reaches its own value, so the record is found by both together.
+    EXPECT_EQ(acc->ApproximateVertexCount(this->label1, paths, std::array{PropertyValue(1), PropertyValue(2)}), 1);
+  }
+}
+
 TYPED_TEST(IndexTest, LabelPropertyIndexDeletedVertex) {
   if constexpr ((std::is_same_v<TypeParam, memgraph::storage::DiskStorage>)) {
     {
