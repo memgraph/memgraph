@@ -15,14 +15,17 @@
 
 #include <algorithm>
 #include <exception>
+#include <filesystem>
 #include <functional>
 #include <limits>
 #include <mutex>
 
 #include <fmt/format.h>
+#include <spdlog/spdlog.h>
 
-#include "dbms/inmemory/replication_handlers.hpp"
 #include "memory/db_arena_fwd.hpp"
+#include "storage/v2/durability/serialization.hpp"
+#include "storage/v2/durability/version.hpp"
 #include "storage/v2/durability/wal.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/transaction_constants.hpp"
@@ -46,6 +49,27 @@ uint64_t LastDurableTimestamp(storage::InMemoryStorage const &storage) {
   return storage.repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_;
 }
 }  // namespace
+
+bool ReplayWalFile(storage::InMemoryStorage &storage, std::filesystem::path const &wal_path,
+                   storage::durability::WalInfo const &wal_info, std::function<void(uint64_t)> on_txn_begin) {
+  storage::durability::Decoder decoder;
+  const auto version = decoder.Initialize(wal_path, storage::durability::kWalMagic);
+  if (!version || !storage::durability::IsVersionSupported(*version)) {
+    spdlog::error("WAL file {} has no valid magic and version", wal_path);
+    return false;
+  }
+  decoder.SetPosition(wal_info.offset_deltas);
+  const storage::WalApplyOptions options{
+      .mode = storage::WalApplyMode::kWalFile, .on_txn_begin = std::move(on_txn_begin), .persist_wal = false};
+  uint64_t delta_idx{0};
+  while (delta_idx < wal_info.num_deltas) {
+    const auto res = storage.ApplyWalTransaction(&decoder, *version, options);
+    if (!res) return false;
+    delta_idx += res->current_delta_idx;
+  }
+  // Overrunning the stated count means a transaction-end marker was lost.
+  return delta_idx == wal_info.num_deltas;
+}
 
 std::expected<std::vector<uint64_t>, std::string> ReplayHistoryTail(storage::InMemoryStorage &storage,
                                                                     const storage::durability::RecoveryTail &tail,
@@ -80,18 +104,15 @@ std::expected<std::vector<uint64_t>, std::string> ReplayHistoryTail(storage::InM
 
   try {
     pin_due(tail.reached_timestamp + 1);
-    {
-      const storage::InMemoryStorage::SuppressWalScope suppress_wal{storage};
-      for (const auto &file : tail.wal_files) {
-        const auto info = storage::durability::ReadWalContents(file);
-        const auto ldt_before = LastDurableTimestamp(storage);
-        if (info.to_timestamp <= ldt_before) continue;
-        if (!InMemoryReplicationHandlers::ReplayWalFile(file, info, &storage, pin_due)) {
-          return failed(fmt::format("replaying WAL file '{}' failed", file.string()));
-        }
-        if (const auto ldt_after = LastDurableTimestamp(storage); ldt_after != ldt_before) {
-          RecordWalEpoch(storage, info.epoch_id, ldt_after);
-        }
+    for (const auto &file : tail.wal_files) {
+      const auto info = storage::durability::ReadWalContents(file);
+      const auto ldt_before = LastDurableTimestamp(storage);
+      if (info.to_timestamp <= ldt_before) continue;
+      if (!ReplayWalFile(storage, file, info, pin_due)) {
+        return failed(fmt::format("replaying WAL file '{}' failed", file.string()));
+      }
+      if (const auto ldt_after = LastDurableTimestamp(storage); ldt_after != ldt_before) {
+        RecordWalEpoch(storage, info.epoch_id, ldt_after);
       }
     }
     pin_due(std::numeric_limits<uint64_t>::max());

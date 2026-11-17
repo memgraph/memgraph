@@ -1213,7 +1213,7 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
   };
 
   // Specific case in which durability mode is != PERIODIC_SNAPSHOT_WITH_WAL
-  if (!mem_storage->InitializeWalFile(epoch_id)) {
+  if (!commit_args.wal_allowed() || !mem_storage->InitializeWalFile(epoch_id)) {
     with_engine_lock([&] { FinalizeCommitPhase(durability_commit_timestamp, engine_guard); });
     // No WAL file, hence no need to finalize it
     return {};
@@ -4120,10 +4120,6 @@ StorageInfo InMemoryStorage::GetInfo() {
 }
 
 bool InMemoryStorage::InitializeWalFile(std::string_view const epoch_id) {
-#ifdef MG_ENTERPRISE
-  if (suppress_wal_) return false;
-#endif
-
   if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL ||
       storage_mode_ == StorageMode::IN_MEMORY_ANALYTICAL) {
     return false;

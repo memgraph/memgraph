@@ -15,7 +15,9 @@
 #include "utils/logging.hpp"
 #include "utils/variant_helpers.hpp"
 
+#include <functional>
 #include <optional>
+#include <utility>
 #include <variant>
 
 namespace memgraph::storage {
@@ -42,6 +44,15 @@ struct CommitArgs {
   }
 
   bool durability_allowed() const { return !std::holds_alternative<ReplicaRead>(data); }
+
+  /// The commit still takes its durable timestamp but appends nothing to the WAL. For replaying transactions that
+  /// are already in existing WAL files.
+  [[nodiscard]] CommitArgs without_wal() && {
+    wal_ = false;
+    return std::move(*this);
+  }
+
+  bool wal_allowed() const { return wal_; }
 
   bool replication_allowed() const { return std::holds_alternative<Main>(data); }
 
@@ -97,5 +108,6 @@ struct CommitArgs {
   explicit CommitArgs(std::variant<Main, ReplicaWrite, ReplicaRead> data) : data(std::move(data)) {}
 
   std::variant<Main, ReplicaWrite, ReplicaRead> data;
+  bool wal_{true};
 };
 }  // namespace memgraph::storage
