@@ -1990,25 +1990,37 @@ TEST_F(StorageV2GcMetricsTest, ForkPin_OldestActiveSkipsForkId) {
   EXPECT_EQ(0, handles().unreleased_delta_objects.Value());
 }
 
+namespace {
 // A transaction committed while an older reader is open keeps its deltas (no fast-discard). Once the reader closes and
 // a fork is pinned, no transaction is active, so only the pin stops GC from taking the idle free-immediately path:
 // the unlinked deltas stay queued while pinned and are freed after release.
-TEST_F(StorageV2GcMetricsTest, ForkPin_GcIdleShortcutDoesNotFireWhilePinned) {
-  auto *mem_storage = static_cast<memgraph::storage::InMemoryStorage *>(storage.get());
-  auto older = storage->Access(memgraph::storage::READ);
+void ExpectPinDefersUnlinkedGarbage(memgraph::storage::InMemoryStorage &mem_storage,
+                                    memgraph::metrics::DatabaseMetricHandles &handles) {
+  auto older = mem_storage.Access(memgraph::storage::READ);
   {
-    auto acc = storage->Access(memgraph::storage::WRITE);
+    auto acc = mem_storage.Access(memgraph::storage::WRITE);
     (void)acc->CreateVertex();
     ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
-  ASSERT_LT(0, handles().unreleased_delta_objects.Value()) << "the open reader must keep the committed deltas";
+  ASSERT_LT(0, handles.unreleased_delta_objects.Value()) << "the open reader must keep the committed deltas";
   older.reset();
-  const uint64_t fork_ts = mem_storage->RegisterForkPin();
-  RunGc(*storage);
-  EXPECT_LT(0, handles().unreleased_delta_objects.Value()) << "unlinked garbage was freed while the fork was pinned";
-  mem_storage->ReleaseForkPin(fork_ts);
-  RunGc(*storage);
-  EXPECT_EQ(0, handles().unreleased_delta_objects.Value());
+  const uint64_t fork_ts = mem_storage.RegisterForkPin();
+  RunGc(mem_storage);
+  EXPECT_LT(0, handles.unreleased_delta_objects.Value()) << "unlinked garbage was freed while the fork was pinned";
+  mem_storage.ReleaseForkPin(fork_ts);
+  RunGc(mem_storage);
+  EXPECT_EQ(0, handles.unreleased_delta_objects.Value());
+}
+}  // namespace
+
+TEST_F(StorageV2GcMetricsTest, ForkPin_GcIdleShortcutDoesNotFireWhilePinned) {
+  ExpectPinDefersUnlinkedGarbage(*static_cast<memgraph::storage::InMemoryStorage *>(storage.get()), handles());
+}
+
+// Under narrowing the pin is watermark + 1, still below the GC mark timestamp.
+TEST_F(StorageV2GcMetricsTest, ForkPin_GcIdleShortcutDoesNotFireWhilePinned_Narrowing) {
+  InitStorage(std::chrono::seconds(3600), /*commit_lock_narrowing=*/true);
+  ExpectPinDefersUnlinkedGarbage(*static_cast<memgraph::storage::InMemoryStorage *>(storage.get()), handles());
 }
 
 // The GC floor is the oldest live pin: releasing a newer pin or one of several same-timestamp pins must not move it.
