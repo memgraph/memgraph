@@ -2867,3 +2867,47 @@ Feature: Write visibility inside one query
         Then the result should be:
             | y | z |
             | 0 | 0 |
+
+    Scenario: A CREATE map that reads a matched node through a new edge does not see a later SET of an earlier row
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:WvCn)
+            """
+        When executing query:
+            """
+            UNWIND [1, 2] AS i MATCH (m:WvCn) CREATE (m)-[r:R]->(b), (c:WvCnC {i: i, x: startNode(r).x}) SET m.x = i WITH count(*) AS n MATCH (c:WvCnC) RETURN c.i AS i, c.x AS x ORDER BY i
+            """
+        Then the result should be, in order:
+            | i | x    |
+            | 1 | null |
+            | 2 | null |
+
+    Scenario: derive() in a read-only CALL body does not see a later label write of an earlier row
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:WvDz {k: 1})-[:R]->(:WvDz {k: 2})
+            """
+        When executing query:
+            """
+            UNWIND [1, 2] AS i CALL () { MATCH p = (s:WvDz {k: 1})-[:R]->(t:WvDz) WITH derive(p, {virtualEdgeType: 'V'}) AS g UNWIND g.edges AS e RETURN size(labels(startNode(e))) AS n } MATCH (a:WvDz {k: 1}) SET a:WvDy RETURN i, n
+            """
+        Then the result should be:
+            | i | n |
+            | 1 | 1 |
+            | 2 | 1 |
+
+    Scenario: One SET with three items reads every item's node as of the run's start
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:WvS3 {x: 1, y: 2})
+            """
+        When executing query:
+            """
+            MATCH (a:WvS3) SET a.x = a.y, a.y = a.x, a.z = a.x RETURN a.x AS x, a.y AS y, a.z AS z
+            """
+        Then the result should be:
+            | x | y | z |
+            | 2 | 1 | 1 |

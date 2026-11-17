@@ -254,6 +254,9 @@ TEST_F(WriteVisibilityPlan, CreateReadingAnyOtherEntityReadsOld) {
             (std::vector{View::OLD, View::OLD}));
   EXPECT_EQ(Views<CreateNode>(Plan("CREATE (a {id: 1}) CREATE (b {r: a.id, e: size([(a)-[:R]->(x) | x])})")),
             (std::vector{View::OLD, View::OLD}));
+  // degree() reads the graph, not only what the CREATE made.
+  EXPECT_EQ(Views<CreateNode>(Plan("CREATE (a)-[:R]->(b) CREATE (c {d: degree(a)})")),
+            (std::vector{View::OLD, View::OLD}));
   // A barrier ends what counts as created: after it, `a` is an earlier entity.
   EXPECT_EQ(Views<CreateNode>(Plan("CREATE (a {id: 1}) SET a.id = 2 CREATE (b {r: a.id})")),
             (std::vector{View::OLD, View::OLD}));
@@ -407,6 +410,30 @@ TEST_F(WriteVisibilityPlan, AnAccessCheckBarrierKeepsTheWritesPending) {
   EXPECT_TRUE(lower->access_check_only_);
 }
 
+// One access check barrier covers every label write before it: the second node read needs no second barrier.
+TEST_F(WriteVisibilityPlan, OneAccessCheckBarrierCoversTheLabelWritesBeforeIt) {
+  auto applies = Collect<Apply>(
+      Plan("MATCH (a:P) SET a:X CALL () { MATCH (n) RETURN count(n) AS c } CALL () { MATCH (m) RETURN count(m) AS d } "
+           "RETURN c, d"));  // top first
+  ASSERT_EQ(applies.size(), 2);
+  EXPECT_EQ(dynamic_cast<Accumulate *>(applies[0]->input_.get()), nullptr);
+  auto *lower = dynamic_cast<Accumulate *>(applies[1]->input_.get());
+  ASSERT_NE(lower, nullptr);
+  EXPECT_TRUE(lower->access_check_only_);
+}
+
+// The label write after a property read reaches the read's access check only through the drain.
+TEST_F(WriteVisibilityPlan, ALabelWriteAfterAReadGetsAnAccessCheckDrain) {
+  EXPECT_EQ(Chain(Plan("MATCH (a:P) SET a.y = a.k SET a:Y")),
+            (Names{"EmptyResult", "SetLabels", "Accumulate+(access)", "SetProperty", "Filter", "ScanAll", "Once"}));
+}
+
+TEST_F(WriteVisibilityPlan, ACloneKeepsTheAccessCheckFlag) {
+  auto clone = Plan("MATCH (a:P) SET a:X SET a:Y").Clone(&storage_);
+  EXPECT_EQ(Chain(*clone),
+            (Names{"EmptyResult", "SetLabels", "Accumulate+(access)", "SetLabels", "Filter", "ScanAll", "Once"}));
+}
+
 // A subscript reads a node property as a lookup does, so its permission check waits for the label write.
 TEST_F(WriteVisibilityPlan, ASubscriptOnANodeReadsItsLabelsForTheAccessCheck) {
   EXPECT_TRUE(Access("MATCH (a) RETURN a['x'] AS v").reads.access_check_labels);
@@ -446,6 +473,14 @@ TEST_F(WriteVisibilityPlan, ABarrierKeepsOnlyTheSymbolsReadAfterIt) {
   // RETURN * reads everything bound.
   EXPECT_EQ(names_kept("UNWIND [1, 2] AS i WITH i, 'a' AS a MERGE (n:M {id: i}) MERGE (m:M {id: i + 1}) RETURN *"),
             (std::set<std::string>{"i", "a", "n"}));
+  // A later CALL body is not walked, so every bound symbol stays.
+  EXPECT_EQ(names_kept("UNWIND [1, 2] AS i WITH i, 'a' AS a, 'b' AS b MERGE (n:M {id: i}) MERGE (m:M {id: i + 1}) "
+                       "CALL (a) { RETURN a AS x } RETURN x"),
+            (std::set<std::string>{"i", "a", "b", "n"}));
+  // A comprehension in the clause after the barrier reads n.
+  EXPECT_TRUE(names_kept("UNWIND [1, 2] AS i WITH i, 'a' AS a MERGE (n:M {id: i}) MERGE (m:M {id: i + 1}) "
+                         "SET m.c = size([(n)-->(x) | x])")
+                  .contains("n"));
 }
 
 // The walk sees a symbol read only through a dynamic label, a lambda or a variable-length bound.
@@ -480,6 +515,7 @@ TEST_F(WriteVisibilityPlan, ARowUniqueNodeNeedsNoBarrierBetweenItsOwnKeys) {
            "MATCH (n:L) SET n.y = n.x SET n.x = 1",
            "MATCH (n:L)--() WITH n, count(*) AS c SET n.x = n.x + c SET n.y = n.x",
            "MATCH (n:L) WITH DISTINCT n SET n.x = n.x + 1 SET n.y = n.x",
+           "MATCH (a:L) WITH a AS n SET n.x = n.x + 1 SET n.y = n.x",
        }) {
     EXPECT_TRUE(Collect<Accumulate>(Plan(query)).empty()) << query;
   }
@@ -514,8 +550,12 @@ TEST_F(WriteVisibilityPlan, ANodeThatMayRepeatKeepsItsBarrier) {
            "MATCH (n:L) WITH n, head([(n)-[:T]->(o) | o]) AS m SET n.x = n.x + 1 SET n.y = m.x + n.x",
            // Something else conflicts too: the comprehension reads the label the first SET adds.
            "MATCH (n:L) SET n.x = n.x + 1, n:Done SET n.y = n.x + size([(m:Done)-->() | m])",
-           // Something else conflicts too: labels() reads every label.
-           "MATCH (n:L) SET n.x = 1, n:Q SET n.y = size(labels(n)) + n.x",
+           // Something else conflicts too: the label test reads the label the first SET adds.
+           "MATCH (n:L) SET n.x = 1, n:Q SET n.y = CASE WHEN n:Q THEN n.x END",
+           // Distinct on two values, so n may repeat.
+           "MATCH (n:L)--(m) WITH DISTINCT n, m SET n.x = n.x + 1 SET n.y = n.x",
+           // n is made from an expression, not handed on from a scanned variable.
+           "MATCH (a:L) WITH coalesce(a) AS n SET n.x = n.x + 1 SET n.y = n.x",
            // degree() reads everything, as a procedure does, through no one variable.
            "MATCH (n:L) SET n.x = 1 SET n.y = degree(n) + n.x",
            // A writing body reads View::NEW: an index scan on x could meet its own write again.
@@ -1125,6 +1165,8 @@ TEST_F(WriteVisibilityPlan, OneSetEvaluatesItsRightHandSidesFirst) {
   EXPECT_FALSE(Collect<Produce>(Plan("MATCH (a) FOREACH (i IN [1] | SET a.x = i, a.y = a.x)")).empty());
   EXPECT_FALSE(Collect<Produce>(Plan("MERGE (a:L {k: 1}) ON CREATE SET a.x = 1, a.y = a.x")).empty());
   EXPECT_FALSE(Collect<Produce>(Plan("MERGE (a:L {k: 1}) ON MATCH SET a.x = 1, a.y = a.x")).empty());
+  // One Produce for the whole run: a second one after the first item would read its write.
+  EXPECT_EQ(Collect<Produce>(Plan("MATCH (a) SET a.x = a.y, a.y = a.x, a.z = a.x")).size(), 1);
 }
 
 // Any read of the run's variable other than a lookup of an unwritten key needs the snapshot: a subscript, a map
@@ -1253,7 +1295,7 @@ TEST_F(WriteVisibilityPlan, ARootWithAnInTransactionsCallKeepsItsBarriers) {
   EXPECT_TRUE(barrier->advance_command_);
 }
 
-// Pinned, known (write_visibility_followups_plan.md §8.4, Q3 interim): under USING PERIODIC COMMIT no barrier is
+// Pinned, known: under USING PERIODIC COMMIT no barrier is
 // planned and the views stay master's: projections read NEW, ORDER BY reads OLD. So ORDER BY n.x LIMIT 1 after a
 // SET with a batch larger than the rows returns 9, where the clause rule gives 7.
 TEST_F(WriteVisibilityPlan, PeriodicCommitKeepsMastersViews) {
@@ -1263,11 +1305,11 @@ TEST_F(WriteVisibilityPlan, PeriodicCommitKeepsMastersViews) {
 }
 
 // Pinned, known: under USING PERIODIC COMMIT a read after a write in the same batch sees later clauses' writes of
-// earlier rows. Neither shape gets a barrier (i14_pc_drain, review B3).
+// earlier rows. Neither shape gets a barrier.
 TEST_F(WriteVisibilityPlan, PeriodicCommitPlansNoBarriers) {
   EXPECT_TRUE(
       Collect<Accumulate>(Plan("USING PERIODIC COMMIT 100 MATCH (a:A), (b:A) SET a.y = b.x SET b.x = 0")).empty());
-  // B3: the WITH after the SET keeps master's drain, and nothing fences the EXISTS from the later CREATE.
+  // The WITH after the SET keeps master's drain, and nothing fences the EXISTS from the later CREATE.
   EXPECT_EQ(Chain(Plan("USING PERIODIC COMMIT 10 UNWIND [1, 2] AS i MATCH (a:BA) SET a.k = i WITH i, a, "
                        "EXISTS { MATCH (a)-[*]->() } AS e CREATE (a)-[:R]->(:BB) RETURN i, e ORDER BY i")),
             (Names{"OrderBy",
@@ -1502,7 +1544,7 @@ TEST_F(WriteVisibilityPlan, ExplainPrintsTheViewOfEachReaderOnRequest) {
 
 // ---------------------------------------------------------------- view oracle
 
-// The view rule (write_visibility_plan.md §4.1), computed from an operator's ancestors rather than from the
+// The view rule, computed from an operator's ancestors rather than from the
 // planner's scope state: OLD at the root and in a read-only CALL body; NEW in a writing CALL body tree, a MERGE,
 // a FOREACH body, and a fold branch whose consumer reads NEW. A query under batching keeps master's views: no check.
 class ViewOracle {
