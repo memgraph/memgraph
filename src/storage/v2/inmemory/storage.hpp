@@ -1071,36 +1071,23 @@ class InMemoryStorage final : public Storage {
 #endif
 
 #ifdef MG_ENTERPRISE
-  /// While alive, commits skip the WAL append (but still advance the last durable timestamp). For replaying
-  /// transactions that are already in existing WAL files; the caller must ensure no other writer commits meanwhile.
-  class SuppressWalScope {
-   public:
-    explicit SuppressWalScope(InMemoryStorage &storage) : storage_{storage} {
-      MG_ASSERT(!storage_.suppress_wal_, "WAL suppression is not nestable");
-      storage_.suppress_wal_ = true;
-    }
-
-    ~SuppressWalScope() { storage_.suppress_wal_ = false; }
-
-    SuppressWalScope(SuppressWalScope const &) = delete;
-    SuppressWalScope &operator=(SuppressWalScope const &) = delete;
-    SuppressWalScope(SuppressWalScope &&) = delete;
-    SuppressWalScope &operator=(SuppressWalScope &&) = delete;
-
-   private:
-    InMemoryStorage &storage_;
-  };
-
-  /// While alive, no snapshot runs: new periodic ticks are paused and an in-flight snapshot is waited out, since
-  /// holding `snapshot_lock_` also blocks any that is about to start. A snapshot taken mid-replay would capture a
-  /// half-replayed state. Restores the runner to the state it had at construction (it may already be paused, e.g.
-  /// analytical mode, and Scheduler's pause is a flag, not a counter, so this is not nestable).
+  /// While alive, no snapshot runs: new periodic ticks are paused and an in-flight snapshot is asked to abort and
+  /// waited out (unbounded), since holding `snapshot_lock_` also blocks any that is about to start. A snapshot taken
+  /// mid-replay would capture a half-replayed state. Restores the runner to the state it had at construction (it may
+  /// already be paused, e.g. analytical mode, and Scheduler's pause is a flag, not a counter, so this is not nestable).
   class PauseSnapshotsScope {
    public:
     explicit PauseSnapshotsScope(InMemoryStorage &storage)
         : storage_{storage}, was_paused_{storage.snapshot_runner_.IsPaused()} {
       storage_.snapshot_runner_.Pause();
-      snapshot_guard_ = std::unique_lock{storage_.snapshot_lock_};
+      snapshot_guard_ = std::unique_lock{storage_.snapshot_lock_, std::try_to_lock};
+      if (!snapshot_guard_.owns_lock()) {
+        // One-shot flag: set only on contention, or it would abort the next snapshot.
+        storage_.abort_snapshot_.store(true, std::memory_order_release);
+        snapshot_guard_.lock();
+        // The holder may not have been a snapshot, or finished before seeing the flag; do not leak it past the scope.
+        storage_.abort_snapshot_.store(false, std::memory_order_release);
+      }
     }
 
     ~PauseSnapshotsScope() {
@@ -1137,6 +1124,12 @@ class InMemoryStorage final : public Storage {
     if (!config_.experimental_commit_lock_narrowing) return std::nullopt;
     return std::unique_lock{commit_mutex_};
   }
+
+  // Applies one transaction's deltas read from `decoder` (a replication stream or a WAL file, see
+  // WalApplyOptions::mode). The count of consumed deltas also includes skipped (already applied) ones.
+  // Returns nullopt if applying a delta failed.
+  std::optional<SingleTxnDeltasProcessingResult> ApplyWalTransaction(durability::BaseDecoder *decoder, uint64_t version,
+                                                                     const WalApplyOptions &options);
 
  private:
   /// @throw std::system_error
@@ -1192,12 +1185,6 @@ class InMemoryStorage final : public Storage {
   uint64_t GetCommitTimestamp();
 
   void PrepareForNewEpoch() override;
-
-  // Applies one transaction's deltas read from `decoder` (a replication stream or a WAL file, see
-  // WalApplyOptions::mode). The count of consumed deltas also includes skipped (already applied) ones.
-  // Returns nullopt if applying a delta failed.
-  std::optional<SingleTxnDeltasProcessingResult> ApplyWalTransaction(durability::BaseDecoder *decoder, uint64_t version,
-                                                                     const WalApplyOptions &options);
 
   EdgeInfo FindEdge(Gid edge_gid);
 
@@ -1299,8 +1286,6 @@ class InMemoryStorage final : public Storage {
   uint64_t wal_unsynced_transactions_{0};
 
 #ifdef MG_ENTERPRISE
-  bool suppress_wal_{false};  // startup replay is single-threaded; no concurrent writers
-
   std::optional<durability::RecoveryTail> recovery_tail_;
 #endif
 

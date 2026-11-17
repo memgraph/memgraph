@@ -21,14 +21,6 @@
 #include "utils/synchronized.hpp"
 #include "utils/uuid.hpp"
 
-#ifdef MG_ENTERPRISE
-#include <functional>
-
-namespace memgraph::storage::durability {
-struct WalInfo;
-}  // namespace memgraph::storage::durability
-#endif
-
 namespace memgraph::rpc {
 class FileReplicationHandler;
 class ProgressHeartbeat;
@@ -70,15 +62,6 @@ class InMemoryReplicationHandlers {
   // TwoPCCommitCache (dbms/inmemory/two_pc_commit_cache.hpp) for why the uuid compared against is the
   // one captured at Store time, not re-derived from the accessor.
   static void AbortTwoPCForTenant(utils::UUID const &uuid, rpc::ProgressHeartbeat *heartbeat = nullptr);
-
-#ifdef MG_ENTERPRISE
-  // Branch history replay at startup (dbms/inmemory/history_replay.hpp): LoadWal's delta loop without the replica
-  // bookkeeping (uuid, epoch, current WAL). Applies the transactions of `wal_path` newer than the last durable
-  // timestamp, calling `on_txn_begin` with each one's durable timestamp before its first delta. False when the file
-  // cannot be read or replay consumes a delta count other than `wal_info.num_deltas`; throws on a decode failure.
-  static bool ReplayWalFile(std::filesystem::path const &wal_path, storage::durability::WalInfo const &wal_info,
-                            storage::InMemoryStorage *storage, std::function<void(uint64_t)> const &on_txn_begin);
-#endif
 
  private:
   struct LoadWalStatus {
