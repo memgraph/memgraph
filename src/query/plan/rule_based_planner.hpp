@@ -618,7 +618,9 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
               // A View::OLD reader that reads only its own row's earlier writes reads View::NEW instead of a barrier.
               auto new_reads = reads;
               new_reads.symbols.clear();
-              if (Conflicts(new_reads, pending_writes) && row_local(new_reads, pending_writes, group_access.writes)) {
+              // At View::NEW it would also see its own earlier rows' writes, so it must not read what it writes.
+              if (Conflicts(new_reads, pending_writes) && !Conflicts(new_reads, group_access.writes) &&
+                  row_local(new_reads, pending_writes, group_access.writes)) {
                 clause_reads_new = true;
                 reads = std::move(new_reads);
               }
