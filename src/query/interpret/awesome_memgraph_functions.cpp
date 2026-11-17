@@ -1575,8 +1575,7 @@ TypedValue Trim(const TypedValue *args, int64_t nargs, const FunctionContext &ct
 TypedValue Reverse(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<Or<Null, String, List>>("reverse", args, nargs);
   if (args[0].IsList()) {
-    // A new list with the top-level order turned around; the elements themselves
-    // are copied as they are, so nested values keep their own order.
+    // Elements are copied as-is, so nested lists and maps keep their own order.
     const auto &input = args[0].ValueList();
     TypedValue::TVector res(ctx.memory);
     res.reserve(input.size());
