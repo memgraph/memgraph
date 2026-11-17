@@ -1309,7 +1309,8 @@ std::optional<std::unordered_set<Symbol>> SymbolsReadAfter(const QueryPart &quer
   if (query_part.conditional) return std::nullopt;
   SubqueryReadSymbolsCollector reads{symbol_table};
   std::unordered_set<Symbol> read;
-  // A comprehension or subquery may be planned before the barrier; the clause then reads its result symbol.
+  // A comprehension may be planned before the barrier; the clause then reads its result symbol. An EXISTS result
+  // symbol is bound after the barrier, so it is not collected.
   SubqueryResultSymbolCollector results{symbol_table, read};
   auto const walk = [&](auto &tree) {
     tree.Accept(reads);
