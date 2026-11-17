@@ -9439,14 +9439,14 @@ namespace {
 versioning::VersionStore *CheckBranchPrerequisites(InterpreterContext *interpreter_context,
                                                    memgraph::dbms::DatabaseAccess &db_acc) {
   const auto &config = db_acc->config();
-  if (const auto gate_err =
-          versioning::CheckVersioningGate(versioning::GateOperation::kObserve,
-                                          {.flag_enabled = config.experimental_versioning,
-                                           .enterprise_valid = license::global_license_checker.IsEnterpriseValidFast(),
-                                           .is_in_memory_transactional = db_acc->storage()->GetStorageMode() ==
-                                                                         storage::StorageMode::IN_MEMORY_TRANSACTIONAL,
-                                           .durable = versioning::BranchesDurable(config)})) {
-    throw QueryRuntimeException(std::string(versioning::GateErrorMessage(*gate_err)));
+  if (const auto gate = versioning::CheckVersioningGate(
+          versioning::GateOperation::kObserve,
+          {.flag_enabled = config.experimental_versioning,
+           .enterprise_valid = license::global_license_checker.IsEnterpriseValidFast(),
+           .is_in_memory_transactional =
+               db_acc->storage()->GetStorageMode() == storage::StorageMode::IN_MEMORY_TRANSACTIONAL});
+      !gate) {
+    throw QueryRuntimeException(std::string(versioning::GateErrorMessage(gate.error())));
   }
   // Graph Versioning branches are not supported with replication in v1 (the registry is unreplicated).
   if (interpreter_context->repl_state->ReadLock()->IsReplica()) {
@@ -9465,8 +9465,7 @@ versioning::VersionStore *CheckBranchPrerequisites(InterpreterContext *interpret
 }
 
 TypedValue CreatedAtValue(const versioning::BranchInfo &info) {
-  if (!info.created_at_us) return {};
-  return TypedValue(utils::LocalDateTime(static_cast<int64_t>(*info.created_at_us)).ToStringWTZ());
+  return TypedValue(utils::LocalDateTime(static_cast<int64_t>(info.created_at_us)).ToStringWTZ());
 }
 
 size_t SessionsOnBranch(const std::map<uint64_t, size_t> &counts, uint64_t number) {
@@ -9496,30 +9495,29 @@ struct MainGcView {
 MainGcView ReadMainGc(const versioning::VersionStore &version_store, const storage::Storage &main) {
   MainGcView view{.oldest_fork_ts = std::nullopt,
                   .unreleased_deltas = static_cast<int64_t>(main.metric_handles_.unreleased_delta_objects.Value())};
-  for (const auto &[name, info] : version_store.List()) {
-    view.oldest_fork_ts = view.oldest_fork_ts ? std::min(*view.oldest_fork_ts, info.fork_ts) : info.fork_ts;
+  for (const auto &listing : version_store.List()) {
+    view.oldest_fork_ts = view.oldest_fork_ts ? std::min(*view.oldest_fork_ts, listing.fork_ts) : listing.fork_ts;
   }
   return view;
 }
 
 TypedValue AgeSecondsValue(const versioning::BranchInfo &info) {
-  if (!info.created_at_us) return {};
   const auto now_us =
       std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::system_clock::now().time_since_epoch())
           .count();
-  return TypedValue(std::max<int64_t>(0, (now_us - static_cast<int64_t>(*info.created_at_us)) / 1'000'000));
+  return TypedValue(std::max<int64_t>(0, (now_us - static_cast<int64_t>(info.created_at_us)) / 1'000'000));
 }
 
-// `info` is null for main, which has no fork.
-std::vector<TypedValue> BranchRow(const std::string &name, const versioning::BranchInfo *info, size_t sessions,
-                                  bool current, const MainGcView &gc) {
+// `listing` is null for main, which has no fork.
+std::vector<TypedValue> BranchRow(const std::string &name, const versioning::VersionStore::Listing *listing,
+                                  size_t sessions, bool current, const MainGcView &gc) {
   return {TypedValue(name),
-          info ? CreatedAtValue(*info) : TypedValue(),
+          listing ? CreatedAtValue(listing->info) : TypedValue(),
           TypedValue(static_cast<int64_t>(sessions)),
           TypedValue(current),
-          info ? TypedValue(static_cast<int64_t>(info->fork_ts)) : TypedValue(),
-          info ? AgeSecondsValue(*info) : TypedValue(),
-          info ? TypedValue(gc.oldest_fork_ts == info->fork_ts) : TypedValue(),
+          listing ? TypedValue(static_cast<int64_t>(listing->fork_ts)) : TypedValue(),
+          listing ? AgeSecondsValue(listing->info) : TypedValue(),
+          listing ? TypedValue(gc.oldest_fork_ts == listing->fork_ts) : TypedValue(),
           TypedValue(gc.unreleased_deltas)};
 }
 
@@ -9550,7 +9548,7 @@ PreparedQuery PrepareShowBranchQuery(ParsedQuery parsed_query, std::optional<std
         if (!pull_plan) {
           const auto current = current_db.CurrentVersion().value_or("main");
           const auto &branch = requested ? *requested : current;
-          std::optional<versioning::BranchInfo> info;
+          std::optional<versioning::VersionStore::Listing> info;
           if (branch != "main") {
             info = version_store->Get(branch);
             if (!info) throw QueryRuntimeException("Branch '{}' does not exist.", branch);
@@ -9559,7 +9557,7 @@ PreparedQuery PrepareShowBranchQuery(ParsedQuery parsed_query, std::optional<std
           std::vector<std::vector<TypedValue>> rows;
           rows.push_back(BranchRow(branch,
                                    info ? &*info : nullptr,
-                                   SessionsOnBranch(counts, info ? info->id : 0),
+                                   SessionsOnBranch(counts, info ? info->info.id : 0),
                                    branch == current,
                                    ReadMainGc(*version_store, *(*current_db.db_acc_)->storage())));
           pull_plan = std::make_shared<PullPlanVector>(std::move(rows));
@@ -9590,9 +9588,12 @@ PreparedQuery PrepareShowBranchesQuery(ParsedQuery parsed_query, memgraph::dbms:
           std::vector<std::vector<TypedValue>> rows;
           const auto gc = ReadMainGc(*version_store, *target_db_acc->storage());
           rows.push_back(BranchRow("main", nullptr, SessionsOnBranch(counts, 0), same_database && !session_branch, gc));
-          for (const auto &[name, info] : version_store->List()) {
-            rows.push_back(BranchRow(
-                name, &info, SessionsOnBranch(counts, info.id), same_database && session_branch == name, gc));
+          for (const auto &listing : version_store->List()) {
+            rows.push_back(BranchRow(listing.name,
+                                     &listing,
+                                     SessionsOnBranch(counts, listing.info.id),
+                                     same_database && session_branch == listing.name,
+                                     gc));
           }
           pull_plan = std::make_shared<PullPlanVector>(std::move(rows));
         }

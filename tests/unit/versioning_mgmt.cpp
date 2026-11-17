@@ -150,7 +150,8 @@ TEST_F(VersioningGatedTest, ShowBranchesListsMainFirstWithSessionsAndCurrent) {
   ASSERT_TRUE(version_store->CreateBranch("other"));
   InterpreterFaker on_feature{&interpreter_context, db};
   Attach(on_feature, "feature");
-  const auto created_at = memgraph::utils::LocalDateTime(*version_store->Get("feature")->created_at_us).ToStringWTZ();
+  const auto created_at =
+      memgraph::utils::LocalDateTime(version_store->Get("feature")->info.created_at_us).ToStringWTZ();
 
   {
     auto stream = faker.Interpret("SHOW BRANCHES");
@@ -261,7 +262,7 @@ TEST_F(VersioningGatedTest, BranchStatementsWithoutACurrentDatabaseAreRefused) {
 // A session whose branch is gone gets the dead-branch error for branch queries too, until it leaves.
 TEST_F(VersioningGatedTest, ShowOnABranchThatIsGoneFails) {
   Fork("gone");
-  ASSERT_EQ(db->version_store()->ForceDropBranch("gone"), memgraph::versioning::DropResult::kDropped);
+  ASSERT_EQ(db->version_store()->DropBranch("gone", true), memgraph::versioning::DropResult::kDropped);
   ExpectShowRefusedWith(faker, "Branch 'gone' no longer exists. Run USE BRANCH or USE DATABASE to continue.");
   faker.interpreter.current_db_.LeaveBranch();
   EXPECT_EQ(faker.Interpret("SHOW BRANCH").GetResults().at(0)[0].ValueString(), "main");
