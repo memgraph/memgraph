@@ -1298,8 +1298,10 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
                .reads.symbols.empty()) {
         return input_op;
       }
+      // The first item has no earlier write to read.
       reads_earlier_item =
-          reads_earlier_item || impl::ReadsPropertyOf(*set->expression_, *target, written, symbol_table);
+          reads_earlier_item ||
+          (!written.empty() && impl::ReadsPropertyOf(*set->expression_, *target, written, symbol_table));
       written.insert(set->property_lookup_->property_path_.front().name);
     }
     if (!reads_earlier_item) return input_op;
