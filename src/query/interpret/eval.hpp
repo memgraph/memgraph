@@ -1289,7 +1289,8 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
  private:
   template <class TRecordAccessor>
   std::map<storage::PropertyId, storage::PropertyValue> GetAllProperties(const TRecordAccessor &record_accessor) {
-    // Lazy mode reads embeddings compact; CachedPropertyValue wraps them, so the cached map never holds floats.
+    // Lazy mode reads embeddings compact, and the caller wraps each value it takes from here, so
+    // what this answers with never holds the floats themselves.
     const auto read = [&](storage::View view) {
       return ctx_->lazy_vector_refs ? record_accessor.PropertiesCompact(view) : record_accessor.Properties(view);
     };
