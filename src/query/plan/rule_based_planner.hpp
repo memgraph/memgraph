@@ -1276,10 +1276,6 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
     return input_op;
   }
 
-  // Generate an operator for a clause which writes to the database. Ownership
-  // of input_op is transferred to the newly created operator. If the clause
-  // isn't handled, returns nullptr and input_op is left as is.
-  /// @param create_view what a CREATE's property maps read; see @c GenCreateForPattern.
   /// One SET writes its items in order, but consecutive items on one variable read that node as of the run's start:
   /// `SET a.x = a.y, a.y = a.x` swaps, while `SET a.x = b.x, b.x = a.x` reads the earlier item. When an item of the
   /// run starting at `clauses[first]` reads a key an earlier item of the run wrote, one Produce before the run
@@ -1360,6 +1356,10 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
   /// Items of one SET whose right-hand side a Produce before the group evaluated (`PreEvaluateSetGroup`).
   std::unordered_map<Clause const *, Clause *> pre_evaluated_items_;
 
+  // Generate an operator for a clause which writes to the database. Ownership
+  // of input_op is transferred to the newly created operator. If the clause
+  // isn't handled, returns nullptr and input_op is left as is.
+  /// @param create_view what a CREATE's property maps read; see @c GenCreateForPattern.
   std::unique_ptr<LogicalOperator> HandleWriteClause(Clause *clause, std::unique_ptr<LogicalOperator> &input_op,
                                                      const SymbolTable &symbol_table,
                                                      std::unordered_set<Symbol> &bound_symbols,

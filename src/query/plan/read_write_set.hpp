@@ -84,13 +84,13 @@ struct ReadsAndWrites {
   ReadWriteSet writes;
 };
 
+/// Whether a value may be, or hold, a node, an edge or a path; a variable in @p non_graph holds none.
+bool MayHoldEntity(Expression *value, const SymbolTable &symbol_table, const std::unordered_set<Symbol> &non_graph);
+
 /// Whether the variable @p result that @p call returns may hold an entity in @p fresh: a RETURN expression of the
 /// body may hold an entity and reads a variable in @p fresh or one the body binds itself. A result no RETURN names, as
 /// in a UNION, may.
 /// @param outer_bound the variables bound before @p call.
-/// Whether a value may be, or hold, a node, an edge or a path; a variable in @p non_graph holds none.
-bool MayHoldEntity(Expression *value, const SymbolTable &symbol_table, const std::unordered_set<Symbol> &non_graph);
-
 bool CallResultMayBeFresh(CallSubquery &call, const Symbol &result, const SymbolTable &symbol_table,
                           const std::unordered_set<Symbol> &fresh, const std::unordered_set<Symbol> &outer_bound,
                           const std::unordered_set<Symbol> &non_graph);
