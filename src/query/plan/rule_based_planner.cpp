@@ -1392,9 +1392,6 @@ bool IsRowUnique(const LogicalOperator &plan, Symbol symbol) {
     if (auto const *scan = utils::Downcast<const ScanAll>(op); scan && scan->output_symbol_.position() == position) {
       return scan->view_ == storage::View::OLD && AtMostOneRow(scan->input().get());
     }
-    if (auto const *once = utils::Downcast<const Once>(op)) {
-      return std::ranges::any_of(once->symbols_, [&](const Symbol &bound) { return bound.position() == position; });
-    }
     if (auto const *aggregate = utils::Downcast<const Aggregate>(op)) {
       if (aggregate->group_by_.size() != 1) return false;
       auto *key = utils::Downcast<Identifier>(aggregate->group_by_.front());

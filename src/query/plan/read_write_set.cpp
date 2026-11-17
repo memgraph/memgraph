@@ -35,6 +35,11 @@ bool KeysConflict(const std::set<std::string> &read_keys, bool read_any, const s
   return Intersects(read_keys, write_keys);
 }
 
+/// Whether a variable may be, or hold, a node, an edge, a path or an edge list.
+bool SymbolMayHoldEntity(const Symbol &symbol, const std::unordered_set<Symbol> &non_graph) {
+  return !non_graph.contains(symbol) && symbol.type() != Symbol::Type::NUMBER;
+}
+
 class ReadWriteCollector final : public HierarchicalTreeVisitor {
  public:
   ReadWriteCollector(const SymbolTable &symbol_table, const std::unordered_set<Symbol> &bound,
@@ -64,7 +69,7 @@ class ReadWriteCollector final : public HierarchicalTreeVisitor {
   bool PreVisit(PropertyLookup &lookup) override {
     if (ReadsGraph(lookup.expression_)) {
       result.reads.properties.insert(lookup.property_path_.front().name);
-      NoteKeyAccess(result.reads, lookup.expression_);
+      result.reads.NoteKeySymbol(KeySymbolOf(lookup.expression_));
       // A node's property permission depends on its labels.
       if (!IsEdge(lookup.expression_)) ReadLabelsForAccessCheck();
     }
@@ -74,14 +79,14 @@ class ReadWriteCollector final : public HierarchicalTreeVisitor {
   bool PreVisit(AllPropertiesLookup &lookup) override {
     if (ReadsGraph(lookup.expression_)) {
       result.reads.any_property = true;
-      NoteKeyAccess(result.reads, lookup.expression_);
+      result.reads.NoteKeySymbol(KeySymbolOf(lookup.expression_));
     }
     return true;
   }
 
   bool PreVisit(SubscriptOperator &op) override {
     if (!ReadsGraph(op.expression1_) || utils::Downcast<ListLiteral>(op.expression1_)) return true;
-    NoteKeyAccess(result.reads, op.expression1_);
+    result.reads.NoteKeySymbol(KeySymbolOf(op.expression1_));
     // A subscript on a node is a property read, whose permission depends on the node's labels.
     if (!IsEdge(op.expression1_)) ReadLabelsForAccessCheck();
     if (auto *key = utils::Downcast<PrimitiveLiteral>(op.expression2_)) {
@@ -190,7 +195,7 @@ class ReadWriteCollector final : public HierarchicalTreeVisitor {
 
   bool PreVisit(SetProperty &set) override {
     result.writes.properties.insert(set.property_lookup_->property_path_.front().name);
-    NoteKeyAccess(result.writes, set.property_lookup_->expression_);
+    result.writes.NoteKeySymbol(KeySymbolOf(set.property_lookup_->expression_));
     // The target is an expression too: `SET (CASE WHEN a.f THEN b ELSE a END).x` reads a.f.
     set.property_lookup_->expression_->Accept(*this);
     set.expression_->Accept(*this);
@@ -199,7 +204,7 @@ class ReadWriteCollector final : public HierarchicalTreeVisitor {
 
   bool PreVisit(SetProperties &set) override {
     result.writes.any_property = true;
-    NoteKeyAccess(result.writes, set.identifier_);
+    result.writes.NoteKeySymbol(KeySymbolOf(set.identifier_));
     // `SET n = m` copies every property of an entity; any value but a map literal or a parameter may be one.
     if (!utils::Downcast<MapLiteral>(set.expression_) && !utils::Downcast<ParameterLookup>(set.expression_) &&
         ReadsGraph(set.expression_)) {
@@ -219,7 +224,7 @@ class ReadWriteCollector final : public HierarchicalTreeVisitor {
 
   bool PreVisit(RemoveProperty &remove) override {
     result.writes.properties.insert(remove.property_lookup_->property_path_.front().name);
-    NoteKeyAccess(result.writes, remove.property_lookup_->expression_);
+    result.writes.NoteKeySymbol(KeySymbolOf(remove.property_lookup_->expression_));
     remove.property_lookup_->expression_->Accept(*this);
     return false;
   }
@@ -236,32 +241,7 @@ class ReadWriteCollector final : public HierarchicalTreeVisitor {
   /// Whether a value may be, or hold, a node, an edge or a path. `ReadsGraph` asks the narrower question of a lookup's
   /// object: whether the object itself may be a node or an edge.
   bool MayHoldEntity(Expression *value) const {
-    if (utils::Downcast<PrimitiveLiteral>(value) || utils::Downcast<ParameterLookup>(value)) return false;
-    if (auto *list = utils::Downcast<ListLiteral>(value)) {
-      return std::ranges::any_of(list->elements_, [this](Expression *element) { return MayHoldEntity(element); });
-    }
-    if (auto *map = utils::Downcast<MapLiteral>(value)) {
-      return std::ranges::any_of(map->elements_, [this](const auto &entry) { return MayHoldEntity(entry.second); });
-    }
-    if (auto *lookup = utils::Downcast<PropertyLookup>(value)) {
-      // A property of a node or an edge is never an entity; a map's may be, unless the map is a LOAD CSV row.
-      auto *object = utils::Downcast<Identifier>(lookup->expression_);
-      if (!object) return true;
-      auto const &symbol = symbol_table_.at(*object);
-      return !non_graph_.contains(symbol) && symbol.type() != Symbol::Type::VERTEX &&
-             symbol.type() != Symbol::Type::EDGE;
-    }
-    if (auto *subscript = utils::Downcast<SubscriptOperator>(value)) {
-      // A LOAD CSV row holds strings only.
-      auto *object = utils::Downcast<Identifier>(subscript->expression1_);
-      return !object || !non_graph_.contains(symbol_table_.at(*object));
-    }
-    if (auto *ident = utils::Downcast<Identifier>(value)) return MayHoldEntity(symbol_table_.at(*ident));
-    // A built-in function makes no entity out of values that hold none; a module function may look one up.
-    if (auto *function = utils::Downcast<Function>(value); function && !function->is_user_defined_) {
-      return std::ranges::any_of(function->arguments_, [this](Expression *arg) { return MayHoldEntity(arg); });
-    }
-    return true;
+    return memgraph::query::plan::MayHoldEntity(value, symbol_table_, non_graph_);
   }
 
  private:
@@ -283,9 +263,7 @@ class ReadWriteCollector final : public HierarchicalTreeVisitor {
   }
 
   /// Whether a variable may be, or hold, a node, an edge, a path or an edge list.
-  bool MayHoldEntity(const Symbol &symbol) const {
-    return !non_graph_.contains(symbol) && symbol.type() != Symbol::Type::NUMBER;
-  }
+  bool MayHoldEntity(const Symbol &symbol) const { return SymbolMayHoldEntity(symbol, non_graph_); }
 
   /// A LOAD clause's row variable holds a file row, never a graph entity.
   bool ReadsAFileRow(Identifier &row_var) {
@@ -337,19 +315,15 @@ class ReadWriteCollector final : public HierarchicalTreeVisitor {
     } else {
       result.reads.any_property = true;
     }
-    NoteKeyAccess(result.reads, atom);
+    result.reads.NoteKeySymbol(KeySymbolOf(atom));
   }
 
   /// Records the variable a key is read or written through; any other object makes the set's keys mixed.
-  void NoteKeyAccess(ReadWriteSet &set, Expression *object) const {
+  /// The variable a property key is reached through, or nullopt for an object that is no variable.
+  std::optional<Symbol> KeySymbolOf(Expression *object) const {
     auto *ident = utils::Downcast<Identifier>(object);
-    if (!ident || ident->symbol_pos_ < 0) {
-      set.keys_mixed = true;
-      return;
-    }
-    auto const &symbol = symbol_table_.at(*ident);
-    if (set.key_symbol && *set.key_symbol != symbol) set.keys_mixed = true;
-    set.key_symbol = symbol;
+    if (!ident || ident->symbol_pos_ < 0) return std::nullopt;
+    return symbol_table_.at(*ident);
   }
 
   /// A created entity's properties are reachable only through its labels or edge type, or its own symbol, which the
@@ -414,6 +388,11 @@ bool ReadWriteSet::Empty() const {
          !nodes && !everything && symbols.empty();
 }
 
+void ReadWriteSet::NoteKeySymbol(const std::optional<Symbol> &symbol) {
+  if (!symbol || (key_symbol && *key_symbol != *symbol)) keys_mixed = true;
+  if (!key_symbol) key_symbol = symbol;
+}
+
 void ReadWriteSet::Merge(const ReadWriteSet &other) {
   properties.insert(other.properties.begin(), other.properties.end());
   any_property |= other.any_property;
@@ -425,8 +404,8 @@ void ReadWriteSet::Merge(const ReadWriteSet &other) {
   everything |= other.everything;
   access_check_labels |= other.access_check_labels;
   relabels |= other.relabels;
-  if (other.keys_mixed || (key_symbol && other.key_symbol && *key_symbol != *other.key_symbol)) keys_mixed = true;
-  if (!key_symbol) key_symbol = other.key_symbol;
+  keys_mixed |= other.keys_mixed;
+  if (other.key_symbol) NoteKeySymbol(other.key_symbol);
   symbols.insert(other.symbols.begin(), other.symbols.end());
   referenced.insert(other.referenced.begin(), other.referenced.end());
 }
@@ -462,8 +441,34 @@ std::optional<Symbol> ConflictsOnlyOnKeysOf(const ReadWriteSet &reads, const Rea
 }
 
 bool MayHoldEntity(Expression *value, const SymbolTable &symbol_table, const std::unordered_set<Symbol> &non_graph) {
-  static std::unordered_set<Symbol> const kNoneBound;
-  return ReadWriteCollector(symbol_table, kNoneBound, non_graph).MayHoldEntity(value);
+  if (utils::Downcast<PrimitiveLiteral>(value) || utils::Downcast<ParameterLookup>(value)) return false;
+  if (auto *list = utils::Downcast<ListLiteral>(value)) {
+    return std::ranges::any_of(list->elements_,
+                               [&](Expression *element) { return MayHoldEntity(element, symbol_table, non_graph); });
+  }
+  if (auto *map = utils::Downcast<MapLiteral>(value)) {
+    return std::ranges::any_of(map->elements_,
+                               [&](const auto &entry) { return MayHoldEntity(entry.second, symbol_table, non_graph); });
+  }
+  if (auto *lookup = utils::Downcast<PropertyLookup>(value)) {
+    // A property of a node or an edge is never an entity; a map's may be, unless the map is a LOAD CSV row.
+    auto *object = utils::Downcast<Identifier>(lookup->expression_);
+    if (!object) return true;
+    auto const &symbol = symbol_table.at(*object);
+    return !non_graph.contains(symbol) && symbol.type() != Symbol::Type::VERTEX && symbol.type() != Symbol::Type::EDGE;
+  }
+  if (auto *subscript = utils::Downcast<SubscriptOperator>(value)) {
+    // A LOAD CSV row holds strings only.
+    auto *object = utils::Downcast<Identifier>(subscript->expression1_);
+    return !object || !non_graph.contains(symbol_table.at(*object));
+  }
+  if (auto *ident = utils::Downcast<Identifier>(value)) return SymbolMayHoldEntity(symbol_table.at(*ident), non_graph);
+  // A built-in function makes no entity out of values that hold none; a module function may look one up.
+  if (auto *function = utils::Downcast<Function>(value); function && !function->is_user_defined_) {
+    return std::ranges::any_of(function->arguments_,
+                               [&](Expression *arg) { return MayHoldEntity(arg, symbol_table, non_graph); });
+  }
+  return true;
 }
 
 bool ConflictsOnlyInAccessCheck(const ReadWriteSet &reads, const ReadWriteSet &writes) {

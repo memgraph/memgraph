@@ -43,13 +43,13 @@ struct ReadWriteSet {
   /// A procedure, a DELETE or a graph-reading function: conflicts with any non-empty set.
   bool everything{false};
   /// Reads only: a fine-grained access check reads the node's labels (of a label write, and of every node read). It
-  /// conflicts with a label write and nothing else, so a DELETE before it changes nothing.
+  /// conflicts with `relabels` and nothing else, so a DELETE before it changes nothing.
   bool access_check_labels{false};
   /// Writes only: a SET or REMOVE label changed the labels of a node that already existed, the one write an access
   /// check can see. A created node's labels are not one: whether a read finds that node at all is a real conflict.
   bool relabels{false};
   /// The one variable every property key in this set is read or written through, when there is one (`keys_mixed`
-  /// false). A barrier between two clauses that touch keys only through a row-unique variable is not needed.
+  /// false).
   std::optional<Symbol> key_symbol;
   bool keys_mixed{false};
   /// Reads: the symbols a pattern expands from or through. Writes: the symbols a CREATE or MERGE first binds, which
@@ -60,9 +60,11 @@ struct ReadWriteSet {
   std::unordered_set<Symbol> referenced;
 
   /// Whether it names no graph key. `access_check_labels` and `referenced` do not count: the first conflicts only
-  /// with a label write, the second only marks a read as a View::NEW read.
+  /// with `relabels`, the second only marks a read as a View::NEW read.
   bool Empty() const;
   void Merge(const ReadWriteSet &other);
+  /// Records a key read or written through @p symbol; nullopt (an object that is no variable) mixes the keys.
+  void NoteKeySymbol(const std::optional<Symbol> &symbol);
 
   void Clear() { *this = ReadWriteSet{}; }
 };

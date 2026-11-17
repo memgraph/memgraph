@@ -254,18 +254,15 @@ std::unique_ptr<LogicalOperator> GenWith(With &with, std::unique_ptr<LogicalOper
 /// Sets View::NEW on every reading operator of @p plan, branches included.
 void ReadNewThroughout(LogicalOperator &plan);
 
-/// The symbols a barrier must keep: what the rest of a UNION leg reads after it. That is the clauses @p rest, the
-/// matching of @p matched_after when the barrier precedes it, and every single query part of @p query_part after
-/// index @p part. Nullopt when a later clause projects everything (WITH *, RETURN *) or holds a body or branch this
-/// does not walk (CALL, WHEN): the barrier then keeps every bound symbol.
+/// The symbols a barrier keeps: what @p rest, @p matched_after's matching and the parts after @p part read. Nullopt
+/// (keep every bound symbol) when a later clause projects everything or holds a CALL or WHEN body.
 std::optional<std::unordered_set<Symbol>> SymbolsReadAfter(const QueryPart &query_part, size_t part,
                                                            const SingleQueryPart *matched_after,
                                                            std::span<Clause *const> rest,
                                                            const SymbolTable &symbol_table);
 
-/// Whether no two rows that @p plan produces hold the same value of @p symbol: it is bound by a View::OLD scan that
-/// runs once, by the one-row input of a body, or by a grouping or DISTINCT on it alone, and only operators that never
-/// repeat a row lie between. Anything else, an expand, an UNWIND or a CALL among them, answers false.
+/// Whether no two rows of @p plan hold the same @p symbol: a View::OLD scan that runs once, or a grouping or DISTINCT
+/// on it alone, binds it, with only operators that never repeat a row above. Used at the root only.
 bool IsRowUnique(const LogicalOperator &plan, Symbol symbol);
 
 /// Whether @p expression may read a property of @p symbol named in @p keys: a lookup of one, or any other read of
@@ -384,6 +381,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
       ReadWriteSet access_pending_writes;
       // The node and edge symbols a CREATE bound since the last barrier: each holds an entity this command created.
       std::unordered_set<Symbol> created_since_barrier;
+      const std::unordered_set<Symbol> no_symbols;
       auto forget_pending = [&] {
         created_since_barrier.clear();
         pending_writes.Clear();
@@ -427,9 +425,8 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
         access_pending_writes.Clear();
         pending_new_reads.access_check_labels = false;
       };
-      // Rows that touch keys only through a variable no two rows share cannot see each other's writes. Only at the
-      // root: there the scans read View::OLD, and an index scan on a key this command writes skips the new entry.
-      // A View::NEW index scan in a writing body could meet its own write again, which its drain prevents.
+      // Rows that touch keys only through a variable no two rows share cannot see each other's writes. Root only: a
+      // View::NEW index scan in a writing body could meet its own write again.
       auto row_local = [&](const ReadWriteSet &reads, const ReadWriteSet &writes) {
         if (read_scope_ != ReadScope::kRoot) return false;
         auto const symbol = ConflictsOnlyOnKeysOf(reads, writes);
@@ -616,26 +613,19 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
           // a later write of what this clause read would reach its earlier rows.
           bool const reads_fresh = std::ranges::any_of(
               access.reads.referenced, [&](const auto &sym) { return pending_writes.symbols.contains(sym); });
-          // A symbol bound by a clause that creates or reads such an entity may hold it: a path through it, a CALL
-          // result whose RETURN expression may.
-          // A CREATE or MERGE binds the new symbols of its patterns, which the AST names; any other clause is
+          // A CREATE or MERGE binds the new atoms its write set names, and its named paths; any other clause is
           // diffed against a copy of the bound symbols. The copy per clause made planning quadratic in a long chain.
           std::optional<std::vector<Symbol>> pattern_bound;
           if (auto const patterns = PatternsOf(*clause)) {
-            pattern_bound.emplace();
+            pattern_bound.emplace(access.writes.symbols.begin(), access.writes.symbols.end());
             for (auto *pattern : *patterns) {
               if (pattern->identifier_) AddIfUnbound(*pattern->identifier_, context.bound_symbols, *pattern_bound);
-              for (auto *atom : pattern->atoms_)
-                AddIfUnbound(*atom->identifier_, context.bound_symbols, *pattern_bound);
             }
           }
           // The atoms a CREATE binds; a path symbol is not one.
-          std::vector<Symbol> created_here;
-          if (auto *create = utils::Downcast<Create>(clause)) {
-            for (auto *pattern : create->patterns_) {
-              for (auto *atom : pattern->atoms_) AddIfUnbound(*atom->identifier_, context.bound_symbols, created_here);
-            }
-          }
+          auto const &created_here = utils::Downcast<Create>(clause) ? access.writes.symbols : no_symbols;
+          // A symbol bound by a clause that creates or reads such an entity may hold it: a path through it, a CALL
+          // result whose RETURN expression may.
           std::optional<std::unordered_set<Symbol>> bound_before;
           if (!pattern_bound && (reads_fresh || !access.writes.symbols.empty())) bound_before = context.bound_symbols;
           // Set by an arm that drains and advances after its own writes.
@@ -729,17 +719,16 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
             input_op = PreEvaluateSetGroup(clauses, std::distance(clauses.begin(), clause_it), std::move(input_op));
             // View::OLD reads a created entity by failing, then reading View::NEW; read only those, read View::NEW.
             auto const created = [&](const Symbol &symbol) {
-              return created_since_barrier.contains(symbol) || std::ranges::contains(created_here, symbol);
+              return created_since_barrier.contains(symbol) || created_here.contains(symbol);
             };
             auto const &reads = access.reads;
             bool const reads_only_created = BarriersOn() && utils::Downcast<Create>(clause) &&
                                             !reads.referenced.empty() && !reads.everything && !reads.nodes &&
                                             reads.symbols.empty() && reads.edge_types.empty() && !reads.any_edge_type &&
                                             std::ranges::all_of(reads.referenced, created);
-            create_reads_new =
-                reads_only_created && !std::ranges::all_of(reads.referenced, [&](const Symbol &symbol) {
-                  return symbol.type() == Symbol::Type::VERTEX && std::ranges::contains(created_here, symbol);
-                });
+            create_reads_new = reads_only_created && !std::ranges::all_of(reads.referenced, [&](const Symbol &symbol) {
+                                 return symbol.type() == Symbol::Type::VERTEX && created_here.contains(symbol);
+                               });
             auto const view = reads_only_created ? storage::View::NEW : ScopeView();
             auto op = HandleWriteClause(clause, input_op, *context.symbol_table, context.bound_symbols, view);
             MG_ASSERT(op, "Expected write clause to be handled");
@@ -1281,13 +1270,8 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
     return input_op;
   }
 
-  /// One SET writes its items in order, but consecutive items on one variable read that node as of the run's start:
-  /// `SET a.x = a.y, a.y = a.x` swaps, while `SET a.x = b.x, b.x = a.x` reads the earlier item. When an item of the
-  /// run starting at `clauses[first]` reads a key an earlier item of the run wrote, one Produce before the run
-  /// evaluates its right-hand sides (View::NEW, as a SET right-hand side reads) and the items read the results. A run
-  /// whose right-hand sides hold a pattern is left alone: its comprehensions are planned per item. The AST stays as
-  /// it is, since a query is planned more than once; HandleWriteClause finds the rewritten item in
-  /// `pre_evaluated_items_`.
+  /// Consecutive SET items on one variable read it as of the run's start (`SET a.x = a.y, a.y = a.x` swaps): if one
+  /// reads a key an earlier one wrote, a Produce evaluates the run's values first. A run with a pattern is left alone.
   std::unique_ptr<LogicalOperator> PreEvaluateSetGroup(const std::vector<Clause *> &clauses, size_t first,
                                                        std::unique_ptr<LogicalOperator> input_op) {
     auto &symbol_table = *context_->symbol_table;
@@ -1358,7 +1342,8 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
     if (!bound.contains(symbol)) out.push_back(symbol);
   }
 
-  /// Items of one SET whose right-hand side a Produce before the group evaluated (`PreEvaluateSetGroup`).
+  /// The rewritten item of each SET item a Produce pre-evaluated (`PreEvaluateSetGroup`). The AST stays as it is,
+  /// since a query is planned more than once.
   std::unordered_map<Clause const *, Clause *> pre_evaluated_items_;
 
   // Generate an operator for a clause which writes to the database. Ownership
