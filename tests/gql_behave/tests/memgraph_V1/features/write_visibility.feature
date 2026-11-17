@@ -2731,3 +2731,31 @@ Feature: Write visibility inside one query
         Then the result should be:
             | n | c |
             | 6 | 3 |
+
+    Scenario: A CREATE map sees its own row's earlier SET of a row-unique node
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:WvRq {x: 0})
+            """
+        When executing query:
+            """
+            MATCH (n:WvRq) SET n.x = 1 CREATE (m:WvRr {v: n.x}) RETURN m.v
+            """
+        Then the result should be:
+            | m.v |
+            | 1   |
+
+    Scenario: A read-only CALL body sees its own row's earlier SET of a row-unique node
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:WvRq {x: 0})
+            """
+        When executing query:
+            """
+            MATCH (n:WvRq) SET n.x = 1 CALL (n) { RETURN n.x AS v } RETURN v
+            """
+        Then the result should be:
+            | v |
+            | 1 |

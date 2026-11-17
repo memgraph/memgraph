@@ -446,6 +446,18 @@ TEST_F(WriteVisibilityPlan, ARowUniqueNodeNeedsNoBarrierBetweenItsOwnKeys) {
   }
 }
 
+// A View::OLD reader does not see its own row's write without the advance, so a row-unique node keeps the barrier.
+TEST_F(WriteVisibilityPlan, ARowUniqueNodeKeepsItsBarrierBeforeAViewOldReader) {
+  EXPECT_EQ(Chain(Plan("MATCH (a) SET a.x = 1 CREATE ({v: a.x})")),
+            (Names{"EmptyResult", "CreateNode", "Accumulate+", "SetProperty", "ScanAll", "Once"}));
+  EXPECT_EQ(Chain(Plan("MATCH (a) SET a.x = 1 CREATE (a)-[:T {v: a.x}]->()")),
+            (Names{"EmptyResult", "CreateExpand", "Accumulate+", "SetProperty", "ScanAll", "Once"}));
+  EXPECT_EQ(Chain(Plan("MATCH (a) SET a.x = 1 CALL (a) { RETURN a.x AS v } RETURN v")),
+            (Names{"Produce", "Apply", "Accumulate+", "SetProperty", "ScanAll", "Once"}));
+  EXPECT_EQ(Chain(Plan("MATCH (a) REMOVE a.x CREATE ({v: a.x})")),
+            (Names{"EmptyResult", "CreateNode", "Accumulate+", "RemoveProperty", "ScanAll", "Once"}));
+}
+
 // Negative twins: each keeps its barrier.
 TEST_F(WriteVisibilityPlan, ANodeThatMayRepeatKeepsItsBarrier) {
   for (auto const *query : {
