@@ -706,6 +706,22 @@ TEST(TypedValue, MapMergeAllocatesOnTheLeftOperandResource) {
     EXPECT_EQ(kv.second.get_allocator().resource(), memory_resource);
   };
   for (const auto &kv : merged.ValueMap()) expect_allocator(kv, &monotonic_memory);
+
+  // The merge branch is a pair-type dispatch, not a builder: a non-map pair must allocate nothing on
+  // the operand's resource, and an operand pair the branch rejects must reject before allocating.
+  memgraph::utils::MemoryTrackingResource tracked_memory{memgraph::utils::NewDeleteResource(), 1024};
+  auto const int_left = TypedValue(1, &tracked_memory);
+  auto const int_right = TypedValue(2, &tracked_memory);
+  auto const before_non_map = tracked_memory.GetAllocatedBytes();
+  EXPECT_EQ((int_left + int_right).ValueInt(), 3);
+  EXPECT_DOUBLE_EQ((int_left + TypedValue(2.5, &tracked_memory)).ValueDouble(), 3.5);
+  EXPECT_EQ((TypedValue(2.5, &tracked_memory) + int_right).ValueDouble(), 4.5);
+  EXPECT_EQ(tracked_memory.GetAllocatedBytes(), before_non_map);
+  auto const tracked_map = TypedValue(std::map<std::string, TypedValue>{{"a", TypedValue(1)}}, &tracked_memory);
+  auto const before_rejected = tracked_memory.GetAllocatedBytes();
+  EXPECT_THROW(tracked_map + int_right, TypedValueException);
+  EXPECT_THROW(int_left + tracked_map, TypedValueException);
+  EXPECT_EQ(tracked_memory.GetAllocatedBytes(), before_rejected);
 }
 
 TYPED_TEST(TypedValueArithmeticTest, Difference) {
