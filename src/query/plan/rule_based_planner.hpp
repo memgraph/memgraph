@@ -640,7 +640,8 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
           if (!pattern_bound && (reads_fresh || !access.writes.symbols.empty())) bound_before = context.bound_symbols;
           // Set by an arm that drains and advances after its own writes.
           bool advanced_after = false;
-          // Set by a CREATE that reads View::NEW because it reads only created entities.
+          // Set by a CREATE that reads View::NEW because it reads only created entities, unless every one is a node
+          // it creates itself: that node is new on every row, so no later write of another row reaches it.
           bool create_reads_new = false;
           auto const record_writes = utils::OnScopeExit{[&] {
             if (advanced_after) return;
@@ -735,7 +736,10 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
                                             !reads.referenced.empty() && !reads.everything && !reads.nodes &&
                                             reads.symbols.empty() && reads.edge_types.empty() && !reads.any_edge_type &&
                                             std::ranges::all_of(reads.referenced, created);
-            create_reads_new = reads_only_created;
+            create_reads_new =
+                reads_only_created && !std::ranges::all_of(reads.referenced, [&](const Symbol &symbol) {
+                  return symbol.type() == Symbol::Type::VERTEX && std::ranges::contains(created_here, symbol);
+                });
             auto const view = reads_only_created ? storage::View::NEW : ScopeView();
             auto op = HandleWriteClause(clause, input_op, *context.symbol_table, context.bound_symbols, view);
             MG_ASSERT(op, "Expected write clause to be handled");
