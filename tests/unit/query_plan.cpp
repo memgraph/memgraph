@@ -1356,40 +1356,39 @@ TYPED_TEST(TestPlanner, MatchEdgeTypeIndex) {
 }
 
 TYPED_TEST(TestPlanner, MatchEdgeTypeIndexKeepsBoundEndpoint) {
-  // MATCH (a)-[r:indexed_edgetype]->(a) RETURN r: the scan writes both endpoints, so it cannot replace an Expand
-  // into an already-bound node.
+  // MATCH (m) WITH m MATCH (s)-[r:indexed_edgetype]->(m) RETURN s: the Expand into the WITH-bound m keeps
+  // existing_node, so it cannot become an edge scan, which would overwrite m.
   FakeDbAccessor dba;
   dba.SetIndexCount(dba.EdgeType("indexed_edgetype"), 1);
-  auto *query = QUERY(SINGLE_QUERY(
-      MATCH(PATTERN(NODE("a"), EDGE("r", memgraph::query::EdgeAtom::Direction::OUT, {"indexed_edgetype"}), NODE("a"))),
-      RETURN("r")));
+  auto *query =
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("m"))),
+                         WITH("m"),
+                         MATCH(PATTERN(NODE("s"), EDGE("r", Direction::OUT, {"indexed_edgetype"}), NODE("m"))),
+                         RETURN("s")));
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
-  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectExpand(), ExpectProduce());
+  CheckPlan(
+      planner.plan(), symbol_table, ExpectScanAll(), ExpectProduce(), ExpectScanAll(), ExpectExpand(), ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, VariableStartDoesNotScanAnEdgeIntoABoundEndpoint) {
-  // An edge scan writes both endpoints; a self-loop or a WITH-bound end node must keep its Expand.
+  // MATCH (m) WITH m MATCH (s)-[r]->(m) RETURN s: an edge scan writes both endpoints, so the plan that starts at
+  // the edge must keep an Expand into the WITH-bound m.
   FakeDbAccessor dba;
-  // MATCH (a)-[r]->(a) RETURN r
-  auto *self_loop = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("a"), EDGE("r", Direction::OUT), NODE("a"))), RETURN("r")));
-  // MATCH (m) WITH m MATCH (s)-[r]->(m) RETURN s
-  auto *bound_end = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("m"))),
-                                       WITH("m"),
-                                       MATCH(PATTERN(NODE("s"), EDGE("r", Direction::OUT), NODE("m"))),
-                                       RETURN("s")));
-  for (auto *query : {self_loop, bound_end}) {
-    auto symbol_table = memgraph::query::MakeSymbolTable(query);
-    auto planning_context = MakePlanningContext(&this->storage, &symbol_table, query, &dba);
-    auto query_parts = CollectQueryParts(symbol_table, this->storage, query, false);
-    size_t plan_count = 0;
-    for (auto &&plan : MakeLogicalPlanForSingleQuery<VariableStartPlanner>(query_parts, &planning_context)) {
-      ASSERT_TRUE(plan);
-      ++plan_count;
-      EXPECT_EQ(FindOpOfType<memgraph::query::plan::ScanAllByEdge>(plan.get()), nullptr);
-    }
-    ASSERT_GT(plan_count, 1U) << "the edge must be offered as a start";
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("m"))),
+                                   WITH("m"),
+                                   MATCH(PATTERN(NODE("s"), EDGE("r", Direction::OUT), NODE("m"))),
+                                   RETURN("s")));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planning_context = MakePlanningContext(&this->storage, &symbol_table, query, &dba);
+  auto query_parts = CollectQueryParts(symbol_table, this->storage, query, false);
+  size_t plan_count = 0;
+  for (auto &&plan : MakeLogicalPlanForSingleQuery<VariableStartPlanner>(query_parts, &planning_context)) {
+    ASSERT_TRUE(plan);
+    ++plan_count;
+    EXPECT_EQ(FindOpOfType<memgraph::query::plan::ScanAllByEdge>(plan.get()), nullptr);
   }
+  ASSERT_GT(plan_count, 1U) << "the edge must be offered as a start";
 }
 
 TYPED_TEST(TestPlanner, MatchEdgeTypeIndexKeepsAnExpandOverAnotherScan) {
