@@ -2775,6 +2775,17 @@ Feature: Write visibility inside one query
             | 10 | 1 |
             | 20 | 2 |
 
+    Scenario: A barrier keeps a variable that only a dynamic label reads
+        Given an empty graph
+        When executing query:
+            """
+            UNWIND [{id: 1, k: 'A'}, {id: 2, k: 'B'}] AS row WITH row.id AS id, row AS r CREATE (:WvDl {id: id}) MERGE (m:WvDl {id: id}) SET m:r.k RETURN m.id AS id, labels(m) AS l ORDER BY id
+            """
+        Then the result should be, in order:
+            | id | l              |
+            | 1  | ['WvDl', 'A']  |
+            | 2  | ['WvDl', 'B']  |
+
     Scenario: An index scan before an IN TRANSACTIONS call returns a node once after its batch writes it
         Given an empty graph
         And with new index :WvBt(p)

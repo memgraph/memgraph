@@ -431,6 +431,28 @@ TEST_F(WriteVisibilityPlan, ABarrierKeepsOnlyTheSymbolsReadAfterIt) {
             (std::set<std::string>{"i", "a", "n"}));
 }
 
+// The walk sees a symbol read only through a dynamic label, a lambda or a variable-length bound.
+TEST_F(WriteVisibilityPlan, ABarrierKeepsASymbolReadOnlyThroughALabelOrALambda) {
+  auto const first_barrier_keeps = [&](std::string_view query, std::string_view name) {
+    auto const accumulates = Collect<Accumulate>(Plan(query));
+    if (accumulates.empty()) return false;
+    return std::ranges::any_of(accumulates.back()->symbols_, [&](auto const &symbol) { return symbol.name() == name; });
+  };
+  auto const *rows = "UNWIND [{id: 1, k: 'A'}, {id: 2, k: 'B'}] AS row WITH row.id AS id, row AS r ";
+  EXPECT_TRUE(
+      first_barrier_keeps(fmt::format("{}CREATE (:Item {{id: id}}) MERGE (m:Item {{id: id}}) SET m:r.k", rows), "r"));
+  EXPECT_TRUE(first_barrier_keeps(
+      fmt::format("{}CREATE (:Item {{id: id}}) MERGE (m:Item {{id: id}}) REMOVE m:r.k", rows), "r"));
+  EXPECT_TRUE(first_barrier_keeps(
+      fmt::format("{}CREATE (:Item {{id: id}}) MERGE (m:Item {{id: id}}) CREATE (z:r.k)", rows), "r"));
+  auto const *lambda =
+      "MATCH (m:M), (n:L) CREATE (:X) CREATE (:Y {c: size([(n)-[*1..1 (e, v | v.t = m.t)]->(k) | k])})";
+  EXPECT_TRUE(first_barrier_keeps(lambda, "m"));
+  EXPECT_TRUE(first_barrier_keeps(lambda, "n"));
+  EXPECT_TRUE(first_barrier_keeps(
+      "UNWIND [1, 2] AS h MATCH (n:L) CREATE (:X) CREATE (:Y {c: size([(n)-[*1..h]->(k) | k])})", "h"));
+}
+
 // ---------------------------------------------------------------- a row-unique node needs no barrier
 
 // Every row holds a different n, and both SETs reach the key through n only: no row can see another row's write,
