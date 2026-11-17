@@ -24,16 +24,15 @@
 
 namespace memgraph::query::plan {
 
-/// The frame slots a projection's one-pass read writes into, held for as long as one query is
-/// being planned.
+/// The frame slots a one-pass read writes into, held for as long as one query is being planned.
 ///
 /// A planner may weigh many plans for one query against the single symbol table that sizes a
-/// frame, and only the plan it settles on ever runs. Each projection therefore draws from a pool
-/// of its own: whichever plan is chosen gets slots nothing else is using, and the frame is as wide
-/// as that plan needs rather than as wide as every plan considered.
+/// frame, and only the plan it settles on ever runs. Each operator reading a pass therefore draws
+/// from a pool of its own: whichever plan is chosen gets slots nothing else is using, and the frame
+/// is as wide as that plan needs rather than as wide as every plan considered.
 class CachedPropertySlots {
  public:
-  /// Draws a projection's slots in order, minting one only when the pool runs out.
+  /// Draws one operator's slots in order, minting one only when the pool runs out.
   class Pool {
    public:
     explicit Pool(std::vector<Symbol> *slots) : slots_{slots} {}
@@ -48,26 +47,29 @@ class CachedPropertySlots {
     size_t drawn_{0};
   };
 
-  /// The named expressions identify the projection: a plan holds its own copy of the pointers, so
-  /// two plans for one query name the same projection and a second projection names itself.
-  auto PoolFor(std::vector<NamedExpression *> const &projection) -> Pool { return Pool{&slots_[projection]}; }
+  /// The expressions identify the operator reading the pass: a plan holds its own copy of the
+  /// pointers, so two plans for one query name the same operator and a second operator names itself.
+  /// Taken before any of them is copied, which is what makes the two plans agree.
+  auto PoolFor(std::vector<Tree const *> const &expressions) -> Pool { return Pool{&slots_[expressions]}; }
 
  private:
-  std::map<std::vector<NamedExpression *>, std::vector<Symbol>> slots_;
+  std::map<std::vector<Tree const *>, std::vector<Symbol>> slots_;
 };
 
 namespace impl {
 
-/// Walks one Produce's named expressions, counting the lookups worth caching and then swapping the
-/// chosen ones for identifiers on the cache's frame slots.
+/// Walks the expressions one operator evaluates, counting the lookups worth reading in a pass and
+/// then swapping the chosen ones for identifiers on that pass's frame slots. A projection evaluates
+/// named expressions and an aggregation evaluates what it aggregates and groups by; what they have
+/// in common is that each of those is evaluated once for every row the operator is given.
 ///
 /// The phases share one traversal, so a lookup it does not reach is neither counted nor replaced,
 /// and keeps reading properties as it did.
-class ProducePropertyLookupCacher final : public ExpressionVisitor<void> {
+class PropertyLookupCacher final : public ExpressionVisitor<void> {
  public:
   enum class Phase : uint8_t { GATHER, PROBE, REPLACE, RETUNE };
 
-  ProducePropertyLookupCacher(SymbolTable *symbol_table, AstStorage *ast_storage)
+  PropertyLookupCacher(SymbolTable *symbol_table, AstStorage *ast_storage)
       : symbol_table_(symbol_table), ast_storage_(ast_storage) {}
 
   using ExpressionVisitor<void>::Visit;
@@ -75,6 +77,13 @@ class ProducePropertyLookupCacher final : public ExpressionVisitor<void> {
   void Run(Phase phase, NamedExpression *named_expression) {
     phase_ = phase;
     named_expression->Accept(*this);
+  }
+
+  /// As above for an expression its operator owns outright rather than through a named expression.
+  /// The replacing phase may swap the whole of it for an identifier, so it is taken by reference.
+  void Run(Phase phase, Expression *&expression) {
+    phase_ = phase;
+    AcceptExpression(expression);
   }
 
   /// The frontend's index for a property. A `storage::PropertyId` is the other integer naming a
@@ -92,24 +101,48 @@ class ProducePropertyLookupCacher final : public ExpressionVisitor<void> {
     int64_t value_{-1};
   };
 
+  /// A property gathered for a symbol, with how many lookups named it. A pass reads a property once
+  /// however many lookups asked for it, so the count is what says how many reads the pass saves.
+  struct GatheredProperty {
+    PropertyIx property;
+    size_t lookups{0};
+  };
+
   /// One symbol and the properties gathered for it, each named once and in the order they were met.
   /// A pass reads a set of properties, so what matters is that a property written twice is one entry
   /// and that the order is the same on every planning of the same query, not what that order is.
   struct Gathered {
     Symbol symbol;
-    std::vector<PropertyIx> properties;
+    std::vector<GatheredProperty> properties;
+
+    /// Whether some property here was named by more than one lookup.
+    auto AnyPropertyReadTwice() const -> bool {
+      return std::ranges::any_of(properties, [](auto const &p) { return p.lookups > 1; });
+    }
   };
 
   /// Which frame slot each cached property was read into. Sized once from the gathered properties,
   /// so the whole mapping is one allocation.
   using CachedSymbolsOfProperty = std::vector<std::pair<PropertyIndex, Symbol>>;
 
-  /// The symbols worth a pass of their own. A symbol carrying one lookup is left out: one pass for
-  /// one property is what the lookup already does.
-  auto Candidates() const -> std::vector<Gathered> {
+  /// What a symbol's lookups must show before a pass of its own pays for itself.
+  enum class Bar : uint8_t {
+    /// Two properties to read together. What a projection asks for, because the value a slot holds
+    /// is the value the row returns, so the slot costs the projection nothing.
+    kTwoPropertiesToRead,
+    /// One property asked for twice. What an aggregation asks for: it compares a value and discards
+    /// it, so a slot is added cost there, and only a read the pass saves pays for one.
+    kAPropertyReadTwice,
+  };
+
+  /// The symbols worth a pass of their own, by the standard the reading operator sets. A symbol
+  /// whose lookups fall short is left out and keeps reading as it did.
+  auto Candidates(Bar bar) const -> std::vector<Gathered> {
     auto worthwhile = std::vector<Gathered>{};
     for (auto const &gathered : gathered_) {
-      if (gathered.properties.size() < 2) continue;
+      auto const pays =
+          bar == Bar::kTwoPropertiesToRead ? gathered.properties.size() >= 2 : gathered.AnyPropertyReadTwice();
+      if (!pays) continue;
       worthwhile.push_back(gathered);
     }
     return worthwhile;
@@ -122,6 +155,12 @@ class ProducePropertyLookupCacher final : public ExpressionVisitor<void> {
   auto WouldRewrite(NamedExpression *named_expression) -> bool {
     probe_found_ = false;
     Run(Phase::PROBE, named_expression);
+    return probe_found_;
+  }
+
+  auto WouldRewrite(Expression *&expression) -> bool {
+    probe_found_ = false;
+    Run(Phase::PROBE, expression);
     return probe_found_;
   }
 
@@ -144,8 +183,12 @@ class ProducePropertyLookupCacher final : public ExpressionVisitor<void> {
           found = std::prev(gathered_.end());
         }
         auto &properties = found->properties;
-        if (!std::ranges::contains(properties, op.property_.ix, &PropertyIx::ix)) {
-          properties.push_back(op.property_);
+        auto const named = std::ranges::find_if(
+            properties, [&op](GatheredProperty const &p) { return p.property.ix == op.property_.ix; });
+        if (named == properties.end()) {
+          properties.push_back(GatheredProperty{.property = op.property_, .lookups = 1});
+        } else {
+          ++named->lookups;
         }
         return;
       }
@@ -251,8 +294,9 @@ class ProducePropertyLookupCacher final : public ExpressionVisitor<void> {
 #define NOT_ENTERED(TOp) \
   void Visit(TOp &op) override {}
 
-  // Evaluated by a subplan below this Produce rather than here, so a slot read above it would
-  // never be written.
+  // Evaluated by a subplan below the operator holding this expression rather than in it, so a slot
+  // read here would never be written. What an aggregation evaluates is reached when this runs for
+  // the aggregation itself, where its arguments stand on their own rather than inside one of these.
   NOT_ENTERED(Aggregation)
   NOT_ENTERED(PatternComprehension)
   NOT_ENTERED(SubqueryExpression)
@@ -336,36 +380,14 @@ class CachePropertiesRewriter final : public HierarchicalLogicalOperatorVisitor 
     auto input = op.input();
     if (!input) return true;
 
-    auto pool = slots_->PoolFor(op.named_expressions_);
-    auto cacher = ProducePropertyLookupCacher{symbol_table_, ast_storage_};
+    auto pool = slots_->PoolFor({op.named_expressions_.begin(), op.named_expressions_.end()});
+    auto cacher = PropertyLookupCacher{symbol_table_, ast_storage_};
     for (auto *&named_expression : op.named_expressions_) {
-      cacher.Run(ProducePropertyLookupCacher::Phase::GATHER, named_expression);
+      cacher.Run(PropertyLookupCacher::Phase::GATHER, named_expression);
     }
 
-    auto const modified = input->ModifiedSymbols(*symbol_table_);
-    auto cached_by_symbol = std::vector<std::pair<Symbol, ProducePropertyLookupCacher::CachedSymbolsOfProperty>>{};
-    auto groups = std::vector<CachedPropertyGroup>{};
-
-    for (auto const &candidate : cacher.Candidates()) {
-      // A symbol the input does not bind is read by something else, so there is no record here to read it from.
-      if (std::ranges::find(modified, candidate.symbol) == modified.end()) continue;
-
-      auto cached_by_property = ProducePropertyLookupCacher::CachedSymbolsOfProperty{};
-      auto cached_properties = std::vector<CachedProperty>{};
-      cached_properties.reserve(candidate.properties.size());
-      cached_by_property.reserve(candidate.properties.size());
-      for (auto const &property : candidate.properties) {
-        auto const output_symbol = pool.Next(*symbol_table_);
-        cached_by_property.emplace_back(ProducePropertyLookupCacher::PropertyIndex{property}, output_symbol);
-        cached_properties.push_back(CachedProperty{db_->NameToProperty(property.name), output_symbol});
-      }
-      cached_by_symbol.emplace_back(candidate.symbol, std::move(cached_by_property));
-      groups.emplace_back(candidate.symbol, std::move(cached_properties));
-    }
-
+    auto groups = DrawGroups(cacher, *input, pool, PropertyLookupCacher::Bar::kTwoPropertiesToRead);
     if (groups.empty()) return true;
-
-    cacher.SetCachedSymbols(std::move(cached_by_symbol));
 
     // The planner may weigh several candidate plans for one query, and they share the expressions
     // they were planned from, so a phase below writes to this plan's own copy. One the phases
@@ -376,10 +398,10 @@ class CachePropertiesRewriter final : public HierarchicalLogicalOperatorVisitor 
     }
 
     for (auto *&named_expression : op.named_expressions_) {
-      cacher.Run(ProducePropertyLookupCacher::Phase::REPLACE, named_expression);
+      cacher.Run(PropertyLookupCacher::Phase::REPLACE, named_expression);
     }
     for (auto *&named_expression : op.named_expressions_) {
-      cacher.Run(ProducePropertyLookupCacher::Phase::RETUNE, named_expression);
+      cacher.Run(PropertyLookupCacher::Phase::RETUNE, named_expression);
     }
 
     op.set_input(std::make_shared<CacheProperties>(input, std::move(groups)));
@@ -387,6 +409,35 @@ class CachePropertiesRewriter final : public HierarchicalLogicalOperatorVisitor 
   }
 
  private:
+  /// Draws the frame slots for every symbol whose lookups clear `bar`, telling the cacher which
+  /// slot each property was given, and answering with the groups the pass below reads into them.
+  auto DrawGroups(PropertyLookupCacher &cacher, LogicalOperator const &input, CachedPropertySlots::Pool &pool,
+                  PropertyLookupCacher::Bar bar) -> std::vector<CachedPropertyGroup> {
+    auto const modified = input.ModifiedSymbols(*symbol_table_);
+    auto cached_by_symbol = std::vector<std::pair<Symbol, PropertyLookupCacher::CachedSymbolsOfProperty>>{};
+    auto groups = std::vector<CachedPropertyGroup>{};
+
+    for (auto const &candidate : cacher.Candidates(bar)) {
+      // A symbol the input does not bind is read by something else, so there is no record here to read it from.
+      if (std::ranges::find(modified, candidate.symbol) == modified.end()) continue;
+
+      auto cached_by_property = PropertyLookupCacher::CachedSymbolsOfProperty{};
+      auto cached_properties = std::vector<CachedProperty>{};
+      cached_properties.reserve(candidate.properties.size());
+      cached_by_property.reserve(candidate.properties.size());
+      for (auto const &gathered : candidate.properties) {
+        auto const output_symbol = pool.Next(*symbol_table_);
+        cached_by_property.emplace_back(PropertyLookupCacher::PropertyIndex{gathered.property}, output_symbol);
+        cached_properties.push_back(CachedProperty{db_->NameToProperty(gathered.property.name), output_symbol});
+      }
+      cached_by_symbol.emplace_back(candidate.symbol, std::move(cached_by_property));
+      groups.emplace_back(candidate.symbol, std::move(cached_properties));
+    }
+
+    if (!groups.empty()) cacher.SetCachedSymbols(std::move(cached_by_symbol));
+    return groups;
+  }
+
   SymbolTable *symbol_table_;
   AstStorage *ast_storage_;
   TDbAccessor *db_;
