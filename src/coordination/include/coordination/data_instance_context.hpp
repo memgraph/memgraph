@@ -12,6 +12,8 @@
 #pragma once
 
 #include <nlohmann/json_fwd.hpp>
+#include <optional>
+#include <string>
 
 #include "coordination/coordinator_communication_config.hpp"
 #include "replication_coordination_glue/role.hpp"
@@ -32,6 +34,8 @@ struct DataInstanceContext {
   // so we need to send swap uuid again
   // For MAIN we don't enable writing until cluster is in healthy state
   utils::UUID instance_uuid;
+
+  std::optional<std::string> region;
 
   friend auto operator==(DataInstanceContext const &lhs, DataInstanceContext const &rhs) -> bool = default;
 };

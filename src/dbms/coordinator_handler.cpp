@@ -23,7 +23,7 @@ namespace memgraph::dbms {
 CoordinatorHandler::CoordinatorHandler(coordination::CoordinatorState &coordinator_state)
     : coordinator_state_(coordinator_state) {}
 
-auto CoordinatorHandler::RegisterReplicationInstance(coordination::DataInstanceConfig const &config)
+auto CoordinatorHandler::RegisterReplicationInstance(coordination::RegisterInstanceConfig const &config)
     -> coordination::RegisterInstanceCoordinatorStatus {
   return coordinator_state_.RegisterReplicationInstance(config);
 }

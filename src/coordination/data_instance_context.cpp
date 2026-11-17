@@ -25,12 +25,20 @@ void to_json(nlohmann::json &j, DataInstanceContext const &instance_state) {
   j = nlohmann::json{{kConfig.data(), instance_state.config},
                      {kStatus.data(), instance_state.status},
                      {kUuid, instance_state.instance_uuid}};
+  if (instance_state.region.has_value()) {
+    j[kRegion.data()] = *instance_state.region;
+  }
 }
 
 void from_json(nlohmann::json const &j, DataInstanceContext &instance_state) {
   j.at(kConfig.data()).get_to(instance_state.config);
   j.at(kStatus.data()).get_to(instance_state.status);
   j.at(kUuid.data()).get_to(instance_state.instance_uuid);
+  if (auto const it = j.find(kRegion.data()); it != j.end()) {
+    instance_state.region = it->get<std::string>();
+  } else {
+    instance_state.region.reset();
+  }
 }
 
 }  // namespace memgraph::coordination

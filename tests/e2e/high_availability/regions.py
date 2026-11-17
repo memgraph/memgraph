@@ -61,18 +61,24 @@ def coordinator_description(test_name: str, coord_id: int):
     }
 
 
+def data_instance_description(test_name: str, instance_id: int):
+    return {
+        "args": [
+            f"--bolt-port={DATA_INSTANCE_PORT + instance_id - 1}",
+            "--log-level=TRACE",
+            f"--management-port={10010 + instance_id}",
+        ],
+        "log_file": f"{get_logs_path(file, test_name)}/instance_{instance_id}.log",
+        "data_directory": f"{get_data_path(file, test_name)}/instance_{instance_id}",
+        "setup_queries": [],
+    }
+
+
 def get_instances_description(test_name: str):
     return {
-        "instance_1": {
-            "args": [
-                f"--bolt-port={DATA_INSTANCE_PORT}",
-                "--log-level=TRACE",
-                "--management-port=10011",
-            ],
-            "log_file": f"{get_logs_path(file, test_name)}/instance_1.log",
-            "data_directory": f"{get_data_path(file, test_name)}/instance_1",
-            "setup_queries": [],
-        },
+        "instance_1": data_instance_description(test_name, 1),
+        "instance_2": data_instance_description(test_name, 2),
+        "instance_3": data_instance_description(test_name, 3),
         "coordinator_1": coordinator_description(test_name, 1),
         "coordinator_2": coordinator_description(test_name, 2),
         "coordinator_3": coordinator_description(test_name, 3),
@@ -90,6 +96,20 @@ def setup_cluster(test_name):
             f"'coordinator_server': 'localhost:{10110 + coord_id}', 'management_server': 'localhost:{10120 + coord_id}'}}",
         )
     return instances_description
+
+
+def register_instance_query(instance_id: int, region=None, mode=""):
+    region_entry = "" if region is None else f", 'region': '{region}'"
+    return (
+        f"REGISTER INSTANCE instance_{instance_id} {mode} WITH CONFIG "
+        f"{{'bolt_server': 'localhost:{DATA_INSTANCE_PORT + instance_id - 1}', "
+        f"'management_server': 'localhost:{10010 + instance_id}', "
+        f"'replication_server': 'localhost:{10000 + instance_id}'{region_entry}}}"
+    )
+
+
+def instance_bolt_servers(cursor):
+    return {row[0]: row[1] for row in execute_and_fetch_all(cursor, "SHOW INSTANCES") if row[0].startswith("instance")}
 
 
 def show_region_info(port):
@@ -147,6 +167,84 @@ def test_region_queries(test_name):
     assert_region_info_on_all_coordinators([])
 
 
+def test_instance_regions(test_name):
+    setup_cluster(test_name)
+    leader_cursor = connect(host="localhost", port=LEADER_PORT).cursor()
+    follower_cursor = connect(host="localhost", port=FOLLOWER_PORTS[0]).cursor()
+
+    execute_and_fetch_all(leader_cursor, "ADD REGION 'eu'")
+    execute_and_fetch_all(leader_cursor, "ADD REGION 'us'")
+
+    for cursor in (leader_cursor, follower_cursor):
+        with pytest.raises(Exception) as e:
+            execute_and_fetch_all(cursor, register_instance_query(1, region="ap"))
+        assert "Region 'ap' doesn't exist." in str(e.value)
+        with pytest.raises(Exception) as e:
+            execute_and_fetch_all(cursor, register_instance_query(1, region="a p"))
+        assert "Invalid region name" in str(e.value)
+
+    # The region is only a label: the replication mode is still the one given in the query.
+    execute_and_fetch_all(follower_cursor, register_instance_query(1, region="eu"))
+    execute_and_fetch_all(leader_cursor, register_instance_query(2, region="us", mode="AS ASYNC"))
+    execute_and_fetch_all(leader_cursor, register_instance_query(3))
+    execute_and_fetch_all(leader_cursor, "SET INSTANCE instance_1 TO MAIN")
+    assert_region_info_on_all_coordinators([("eu", ["instance_1"], False), ("us", ["instance_2"], False)])
+
+    main_cursor = connect(host="localhost", port=DATA_INSTANCE_PORT).cursor()
+    mg_sleep_and_assert(
+        [("instance_2", "async"), ("instance_3", "sync")],
+        lambda: sorted((row[0], row[2]) for row in execute_and_fetch_all(main_cursor, "SHOW REPLICAS")),
+    )
+
+    for cursor in (leader_cursor, follower_cursor):
+        with pytest.raises(Exception) as e:
+            execute_and_fetch_all(cursor, "DROP REGION 'eu'")
+        assert "Region 'eu' still has instances." in str(e.value)
+
+    execute_and_fetch_all(follower_cursor, "UPDATE CONFIG FOR INSTANCE instance_3 {'region': 'us'}")
+    execute_and_fetch_all(leader_cursor, "UPDATE CONFIG FOR INSTANCE instance_1 {'region': null}")
+    assert_region_info_on_all_coordinators([("eu", [], False), ("us", ["instance_2", "instance_3"], False)])
+    execute_and_fetch_all(follower_cursor, "DROP REGION 'eu'")
+    assert_region_info_on_all_coordinators([("us", ["instance_2", "instance_3"], False)])
+
+    # A failed region change leaves the bolt server untouched; a valid one updates both.
+    bolt_servers = instance_bolt_servers(leader_cursor)
+    for cursor in (leader_cursor, follower_cursor):
+        with pytest.raises(Exception) as e:
+            execute_and_fetch_all(
+                cursor, "UPDATE CONFIG FOR INSTANCE instance_2 {'bolt_server': 'localhost:7700', 'region': 'eu'}"
+            )
+        assert "Region 'eu' doesn't exist." in str(e.value)
+    assert instance_bolt_servers(leader_cursor) == bolt_servers
+
+    execute_and_fetch_all(leader_cursor, "ADD REGION 'eu'")
+    execute_and_fetch_all(
+        follower_cursor, "UPDATE CONFIG FOR INSTANCE instance_2 {'bolt_server': 'localhost:7700', 'region': 'eu'}"
+    )
+    assert instance_bolt_servers(leader_cursor)["instance_2"] == "localhost:7700"
+    execute_and_fetch_all(leader_cursor, "UPDATE CONFIG FOR INSTANCE instance_2 {'bolt_server': 'localhost:7688'}")
+    assert instance_bolt_servers(leader_cursor)["instance_2"] == "localhost:7688"
+    assert_region_info_on_all_coordinators([("eu", ["instance_2"], False), ("us", ["instance_3"], False)])
+
+    for query, expected in (
+        ("UPDATE CONFIG FOR INSTANCE instance_2 {}", "at least one of bolt_server and region"),
+        ("UPDATE CONFIG FOR INSTANCE instance_2 {'foo': 'bar'}", "may contain only bolt_server"),
+        ("UPDATE CONFIG FOR INSTANCE instance_2 {'region': 'a p'}", "Invalid region name"),
+        ("UPDATE CONFIG FOR INSTANCE instance_9 {'region': 'eu'}", "doesn't exist"),
+        ("UPDATE CONFIG FOR COORDINATOR 1 {'region': 'eu'}", "Coordinators don't belong to a region"),
+        ("UPDATE CONFIG FOR COORDINATOR 1 {'bolt_server': 'localhost:7690', 'region': 'eu'}", "Coordinators"),
+    ):
+        for cursor in (leader_cursor, follower_cursor):
+            with pytest.raises(Exception) as e:
+                execute_and_fetch_all(cursor, query)
+            assert expected in str(e.value), query
+
+    # Unregistering an instance removes it from its region.
+    execute_and_fetch_all(leader_cursor, "UNREGISTER INSTANCE instance_2")
+    assert_region_info_on_all_coordinators([("eu", [], False), ("us", ["instance_3"], False)])
+    execute_and_fetch_all(leader_cursor, "DROP REGION 'eu'")
+
+
 def test_region_queries_rejected_on_data_instance(test_name):
     setup_cluster(test_name)
     cursor = connect(host="localhost", port=DATA_INSTANCE_PORT).cursor()
@@ -166,7 +264,8 @@ def test_regions_survive_coordinator_restart(test_name):
     leader_cursor = connect(host="localhost", port=LEADER_PORT).cursor()
     execute_and_fetch_all(leader_cursor, "ADD REGION 'us-east'")
     execute_and_fetch_all(leader_cursor, "ADD REGION 'eu-west'")
-    expected = [("eu-west", [], False), ("us-east", [], False)]
+    execute_and_fetch_all(leader_cursor, register_instance_query(1, region="eu-west"))
+    expected = [("eu-west", ["instance_1"], False), ("us-east", [], False)]
     assert_region_info_on_all_coordinators(expected)
 
     coordinators = ("coordinator_1", "coordinator_2", "coordinator_3")

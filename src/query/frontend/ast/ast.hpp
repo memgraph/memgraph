@@ -51,6 +51,7 @@ namespace memgraph::query {
 
 inline constexpr std::string_view kBoltServer = "bolt_server";
 inline constexpr std::string_view kReplicationServer = "replication_server";
+inline constexpr std::string_view kRegion = "region";
 inline constexpr std::string_view kCoordinatorServer = "coordinator_server";
 inline constexpr std::string_view kManagementServer = "management_server";
 

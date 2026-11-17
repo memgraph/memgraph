@@ -37,14 +37,26 @@ inline void Load(io::network::Endpoint *obj, Reader *reader) {
   Load(&obj->GetPort(), reader);
 }
 
+inline void Save(coordination::UpdateInstanceConfigV1 const &config, Builder *builder) {
+  slk::Save(config.data, builder);
+  slk::Save(config.bolt_endpoint, builder);
+}
+
+inline void Load(coordination::UpdateInstanceConfigV1 *config, Reader *reader) {
+  slk::Load(&config->data, reader);
+  slk::Load(&config->bolt_endpoint, reader);
+}
+
 inline void Save(coordination::UpdateInstanceConfig const &config, Builder *builder) {
   slk::Save(config.data, builder);
   slk::Save(config.bolt_endpoint, builder);
+  slk::Save(config.region, builder);
 }
 
 inline void Load(coordination::UpdateInstanceConfig *config, Reader *reader) {
   slk::Load(&config->data, reader);
   slk::Load(&config->bolt_endpoint, reader);
+  slk::Load(&config->region, reader);
 }
 
 inline void Save(ReplicationClientInfo const &obj, Builder *builder) {
@@ -239,6 +251,16 @@ inline void Load(coordination::DataInstanceConfig *obj, Reader *reader) {
   Load(&obj->replication_client_info, reader);
   Load(&obj->bolt_server, reader);
   Load(&obj->mgt_server, reader);
+}
+
+inline void Save(coordination::RegisterInstanceConfig const &obj, Builder *builder) {
+  Save(obj.config, builder);
+  Save(obj.region, builder);
+}
+
+inline void Load(coordination::RegisterInstanceConfig *obj, Reader *reader) {
+  Load(&obj->config, reader);
+  Load(&obj->region, reader);
 }
 
 }  // namespace memgraph::slk

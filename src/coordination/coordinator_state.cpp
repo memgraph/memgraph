@@ -42,7 +42,7 @@ CoordinatorState::CoordinatorState(ReplicationInstanceInitConfig const &config) 
                mgmt_config.endpoint.GetPort());
 }
 
-auto CoordinatorState::RegisterReplicationInstance(DataInstanceConfig const &config)
+auto CoordinatorState::RegisterReplicationInstance(RegisterInstanceConfig const &config)
     -> RegisterInstanceCoordinatorStatus {
   MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
             "Coordinator cannot register replica since variant holds wrong alternative");
@@ -51,7 +51,7 @@ auto CoordinatorState::RegisterReplicationInstance(DataInstanceConfig const &con
       memgraph::utils::Overloaded{[](const CoordinatorMainReplicaData & /*coordinator_main_replica_data*/) {
                                     return RegisterInstanceCoordinatorStatus::NOT_COORDINATOR;
                                   },
-                                  [config](CoordinatorInstance &coordinator_instance) {
+                                  [&config](CoordinatorInstance &coordinator_instance) {
                                     return coordinator_instance.RegisterReplicationInstance(config);
                                   }},
       data_);

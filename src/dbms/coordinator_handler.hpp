@@ -31,7 +31,7 @@ class CoordinatorHandler {
  public:
   explicit CoordinatorHandler(coordination::CoordinatorState &coordinator_state);
 
-  auto RegisterReplicationInstance(coordination::DataInstanceConfig const &config)
+  auto RegisterReplicationInstance(coordination::RegisterInstanceConfig const &config)
       -> coordination::RegisterInstanceCoordinatorStatus;
 
   auto UnregisterReplicationInstance(std::string_view instance_name)

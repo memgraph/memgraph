@@ -432,6 +432,40 @@ TEST_F(CoordinatorClusterStateTest, RegionsBackwardCompat) {
   ASSERT_EQ(feature_state.GetRegions(), (std::set<std::string>{"eu-west"}));
 }
 
+TEST_F(CoordinatorClusterStateTest, DataInstanceRegionMarshalling) {
+  auto const config =
+      DataInstanceConfig{.instance_name = "instance1",
+                         .mgt_server = Endpoint{"127.0.0.1", 10'111},
+                         .bolt_server = Endpoint{"127.0.0.1", 7687},
+                         .replication_client_info = {.instance_name = "instance1",
+                                                     .replication_mode = ReplicationMode::SYNC,
+                                                     .replication_server = Endpoint{"127.0.0.1", 10'001}}};
+  auto const uuid = UUID{};
+  std::vector<DataInstanceContext> data_instances{
+      DataInstanceContext{.config = config, .status = ReplicationRole::REPLICA, .instance_uuid = uuid, .region = "eu"},
+      DataInstanceContext{.config = config, .status = ReplicationRole::MAIN, .instance_uuid = uuid}};
+
+  // The region is written only when set.
+  nlohmann::json const with_region = data_instances[0];
+  nlohmann::json const without_region = data_instances[1];
+  ASSERT_EQ(with_region.at(memgraph::coordination::kRegion.data()), "eu");
+  ASSERT_FALSE(without_region.contains(memgraph::coordination::kRegion.data()));
+  ASSERT_EQ(with_region.get<DataInstanceContext>(), data_instances[0]);
+  ASSERT_EQ(without_region.get<DataInstanceContext>(), data_instances[1]);
+
+  CoordinatorClusterState cluster_state{};
+  // NOLINTNEXTLINE
+  CoordinatorClusterStateDelta const delta_state{.data_instances_ = data_instances,
+                                                 .regions_ = std::set<std::string>{"eu"}};
+  cluster_state.DoAction(delta_state);
+
+  ptr<buffer> data;
+  cluster_state.Serialize(data);
+  auto const deserialized_cluster_state = CoordinatorClusterState::Deserialize(*data);
+  ASSERT_EQ(cluster_state, deserialized_cluster_state);
+  ASSERT_EQ(deserialized_cluster_state.GetDataInstancesContext(), data_instances);
+}
+
 TEST_F(CoordinatorClusterStateTest, RoutingPoliciesSwitch) {
   CoordinatorClusterState cluster_state{};
   std::vector<DataInstanceContext> data_instances;
