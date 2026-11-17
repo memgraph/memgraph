@@ -1990,25 +1990,22 @@ TEST_F(StorageV2GcMetricsTest, ForkPin_OldestActiveSkipsForkId) {
   EXPECT_EQ(0, handles().unreleased_delta_objects.Value());
 }
 
-// With a live pin and no active transactions GC must not take the idle free-immediately path.
+// A transaction committed while an older reader is open keeps its deltas (no fast-discard). Once the reader closes and
+// a fork is pinned, no transaction is active, so only the pin stops GC from taking the idle free-immediately path:
+// the unlinked deltas stay queued while pinned and are freed after release.
 TEST_F(StorageV2GcMetricsTest, ForkPin_GcIdleShortcutDoesNotFireWhilePinned) {
   auto *mem_storage = static_cast<memgraph::storage::InMemoryStorage *>(storage.get());
-  memgraph::storage::Gid gid;
+  auto older = storage->Access(memgraph::storage::READ);
   {
     auto acc = storage->Access(memgraph::storage::WRITE);
-    gid = acc->CreateVertex().Gid();
+    (void)acc->CreateVertex();
     ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
+  ASSERT_LT(0, handles().unreleased_delta_objects.Value()) << "the open reader must keep the committed deltas";
+  older.reset();
   const uint64_t fork_ts = mem_storage->RegisterForkPin();
-  {
-    auto acc = storage->Access(memgraph::storage::WRITE);
-    auto v = acc->FindVertex(gid, memgraph::storage::View::OLD);
-    ASSERT_TRUE(acc->DeleteVertex(&*v).has_value());
-    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
-  }
   RunGc(*storage);
-  EXPECT_LT(0, handles().unreleased_delta_objects.Value());
-  EXPECT_EQ(1U, mem_storage->VertexStoreSize()) << "the vertex the fork still sees was reclaimed";
+  EXPECT_LT(0, handles().unreleased_delta_objects.Value()) << "unlinked garbage was freed while the fork was pinned";
   mem_storage->ReleaseForkPin(fork_ts);
   RunGc(*storage);
   EXPECT_EQ(0, handles().unreleased_delta_objects.Value());
