@@ -32,9 +32,6 @@
 
 import memgraph.utils.fnv;
 
-namespace r = ranges;
-namespace rv = r::views;
-
 namespace memgraph::storage {
 
 std::pair<uint64_t, durability::WalDeltaData> ReadWalDelta(durability::BaseDecoder *decoder, const uint64_t version) {
@@ -395,12 +392,11 @@ std::optional<SingleTxnDeltasProcessingResult> InMemoryStorage::ApplyWalTransact
           auto *edge_raw = er.ptr;
           {
             bool is_visible = true;
-            Delta *local_delta = nullptr;
-            {
+            auto *const local_delta = [&] {
               auto guard = std::shared_lock{edge_raw->lock};
               is_visible = !edge_raw->deleted();
-              local_delta = edge_raw->delta();
-            }
+              return edge_raw->delta();
+            }();
             ApplyDeltasForRead(
                 &transaction->GetTransaction(), local_delta, View::NEW, [&is_visible](const Delta &delta) {
                   switch (delta.action) {
@@ -621,7 +617,7 @@ std::optional<SingleTxnDeltasProcessingResult> InMemoryStorage::ApplyWalTransact
           auto label_id = NameToLabel(data.label);
           const auto properties_str = std::invoke([&]() -> std::string {
             if (data.properties && !data.properties->empty()) {
-              return fmt::format(" ({})", rv::join(*data.properties, ", ") | r::to<std::string>);
+              return fmt::format(" ({})", ranges::views::join(*data.properties, ", ") | ranges::to<std::string>);
             }
             return {};
           });
@@ -634,8 +630,9 @@ std::optional<SingleTxnDeltasProcessingResult> InMemoryStorage::ApplyWalTransact
             if (!data.properties) {
               return {};
             }
-            return *data.properties | rv::transform([&](const auto &prop_name) { return NameToProperty(prop_name); }) |
-                   r::to_vector;
+            return *data.properties |
+                   ranges::views::transform([&](const auto &prop_name) { return NameToProperty(prop_name); }) |
+                   ranges::to_vector;
           });
           auto ret = transaction->CreateTextIndex(
               TextIndexSpec{.index_name = data.index_name, .label = label_id, .properties = prop_ids}, report_progress);
@@ -648,7 +645,7 @@ std::optional<SingleTxnDeltasProcessingResult> InMemoryStorage::ApplyWalTransact
           const auto edge_type = NameToEdgeType(data.edge_type);
           const auto properties_str = std::invoke([&]() -> std::string {
             if (!data.properties.empty()) {
-              return fmt::format(" ({})", rv::join(data.properties, ", ") | r::to<std::string>);
+              return fmt::format(" ({})", ranges::views::join(data.properties, ", ") | ranges::to<std::string>);
             }
             return {};
           });
@@ -658,8 +655,8 @@ std::optional<SingleTxnDeltasProcessingResult> InMemoryStorage::ApplyWalTransact
                         data.edge_type,
                         properties_str);
           auto prop_ids = data.properties |
-                          rv::transform([&](const auto &prop_name) { return NameToProperty(prop_name); }) |
-                          r::to_vector;
+                          ranges::views::transform([&](const auto &prop_name) { return NameToProperty(prop_name); }) |
+                          ranges::to_vector;
           const auto ret = transaction->CreateTextEdgeIndex(
               TextEdgeIndexSpec{.index_name = data.index_name, .edge_type = edge_type, .properties = prop_ids},
               report_progress);
