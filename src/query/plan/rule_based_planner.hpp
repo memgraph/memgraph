@@ -1389,7 +1389,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
     const bool is_unseen_node = bound_symbols.insert(node1_symbol).second;
 
     // Scan from a single-hop edge into a free node2 only; node1 is bound by now, so a self-loop's node2 is bound.
-    // TODO: an existing-endpoint check in ScanByEdgeCommon (as Expand has) would let such endpoints keep the index.
+    // TODO: a self-loop check in ScanAllByEdgeCursor would let (a)-[:T]->(a) keep the edge index.
     if (is_unseen_node && expansion.expand_from_edge && expansion.edge->type_ == EdgeAtom::Type::SINGLE &&
         !bound_symbols.contains(symbol_table.at(*expansion.node2->identifier_))) {
       const auto &node2_symbol = symbol_table.at(*expansion.node2->identifier_);
