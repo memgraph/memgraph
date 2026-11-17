@@ -12,7 +12,9 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <limits>
+#include <vector>
 
 #include "materialise_edges.hpp"
 #include "storage/v2/inmemory/storage.hpp"
@@ -5561,6 +5563,110 @@ TEST_P(StorageEdgeTest, OnlyNonSequentialOperationsCanBePerformedWhenHeadOperati
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
+namespace {
+// A dense vertex fed by many sources, plus one source linked to it by two parallel edges and one edge back.
+// Deleting next to the dense vertex has to pick the right entries out of its adjacency even when several of them
+// point at the same opposing vertex.
+struct DenseVertexDataset {
+  static constexpr int kOtherSources = 50;
+
+  memgraph::storage::Gid hub;
+  memgraph::storage::Gid source;
+  memgraph::storage::Gid deleted_edge;
+  memgraph::storage::Gid parallel_edge;
+  memgraph::storage::Gid back_edge;
+  std::vector<memgraph::storage::Gid> other_edges;
+};
+
+DenseVertexDataset CreateDenseVertexDataset(memgraph::storage::Storage &store) {
+  DenseVertexDataset dataset;
+  auto acc = store.Access(memgraph::storage::WRITE);
+  auto hub = acc->CreateVertex();
+  auto source = acc->CreateVertex();
+  auto et = acc->NameToEdgeType("et");
+  for (int i = 0; i < DenseVertexDataset::kOtherSources; ++i) {
+    auto other = acc->CreateVertex();
+    dataset.other_edges.push_back(acc->CreateEdge(&other, &hub, et)->Gid());
+  }
+  dataset.deleted_edge = acc->CreateEdge(&source, &hub, et)->Gid();
+  dataset.parallel_edge = acc->CreateEdge(&source, &hub, et)->Gid();
+  dataset.back_edge = acc->CreateEdge(&hub, &source, et)->Gid();
+  dataset.hub = hub.Gid();
+  dataset.source = source.Gid();
+  EXPECT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  return dataset;
+}
+
+std::vector<memgraph::storage::Gid> EdgeGids(auto const &edges) {
+  std::vector<memgraph::storage::Gid> gids;
+  for (auto const &edge : edges) gids.push_back(edge.Gid());
+  return gids;
+}
+}  // namespace
+
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TEST_P(StorageEdgeTest, DeleteOneOfParallelEdgesIntoDenseVertex) {
+  using memgraph::storage::View;
+  std::unique_ptr<memgraph::storage::Storage> store(new memgraph::storage::InMemoryStorage(
+      {.salient = {.items = {.properties_on_edges = GetParam().properties_on_edges,
+                             .storage_light_edge = GetParam().light_edge}}}));
+  auto const dataset = CreateDenseVertexDataset(*store);
+
+  {
+    auto acc = store->Access(memgraph::storage::WRITE);
+    auto source = acc->FindVertex(dataset.source, View::OLD);
+    ASSERT_TRUE(source);
+    auto out_edges = Materialise(source->OutEdges(View::OLD)->edges);
+    auto to_delete = std::ranges::find_if(out_edges, [&](auto const &e) { return e.Gid() == dataset.deleted_edge; });
+    ASSERT_NE(to_delete, out_edges.end());
+    auto res = acc->DetachDelete({}, {&*to_delete}, false);
+    ASSERT_TRUE(res.has_value());
+    ASSERT_TRUE(*res);
+    EXPECT_THAT(EdgeGids((*res)->second), UnorderedElementsAre(dataset.deleted_edge));
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  auto acc = store->Access(memgraph::storage::WRITE);
+  auto hub = acc->FindVertex(dataset.hub, View::OLD);
+  auto source = acc->FindVertex(dataset.source, View::OLD);
+  ASSERT_TRUE(hub);
+  ASSERT_TRUE(source);
+  auto expected_hub_in = dataset.other_edges;
+  expected_hub_in.push_back(dataset.parallel_edge);
+  EXPECT_THAT(EdgeGids(hub->InEdges(View::OLD)->edges), testing::UnorderedElementsAreArray(expected_hub_in));
+  EXPECT_THAT(EdgeGids(hub->OutEdges(View::OLD)->edges), UnorderedElementsAre(dataset.back_edge));
+  EXPECT_THAT(EdgeGids(source->OutEdges(View::OLD)->edges), UnorderedElementsAre(dataset.parallel_edge));
+  EXPECT_THAT(EdgeGids(source->InEdges(View::OLD)->edges), UnorderedElementsAre(dataset.back_edge));
+}
+
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TEST_P(StorageEdgeTest, DetachDeleteVertexWithParallelEdgesIntoDenseVertex) {
+  using memgraph::storage::View;
+  std::unique_ptr<memgraph::storage::Storage> store(new memgraph::storage::InMemoryStorage(
+      {.salient = {.items = {.properties_on_edges = GetParam().properties_on_edges,
+                             .storage_light_edge = GetParam().light_edge}}}));
+  auto const dataset = CreateDenseVertexDataset(*store);
+
+  {
+    auto acc = store->Access(memgraph::storage::WRITE);
+    auto source = acc->FindVertex(dataset.source, View::OLD);
+    ASSERT_TRUE(source);
+    auto res = acc->DetachDeleteVertex(&*source);
+    ASSERT_TRUE(res.has_value());
+    ASSERT_TRUE(*res);
+    EXPECT_THAT(EdgeGids((*res)->second),
+                UnorderedElementsAre(dataset.deleted_edge, dataset.parallel_edge, dataset.back_edge));
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  auto acc = store->Access(memgraph::storage::WRITE);
+  auto hub = acc->FindVertex(dataset.hub, View::OLD);
+  ASSERT_TRUE(hub);
+  EXPECT_FALSE(acc->FindVertex(dataset.source, View::OLD));
+  EXPECT_THAT(EdgeGids(hub->InEdges(View::OLD)->edges), testing::UnorderedElementsAreArray(dataset.other_edges));
+  EXPECT_TRUE(hub->OutEdges(View::OLD)->edges.empty());
+}
+
 TEST(StorageEdgeDeleteAbort, SerializationErrorMidDeleteLeavesNoDuplicateAdjacency) {
   using memgraph::storage::View;
   std::unique_ptr<memgraph::storage::Storage> store(
