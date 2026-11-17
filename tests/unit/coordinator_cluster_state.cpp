@@ -378,6 +378,28 @@ TEST_F(CoordinatorClusterStateTest, RegionsAddDrop) {
   ASSERT_TRUE(cluster_state.GetRegions().empty());
 }
 
+TEST_F(CoordinatorClusterStateTest, RegionsCopyAndMove) {
+  auto const expected = std::set<std::string>{"eu-west", "us-east"};
+  CoordinatorClusterState cluster_state{};
+  // NOLINTNEXTLINE
+  CoordinatorClusterStateDelta const delta_state{.regions_ = expected};
+  cluster_state.DoAction(delta_state);
+
+  CoordinatorClusterState copied{cluster_state};
+  ASSERT_EQ(copied.GetRegions(), expected);
+
+  CoordinatorClusterState copy_assigned{};
+  copy_assigned = cluster_state;
+  ASSERT_EQ(copy_assigned.GetRegions(), expected);
+
+  CoordinatorClusterState moved{std::move(copied)};
+  ASSERT_EQ(moved.GetRegions(), expected);
+
+  CoordinatorClusterState move_assigned{};
+  move_assigned = std::move(copy_assigned);
+  ASSERT_EQ(move_assigned.GetRegions(), expected);
+}
+
 TEST_F(CoordinatorClusterStateTest, RegionsMarshalling) {
   CoordinatorClusterState cluster_state{};
   // NOLINTNEXTLINE
