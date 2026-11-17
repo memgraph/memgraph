@@ -30,19 +30,25 @@ namespace memgraph::query::plan {
 
 struct Matching;
 
-/// The variable a property key is read or written through: one variable, or `mixed` for two or more, or an object
-/// that is no variable.
-struct KeyReach {
-  std::optional<Symbol> symbol;
-  bool mixed{false};
-
-  void Note(const std::optional<Symbol> &through);
-  void Merge(const KeyReach &other);
-};
-
 /// What a clause reads from, or writes to, the graph. Keys are property, label and edge-type names. A read and a write
 /// conflict when they can touch the same key; an unknown key (`n[$k]`, `+= $m`, `properties(n)`) is any key.
 struct ReadWriteSet {
+  /// The variable a property key is read or written through: one variable, or `mixed` for two or more, or an object
+  /// that is no variable.
+  struct KeyReach {
+    std::optional<Symbol> symbol;
+    bool mixed{false};
+
+    void Note(const std::optional<Symbol> &through);
+    void Merge(const KeyReach &other);
+
+    /// Whether any read or write was noted.
+    bool Any() const { return symbol || mixed; }
+
+    /// The one variable, or nullopt when there is none or more than one.
+    std::optional<Symbol> One() const { return mixed ? std::nullopt : symbol; }
+  };
+
   std::set<std::string> properties;
   bool any_property{false};
   std::set<std::string> labels;
@@ -59,9 +65,9 @@ struct ReadWriteSet {
   /// Writes only: a SET or REMOVE label changed the labels of a node that already existed, the one write an access
   /// check can see. A created node's labels are not one: whether a read finds that node at all is a real conflict.
   bool relabels{false};
-  /// Per key in `properties`, the variable it is read or written through; `any_key_reach` for `any_property`.
-  std::map<std::string, KeyReach> key_reach;
-  KeyReach any_key_reach;
+  /// Per key in `properties`, the variable it is read or written through; `any_property_reach` for `any_property`.
+  std::map<std::string, KeyReach> property_reach;
+  KeyReach any_property_reach;
   /// Reads: the symbols a pattern expands from or through. Writes: the symbols a CREATE or MERGE first binds, which
   /// View::OLD cannot see until the command advances.
   std::unordered_set<Symbol> symbols;
@@ -73,10 +79,10 @@ struct ReadWriteSet {
   /// with `relabels`, the second only marks a read as a View::NEW read.
   bool Empty() const;
   void Merge(const ReadWriteSet &other);
-  /// Records @p key read or written through @p through; nullopt (an object that is no variable) mixes it.
-  void NoteKey(const std::string &key, const std::optional<Symbol> &through);
-  /// Records any key read or written through @p through.
-  void NoteAnyKey(const std::optional<Symbol> &through);
+  /// Adds property @p key, read or written through @p through; nullopt (an object that is no variable) mixes it.
+  void NoteProperty(const std::string &key, const std::optional<Symbol> &through);
+  /// Sets `any_property`, read or written through @p through.
+  void NoteAnyProperty(const std::optional<Symbol> &through);
 
   void Clear() { *this = ReadWriteSet{}; }
 };
@@ -93,8 +99,8 @@ bool ConflictsOnlyInAccessCheck(const ReadWriteSet &reads, const ReadWriteSet &w
 /// property keys alone and both reach each such key through that one variable; nullopt otherwise.
 std::optional<Symbol> ConflictsOnlyOnKeysOf(const ReadWriteSet &reads, const ReadWriteSet &writes);
 
-/// Only the property keys of @p set, and the variables they go through.
-ReadWriteSet KeysOnly(const ReadWriteSet &set);
+/// The variables through which @p a and @p b reach the property keys they share; `Any()` is false when they share none.
+ReadWriteSet::KeyReach SharedPropertyReach(const ReadWriteSet &a, const ReadWriteSet &b);
 
 struct ReadsAndWrites {
   ReadWriteSet reads;
