@@ -433,8 +433,11 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
         auto const symbol = ConflictsOnlyOnKeysOf(reads, writes);
         return symbol && input_op && impl::IsRowUnique(*input_op, *symbol);
       };
-      auto barrier_before = [&](const ReadWriteSet &reads) {
-        if (!BarriersOn() || !Conflicts(reads, pending_writes) || row_local(reads, pending_writes)) return;
+      // A View::OLD reader misses even its own row's write without the advance, so only a View::NEW one skips it.
+      auto barrier_before = [&](const ReadWriteSet &reads, bool reads_new) {
+        if (!BarriersOn() || !Conflicts(reads, pending_writes) || (reads_new && row_local(reads, pending_writes))) {
+          return;
+        }
         if (!ConflictsOnlyInAccessCheck(reads, pending_writes)) {
           plan_barrier();
         } else if (Conflicts(reads, access_pending_writes)) {
@@ -468,10 +471,10 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
             // Every read of a writing CALL body is a View::NEW read, which sees what this command created.
             auto new_reads = reads;
             new_reads.symbols.clear();
-            barrier_before(new_reads);
+            barrier_before(new_reads, /*reads_new=*/true);
             pending_new_reads.Merge(reads);
           } else {
-            barrier_before(reads);
+            barrier_before(reads, /*reads_new=*/false);
           }
         }
         input_op = HandleMatching(std::move(input_op), single_query_part, *context.symbol_table, context.bound_symbols);
@@ -604,7 +607,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
             auto reads = group_access.reads;
             // View::NEW sees what this command created; only a View::OLD reader needs the advance for that.
             if (clause_reads_new) reads.symbols.clear();
-            barrier_before(reads);
+            barrier_before(reads, clause_reads_new);
           }
           if (!clause->continues_previous_) drain_before(group_access.writes);
           // An entity bound since the last barrier is not there at View::OLD, so the evaluator reads it at View::NEW:
