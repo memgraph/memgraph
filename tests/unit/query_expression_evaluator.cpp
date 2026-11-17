@@ -3825,6 +3825,44 @@ TYPED_TEST(FunctionTest, Reverse) {
   EXPECT_TRUE(this->EvaluateFunction("REVERSE", TypedValue()).IsNull());
   EXPECT_EQ(this->EvaluateFunction("REVERSE", "abc").ValueString(), "cba");
   EXPECT_THROW(this->EvaluateFunction("REVERSE", "x", "y"), QueryRuntimeException);
+
+  CompareList(this->EvaluateFunction("REVERSE", MakeTypedValueList(3, 4, 5)), MakeTypedValueList(5, 4, 3));
+  auto empty = MakeTypedValueList();
+  CompareList(this->EvaluateFunction("REVERSE", empty), empty);
+
+  // Only the order of the top-level elements changes: a nested list and a map are
+  // moved as they are, not reversed themselves, and the input list keeps its order.
+  auto nested = MakeTypedValueList(1, 2);
+  auto map = TypedValue(std::map<std::string, TypedValue>{{"key", TypedValue(7)}});
+  auto input = MakeTypedValueList(nested, map, TypedValue(), TypedValue(-1));
+  const auto reversed = this->EvaluateFunction("REVERSE", input);
+  ASSERT_TRUE(reversed.IsList());
+  const auto &elements = reversed.ValueList();
+  ASSERT_EQ(elements.size(), 4U);
+  ASSERT_TRUE(elements[0].IsInt());
+  EXPECT_EQ(elements[0].ValueInt(), -1);
+  ASSERT_TRUE(elements[1].IsNull());
+  ASSERT_TRUE(elements[2].IsMap());
+  EXPECT_EQ(elements[2].ValueMap().at("key").ValueInt(), 7);
+  ASSERT_TRUE(elements[3].IsList());
+  CompareList(elements[3], nested);
+  ASSERT_EQ(input.ValueList().size(), 4U);
+  ASSERT_TRUE(input.ValueList()[0].IsList());
+  CompareList(input.ValueList()[0], nested);
+  ASSERT_TRUE(input.ValueList()[1].IsMap());
+  EXPECT_EQ(input.ValueList()[3].ValueInt(), -1);
+
+  // An argument of any other type is rejected by a message that names the whole
+  // accepted set, so `list` has to be part of it.
+  try {
+    this->EvaluateFunction("REVERSE", 132);
+    FAIL() << "expected REVERSE to reject an integer argument";
+  } catch (const QueryRuntimeException &e) {
+    const std::string message{e.what()};
+    EXPECT_NE(message.find("null"), std::string::npos) << message;
+    EXPECT_NE(message.find("string"), std::string::npos) << message;
+    EXPECT_NE(message.find("list"), std::string::npos) << message;
+  }
 }
 
 TYPED_TEST(FunctionTest, ReverseNonAscii) {
