@@ -505,10 +505,8 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
   // Branch drop of a demotion; holds branch_role_mutex_ across the role flip.
   class BranchDemotion;
   bool DropBranchesForDemotion();
-  // Freezes every store, or throws QueryRuntimeException naming the databases that hold branches (stores frozen
-  // before the throw are left to BranchDemotion's destructor).
+  // Throws QueryRuntimeException naming the databases that hold branches.
   void RefuseDemotionWithBranches();
-  void UnfreezeBranches();
 
   // Lock order: promotion blocks on this while holding repl_state; demotion holds it and only TryLocks repl_state,
   // which keeps the two deadlock-free. Never block on repl_state while holding it.

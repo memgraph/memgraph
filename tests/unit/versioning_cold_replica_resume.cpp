@@ -188,5 +188,5 @@ TEST_F(ColdReplicaResume, PromotionDuringResume) {
   ASSERT_TRUE(resumed.has_value());
   auto *store = (*resumed)->version_store();
   ASSERT_NE(store, nullptr);
-  EXPECT_TRUE(store->CreateBranch("x").has_value()) << "resumed store left frozen after promotion";
+  EXPECT_TRUE(store->CreateBranch("x").has_value()) << "promoted tenant refuses branches";
 }

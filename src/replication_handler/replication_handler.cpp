@@ -23,7 +23,6 @@
 #ifdef MG_ENTERPRISE
 #include "query/exceptions.hpp"
 #include "utils/on_scope_exit.hpp"
-#include "versioning/branch_recovery.hpp"
 #include "versioning/version_store.hpp"
 
 #include <fmt/format.h>
@@ -41,20 +40,11 @@ using namespace std::chrono_literals;
 namespace {
 #ifdef MG_ENTERPRISE
 // Databases are recovered before the role is known, so a REPLICA restart has rebuilt its branches. A failed drop is
-// logged, not fatal; that store keeps its branches, unfrozen.
+// logged, not fatal; that store keeps its branches.
 void DropBranchesOnReplicaStartup(dbms::DbmsHandler &dbms_handler) {
   dbms_handler.ForEach([](dbms::DatabaseAccess db_acc) {
     if (auto *const store = db_acc->version_store()) {
       versioning::DropBranchesOnReplica(*store, db_acc->name(), "on REPLICA startup");
-    }
-  });
-}
-
-// Only a branch that survived a failed drop reaches this; its gids must stay reserved once this MAIN creates objects.
-void RaiseGidCountersForBranchesOnPromotion(dbms::DbmsHandler &dbms_handler) {
-  dbms_handler.ForEach([](dbms::DatabaseAccess db_acc) {
-    if (auto *const store = db_acc->version_store()) {
-      versioning::RaiseGidCountersForBranches(*store, *static_cast<storage::InMemoryStorage *>(db_acc->storage()));
     }
   });
 }
@@ -250,8 +240,7 @@ ReplicationHandler::ReplicationHandler(utils::Synchronized<ReplicationState, uti
 bool ReplicationHandler::SetReplicationRoleMain() { return DoToMainPromotion({}, false); }
 #ifdef MG_ENTERPRISE
 
-// Holds branch_role_mutex_ across a demotion's branch drop and role flip; the destructor unfreezes the stores if the
-// instance is still MAIN at the end (drop, TryLock or flip failed).
+// Holds branch_role_mutex_ across a demotion's branch drop and role flip.
 class ReplicationHandler::BranchDemotion {
  public:
   explicit BranchDemotion(ReplicationHandler &handler)
@@ -263,10 +252,6 @@ class ReplicationHandler::BranchDemotion {
   BranchDemotion &operator=(BranchDemotion const &) = delete;
   BranchDemotion(BranchDemotion &&) = delete;
   BranchDemotion &operator=(BranchDemotion &&) = delete;
-
-  ~BranchDemotion() {
-    if (was_main_ && handler_.branches_allowed_.load(std::memory_order_acquire)) handler_.UnfreezeBranches();
-  }
 
   bool DropBranches() const { return !was_main_ || handler_.DropBranchesForDemotion(); }
 
@@ -297,11 +282,14 @@ void ReplicationHandler::RefuseDemotionWithBranches() {
   std::vector<std::string> holders;
   dbms_handler_.ForEach([&](dbms::DatabaseAccess db_acc) {
     auto *const store = db_acc->version_store();
-    if (!store || store->FreezeIfEmpty()) return;
+    if (auto const &unavailable = db_acc->branches_unavailable()) {
+      holders.push_back(fmt::format("'{}' (branches unknown: {})", db_acc->name(), *unavailable));
+      return;
+    }
+    if (!store || store->Empty()) return;
     std::vector<std::string> names;
-    for (auto const &[name, info] : store->List()) names.push_back(name);
-    holders.push_back(names.empty() ? fmt::format("'{}'", db_acc->name())
-                                    : fmt::format("'{}' (branches: {})", db_acc->name(), fmt::join(names, ", ")));
+    for (auto const &listing : store->List()) names.push_back(listing.name);
+    holders.push_back(fmt::format("'{}' (branches: {})", db_acc->name(), fmt::join(names, ", ")));
   });
   if (holders.empty()) return;
   throw query::QueryRuntimeException(
@@ -320,17 +308,9 @@ void ReplicationHandler::ReconcileBranchesAfterPublish(dbms::DatabaseAccess db_a
   auto *const store = db_acc->version_store();
   if (!store) return;
   std::scoped_lock const lock{branch_role_mutex_};
-  if (branches_allowed_.load(std::memory_order_acquire)) {
-    store->Unfreeze();
-  } else {
+  if (!branches_allowed_.load(std::memory_order_acquire)) {
     versioning::DropBranchesOnReplica(*store, db_acc->name(), "published on a REPLICA");
   }
-}
-
-void ReplicationHandler::UnfreezeBranches() {
-  dbms_handler_.ForEach([](dbms::DatabaseAccess db_acc) {
-    if (auto *const store = db_acc->version_store()) store->Unfreeze();
-  });
 }
 #endif
 
@@ -420,7 +400,7 @@ bool ReplicationHandler::DoToMainPromotion(const utils::UUID &main_uuid, bool co
     });
 #ifdef MG_ENTERPRISE
 
-    // Held across the flip and UnfreezeBranches so a concurrent post-publish reconcile sees one consistent role.
+    // Held across the flip so a concurrent post-publish reconcile sees one consistent role.
     std::unique_lock role_lock{branch_role_mutex_};
 #endif
 
@@ -465,8 +445,6 @@ bool ReplicationHandler::DoToMainPromotion(const utils::UUID &main_uuid, bool co
 #ifdef MG_ENTERPRISE
 
     branches_allowed_.store(true, std::memory_order_release);
-    UnfreezeBranches();
-    RaiseGidCountersForBranchesOnPromotion(dbms_handler_);
     role_lock.unlock();
 #endif
 
