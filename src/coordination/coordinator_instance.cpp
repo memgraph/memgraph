@@ -1926,23 +1926,23 @@ auto CoordinatorInstance::ShowRegionInfoAsLeader() const -> std::optional<std::v
     return std::nullopt;
   }
 
+  // Seeded with every region so empty regions get a row too; the map is ordered, so rows come out sorted by name.
   std::map<std::string, std::vector<std::string>, std::less<>> instances_by_region;
+  for (auto const &region : raft_state_->GetRegions()) {
+    instances_by_region.try_emplace(region);
+  }
   for (auto const &instance : raft_state_->GetDataInstancesContext()) {
-    if (instance.config.region.has_value()) {
-      instances_by_region[*instance.config.region].push_back(instance.config.instance_name);
+    if (auto const &region = instance.config.region; region.has_value()) {
+      if (auto it = instances_by_region.find(*region); it != instances_by_region.end()) {
+        it->second.emplace_back(instance.config.instance_name);
+      }
     }
   }
 
-  // The region set is ordered, so rows come out sorted by name.
-  auto const regions = raft_state_->GetRegions();
   std::vector<RegionInfo> result;
-  result.reserve(regions.size());
-  for (auto const &region : regions) {
-    auto instances = std::vector<std::string>{};
-    if (auto it = instances_by_region.find(region); it != instances_by_region.end()) {
-      instances = std::move(it->second);
-      std::ranges::sort(instances);
-    }
+  result.reserve(instances_by_region.size());
+  for (auto &[region, instances] : instances_by_region) {
+    std::ranges::sort(instances);
     result.emplace_back(RegionInfo{.name = region, .instances = std::move(instances), .is_primary_region = false});
   }
   return result;
