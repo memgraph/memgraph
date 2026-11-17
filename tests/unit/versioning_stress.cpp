@@ -47,6 +47,7 @@
 #include "communication/bolt/v1/value.hpp"
 #include "flags/general.hpp"
 #include "interpreter_faker.hpp"
+#include "kvstore/kvstore.hpp"
 #include "license/license.hpp"
 #include "mg_procedure.h"
 #include "query/exceptions.hpp"
@@ -61,6 +62,7 @@
 #include "utils/gatekeeper.hpp"
 #include "utils/logging.hpp"
 #include "utils/synchronized.hpp"
+#include "utils/uuid.hpp"
 #include "versioning/version_store.hpp"
 
 namespace {
@@ -255,9 +257,12 @@ bool PlanUsesOperator(InterpreterFaker &s, const std::string &query, std::string
 // One database plus its interpreter context, destroyed and rebuilt on the same directory to restart "the server".
 class StressEngine {
  public:
-  StressEngine(const std::filesystem::path &directory, bool narrowing)
+  // `ledger_store` holds the branch ledger and must outlive the engine, so a restart finds the branches again.
+  StressEngine(const std::filesystem::path &directory, bool narrowing, memgraph::kvstore::KVStore *ledger_store,
+               const memgraph::utils::UUID &uuid)
       : config_{[&] {
           memgraph::storage::Config config{};
+          config.salient.uuid = uuid;
           config.durability.storage_directory = directory;
           config.experimental_versioning = true;
           config.experimental_commit_lock_narrowing = narrowing;
@@ -271,7 +276,7 @@ class StressEngine {
           return config;
         }()},
         repl_state_{memgraph::storage::ReplicationStateRootPath(config_)},
-        db_gk_{config_},
+        db_gk_{config_, ledger_store},
         db_{[&] {
           auto db_acc_opt = db_gk_.access();
           MG_ASSERT(db_acc_opt, "Failed to access db");
@@ -339,6 +344,9 @@ int64_t Scalar(InterpreterFaker &s, const std::string &query) {
 class VersioningStressTest : public ::testing::TestWithParam<bool> {
  protected:
   std::filesystem::path data_directory;
+  std::filesystem::path ledger_directory;
+  std::unique_ptr<memgraph::kvstore::KVStore> ledger_store;
+  memgraph::utils::UUID db_uuid;
   std::unique_ptr<StressEngine> engine;
 
   void SetUp() override {
@@ -348,20 +356,25 @@ class VersioningStressTest : public ::testing::TestWithParam<bool> {
     std::ranges::replace(test_name, '/', '_');
     data_directory = std::filesystem::temp_directory_path() /
                      ("MG_tests_unit_versioning_stress_" + std::to_string(::getpid()) + "_" + test_name);
+    ledger_directory = data_directory.string() + "_ledger";
     std::filesystem::remove_all(data_directory);
-    engine = std::make_unique<StressEngine>(data_directory, GetParam());
+    std::filesystem::remove_all(ledger_directory);
+    ledger_store = std::make_unique<memgraph::kvstore::KVStore>(ledger_directory);
+    engine = std::make_unique<StressEngine>(data_directory, GetParam(), ledger_store.get(), db_uuid);
   }
 
   void TearDown() override {
     engine.reset();
+    ledger_store.reset();
     memgraph::license::global_license_checker.DisableTesting();
     std::filesystem::remove_all(data_directory);
+    std::filesystem::remove_all(ledger_directory);
   }
 
   bool Restart() {
     engine.reset();
     try {
-      engine = std::make_unique<StressEngine>(data_directory, GetParam());
+      engine = std::make_unique<StressEngine>(data_directory, GetParam(), ledger_store.get(), db_uuid);
     } catch (const std::exception &e) {
       ADD_FAILURE() << "the server refused to start after a restart: " << e.what();
       return false;
