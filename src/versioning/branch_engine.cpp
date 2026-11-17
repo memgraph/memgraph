@@ -13,6 +13,7 @@
 
 #include <fmt/format.h>
 
+#include <string_view>
 #include <utility>
 
 #include "memory/db_arena.hpp"
@@ -49,7 +50,54 @@ void MirrorMainEnumsIntoDiffEngine(storage::InMemoryStorage &diff_engine, const 
   MG_ASSERT(commit_res.has_value(), "BranchCore::Build: enum-definition mirror commit failed.");
 }
 
+std::string HistoricalOpenFailure(storage::InMemoryStorage::HistoricalAccessError error, uint64_t fork_ts,
+                                  std::string_view what) {
+  using Error = storage::InMemoryStorage::HistoricalAccessError;
+  switch (error) {
+    case Error::ForkTimestampNotPinned:
+      return fmt::format("{}: its fork point (timestamp {}) is no longer retained.", what, fork_ts);
+    case Error::StorageModeNotTransactional:
+      return fmt::format("{}: graph versioning requires IN_MEMORY_TRANSACTIONAL storage mode.", what);
+  }
+  std::unreachable();
+}
+
 }  // namespace
+
+storage::Config DiffEngineConfig(const storage::Config &main_config, storage::StorageMode live_mode) {
+  storage::Config config = main_config;
+  // main_config keeps the mode main started in; SET STORAGE MODE changes only the live one, and a stale analytical
+  // mode would build a diff engine without MVCC deltas.
+  config.salient.storage_mode = live_mode;
+  // Fresh UUID so no registry aliases main; the NAME stays main's, read live via ReportNameOf, because main can be
+  // renamed.
+  config.salient.uuid = utils::UUID{};
+  // The diff engine's indexes mirror main's at the fork; an auto-created one would be built under read-only access
+  // that blocks branch writers, and its metadata delta is not one a branch WAL can replay.
+  config.salient.items.enable_label_index_auto_creation = false;
+  config.salient.items.enable_edge_type_index_auto_creation = false;
+  // SHOW SCHEMA INFO reads main's tracker, never the diff engine's.
+  config.salient.items.enable_schema_info = false;
+  // Base-edge overlays are Edge objects, so the diff engine keeps properties on edges whatever main has.
+  config.salient.items.properties_on_edges = true;
+  // Overlays and native edges are all heavy, so teardown frees nothing by hand.
+  config.salient.items.storage_light_edge = false;
+  // Narrowing is unbenched on the diff engine, so branch commits keep the full commit lock.
+  config.experimental_commit_lock_narrowing = false;
+  // config.gc stays main's: the diff engine needs its own GC or committed branch deltas are never freed while another
+  // transaction is active.
+  // The diff engine is never durable: no WAL, snapshot or recovery (a recovery failure would Clear() the shared
+  // mapper).
+  config.durability.snapshot_wal_mode = storage::Config::Durability::SnapshotWalMode::DISABLED;
+  config.durability.snapshot_interval = utils::SchedulerInterval{};
+  config.durability.recover_on_startup = false;
+  config.durability.snapshot_on_exit = false;
+  // Unique per build so the diff engine never aliases main's directory (disk usage, file-retainer locks).
+  config.durability.storage_directory =
+      config.durability.storage_directory / "versioning_diff_engine" / utils::GenerateUUID();
+  config.durability.root_data_directory = config.durability.storage_directory;
+  return config;
+}
 
 std::expected<std::shared_ptr<BranchCore>, BranchCore::BuildError> BranchCore::Build(
     storage::InMemoryStorage &main, uint64_t fork_ts, std::optional<RecordedFloors> recorded) {
@@ -60,46 +108,14 @@ std::expected<std::shared_ptr<BranchCore>, BranchCore::BuildError> BranchCore::B
   auto hist_exp = main.HistoricalAccess(fork_ts);
   if (!hist_exp.has_value()) {
     return std::unexpected(
-        BuildError{.message = fmt::format(
-                       "Cannot open the branch: its fork point (timestamp {}) is no longer retained.", fork_ts)});
+        BuildError{.message = HistoricalOpenFailure(hist_exp.error(), fork_ts, "Cannot open the branch")});
   }
   std::unique_ptr<storage::Storage::Accessor> historical = std::move(*hist_exp);
 
-  storage::Config config = main.config_;
-  // main.config_ keeps the mode main started in; SET STORAGE MODE changes only the live one. A stale analytical
-  // mode would build a diff engine without MVCC deltas.
-  config.salient.storage_mode = main.GetStorageMode();
-  // Fresh UUID so no registry aliases main; the NAME stays main's, read live via ReportNameOf below, because
-  // DbAccessor::DatabaseName() reads it and main can be renamed.
-  config.salient.uuid = utils::UUID{};
-  // The diff engine's indexes mirror main's at the fork. An auto-created one would be built on the diff engine only,
-  // under read-only access that blocks branch writers, and its metadata delta is not a delta a branch WAL can replay.
-  config.salient.items.enable_label_index_auto_creation = false;
-  config.salient.items.enable_edge_type_index_auto_creation = false;
-  // SHOW SCHEMA INFO reads main's tracker, never the diff engine's, so per-commit tracking here would be waste.
-  config.salient.items.enable_schema_info = false;
-  // Base-edge overlays are heavy Edge objects, so the diff engine keeps properties on edges whatever main has.
-  config.salient.items.properties_on_edges = true;
-  // Narrowing is unbenched on the diff engine, so branch commits keep the full commit lock.
-  config.experimental_commit_lock_narrowing = false;
-  // config.gc stays main's: the diff engine needs its own GC or committed branch deltas are never freed while another
-  // transaction is active.
-  config.durability.snapshot_wal_mode = storage::Config::Durability::SnapshotWalMode::DISABLED;
-  config.durability.snapshot_interval = utils::SchedulerInterval{};
-  config.durability.recover_on_startup = false;
-  // Main's retention needs are not the diff engine's.
-  config.durability.recovery_history_bound.reset();
-  config.durability.retention_floor.reset();
-  config.durability.snapshot_on_exit = false;
-  // Unique per build so the diff engine never aliases main's directory (disk usage, file-retainer locks).
-  config.durability.storage_directory =
-      config.durability.storage_directory / "versioning_diff_engine" / utils::GenerateUUID();
-  config.durability.root_data_directory = config.durability.storage_directory;
+  const storage::Config config = DiffEngineConfig(main.config_, main.GetStorageMode());
   // Only the unreleased-delta gauge is shared, so branch memory shows up under the tenant.
   metrics::DatabaseMetricHandles metric_handles{};
   metric_handles.unreleased_delta_objects = main.metric_handles_.unreleased_delta_objects;
-  // The shared mapper carries main's ids, and a recovery failure at construction would Clear() it.
-  MG_ASSERT(!config.durability.recover_on_startup, "a diff engine must not run recovery over main's name mapper");
   auto diff_engine = std::make_unique<storage::InMemoryStorage>(config,
                                                                 std::nullopt,
                                                                 std::make_unique<storage::PlanInvalidatorDefault>(),
@@ -107,6 +123,7 @@ std::expected<std::shared_ptr<BranchCore>, BranchCore::BuildError> BranchCore::B
                                                                 nullptr,
                                                                 main.DbArenaPool(),
                                                                 nullptr,
+                                                                storage::durability::HistoryBounds{},
                                                                 main.GetSharedNameIdMapper());
   diff_engine->ReportNameOf(main);
 
