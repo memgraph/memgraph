@@ -548,9 +548,9 @@ TEST_F(WriteVisibilityPlan, ANodeThatMayRepeatKeepsItsBarrier) {
            "MATCH (n:L)--(m) WITH n, m.k AS k, count(*) AS c SET n.x = n.x + c SET n.y = n.x",
            // The key is read through another variable.
            "MATCH (n:L) WITH n, n AS m SET n.x = 1 SET n.y = m.x",
-           // The keys go through two variables: m may be another row's n.
-           "MATCH (n:L) WITH n, head([(n)-[:T]->(o) | o]) AS m SET n.x = n.x + 1 SET n.y = m.x + n.x",
-           // The same, with the first key read through n: only the mixed keys keep the barrier.
+           // The first key is read through an expression, not a variable: m may be another row's n.
+           "MATCH (n:L) WITH n, head([(n)-[:T]->(o) | o]) AS m SET n.x = n.x + 1 SET n.y = coalesce(m).x + n.x",
+           // The keys go through two variables, the first through n: only the mixed keys keep the barrier.
            "MATCH (n:L) WITH n, head([(n)-[:T]->(o) | o]) AS m SET n.x = n.x + 1 SET n.y = n.x + m.x",
            // Something else conflicts too: the comprehension reads the label the first SET adds.
            "MATCH (n:L) SET n.x = n.x + 1, n:Done SET n.y = n.x + size([(m:Done)-->() | m])",
