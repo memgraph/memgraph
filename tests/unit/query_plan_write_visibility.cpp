@@ -397,6 +397,14 @@ TEST_F(WriteVisibilityPlan, AnAccessCheckBarrierKeepsTheWritesPending) {
   EXPECT_FALSE(upper->access_check_only_);
   EXPECT_TRUE(lower->access_check_only_);
 }
+
+// A subscript reads a node property as a lookup does, so its permission check waits for the label write.
+TEST_F(WriteVisibilityPlan, ASubscriptOnANodeReadsItsLabelsForTheAccessCheck) {
+  EXPECT_TRUE(Access("MATCH (a) RETURN a['x'] AS v").reads.access_check_labels);
+  EXPECT_TRUE(Access("MATCH (a) WITH a, 'x' AS k RETURN a[k] AS v").reads.access_check_labels);
+  EXPECT_EQ(Chain(Plan("MATCH (a:P) SET a:Secret CREATE (:Y {v: a['x']})")),
+            (Names{"EmptyResult", "CreateNode", "Accumulate+(access)", "SetLabels", "Filter", "ScanAll", "Once"}));
+}
 #endif
 
 // ---------------------------------------------------------------- what a MERGE binds
