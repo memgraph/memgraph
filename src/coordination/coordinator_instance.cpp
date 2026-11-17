@@ -13,6 +13,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cctype>
 #include <chrono>
 #include <functional>
 #include <iterator>
@@ -87,6 +88,18 @@ auto RoleNameIsWellFormed(std::string_view const role_name) -> bool {
   // config is built.
   static std::regex const name_regex{FLAGS_auth_user_or_role_name_regex};
   return std::regex_match(std::string{role_name}, name_regex);
+}
+
+// Every region operation rewrites the full set into the Raft log and every snapshot copies it, so names are kept short
+// and to a charset that covers cloud region identifiers.
+constexpr std::size_t kMaxRegionNameLength{128};
+
+auto RegionNameIsWellFormed(std::string_view const region_name) -> bool {
+  auto const is_allowed = [](char const c) {
+    return std::isalnum(static_cast<unsigned char>(c)) != 0 || c == '-' || c == '_' || c == '.';
+  };
+  return !region_name.empty() && region_name.size() <= kMaxRegionNameLength &&
+         std::ranges::all_of(region_name, is_allowed);
 }
 }  // namespace
 
@@ -1243,6 +1256,11 @@ auto CoordinatorInstance::DropRole(std::string_view const role_name) const -> Dr
 }
 
 auto CoordinatorInstance::AddRegion(std::string_view const region_name) const -> AddRegionStatus {
+  // Checked on the coordinator that received the query and again on the leader when the request is forwarded.
+  if (!RegionNameIsWellFormed(region_name)) {
+    return AddRegionStatus::INVALID_REGION_NAME;
+  }
+
   if (auto const res = ForwardStatusToLeader<AddRegionRpc, AddRegionStatus>(std::string{region_name});
       res.has_value()) {
     return *res;

@@ -68,7 +68,8 @@ them, and designate a primary region. Once a primary region is set, the cluster 
 | `REGISTER INSTANCE i1 WITH CONFIG {..., "region": "eu-west"}` | Assigns the instance to a region. The region must exist (`NO_SUCH_REGION`). |
 | `UPDATE CONFIG FOR INSTANCE i1 {"region": "us-east"}` | Changes an instance's region. `bolt_server` and `region` are both optional; at least one is required. `region` is rejected for coordinators. |
 
-Region names are string literals, case-sensitive, non-empty. All write queries go through the Raft leader and use the
+Region names are case-sensitive string literals of 1 to 128 characters from `[A-Za-z0-9_.-]`
+(`INVALID_REGION_NAME` otherwise). All write queries go through the Raft leader and use the
 existing coordinator privilege.
 
 ### Coordinator settings (Raft-replicated, `SET COORDINATOR SETTING`)

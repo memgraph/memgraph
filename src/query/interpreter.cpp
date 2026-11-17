@@ -713,6 +713,11 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
         throw QueryRuntimeException(GetLeaderFailedForwardedQueryMessage());
       case coordination::AddRegionStatus::RAFT_LOG_ERROR:
         throw QueryRuntimeException("Writing to Raft log failed. Please retry the operation.");
+      case coordination::AddRegionStatus::INVALID_REGION_NAME:
+        throw QueryRuntimeException(
+            "Invalid region name '{}'. It must be 1 to 128 characters long and contain only letters, digits, '-', '_' "
+            "and '.'.",
+            region_name);
     }
   }
 
@@ -3050,9 +3055,6 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
       auto const region_name = EvaluateOptionalExpression(coordinator_query->region_name_, evaluator);
       if (!region_name.IsString()) {
         throw QueryRuntimeException("Region name should be a string literal.");
-      }
-      if (region_name.ValueString().empty()) {
-        throw QueryRuntimeException("Region name must not be empty.");
       }
 
       callback.fn = [handler = CoordQueryHandler{*coordinator_state},

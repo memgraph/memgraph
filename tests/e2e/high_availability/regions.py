@@ -133,9 +133,14 @@ def test_region_queries(test_name):
             execute_and_fetch_all(cursor, "DROP REGION 'us-east'")
         assert "Region 'us-east' doesn't exist." in str(e.value)
 
-    with pytest.raises(Exception) as e:
-        execute_and_fetch_all(leader_cursor, "ADD REGION ''")
-    assert "Region name must not be empty." in str(e.value)
+    for cursor in (leader_cursor, follower_cursor):
+        for name in ("", "   ", " eu-west", "eu west", "x" * 129, "\U0001F600", "\\U0000D800"):
+            with pytest.raises(Exception) as e:
+                execute_and_fetch_all(cursor, f"ADD REGION '{name}'")
+            assert "Invalid region name" in str(e.value)
+    execute_and_fetch_all(leader_cursor, f"ADD REGION '{'x' * 128}'")
+    execute_and_fetch_all(leader_cursor, f"DROP REGION '{'x' * 128}'")
+    assert_region_info_on_all_coordinators([("eu-west", [], False)])
 
     execute_and_fetch_all(follower_cursor, "DROP REGION 'eu-west'")
     assert_region_info_on_all_coordinators([])
