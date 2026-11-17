@@ -326,6 +326,8 @@ TEST_F(WriteVisibilityPlan, BarrierBeforeCreateMapThatReadsAnEarlierSet) {
             (Names{"EmptyResult", "CreateNode", "Accumulate+", "SetProperty", "ScanAll", "Unwind", "Once"}));
   EXPECT_EQ(Chain(Plan("UNWIND [1, 2] AS i MATCH (a) SET a.x = 1 CREATE ({v: a.z})")),
             (Names{"EmptyResult", "CreateNode", "SetProperty", "ScanAll", "Unwind", "Once"}));
+  EXPECT_EQ(Views<CreateNode>(Plan("UNWIND [1, 2] AS i MATCH (a) SET a.x = 1 CREATE ({v: a.x})")),
+            (std::vector{View::OLD}));
 }
 
 TEST_F(WriteVisibilityPlan, BarrierBeforeForeachListThatReadsAnEarlierSet) {
@@ -340,6 +342,8 @@ TEST_F(WriteVisibilityPlan, BarrierBeforeCallBodyThatReadsAnEarlierSet) {
             (Names{"Produce", "Apply", "Accumulate+", "SetProperty", "ScanAll", "Unwind", "Once"}));
   EXPECT_EQ(Chain(Plan("UNWIND [1, 2] AS i MATCH (a) SET a.x = 1 CALL (a) { RETURN a.z AS v } RETURN v")),
             (Names{"Produce", "Accumulate+", "Apply", "SetProperty", "ScanAll", "Unwind", "Once"}));
+  EXPECT_EQ(Views<Produce>(Plan("UNWIND [1, 2] AS i MATCH (a) SET a.x = 1 CALL (a) { RETURN a.x AS v } RETURN v")),
+            (std::vector{View::OLD, View::OLD}));
 }
 
 TEST_F(WriteVisibilityPlan, BarrierBeforeExpansionFromACreatedNode) {
@@ -518,21 +522,54 @@ TEST_F(WriteVisibilityPlan, ARowUniqueNodeNeedsNoBarrierBetweenItsOwnKeys) {
            "MATCH (n:L)--() WITH n, count(*) AS c SET n.x = n.x + c SET n.y = n.x",
            "MATCH (n:L) WITH DISTINCT n SET n.x = n.x + 1 SET n.y = n.x",
            "MATCH (a:L) WITH a AS n SET n.x = n.x + 1 SET n.y = n.x",
+           // m may be another row's n, but no write reaches the key it reads.
+           "MATCH (n:L) WITH n, head([(n)-[:T]->(o) | o]) AS m SET n.x = n.x + 1 SET n.y = n.x + m.z",
        }) {
     EXPECT_TRUE(Collect<Accumulate>(Plan(query)).empty()) << query;
   }
 }
 
-// A View::OLD reader does not see its own row's write without the advance, so a row-unique node keeps the barrier.
-TEST_F(WriteVisibilityPlan, ARowUniqueNodeKeepsItsBarrierBeforeAViewOldReader) {
-  EXPECT_EQ(Chain(Plan("MATCH (a) SET a.x = 1 CREATE ({v: a.x})")),
-            (Names{"EmptyResult", "CreateNode", "Accumulate+", "SetProperty", "ScanAll", "Once"}));
-  EXPECT_EQ(Chain(Plan("MATCH (a) SET a.x = 1 CREATE (a)-[:T {v: a.x}]->()")),
-            (Names{"EmptyResult", "CreateExpand", "Accumulate+", "SetProperty", "ScanAll", "Once"}));
-  EXPECT_EQ(Chain(Plan("MATCH (a) SET a.x = 1 CALL (a) { RETURN a.x AS v } RETURN v")),
-            (Names{"Produce", "Apply", "Accumulate+", "SetProperty", "ScanAll", "Once"}));
-  EXPECT_EQ(Chain(Plan("MATCH (a) REMOVE a.x CREATE ({v: a.x})")),
-            (Names{"EmptyResult", "CreateNode", "Accumulate+", "RemoveProperty", "ScanAll", "Once"}));
+// Without the advance a View::OLD reader misses its own row's write, so a row-unique node's reader reads View::NEW
+// instead of paying a barrier: no other row's write can reach what it reads.
+TEST_F(WriteVisibilityPlan, ARowUniqueNodeReadsNewInsteadOfABarrier) {
+  auto &create = Plan("MATCH (a) SET a.x = 1 CREATE ({v: a.x})");
+  EXPECT_EQ(Chain(create), (Names{"EmptyResult", "CreateNode", "SetProperty", "ScanAll", "Once"}));
+  EXPECT_EQ(Views<CreateNode>(create), (std::vector{View::NEW}));
+  auto &expand = Plan("MATCH (a) SET a.x = 1 CREATE (a)-[:T {v: a.x}]->()");
+  EXPECT_EQ(Chain(expand), (Names{"EmptyResult", "CreateExpand", "SetProperty", "ScanAll", "Once"}));
+  EXPECT_EQ(Views<CreateExpand>(expand), (std::vector{View::NEW}));
+  auto &call = Plan("MATCH (a) SET a.x = 1 CALL (a) { RETURN a.x AS v } RETURN v");
+  EXPECT_EQ(Chain(call), (Names{"Produce", "Accumulate+", "Apply", "SetProperty", "ScanAll", "Once"}));
+  EXPECT_EQ(Views<Produce>(call), (std::vector{View::OLD, View::NEW}));
+  auto &remove = Plan("MATCH (a) REMOVE a.x CREATE ({v: a.x})");
+  EXPECT_EQ(Chain(remove), (Names{"EmptyResult", "CreateNode", "RemoveProperty", "ScanAll", "Once"}));
+  EXPECT_EQ(Views<CreateNode>(remove), (std::vector{View::NEW}));
+  // The CREATE's read is a View::NEW read now, and a later write of its key through a is row-local too.
+  EXPECT_TRUE(Collect<Accumulate>(Plan("MATCH (a) SET a.x = 1 CREATE ({v: a.x}) SET a.x = 100")).empty());
+}
+
+// A MERGE reads its own pattern key through its own variable: only the keys the earlier write reached decide.
+TEST_F(WriteVisibilityPlan, AMergeReadsARowUniqueKeyWithoutABarrier) {
+  for (auto const *query : {
+           "MATCH (a:P) SET a.w = 1 MERGE (q:Q {x: a.w + a.id})",
+           "MATCH (a:P) SET a.w = 1 MERGE (q:Q {x: a.w})",
+           "MATCH (a:P) SET a.w = 1 MERGE (q:Q) ON CREATE SET q.x = a.w + q.y",
+           "MATCH (a:P) SET a.w = 1 FOREACH (i IN [a.w] | MERGE (:Q {x: i}))",
+       }) {
+    EXPECT_TRUE(Collect<Accumulate>(Plan(query)).empty()) << query;
+  }
+}
+
+// A reader that writes a pending key through another variable can reach a later row's node before that row's own
+// earlier write does: the later row then overwrites it. It keeps the barrier.
+TEST_F(WriteVisibilityPlan, AReaderThatWritesThePendingKeyThroughAnotherVariableKeepsItsBarrier) {
+  for (auto const *query : {
+           "MATCH (a:L) WITH a, head([(a)-[:T]->(o) | o]) AS q SET a.x = 1 SET q.x = a.x + 1",
+           "MATCH (a:L) SET a.x = 1 FOREACH (m IN [(a)-[:T]->(o) | o] | SET m.x = a.x + 1)",
+           "MATCH (a:L) SET a.x = 1 MERGE (m:L {id: a.id + 1}) ON MATCH SET m.x = a.x + 1",
+       }) {
+    EXPECT_FALSE(Collect<Accumulate>(Plan(query)).empty()) << query;
+  }
 }
 
 // Negative twins: each keeps its barrier.
@@ -564,6 +601,13 @@ TEST_F(WriteVisibilityPlan, ANodeThatMayRepeatKeepsItsBarrier) {
            "MATCH (n:L) SET n.x = 1 SET n.y = degree(n) + n.x",
            // A writing body reads View::NEW: an index scan on x could meet its own write again.
            "CALL () { MATCH (n:L) SET n.x = n.x + 1 SET n.y = n.x RETURN count(*) AS c } RETURN c",
+           // The MERGE pattern reads the written key through its own variable too: q may be another row's a.
+           "MATCH (a:Q) SET a.x = 5 MERGE (q:Q {x: a.x})",
+           "MATCH (a:L) SET a.w = 1 MERGE (q:Q {w: a.w})",
+           "UNWIND [1, 2] AS i MATCH (a:L) SET a.w = 1 MERGE (q:Q {x: a.w})",
+           // degree() and labels() read everything, through no one variable.
+           "MATCH (a:L) SET a.x = 1 CREATE ({d: degree(a) + a.x})",
+           "MATCH (a:L) SET a:X CREATE ({k: size(labels(a))})",
        }) {
     EXPECT_FALSE(Collect<Accumulate>(Plan(query)).empty()) << query;
   }
@@ -718,6 +762,15 @@ TEST_F(WriteVisibilityPlan, CreateWritesLabelsAndTypesNotKeys) {
   EXPECT_TRUE(access.writes.properties.empty());
   EXPECT_EQ(access.writes.edge_types, (std::set<std::string>{"T"}));
   EXPECT_TRUE(access.writes.nodes);
+}
+
+// Only the keys both sides touch decide the variable: the MERGE's own key x goes through q, but nothing writes x.
+TEST_F(WriteVisibilityPlan, ConflictsOnKeysPerKey) {
+  auto const set_w = Access("MATCH (a) SET a.w = 1").writes;
+  auto const through = ConflictsOnlyOnKeysOf(Access("MATCH (a) MERGE (q:Q {x: a.w})").reads, set_w);
+  ASSERT_TRUE(through.has_value());
+  EXPECT_EQ(through->name(), "a");
+  EXPECT_FALSE(ConflictsOnlyOnKeysOf(Access("MATCH (a) MERGE (q:Q {w: a.w})").reads, set_w).has_value());
 }
 
 TEST_F(WriteVisibilityPlan, ConflictIsPerKey) {
@@ -1725,8 +1778,11 @@ class ViewOracle {
                                   create_reads == CreateRead::kOnlyCreated
                               ? View::NEW
                               : View::OLD;
+    // A row-local reader after a write reads NEW instead of a barrier; the oracle cannot prove row-uniqueness.
+    auto const either = !reads_new && create_reads == CreateRead::kOther && WriteBeforeAdvance(op);
     // A CREATE that names no variable reads the graph at neither view; it takes its clause's view.
-    if (auto const actual = op.ReadView(); actual && *actual != expected && create_reads != CreateRead::kNothing) {
+    if (auto const actual = op.ReadView();
+        actual && *actual != expected && create_reads != CreateRead::kNothing && !either) {
       mismatches_.push_back({std::string{op.GetTypeInfo().name}, expected, *actual});
     }
     auto const is_rollup = Is<plan::RollUpApply>(op);
@@ -1739,7 +1795,9 @@ class ViewOracle {
         case Edge::kBody:
           // A read-only IN TRANSACTIONS body keeps master's views.
           if (Is<plan::PeriodicSubquery>(op) && !ContainsWrite(*child)) break;
-          Walk(*child, reads_new || ContainsWrite(*child));
+          Walk(*child,
+               reads_new || ContainsWrite(*child) ||
+                   (Is<plan::Apply>(op) && WriteBeforeAdvance(op) && ReadsNew(*child)));
           break;
         case Edge::kWritingClause:
           Walk(*child, true);
@@ -1750,6 +1808,26 @@ class ViewOracle {
           break;
       }
     }
+  }
+
+  /// Whether a write lies on the main input of @p op before an advancing barrier.
+  static bool WriteBeforeAdvance(LogicalOperator &op) {
+    for (LogicalOperator *below = op.input().get(); below;) {
+      if (auto *barrier = memgraph::utils::Downcast<plan::Accumulate>(below); barrier && barrier->advance_command_) {
+        return false;
+      }
+      if (IsWrite(*below)) return true;
+      auto children = Children(*below);
+      auto main = std::ranges::find_if(children, [](auto const &child) { return child.second == Edge::kInput; });
+      below = main == children.end() ? nullptr : main->first;
+    }
+    return false;
+  }
+
+  /// Whether any reader in @p op reads NEW.
+  static bool ReadsNew(LogicalOperator &op) {
+    if (op.ReadView() == View::NEW) return true;
+    return std::ranges::any_of(Children(op), [](auto const &child) { return ReadsNew(*child.first); });
   }
 
   /// Collects the symbol positions an expression names.
