@@ -373,6 +373,15 @@ void ProjectAMapOfFourProperties(benchmark::State &state) {
            "RETURN {category: i.category, region: i.region, value: i.value, quantity: i.quantity} AS m");
 }
 
+// One property named twice inside a map literal. The pass does not enter a literal, so neither
+// lookup is read by it, and this is the shape where a record is read twice for one property with
+// nothing able to make it once.
+void ProjectAMapNamingOnePropertyTwice(benchmark::State &state) {
+  RunQuery(state,
+           "MATCH (:Hub)-[:HAS]->(i:Item) "
+           "RETURN {first: i.value, second: i.value} AS m");
+}
+
 // What a projection pays for naming one property twice.
 void ProjectOnePropertyTwice(benchmark::State &state) {
   RunQuery(state, "MATCH (:Hub)-[:HAS]->(i:Item) RETURN i.value AS v, i.value AS w");
@@ -592,6 +601,7 @@ BENCHMARK(ProjectThreeProperties)->Unit(kUnit);
 BENCHMARK(ProjectWithLookupsBehindADisjunction)->Unit(kUnit);
 BENCHMARK(ProjectWithLookupsInsideAMap)->Unit(kUnit);
 BENCHMARK(ProjectAMapOfFourProperties)->Unit(kUnit);
+BENCHMARK(ProjectAMapNamingOnePropertyTwice)->Unit(kUnit);
 BENCHMARK(ProjectOnePropertyTwice)->Unit(kUnit);
 BENCHMARK(ProjectOneProperty)->Unit(kUnit);
 BENCHMARK(ProjectAcrossTwoSymbols)->Unit(kUnit);
