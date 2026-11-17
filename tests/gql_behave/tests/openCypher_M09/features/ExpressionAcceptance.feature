@@ -250,31 +250,15 @@ Feature: ExpressionAcceptance
   Scenario: Merging map literals lets the right operand win on a duplicate key
     When executing query:
       """
-      RETURN {a: 1, b: 2} + {b: 3, c: 4} AS result
+      WITH {a: 1} AS m
+      RETURN {a: 1, b: 2} + {b: 3, c: 4} AS result,
+             {a: {x: 1}} + {a: {y: 2}} AS nested,
+             {} + {a: 1} AS left_empty, {a: 1} + {} AS right_empty,
+             m.a AS before, (m + {a: 2}).a AS after
       """
     Then the result should be:
-      | result             |
-      | {a: 1, b: 3, c: 4} |
-    And no side effects
-
-  Scenario: Merging maps keeps a nested map as the right operand wrote it
-    When executing query:
-      """
-      RETURN {a: {x: 1}} + {a: {y: 2}} AS result
-      """
-    Then the result should be:
-      | result       |
-      | {a: {y: 2}} |
-    And no side effects
-
-  Scenario: Merging a map with an empty map keeps the map's entries
-    When executing query:
-      """
-      RETURN {} + {a: 1} AS left_empty, {a: 1} + {} AS right_empty
-      """
-    Then the result should be:
-      | left_empty | right_empty |
-      | {a: 1}     | {a: 1}      |
+      | result             | nested       | left_empty | right_empty | before | after |
+      | {a: 1, b: 3, c: 4} | {a: {y: 2}} | {a: 1}     | {a: 1}      | 1      | 2     |
     And no side effects
 
   Scenario: Adding null and a map yields null in both directions
@@ -300,17 +284,6 @@ Feature: ExpressionAcceptance
     Then the result should be:
       | result                                 |
       | {extraLabels: ['Item'], id: 1, name: 'a'} |
-    And no side effects
-
-  Scenario: Merging a map does not change the map it is merged into
-    When executing query:
-      """
-      WITH {a: 1} AS m
-      RETURN m.a AS before, (m + {a: 2}).a AS after
-      """
-    Then the result should be:
-      | before | after |
-      | 1      | 2     |
     And no side effects
 
   Scenario: Adding a map and an integer raises an error

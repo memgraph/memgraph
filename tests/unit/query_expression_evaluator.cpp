@@ -294,29 +294,22 @@ TYPED_TEST(ExpressionEvaluatorTest, AdditionOperator) {
   ASSERT_EQ(value.ValueInt(), 5);
 
   // Two maps merge, the right operand winning on a duplicate key.
-  {
-    auto *left = this->storage.template Create<MapLiteral>(std::unordered_map<PropertyIx, Expression *>{
-        {this->storage.GetPropertyIx("a"), this->storage.template Create<PrimitiveLiteral>(1)},
-        {this->storage.GetPropertyIx("b"), this->storage.template Create<PrimitiveLiteral>(2)}});
-    auto *right = this->storage.template Create<MapLiteral>(std::unordered_map<PropertyIx, Expression *>{
-        {this->storage.GetPropertyIx("b"), this->storage.template Create<PrimitiveLiteral>(3)},
-        {this->storage.GetPropertyIx("c"), this->storage.template Create<PrimitiveLiteral>(4)}});
-    auto *map_op = this->storage.template Create<AdditionOperator>(left, right);
-    auto merged = this->Eval(map_op);
-    ASSERT_TRUE(merged.IsMap());
-    EXPECT_EQ(merged.ValueMap().size(), 3u);
-    EXPECT_EQ(merged.ValueMap().at("a").ValueInt(), 1);
-    EXPECT_EQ(merged.ValueMap().at("b").ValueInt(), 3);
-    EXPECT_EQ(merged.ValueMap().at("c").ValueInt(), 4);
-  }
+  auto *left = this->storage.template Create<MapLiteral>(std::unordered_map<PropertyIx, Expression *>{
+      {this->storage.GetPropertyIx("a"), this->storage.template Create<PrimitiveLiteral>(1)}});
+  auto *right = this->storage.template Create<MapLiteral>(std::unordered_map<PropertyIx, Expression *>{
+      {this->storage.GetPropertyIx("a"), this->storage.template Create<PrimitiveLiteral>(2)},
+      {this->storage.GetPropertyIx("b"), this->storage.template Create<PrimitiveLiteral>(3)}});
+  auto merged = this->Eval(this->storage.template Create<AdditionOperator>(left, right));
+  ASSERT_TRUE(merged.IsMap());
+  EXPECT_EQ(merged.ValueMap().size(), 2u);
+  EXPECT_EQ(merged.ValueMap().at("a").ValueInt(), 2);
+  EXPECT_EQ(merged.ValueMap().at("b").ValueInt(), 3);
   // A map added to a non-map still surfaces as a runtime error.
-  {
-    auto *map_literal = this->storage.template Create<MapLiteral>(std::unordered_map<PropertyIx, Expression *>{
-        {this->storage.GetPropertyIx("a"), this->storage.template Create<PrimitiveLiteral>(1)}});
-    auto *map_op = this->storage.template Create<AdditionOperator>(map_literal,
-                                                                   this->storage.template Create<PrimitiveLiteral>(1));
-    EXPECT_THROW(this->Eval(map_op), QueryRuntimeException);
-  }
+  auto *map_literal = this->storage.template Create<MapLiteral>(std::unordered_map<PropertyIx, Expression *>{
+      {this->storage.GetPropertyIx("a"), this->storage.template Create<PrimitiveLiteral>(1)}});
+  EXPECT_THROW(this->Eval(this->storage.template Create<AdditionOperator>(
+                   map_literal, this->storage.template Create<PrimitiveLiteral>(1))),
+               QueryRuntimeException);
 }
 
 TYPED_TEST(ExpressionEvaluatorTest, SubtractionOperator) {

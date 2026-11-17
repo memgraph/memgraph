@@ -242,12 +242,6 @@ namespace {
 TypedValue List(std::vector<TypedValue> elements) { return TypedValue(std::move(elements)); }
 
 TypedValue Map(std::map<std::string, TypedValue> entries) { return TypedValue(std::move(entries)); }
-
-/// The value under @p key in @p entries, or Null when the map has no such entry.
-TypedValue MapEntry(const TypedValue::TMap &entries, const char *key) {
-  auto const it = entries.find(key);
-  return it == entries.end() ? TypedValue() : it->second;
-}
 }  // namespace
 
 TEST(TypedValue, ComparabilityLeavesAnUnorderedPairFalseInAllFourReadings) {
@@ -538,8 +532,7 @@ class TypedValueArithmeticTest : public AllTypesFixture<StorageType> {
    *  with String and List values (does not throw).
    * @param op  The operation lambda. Takes two values and resturns
    *  the results.
-   * @param maps_merge Indicates if the operation merges two maps instead of
-   *  rejecting them; the caller asserts the merge itself.
+   * @param maps_merge Merge maps instead of rejecting them; the caller asserts the merge.
    */
   void ExpectArithmeticThrowsAndNull(bool string_list_ok,
                                      std::function<TypedValue(const TypedValue &, const TypedValue &)> op,
@@ -629,40 +622,29 @@ TYPED_TEST(TypedValueArithmeticTest, Sum) {
   EXPECT_PROP_EQ(TypedValue(in) + TypedValue(in), TypedValue(out3));
 
   // Maps add as a shallow merge: seeded from the left, the right winning on duplicates.
-  auto const empty_map = Map(std::map<std::string, TypedValue>{});
   {
+    auto const empty_map = Map(std::map<std::string, TypedValue>{});
     auto const left = Map({{"a", TypedValue(1)}, {"b", TypedValue(2)}});
     auto const right = Map({{"b", TypedValue(3)}, {"c", TypedValue(4)}});
-    auto const merged = left + right;
-    ASSERT_TRUE(merged.IsMap());
-    EXPECT_EQ(merged.ValueMap().size(), 3u);
-    EXPECT_EQ(MapEntry(merged.ValueMap(), "a").ValueInt(), 1);
-    EXPECT_EQ(MapEntry(merged.ValueMap(), "b").ValueInt(), 3);
-    EXPECT_EQ(MapEntry(merged.ValueMap(), "c").ValueInt(), 4);
+    EXPECT_PROP_EQ(left + right, Map({{"a", TypedValue(1)}, {"b", TypedValue(3)}, {"c", TypedValue(4)}}));
     // The right operand wins whichever side it is on.
-    EXPECT_EQ(MapEntry((Map({{"a", TypedValue(1)}}) + Map({{"a", TypedValue(2)}})).ValueMap(), "a").ValueInt(), 2);
-    EXPECT_EQ(MapEntry((Map({{"a", TypedValue(2)}}) + Map({{"a", TypedValue(1)}})).ValueMap(), "a").ValueInt(), 1);
+    EXPECT_PROP_EQ(Map({{"a", TypedValue(1)}}) + Map({{"a", TypedValue(2)}}), Map({{"a", TypedValue(2)}}));
+    EXPECT_PROP_EQ(Map({{"a", TypedValue(2)}}) + Map({{"a", TypedValue(1)}}), Map({{"a", TypedValue(1)}}));
     // Empty maps contribute nothing.
     EXPECT_PROP_EQ(empty_map + right, right);
     EXPECT_PROP_EQ(left + empty_map, left);
     // Nesting is kept as-is: the right nested value replaces, it is not merged into.
-    auto const deep = Map({{"a", Map({{"x", TypedValue(1)}})}}) + Map({{"a", Map({{"y", TypedValue(2)}})}});
-    EXPECT_PROP_EQ(MapEntry(deep.ValueMap(), "a"), Map({{"y", TypedValue(2)}}));
+    EXPECT_PROP_EQ(Map({{"a", Map({{"x", TypedValue(1)}})}}) + Map({{"a", Map({{"y", TypedValue(2)}})}}),
+                   Map({{"a", Map({{"y", TypedValue(2)}})}}));
     // Neither operand is modified by the addition.
     EXPECT_PROP_EQ(left, Map({{"a", TypedValue(1)}, {"b", TypedValue(2)}}));
     EXPECT_PROP_EQ(right, Map({{"b", TypedValue(3)}, {"c", TypedValue(4)}}));
-  }
-  // A map next to a list still appends rather than merging.
-  {
-    auto const map_v = Map({{"a", TypedValue(1)}});
+    // A map next to a list still appends rather than merging; a map next to a non-list still rejects addition
+    // (the throw matrix above covers map with every non-list type).
     auto const list_v = List({TypedValue(2)});
-    EXPECT_PROP_EQ(map_v + list_v, List({map_v, TypedValue(2)}));
-    EXPECT_PROP_EQ(list_v + map_v, List({TypedValue(2), map_v}));
+    EXPECT_PROP_EQ(left + list_v, List({left, TypedValue(2)}));
+    EXPECT_PROP_EQ(list_v + left, List({TypedValue(2), left}));
   }
-  // A map and a non-map still reject addition.
-  EXPECT_THROW(Map({{"a", TypedValue(1)}}) + TypedValue(1), TypedValueException);
-  EXPECT_THROW(Map({{"a", TypedValue(1)}}) + TypedValue("s"), TypedValueException);
-  EXPECT_THROW(TypedValue(1) + Map({{"a", TypedValue(1)}}), TypedValueException);
 
   // Temporal Types
   // Duration
@@ -716,9 +698,9 @@ TEST(TypedValue, MapMergeAllocatesOnTheLeftOperandResource) {
   auto const merged = left + right;
   ASSERT_TRUE(merged.IsMap());
   EXPECT_EQ(merged.get_allocator().resource(), &monotonic_memory);
-  EXPECT_EQ(MapEntry(merged.ValueMap(), "a").ValueInt(), 3);
-  EXPECT_EQ(MapEntry(merged.ValueMap(), "b").ValueInt(), 2);
-  EXPECT_EQ(MapEntry(merged.ValueMap(), "c").ValueInt(), 4);
+  EXPECT_EQ(merged.ValueMap().at("a").ValueInt(), 3);
+  EXPECT_EQ(merged.ValueMap().at("b").ValueInt(), 2);
+  EXPECT_EQ(merged.ValueMap().at("c").ValueInt(), 4);
   auto expect_allocator = [](const auto &kv, auto *memory_resource) {
     EXPECT_EQ(kv.first.get_allocator().resource(), memory_resource);
     EXPECT_EQ(kv.second.get_allocator().resource(), memory_resource);
