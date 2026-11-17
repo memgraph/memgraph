@@ -39,14 +39,19 @@ void from_json(nlohmann::json const &j, CoordinatorInstanceConfig &config) {
 }
 
 void to_json(nlohmann::json &j, ReplicationClientInfo const &config) {
-  j = nlohmann::json{{kInstanceName, config.instance_name},
-                     {kReplicationMode, config.replication_mode},
-                     {kReplicationServer, config.replication_server}};
+  j = nlohmann::json{{kInstanceName, config.instance_name}, {kReplicationServer, config.replication_server}};
+  if (config.replication_mode.has_value()) {
+    j[kReplicationMode.data()] = *config.replication_mode;
+  }
 }
 
 void from_json(nlohmann::json const &j, ReplicationClientInfo &config) {
   config.instance_name = j.at(kInstanceName).get<std::string>();
-  config.replication_mode = j.at(kReplicationMode).get<replication_coordination_glue::ReplicationMode>();
+  if (auto const it = j.find(kReplicationMode.data()); it != j.end()) {
+    config.replication_mode = it->get<replication_coordination_glue::ReplicationMode>();
+  } else {
+    config.replication_mode.reset();
+  }
   config.replication_server = j.at(kReplicationServer).get<io::network::Endpoint>();
 }
 

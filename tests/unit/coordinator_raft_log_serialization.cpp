@@ -51,6 +51,24 @@ TEST_F(RaftLogSerialization, ReplClientInfo) {
   ASSERT_EQ(info, info2);
 }
 
+TEST_F(RaftLogSerialization, ReplClientInfoWithoutMode) {
+  ReplicationClientInfo const info{.instance_name = "instance_name",
+                                   .replication_mode = std::nullopt,
+                                   .replication_server = Endpoint{"127.0.0.1", 10'111}};
+
+  nlohmann::json const j = info;
+  EXPECT_FALSE(j.contains("replication_mode"));
+  ASSERT_EQ(j.get<ReplicationClientInfo>(), info);
+}
+
+// Raft logs written before the mode became optional always carry it.
+TEST_F(RaftLogSerialization, ReplClientInfoFromOldLog) {
+  auto const j = nlohmann::json::parse(
+      R"({"instance_name": "instance_name", "replication_mode": "strict_sync",
+          "replication_server": {"address": "127.0.0.1", "port": 10111}})");
+  EXPECT_EQ(j.get<ReplicationClientInfo>().replication_mode, ReplicationMode::STRICT_SYNC);
+}
+
 TEST_F(RaftLogSerialization, DataInstanceConfig) {
   DataInstanceConfig config{.instance_name = "instance3",
                             .mgt_server = Endpoint{"127.0.0.1", 10'112},

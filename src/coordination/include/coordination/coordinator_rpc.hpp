@@ -63,7 +63,9 @@ struct SingleArgMsg {
   ArgType arg_;
 };
 
-template <rpc::RpcMessage PriorVersionType, utils::DowngradeableType ArgType>
+// A new version of a message. An argument that changed in this version downgrades itself; an unchanged one is passed
+// to the prior version as is.
+template <rpc::RpcMessage PriorVersionType, typename ArgType>
 struct DowngradeableSingleArgMsg {
   static constexpr utils::TypeInfo kType{PriorVersionType::kType};
   static constexpr uint64_t kVersion{PriorVersionType::kVersion + 1};
@@ -80,7 +82,13 @@ struct DowngradeableSingleArgMsg {
 
   DowngradeableSingleArgMsg() = default;
 
-  PriorVersionType Downgrade() const { return PriorVersionType{arg_.Downgrade()}; }
+  PriorVersionType Downgrade() const {
+    if constexpr (utils::DowngradeableType<ArgType>) {
+      return PriorVersionType{arg_.Downgrade()};
+    } else {
+      return PriorVersionType{arg_};
+    }
+  }
 
   ArgType arg_;
 };
@@ -159,7 +167,7 @@ struct UpgradeableEmptyReq {
 // PromoteToMainReq gained a `writing_enabled` flag in v2: the coordinator projects its global_read_only setting onto
 // the promoted main (writing_enabled = !global_read_only) so read-only is honored across failover. v1 carried only the
 // uuid and replicas; a v1 sender doesn't know about read-only mode, so Upgrade keeps writing enabled to preserve
-// pre-feature behavior.
+// pre-feature behavior. v3 makes each replica's replication mode optional.
 struct PromoteToMainReqV1 {
   static constexpr utils::TypeInfo kType{.id = utils::TypeId::COORD_FAILOVER_REQ, .name = "PromoteToMainReq"};
   static constexpr uint64_t kVersion{1};
@@ -167,18 +175,45 @@ struct PromoteToMainReqV1 {
   static void Load(PromoteToMainReqV1 *self, memgraph::slk::Reader *reader);
   static void Save(const PromoteToMainReqV1 &self, memgraph::slk::Builder *builder);
 
-  explicit PromoteToMainReqV1(const utils::UUID &uuid, std::vector<ReplicationClientInfo> replication_clients_info)
+  explicit PromoteToMainReqV1(const utils::UUID &uuid, std::vector<ReplicationClientInfoV1> replication_clients_info)
       : main_uuid(uuid), replication_clients_info(std::move(replication_clients_info)) {}
 
   PromoteToMainReqV1() = default;
 
   utils::UUID main_uuid;
-  std::vector<ReplicationClientInfo> replication_clients_info;
+  std::vector<ReplicationClientInfoV1> replication_clients_info;
+};
+
+struct PromoteToMainReqV2 {
+  static constexpr utils::TypeInfo kType{PromoteToMainReqV1::kType};
+  static constexpr uint64_t kVersion{2};
+
+  static void Load(PromoteToMainReqV2 *self, memgraph::slk::Reader *reader);
+  static void Save(const PromoteToMainReqV2 &self, memgraph::slk::Builder *builder);
+
+  PromoteToMainReqV2(const utils::UUID &uuid, std::vector<ReplicationClientInfoV1> replication_clients_info,
+                     bool writing_enabled)
+      : main_uuid(uuid),
+        replication_clients_info(std::move(replication_clients_info)),
+        writing_enabled(writing_enabled) {}
+
+  PromoteToMainReqV2() = default;
+
+  // A v1 sender doesn't know about read-only mode; keep writing enabled to preserve pre-feature behavior.
+  static PromoteToMainReqV2 Upgrade(PromoteToMainReqV1 prev) {
+    return PromoteToMainReqV2{prev.main_uuid, std::move(prev.replication_clients_info), true};
+  }
+
+  PromoteToMainReqV1 Downgrade() const { return PromoteToMainReqV1{main_uuid, replication_clients_info}; }
+
+  utils::UUID main_uuid;
+  std::vector<ReplicationClientInfoV1> replication_clients_info;
+  bool writing_enabled;
 };
 
 struct PromoteToMainReq {
   static constexpr utils::TypeInfo kType{PromoteToMainReqV1::kType};
-  static constexpr uint64_t kVersion{2};
+  static constexpr uint64_t kVersion{3};
 
   static void Load(PromoteToMainReq *self, memgraph::slk::Reader *reader);
   static void Save(const PromoteToMainReq &self, memgraph::slk::Builder *builder);
@@ -191,12 +226,14 @@ struct PromoteToMainReq {
 
   PromoteToMainReq() = default;
 
-  // A v1 sender doesn't know about read-only mode; keep writing enabled to preserve pre-feature behavior.
-  static PromoteToMainReq Upgrade(PromoteToMainReqV1 prev) {
-    return PromoteToMainReq{prev.main_uuid, std::move(prev.replication_clients_info), true};
+  static PromoteToMainReq Upgrade(PromoteToMainReqV2 const &prev) {
+    return PromoteToMainReq{
+        prev.main_uuid, UpgradeReplicationClientsInfo(prev.replication_clients_info), prev.writing_enabled};
   }
 
-  PromoteToMainReqV1 Downgrade() const { return PromoteToMainReqV1{main_uuid, replication_clients_info}; }
+  PromoteToMainReqV2 Downgrade() const {
+    return PromoteToMainReqV2{main_uuid, DowngradeReplicationClientsInfo(replication_clients_info), writing_enabled};
+  }
 
   utils::UUID main_uuid;
   std::vector<ReplicationClientInfo> replication_clients_info;
@@ -217,28 +254,32 @@ struct PromoteToMainResV1 {
   bool arg_;
 };
 
-struct PromoteToMainRes {
-  static constexpr utils::TypeInfo kType{PromoteToMainResV1::kType};
-  static constexpr uint64_t kVersion{2};
-
-  static void Load(PromoteToMainRes *self, memgraph::slk::Reader *reader);
-  static void Save(const PromoteToMainRes &self, memgraph::slk::Builder *builder);
-
-  explicit PromoteToMainRes(bool success) : arg_(success) {}
-
-  PromoteToMainRes() = default;
-
-  PromoteToMainResV1 Downgrade() const { return PromoteToMainResV1{arg_}; }
-
-  bool arg_;
-};
+using PromoteToMainResV2 = DowngradeableSingleArgMsg<PromoteToMainResV1, bool>;
+using PromoteToMainRes = DowngradeableSingleArgMsg<PromoteToMainResV2, bool>;
 
 using PromoteToMainRpc = rpc::RequestResponse<PromoteToMainReq, PromoteToMainRes>;
 
-struct RegisterReplicaOnMainReq {
+struct RegisterReplicaOnMainReqV1 {
   static constexpr utils::TypeInfo kType{.id = utils::TypeId::COORD_REGISTER_REPLICA_ON_MAIN_REQ,
                                          .name = "RegisterReplicaOnMainReq"};
   static constexpr uint64_t kVersion{1};
+
+  static void Load(RegisterReplicaOnMainReqV1 *self, memgraph::slk::Reader *reader);
+  static void Save(const RegisterReplicaOnMainReqV1 &self, memgraph::slk::Builder *builder);
+
+  explicit RegisterReplicaOnMainReqV1(const utils::UUID &uuid, ReplicationClientInfoV1 replication_client_info)
+      : main_uuid(uuid), replication_client_info(std::move(replication_client_info)) {}
+
+  RegisterReplicaOnMainReqV1() = default;
+
+  utils::UUID main_uuid;
+  ReplicationClientInfoV1 replication_client_info;
+};
+
+// v2 makes the replica's replication mode optional.
+struct RegisterReplicaOnMainReq {
+  static constexpr utils::TypeInfo kType{RegisterReplicaOnMainReqV1::kType};
+  static constexpr uint64_t kVersion{2};
 
   static void Load(RegisterReplicaOnMainReq *self, memgraph::slk::Reader *reader);
   static void Save(const RegisterReplicaOnMainReq &self, memgraph::slk::Builder *builder);
@@ -248,31 +289,46 @@ struct RegisterReplicaOnMainReq {
 
   RegisterReplicaOnMainReq() = default;
 
+  static RegisterReplicaOnMainReq Upgrade(RegisterReplicaOnMainReqV1 const &prev) {
+    return RegisterReplicaOnMainReq{prev.main_uuid, ReplicationClientInfo::Upgrade(prev.replication_client_info)};
+  }
+
+  RegisterReplicaOnMainReqV1 Downgrade() const {
+    return RegisterReplicaOnMainReqV1{main_uuid, replication_client_info.Downgrade()};
+  }
+
   utils::UUID main_uuid;
   ReplicationClientInfo replication_client_info;
 };
 
-struct RegisterReplicaOnMainRes {
-  static constexpr utils::TypeInfo kType{.id = utils::TypeId::COORD_REGISTER_REPLICA_ON_MAIN_RES,
-                                         .name = "RegisterReplicaOnMainRes"};
-  static constexpr uint64_t kVersion{1};
-
-  static void Load(RegisterReplicaOnMainRes *self, memgraph::slk::Reader *reader);
-  static void Save(const RegisterReplicaOnMainRes &self, memgraph::slk::Builder *builder);
-
-  explicit RegisterReplicaOnMainRes(bool success) : arg_(success) {}
-
-  RegisterReplicaOnMainRes() = default;
-
-  bool arg_;
-};
+using RegisterReplicaOnMainResV1 =
+    SingleArgMsg<utils::TypeId::COORD_REGISTER_REPLICA_ON_MAIN_RES, "RegisterReplicaOnMainRes", 1, bool>;
+using RegisterReplicaOnMainRes = DowngradeableSingleArgMsg<RegisterReplicaOnMainResV1, bool>;
 
 using RegisterReplicaOnMainRpc = rpc::RequestResponse<RegisterReplicaOnMainReq, RegisterReplicaOnMainRes>;
 
-struct DemoteMainToReplicaReq {
+struct DemoteMainToReplicaReqV1 {
   static constexpr utils::TypeInfo kType{.id = utils::TypeId::COORD_SET_REPL_MAIN_REQ,
                                          .name = "DemoteMainToReplicaReq"};
   static constexpr uint64_t kVersion{1};
+
+  static void Load(DemoteMainToReplicaReqV1 *self, memgraph::slk::Reader *reader);
+  static void Save(const DemoteMainToReplicaReqV1 &self, memgraph::slk::Builder *builder);
+
+  explicit DemoteMainToReplicaReqV1(ReplicationClientInfoV1 replication_client_info,
+                                    std::optional<utils::UUID> const &main_uuid = std::nullopt)
+      : replication_client_info_(std::move(replication_client_info)), main_uuid_(main_uuid) {}
+
+  DemoteMainToReplicaReqV1() = default;
+
+  ReplicationClientInfoV1 replication_client_info_;
+  std::optional<utils::UUID> main_uuid_;
+};
+
+// v2 makes the replication mode optional.
+struct DemoteMainToReplicaReq {
+  static constexpr utils::TypeInfo kType{DemoteMainToReplicaReqV1::kType};
+  static constexpr uint64_t kVersion{2};
 
   static void Load(DemoteMainToReplicaReq *self, memgraph::slk::Reader *reader);
   static void Save(const DemoteMainToReplicaReq &self, memgraph::slk::Builder *builder);
@@ -285,24 +341,21 @@ struct DemoteMainToReplicaReq {
 
   DemoteMainToReplicaReq() = default;
 
+  static DemoteMainToReplicaReq Upgrade(DemoteMainToReplicaReqV1 const &prev) {
+    return DemoteMainToReplicaReq{ReplicationClientInfo::Upgrade(prev.replication_client_info_), prev.main_uuid_};
+  }
+
+  DemoteMainToReplicaReqV1 Downgrade() const {
+    return DemoteMainToReplicaReqV1{replication_client_info_.Downgrade(), main_uuid_};
+  }
+
   ReplicationClientInfo replication_client_info_;
   std::optional<utils::UUID> main_uuid_;
 };
 
-struct DemoteMainToReplicaRes {
-  static constexpr utils::TypeInfo kType{.id = utils::TypeId::COORD_SET_REPL_MAIN_RES,
-                                         .name = "DemoteMainToReplicaRes"};
-  static constexpr uint64_t kVersion{1};
-
-  static void Load(DemoteMainToReplicaRes *self, memgraph::slk::Reader *reader);
-  static void Save(const DemoteMainToReplicaRes &self, memgraph::slk::Builder *builder);
-
-  explicit DemoteMainToReplicaRes(bool success) : arg_(success) {}
-
-  DemoteMainToReplicaRes() = default;
-
-  bool arg_;
-};
+using DemoteMainToReplicaResV1 =
+    SingleArgMsg<utils::TypeId::COORD_SET_REPL_MAIN_RES, "DemoteMainToReplicaRes", 1, bool>;
+using DemoteMainToReplicaRes = DowngradeableSingleArgMsg<DemoteMainToReplicaResV1, bool>;
 
 using DemoteMainToReplicaRpc = rpc::RequestResponse<DemoteMainToReplicaReq, DemoteMainToReplicaRes>;
 
@@ -759,22 +812,34 @@ namespace memgraph::slk {
 // PromoteToMainRpc
 void Save(const memgraph::coordination::PromoteToMainResV1 &self, memgraph::slk::Builder *builder);
 void Load(memgraph::coordination::PromoteToMainResV1 *self, memgraph::slk::Reader *reader);
+void Save(const memgraph::coordination::PromoteToMainResV2 &self, memgraph::slk::Builder *builder);
+void Load(memgraph::coordination::PromoteToMainResV2 *self, memgraph::slk::Reader *reader);
 void Save(const memgraph::coordination::PromoteToMainRes &self, memgraph::slk::Builder *builder);
 void Load(memgraph::coordination::PromoteToMainRes *self, memgraph::slk::Reader *reader);
 void Save(const memgraph::coordination::PromoteToMainReqV1 &self, memgraph::slk::Builder *builder);
 void Load(memgraph::coordination::PromoteToMainReqV1 *self, memgraph::slk::Reader *reader);
+void Save(const memgraph::coordination::PromoteToMainReqV2 &self, memgraph::slk::Builder *builder);
+void Load(memgraph::coordination::PromoteToMainReqV2 *self, memgraph::slk::Reader *reader);
 void Save(const memgraph::coordination::PromoteToMainReq &self, memgraph::slk::Builder *builder);
 void Load(memgraph::coordination::PromoteToMainReq *self, memgraph::slk::Reader *reader);
 
 // RegisterReplicaOnMainRpc
+void Save(const memgraph::coordination::RegisterReplicaOnMainReqV1 &self, memgraph::slk::Builder *builder);
+void Load(memgraph::coordination::RegisterReplicaOnMainReqV1 *self, memgraph::slk::Reader *reader);
 void Save(const memgraph::coordination::RegisterReplicaOnMainReq &self, memgraph::slk::Builder *builder);
 void Load(memgraph::coordination::RegisterReplicaOnMainReq *self, memgraph::slk::Reader *reader);
+void Save(const memgraph::coordination::RegisterReplicaOnMainResV1 &self, memgraph::slk::Builder *builder);
+void Load(memgraph::coordination::RegisterReplicaOnMainResV1 *self, memgraph::slk::Reader *reader);
 void Save(const memgraph::coordination::RegisterReplicaOnMainRes &self, memgraph::slk::Builder *builder);
 void Load(memgraph::coordination::RegisterReplicaOnMainRes *self, memgraph::slk::Reader *reader);
 
 // DemoteMainToReplicaRpc
+void Save(const memgraph::coordination::DemoteMainToReplicaResV1 &self, memgraph::slk::Builder *builder);
+void Load(memgraph::coordination::DemoteMainToReplicaResV1 *self, memgraph::slk::Reader *reader);
 void Save(const memgraph::coordination::DemoteMainToReplicaRes &self, memgraph::slk::Builder *builder);
 void Load(memgraph::coordination::DemoteMainToReplicaRes *self, memgraph::slk::Reader *reader);
+void Save(const memgraph::coordination::DemoteMainToReplicaReqV1 &self, memgraph::slk::Builder *builder);
+void Load(memgraph::coordination::DemoteMainToReplicaReqV1 *self, memgraph::slk::Reader *reader);
 void Save(const memgraph::coordination::DemoteMainToReplicaReq &self, memgraph::slk::Builder *builder);
 void Load(memgraph::coordination::DemoteMainToReplicaReq *self, memgraph::slk::Reader *reader);
 

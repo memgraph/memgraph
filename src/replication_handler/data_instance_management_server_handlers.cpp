@@ -184,14 +184,20 @@ void DataInstanceManagementServerHandlers::GetReplicationLagHandler(
 auto DataInstanceManagementServerHandlers::DoRegisterReplica(replication::ReplicationHandler &replication_handler,
                                                              coordination::ReplicationClientInfo const &config)
     -> bool {
-  auto const converter = [&config](const auto &repl_info_config) {
-    return replication::ReplicationClientConfig{.name = repl_info_config.instance_name,
-                                                .mode = repl_info_config.replication_mode,
-                                                .repl_server_endpoint = config.replication_server,
-                                                .tls_config = flags::TlsConfigFromClusterFlags()};
-  };
+  // The coordinator always resolves the mode before registering a replica, so an absent one is a coordinator bug.
+  if (!config.replication_mode.has_value()) {
+    spdlog::error("Error when registering instance {} as replica. The coordinator didn't send a replication mode.",
+                  config.instance_name);
+    return false;
+  }
 
-  if (auto instance_client = replication_handler.RegisterReplica(converter(config)); !instance_client.has_value()) {
+  auto const repl_client_config =
+      replication::ReplicationClientConfig{.name = config.instance_name,
+                                           .mode = *config.replication_mode,
+                                           .repl_server_endpoint = config.replication_server,
+                                           .tls_config = flags::TlsConfigFromClusterFlags()};
+
+  if (auto instance_client = replication_handler.RegisterReplica(repl_client_config); !instance_client.has_value()) {
     using query::RegisterReplicaError;
     switch (instance_client.error()) {
       case RegisterReplicaError::NO_ACCESS: {

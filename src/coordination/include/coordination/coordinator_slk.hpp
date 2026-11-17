@@ -59,6 +59,18 @@ inline void Load(coordination::UpdateInstanceConfig *config, Reader *reader) {
   slk::Load(&config->region, reader);
 }
 
+inline void Save(coordination::ReplicationClientInfoV1 const &obj, Builder *builder) {
+  Save(obj.instance_name, builder);
+  Save(obj.replication_mode, builder);
+  Save(obj.replication_server, builder);
+}
+
+inline void Load(coordination::ReplicationClientInfoV1 *obj, Reader *reader) {
+  Load(&obj->instance_name, reader);
+  Load(&obj->replication_mode, reader);
+  Load(&obj->replication_server, reader);
+}
+
 inline void Save(ReplicationClientInfo const &obj, Builder *builder) {
   Save(obj.instance_name, builder);
   Save(obj.replication_mode, builder);

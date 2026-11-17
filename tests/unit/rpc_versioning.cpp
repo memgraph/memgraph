@@ -325,8 +325,9 @@ auto MakeDataInstanceConfigV1() -> memgraph::coordination::DataInstanceConfigV1 
 }
 }  // namespace
 
-// RegisterInstanceReq v2 carries the instance's region inside DataInstanceConfig and RegisterInstanceRes v2 the
-// leader's exact status. A v1 request upgrades to no region, and the v2 status downgrades to the v1 success flag.
+// RegisterInstanceReq v2 carries the instance's region and optional mode inside DataInstanceConfig and
+// RegisterInstanceRes v2 the leader's exact status. A v1 request upgrades to no region, and the v2 status downgrades to
+// the v1 success flag.
 TEST(RpcVersioning, RegisterInstanceRpc) {
   using memgraph::coordination::DataInstanceConfig;
   using memgraph::coordination::RegisterInstanceCoordinatorStatus;
@@ -362,6 +363,7 @@ TEST(RpcVersioning, RegisterInstanceRpc) {
   auto const config_v1 = MakeDataInstanceConfigV1();
   auto config = DataInstanceConfig::Upgrade(config_v1);
   config.region = "eu-west";
+  config.replication_client_info.replication_mode.reset();
   {
     status = RegisterInstanceCoordinatorStatus::NO_SUCH_REGION;
     auto stream = client.Stream<memgraph::coordination::RegisterInstanceRpc>(config);
@@ -378,7 +380,8 @@ TEST(RpcVersioning, RegisterInstanceRpc) {
     EXPECT_EQ(received->instance_name, config_v1.instance_name);
     EXPECT_EQ(received->mgt_server, config_v1.mgt_server);
     EXPECT_EQ(received->bolt_server, config_v1.bolt_server);
-    EXPECT_EQ(received->replication_client_info, config_v1.replication_client_info);
+    EXPECT_EQ(received->replication_client_info,
+              memgraph::coordination::ReplicationClientInfo::Upgrade(config_v1.replication_client_info));
     EXPECT_FALSE(received->region.has_value());
   }
   {
@@ -467,30 +470,64 @@ TEST(RpcVersioning, UpdateConfigRpc) {
   }
 }
 
-// PromoteToMainReq gained a `writing_enabled` flag in v2 (the projection of global_read_only) alongside the existing
-// uuid and replicas. Verify Upgrade/Downgrade bridge v1<->v2 correctly.
+namespace {
+using memgraph::coordination::ReplicationClientInfo;
+using memgraph::coordination::ReplicationClientInfoV1;
+using memgraph::replication_coordination_glue::ReplicationMode;
+
+auto MakeReplicationClientInfo(std::optional<ReplicationMode> mode) -> ReplicationClientInfo {
+  return {.instance_name = "instance_1", .replication_mode = mode, .replication_server = Endpoint{"localhost", 10000}};
+}
+
+auto MakeReplicationClientInfoV1(ReplicationMode mode) -> ReplicationClientInfoV1 {
+  return {.instance_name = "instance_1", .replication_mode = mode, .replication_server = Endpoint{"localhost", 10000}};
+}
+}  // namespace
+
+// ReplicationClientInfo's mode became optional. An old info upgrades to its mode; an absent mode downgrades to ASYNC.
+TEST(RpcVersioning, ReplicationClientInfoPayload) {
+  for (auto const mode : {ReplicationMode::SYNC, ReplicationMode::ASYNC, ReplicationMode::STRICT_SYNC}) {
+    EXPECT_EQ(ReplicationClientInfo::Upgrade(MakeReplicationClientInfoV1(mode)), MakeReplicationClientInfo(mode));
+    EXPECT_EQ(MakeReplicationClientInfo(mode).Downgrade(), MakeReplicationClientInfoV1(mode));
+  }
+  EXPECT_EQ(MakeReplicationClientInfo(std::nullopt).Downgrade(), MakeReplicationClientInfoV1(ReplicationMode::ASYNC));
+}
+
+// PromoteToMainReq gained a `writing_enabled` flag in v2 (the projection of global_read_only) and optional replica
+// modes in v3. Verify Upgrade/Downgrade bridge v1<->v2<->v3 correctly.
 TEST(RpcVersioning, PromoteToMainPayload) {
+  using memgraph::coordination::PromoteToMainReq;
+  using memgraph::coordination::PromoteToMainReqV2;
   memgraph::utils::UUID const uuid{};
-  std::vector<memgraph::coordination::ReplicationClientInfo> const replicas{
-      {.instance_name = "instance_1",
-       .replication_mode = memgraph::replication_coordination_glue::ReplicationMode::SYNC,
-       .replication_server = memgraph::io::network::Endpoint{"localhost", 10000}}};
+  std::vector const replicas{MakeReplicationClientInfo(ReplicationMode::SYNC), MakeReplicationClientInfo(std::nullopt)};
+  std::vector const replicas_v1{MakeReplicationClientInfoV1(ReplicationMode::SYNC),
+                                MakeReplicationClientInfoV1(ReplicationMode::ASYNC)};
 
-  memgraph::coordination::PromoteToMainReq const req{uuid, replicas, /*writing_enabled=*/false};
+  PromoteToMainReq const req{uuid, replicas, /*writing_enabled=*/false};
 
-  auto const downgraded = req.Downgrade();
-  EXPECT_EQ(downgraded.main_uuid, uuid);
-  EXPECT_EQ(downgraded.replication_clients_info, replicas);
+  auto const v2 = req.Downgrade();
+  EXPECT_EQ(v2.main_uuid, uuid);
+  EXPECT_EQ(v2.replication_clients_info, replicas_v1);
+  EXPECT_FALSE(v2.writing_enabled);
 
-  auto const upgraded = memgraph::coordination::PromoteToMainReq::Upgrade(downgraded);
+  auto const v1 = v2.Downgrade();
+  EXPECT_EQ(v1.main_uuid, uuid);
+  EXPECT_EQ(v1.replication_clients_info, replicas_v1);
+
+  auto const upgraded = PromoteToMainReq::Upgrade(PromoteToMainReqV2::Upgrade(v1));
   EXPECT_EQ(upgraded.main_uuid, uuid);
-  EXPECT_EQ(upgraded.replication_clients_info, replicas);
+  EXPECT_EQ(upgraded.replication_clients_info,
+            (std::vector{MakeReplicationClientInfo(ReplicationMode::SYNC),
+                         MakeReplicationClientInfo(ReplicationMode::ASYNC)}));
   // A v1 sender doesn't know about read-only mode, so upgrading keeps the promoted main writeable.
   EXPECT_TRUE(upgraded.writing_enabled);
 }
 
 namespace memgraph::coordination {
 using PromoteToMainRpcV1 = rpc::RequestResponse<PromoteToMainReqV1, PromoteToMainResV1>;
+using PromoteToMainRpcV2 = rpc::RequestResponse<PromoteToMainReqV2, PromoteToMainResV2>;
+using RegisterReplicaOnMainRpcV1 = rpc::RequestResponse<RegisterReplicaOnMainReqV1, RegisterReplicaOnMainResV1>;
+using DemoteMainToReplicaRpcV1 = rpc::RequestResponse<DemoteMainToReplicaReqV1, DemoteMainToReplicaResV1>;
 }  // namespace memgraph::coordination
 
 TEST(RpcVersioning, PromoteToMainRpc) {
@@ -503,17 +540,16 @@ TEST(RpcVersioning, PromoteToMainRpc) {
     rpc_server.AwaitShutdown();
   }};
 
-  bool received_writing_enabled{false};
+  std::optional<memgraph::coordination::PromoteToMainReq> received;
 
   rpc_server.Register<memgraph::coordination::PromoteToMainRpc>(
-      [&received_writing_enabled](
-          std::optional<memgraph::rpc::FileReplicationHandler> const & /*file_replication_handler*/,
-          uint64_t const request_version,
-          auto *req_reader,
-          auto *res_builder) {
+      [&received](std::optional<memgraph::rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+                  uint64_t const request_version,
+                  auto *req_reader,
+                  auto *res_builder) {
         memgraph::coordination::PromoteToMainReq req;
         memgraph::rpc::LoadWithUpgrade(req, request_version, req_reader);
-        received_writing_enabled = req.writing_enabled;
+        received = req;
 
         memgraph::coordination::PromoteToMainRes const res{true};
         memgraph::rpc::SendFinalResponse(res, request_version, res_builder);
@@ -525,20 +561,129 @@ TEST(RpcVersioning, PromoteToMainRpc) {
   ClientContext client_context;
   Client client{endpoint, &client_context};
   memgraph::utils::UUID const uuid{};
-  std::vector<memgraph::coordination::ReplicationClientInfo> const replicas{};
   {
-    // Send new (v2) request: writing_enabled travels through.
+    // Send new (v3) request: writing_enabled and an absent replica mode travel through.
+    std::vector const replicas{MakeReplicationClientInfo(std::nullopt)};
     auto stream = client.Stream<memgraph::coordination::PromoteToMainRpc>(uuid, replicas, /*writing_enabled=*/false);
     auto reply = stream.SendAndWait();
     EXPECT_TRUE(reply.arg_);
-    EXPECT_FALSE(received_writing_enabled);
+    ASSERT_TRUE(received.has_value());
+    EXPECT_FALSE(received->writing_enabled);
+    EXPECT_EQ(received->replication_clients_info, replicas);
+  }
+  {
+    // Send v2 request: server upgrades the replica modes and downgrades its response.
+    std::vector const replicas{MakeReplicationClientInfoV1(ReplicationMode::STRICT_SYNC)};
+    auto stream = client.Stream<memgraph::coordination::PromoteToMainRpcV2>(uuid, replicas, /*writing_enabled=*/false);
+    auto reply = stream.SendAndWait();
+    EXPECT_TRUE(reply.arg_);
+    EXPECT_FALSE(received->writing_enabled);
+    EXPECT_EQ(received->replication_clients_info,
+              (std::vector{MakeReplicationClientInfo(ReplicationMode::STRICT_SYNC)}));
   }
   {
     // Send old (v1) request: server upgrades it, defaulting writing_enabled to true, and downgrades its response.
-    auto stream = client.Stream<memgraph::coordination::PromoteToMainRpcV1>(uuid, replicas);
+    auto stream =
+        client.Stream<memgraph::coordination::PromoteToMainRpcV1>(uuid, std::vector<ReplicationClientInfoV1>{});
     auto reply = stream.SendAndWait();
     EXPECT_TRUE(reply.arg_);
-    EXPECT_TRUE(received_writing_enabled);
+    EXPECT_TRUE(received->writing_enabled);
+    EXPECT_TRUE(received->replication_clients_info.empty());
+  }
+}
+
+// RegisterReplicaOnMainReq v2 makes the replica's mode optional.
+TEST(RpcVersioning, RegisterReplicaOnMainRpc) {
+  Endpoint const endpoint{"localhost", port};
+
+  ServerContext server_context;
+  Server rpc_server{endpoint, &server_context, /* workers */ 1};
+  auto const on_exit = memgraph::utils::OnScopeExit{[&rpc_server] {
+    ASSERT_TRUE(rpc_server.Shutdown());
+    rpc_server.AwaitShutdown();
+  }};
+
+  std::optional<memgraph::coordination::RegisterReplicaOnMainReq> received;
+
+  rpc_server.Register<memgraph::coordination::RegisterReplicaOnMainRpc>(
+      [&received](std::optional<memgraph::rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+                  uint64_t const request_version,
+                  auto *req_reader,
+                  auto *res_builder) {
+        memgraph::coordination::RegisterReplicaOnMainReq req;
+        memgraph::rpc::LoadWithUpgrade(req, request_version, req_reader);
+        received = req;
+        memgraph::rpc::SendFinalResponse(
+            memgraph::coordination::RegisterReplicaOnMainRes{true}, request_version, res_builder);
+      });
+
+  ASSERT_TRUE(rpc_server.Start());
+  std::this_thread::sleep_for(100ms);
+
+  ClientContext client_context;
+  Client client{endpoint, &client_context};
+  memgraph::utils::UUID const uuid{};
+  {
+    auto stream =
+        client.Stream<memgraph::coordination::RegisterReplicaOnMainRpc>(uuid, MakeReplicationClientInfo(std::nullopt));
+    auto reply = stream.SendAndWait();
+    EXPECT_TRUE(reply.arg_);
+    ASSERT_TRUE(received.has_value());
+    EXPECT_EQ(received->main_uuid, uuid);
+    EXPECT_EQ(received->replication_client_info, MakeReplicationClientInfo(std::nullopt));
+  }
+  {
+    auto stream = client.Stream<memgraph::coordination::RegisterReplicaOnMainRpcV1>(
+        uuid, MakeReplicationClientInfoV1(ReplicationMode::SYNC));
+    auto reply = stream.SendAndWait();
+    EXPECT_TRUE(reply.arg_);
+    EXPECT_EQ(received->replication_client_info, MakeReplicationClientInfo(ReplicationMode::SYNC));
+  }
+}
+
+// DemoteMainToReplicaReq v2 makes the replication mode optional.
+TEST(RpcVersioning, DemoteMainToReplicaRpc) {
+  Endpoint const endpoint{"localhost", port};
+
+  ServerContext server_context;
+  Server rpc_server{endpoint, &server_context, /* workers */ 1};
+  auto const on_exit = memgraph::utils::OnScopeExit{[&rpc_server] {
+    ASSERT_TRUE(rpc_server.Shutdown());
+    rpc_server.AwaitShutdown();
+  }};
+
+  std::optional<ReplicationClientInfo> received;
+
+  rpc_server.Register<memgraph::coordination::DemoteMainToReplicaRpc>(
+      [&received](std::optional<memgraph::rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+                  uint64_t const request_version,
+                  auto *req_reader,
+                  auto *res_builder) {
+        memgraph::coordination::DemoteMainToReplicaReq req;
+        memgraph::rpc::LoadWithUpgrade(req, request_version, req_reader);
+        received = req.replication_client_info_;
+        memgraph::rpc::SendFinalResponse(
+            memgraph::coordination::DemoteMainToReplicaRes{true}, request_version, res_builder);
+      });
+
+  ASSERT_TRUE(rpc_server.Start());
+  std::this_thread::sleep_for(100ms);
+
+  ClientContext client_context;
+  Client client{endpoint, &client_context};
+  {
+    auto stream =
+        client.Stream<memgraph::coordination::DemoteMainToReplicaRpc>(MakeReplicationClientInfo(std::nullopt));
+    auto reply = stream.SendAndWait();
+    EXPECT_TRUE(reply.arg_);
+    EXPECT_EQ(received, MakeReplicationClientInfo(std::nullopt));
+  }
+  {
+    auto stream = client.Stream<memgraph::coordination::DemoteMainToReplicaRpcV1>(
+        MakeReplicationClientInfoV1(ReplicationMode::ASYNC));
+    auto reply = stream.SendAndWait();
+    EXPECT_TRUE(reply.arg_);
+    EXPECT_EQ(received, MakeReplicationClientInfo(ReplicationMode::ASYNC));
   }
 }
 #endif

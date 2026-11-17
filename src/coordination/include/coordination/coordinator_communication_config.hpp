@@ -18,9 +18,11 @@
 #include <memory>
 #include <nlohmann/json_fwd.hpp>
 #include <optional>
+#include <ranges>
 #include <string>
 #include <utility>
 #include <variant>
+#include <vector>
 
 #include "coordination/constants.hpp"
 #include "io/network/endpoint.hpp"
@@ -88,20 +90,54 @@ struct CoordinatorStateManagerConfig {
 
 // NOTE: We need to be careful about durability versioning when changing the config which is persisted on disk.
 
-struct ReplicationClientInfo {
+// The wire format of ReplicationClientInfo before the replication mode became optional.
+struct ReplicationClientInfoV1 {
   std::string instance_name;
   replication_coordination_glue::ReplicationMode replication_mode;
   io::network::Endpoint replication_server;
 
+  friend bool operator==(ReplicationClientInfoV1 const &, ReplicationClientInfoV1 const &) = default;
+};
+
+struct ReplicationClientInfo {
+  std::string instance_name;
+  // Absent once the coordinator resolves the mode from the instance's region instead of storing it.
+  std::optional<replication_coordination_glue::ReplicationMode> replication_mode;
+  io::network::Endpoint replication_server;
+
+  static auto Upgrade(ReplicationClientInfoV1 const &prev) -> ReplicationClientInfo {
+    return ReplicationClientInfo{.instance_name = prev.instance_name,
+                                 .replication_mode = prev.replication_mode,
+                                 .replication_server = prev.replication_server};
+  }
+
+  // An absent mode downgrades to ASYNC.
+  auto Downgrade() const -> ReplicationClientInfoV1 {
+    return ReplicationClientInfoV1{
+        .instance_name = instance_name,
+        .replication_mode = replication_mode.value_or(replication_coordination_glue::ReplicationMode::ASYNC),
+        .replication_server = replication_server};
+  }
+
   friend bool operator==(ReplicationClientInfo const &, ReplicationClientInfo const &) = default;
 };
+
+inline auto UpgradeReplicationClientsInfo(std::vector<ReplicationClientInfoV1> const &prev)
+    -> std::vector<ReplicationClientInfo> {
+  return prev | std::views::transform(&ReplicationClientInfo::Upgrade) | std::ranges::to<std::vector>();
+}
+
+inline auto DowngradeReplicationClientsInfo(std::vector<ReplicationClientInfo> const &infos)
+    -> std::vector<ReplicationClientInfoV1> {
+  return infos | std::views::transform(&ReplicationClientInfo::Downgrade) | std::ranges::to<std::vector>();
+}
 
 // The coordinator-to-coordinator forward format of DataInstanceConfig before data instances had regions.
 struct DataInstanceConfigV1 {
   std::string instance_name;
   io::network::Endpoint mgt_server;
   io::network::Endpoint bolt_server;
-  ReplicationClientInfo replication_client_info;
+  ReplicationClientInfoV1 replication_client_info;
 };
 
 struct DataInstanceConfig {
@@ -123,7 +159,7 @@ struct DataInstanceConfig {
     return DataInstanceConfig{.instance_name = prev.instance_name,
                               .mgt_server = prev.mgt_server,
                               .bolt_server = prev.bolt_server,
-                              .replication_client_info = prev.replication_client_info,
+                              .replication_client_info = ReplicationClientInfo::Upgrade(prev.replication_client_info),
                               .region = std::nullopt};
   }
 

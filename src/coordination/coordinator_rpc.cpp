@@ -38,6 +38,14 @@ void PromoteToMainReqV1::Load(PromoteToMainReqV1 *self, memgraph::slk::Reader *r
   memgraph::slk::Load(self, reader);
 }
 
+void PromoteToMainReqV2::Save(const PromoteToMainReqV2 &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self, builder);
+}
+
+void PromoteToMainReqV2::Load(PromoteToMainReqV2 *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(self, reader);
+}
+
 void PromoteToMainReq::Save(const PromoteToMainReq &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self, builder);
 }
@@ -54,11 +62,11 @@ void PromoteToMainResV1::Load(PromoteToMainResV1 *self, memgraph::slk::Reader *r
   memgraph::slk::Load(self, reader);
 }
 
-void PromoteToMainRes::Save(const PromoteToMainRes &self, memgraph::slk::Builder *builder) {
+void DemoteMainToReplicaReqV1::Save(const DemoteMainToReplicaReqV1 &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self, builder);
 }
 
-void PromoteToMainRes::Load(PromoteToMainRes *self, memgraph::slk::Reader *reader) {
+void DemoteMainToReplicaReqV1::Load(DemoteMainToReplicaReqV1 *self, memgraph::slk::Reader *reader) {
   memgraph::slk::Load(self, reader);
 }
 
@@ -67,14 +75,6 @@ void DemoteMainToReplicaReq::Save(const DemoteMainToReplicaReq &self, memgraph::
 }
 
 void DemoteMainToReplicaReq::Load(DemoteMainToReplicaReq *self, memgraph::slk::Reader *reader) {
-  memgraph::slk::Load(self, reader);
-}
-
-void DemoteMainToReplicaRes::Save(const DemoteMainToReplicaRes &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::Save(self, builder);
-}
-
-void DemoteMainToReplicaRes::Load(DemoteMainToReplicaRes *self, memgraph::slk::Reader *reader) {
   memgraph::slk::Load(self, reader);
 }
 
@@ -194,7 +194,11 @@ void GetDatabaseHistoriesRes::Load(GetDatabaseHistoriesRes *self, memgraph::slk:
 }
 
 // RegisterReplicaOnMain
-void RegisterReplicaOnMainReq::Load(RegisterReplicaOnMainReq *self, memgraph::slk::Reader *reader) {
+void RegisterReplicaOnMainReqV1::Save(const RegisterReplicaOnMainReqV1 &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self, builder);
+}
+
+void RegisterReplicaOnMainReqV1::Load(RegisterReplicaOnMainReqV1 *self, memgraph::slk::Reader *reader) {
   memgraph::slk::Load(self, reader);
 }
 
@@ -202,12 +206,8 @@ void RegisterReplicaOnMainReq::Save(const RegisterReplicaOnMainReq &self, memgra
   memgraph::slk::Save(self, builder);
 }
 
-void RegisterReplicaOnMainRes::Load(RegisterReplicaOnMainRes *self, memgraph::slk::Reader *reader) {
+void RegisterReplicaOnMainReq::Load(RegisterReplicaOnMainReq *self, memgraph::slk::Reader *reader) {
   memgraph::slk::Load(self, reader);
-}
-
-void RegisterReplicaOnMainRes::Save(const RegisterReplicaOnMainRes &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::Save(self, builder);
 }
 
 // UpdateDataInstanceConfigRpc
@@ -276,6 +276,18 @@ void Load(memgraph::coordination::PromoteToMainReqV1 *self, memgraph::slk::Reade
   memgraph::slk::Load(&self->replication_clients_info, reader);
 }
 
+void Save(const memgraph::coordination::PromoteToMainReqV2 &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self.main_uuid, builder);
+  memgraph::slk::Save(self.replication_clients_info, builder);
+  memgraph::slk::Save(self.writing_enabled, builder);
+}
+
+void Load(memgraph::coordination::PromoteToMainReqV2 *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(&self->main_uuid, reader);
+  memgraph::slk::Load(&self->replication_clients_info, reader);
+  memgraph::slk::Load(&self->writing_enabled, reader);
+}
+
 void Save(const memgraph::coordination::PromoteToMainReq &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self.main_uuid, builder);
   memgraph::slk::Save(self.replication_clients_info, builder);
@@ -289,6 +301,14 @@ void Load(memgraph::coordination::PromoteToMainReq *self, memgraph::slk::Reader 
 }
 
 // DemoteMainToReplicaRpc
+void Save(const memgraph::coordination::DemoteMainToReplicaReqV1 &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self.replication_client_info_, builder);
+}
+
+void Load(memgraph::coordination::DemoteMainToReplicaReqV1 *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(&self->replication_client_info_, reader);
+}
+
 void Save(const memgraph::coordination::DemoteMainToReplicaReq &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self.replication_client_info_, builder);
 }
@@ -349,6 +369,16 @@ void Save(const memgraph::coordination::RegisterReplicaOnMainRes &self, memgraph
 
 void Load(memgraph::coordination::RegisterReplicaOnMainRes *self, memgraph::slk::Reader *reader) {
   memgraph::slk::Load(&self->arg_, reader);
+}
+
+void Save(const memgraph::coordination::RegisterReplicaOnMainReqV1 &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self.main_uuid, builder);
+  memgraph::slk::Save(self.replication_client_info, builder);
+}
+
+void Load(memgraph::coordination::RegisterReplicaOnMainReqV1 *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(&self->main_uuid, reader);
+  memgraph::slk::Load(&self->replication_client_info, reader);
 }
 
 void Save(const memgraph::coordination::RegisterReplicaOnMainReq &self, memgraph::slk::Builder *builder) {
@@ -451,6 +481,9 @@ void Save(const coordination::ReplicationLagRes &self, slk::Builder *builder) { 
 
 void Load(coordination::ReplicationLagRes *self, slk::Reader *reader) { slk::Load(&self->arg_, reader); }
 
+SLK_SINGLE_ARG_MSG(coordination::PromoteToMainResV2)
+SLK_SINGLE_ARG_MSG(coordination::RegisterReplicaOnMainResV1)
+SLK_SINGLE_ARG_MSG(coordination::DemoteMainToReplicaResV1)
 SLK_SINGLE_ARG_MSG(coordination::AddCoordinatorReq)
 SLK_SINGLE_ARG_MSG(coordination::AddCoordinatorRes)
 SLK_SINGLE_ARG_MSG(coordination::RemoveCoordinatorReq)
