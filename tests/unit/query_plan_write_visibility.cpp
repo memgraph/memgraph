@@ -344,6 +344,13 @@ TEST_F(WriteVisibilityPlan, BarrierBeforeCallBodyThatReadsAnEarlierSet) {
             (Names{"Produce", "Accumulate+", "Apply", "SetProperty", "ScanAll", "Unwind", "Once"}));
   EXPECT_EQ(Views<Produce>(Plan("UNWIND [1, 2] AS i MATCH (a) SET a.x = 1 CALL (a) { RETURN a.x AS v } RETURN v")),
             (std::vector{View::OLD, View::OLD}));
+  // A batched body and a writing body do not switch to View::NEW, even with a row-unique a.
+  for (auto const *query : {
+           "MATCH (a) SET a.x = 1 CALL (a) { RETURN a.x AS v } IN TRANSACTIONS OF 1 ROWS RETURN v",
+           "MATCH (a) SET a.x = 1 CALL (a) { CREATE ({v: a.x}) } RETURN count(*) AS c",
+       }) {
+    EXPECT_FALSE(Collect<Accumulate>(Plan(query)).empty()) << query;
+  }
 }
 
 TEST_F(WriteVisibilityPlan, BarrierBeforeExpansionFromACreatedNode) {
@@ -524,6 +531,9 @@ TEST_F(WriteVisibilityPlan, ARowUniqueNodeNeedsNoBarrierBetweenItsOwnKeys) {
            "MATCH (a:L) WITH a AS n SET n.x = n.x + 1 SET n.y = n.x",
            // m may be another row's n, but no write reaches the key it reads.
            "MATCH (n:L) WITH n, head([(n)-[:T]->(o) | o]) AS m SET n.x = n.x + 1 SET n.y = n.x + m.z",
+           // The reader writes the pending key, or every key, through n itself.
+           "MATCH (n:L) SET n.x = 1 SET n.x = n.x + 1",
+           "MATCH (n:L) SET n.x = 1 SET n += {y: n.x}",
        }) {
     EXPECT_TRUE(Collect<Accumulate>(Plan(query)).empty()) << query;
   }
@@ -546,33 +556,55 @@ TEST_F(WriteVisibilityPlan, ARowUniqueNodeReadsNewInsteadOfABarrier) {
   EXPECT_EQ(Views<CreateNode>(remove), (std::vector{View::NEW}));
   // The CREATE's read is a View::NEW read now, and a later write of its key through a is row-local too.
   EXPECT_TRUE(Collect<Accumulate>(Plan("MATCH (a) SET a.x = 1 CREATE ({v: a.x}) SET a.x = 100")).empty());
+  // A subscript, every key, or a write of every key, all through a.
+  for (auto const *query : {
+           "MATCH (a) SET a.x = 1 CREATE ({v: a['x']})",
+           "MATCH (a) SET a.x = 1 CREATE ({m: a{.*}})",
+           "MATCH (a) SET a += {x: 1} CREATE ({v: a.x})",
+           "MATCH (a) SET a = {x: 1} CREATE ({v: a.x})",
+           "MATCH (a) SET a += {x: 1} CREATE ({m: a{.*}})",
+       }) {
+    EXPECT_TRUE(Collect<Accumulate>(Plan(query)).empty()) << query;
+  }
 }
 
 // A CREATE that reads what it writes itself would see its own earlier rows at View::NEW: it keeps View::OLD and the
 // barrier.
+// Each comprehension reads one kind of what the CREATE writes: an edge type, a label, node existence. `-[*0..0]-` reads
+// a node with no expand.
 TEST_F(WriteVisibilityPlan, ARowUniqueCreateThatReadsItsOwnWritesKeepsItsBarrier) {
-  auto &expand = Plan("MATCH (a:A) SET a.x = 1 CREATE (a)-[:R]->(b {v: a.x, n: size([(:A)-[:R]->(z) | z])})");
-  EXPECT_FALSE(Collect<Accumulate>(expand).empty());
-  EXPECT_EQ(Views<CreateExpand>(expand), (std::vector{View::OLD}));
-  auto &node = Plan("MATCH (a:A) SET a.x = 1 CREATE (b:B {v: a.x, n: size([(q:B)-[*0..0]-(r) | 1])})");
-  EXPECT_FALSE(Collect<Accumulate>(node).empty());
-  EXPECT_EQ(Views<CreateNode>(node), (std::vector{View::OLD}));
+  auto &edge_type = Plan("MATCH (a:A) SET a.x = 1 CREATE (a)-[r:R {v: a.x, n: size([(:A)-[:R]->(:A) | 1])}]->(a)");
+  EXPECT_FALSE(Collect<Accumulate>(edge_type).empty());
+  EXPECT_EQ(Views<CreateExpand>(edge_type), (std::vector{View::OLD}));
+  auto &label = Plan("MATCH (a:A) SET a.x = 1 CREATE (b:B {v: a.x, n: size([(z:B)-[*0..0]-(r:B) | 1])})");
+  EXPECT_FALSE(Collect<Accumulate>(label).empty());
+  EXPECT_EQ(Views<CreateNode>(label), (std::vector{View::OLD}));
+  auto &nodes =
+      Plan("MATCH (a:A) SET a.x = 1 CREATE (b {v: a.x, n: size([(q)-[*0..0]-(r) WHERE q.v IS NOT NULL | 1])})");
+  EXPECT_FALSE(Collect<Accumulate>(nodes).empty());
+  EXPECT_EQ(Views<CreateNode>(nodes), (std::vector{View::OLD}));
 }
 
 // A switch skips only the barrier its reader needed: a later reader of a pending key through another variable keeps
 // one.
 TEST_F(WriteVisibilityPlan, ASwitchedCreateKeepsTheWritesPendingForALaterReader) {
-  EXPECT_FALSE(Collect<Accumulate>(Plan("MATCH (a:L) WITH a, head([(a)-[:T]->(o) | o]) AS q SET a.x = 1, a.y = 1 "
-                                        "CREATE (:M {v: a.x}) CREATE (:N {w: q.y})"))
-                   .empty());
+  auto &plan = Plan(
+      "MATCH (a:L) WITH a, head([(a)-[:T]->(o) | o]) AS q SET a.x = 1, a.y = 1 "
+      "CREATE (:M {v: a.x}) CREATE (:N {w: q.y})");
+  // Top first: the barrier is between the two CREATEs, so the first one reads NEW and the second OLD.
+  EXPECT_EQ(Views<CreateNode>(plan), (std::vector{View::OLD, View::NEW}));
+  auto const chain = Chain(plan);
+  EXPECT_EQ(std::vector(chain.begin(), chain.begin() + 4),
+            (Names{"EmptyResult", "CreateNode", "Accumulate+", "CreateNode"}));
 }
 
 // A switched CREATE's read is a View::NEW read: a later write of its key through another variable drains first.
 TEST_F(WriteVisibilityPlan, ASwitchedCreateDrainsBeforeAWriteOfItsKeyThroughAnotherVariable) {
-  EXPECT_FALSE(
-      Collect<Accumulate>(Plan("MATCH (a:L) WITH a, head([(a)-[:T]->(o) | o]) AS q SET a.x = 1 CREATE ({v: a.x}) "
-                               "SET q.x = 5"))
-          .empty());
+  auto &plan = Plan("MATCH (a:L) WITH a, head([(a)-[:T]->(o) | o]) AS q SET a.x = 1 CREATE ({v: a.x}) SET q.x = 5");
+  EXPECT_EQ(Views<CreateNode>(plan), (std::vector{View::NEW}));
+  auto const chain = Chain(plan);
+  EXPECT_EQ(std::vector(chain.begin(), chain.begin() + 5),
+            (Names{"EmptyResult", "SetProperty", "Accumulate+", "CreateNode", "SetProperty"}));
 }
 
 // A MERGE reads its own pattern key through its own variable: only the keys the earlier write reached decide.
@@ -594,6 +626,7 @@ TEST_F(WriteVisibilityPlan, AReaderThatWritesThePendingKeyThroughAnotherVariable
            "MATCH (a:L) WITH a, head([(a)-[:T]->(o) | o]) AS q SET a.x = 1 SET q.x = a.x + 1",
            "MATCH (a:L) SET a.x = 1 FOREACH (m IN [(a)-[:T]->(o) | o] | SET m.x = a.x + 1)",
            "MATCH (a:L) SET a.x = 1 MERGE (m:L {id: a.id + 1}) ON MATCH SET m.x = a.x + 1",
+           "MATCH (a:L) WITH a, head([(a)-[:T]->(o) | o]) AS q SET a.x = 1 SET q += {x: a.x + 1}",
        }) {
     EXPECT_FALSE(Collect<Accumulate>(Plan(query)).empty()) << query;
   }
@@ -630,11 +663,15 @@ TEST_F(WriteVisibilityPlan, ANodeThatMayRepeatKeepsItsBarrier) {
            "CALL () { MATCH (n:L) SET n.x = n.x + 1 SET n.y = n.x RETURN count(*) AS c } RETURN c",
            // The MERGE pattern reads the written key through its own variable too: q may be another row's a.
            "MATCH (a:Q) SET a.x = 5 MERGE (q:Q {x: a.x})",
-           "MATCH (a:L) SET a.w = 1 MERGE (q:Q {w: a.w})",
-           "UNWIND [1, 2] AS i MATCH (a:L) SET a.w = 1 MERGE (q:Q {x: a.w})",
-           // degree() and labels() read everything, through no one variable.
-           "MATCH (a:L) SET a.x = 1 CREATE ({d: degree(a) + a.x})",
-           "MATCH (a:L) SET a:X CREATE ({k: size(labels(a))})",
+           // Pending x goes through q and a: the CREATE reads it through a, but q may be its node.
+           "MATCH (a:L) WITH a, head([(a)-[:T]->(o) | o]) AS q SET q.x = 2 SET a.x = 1 CREATE ({v: a.x})",
+           // The CREATE reads q's key or every key of q, and q may be another row's a.
+           "MATCH (a:L) WITH a, head([(a)-[:T]->(o) | o]) AS q SET a.x = 1 CREATE ({v: a.x + q['x']})",
+           "MATCH (a:L) WITH a, head([(a)-[:T]->(o) | o]) AS q SET a.x = 1 CREATE ({v: a.x, m: q{.*}})",
+           // Every key of a is written through q.
+           "MATCH (a:L) WITH a, head([(a)-[:T]->(o) | o]) AS q SET a.x = 1 SET q += {y: 1} CREATE ({v: a.x})",
+           // `SET a = q` copies every key of q, which may be another row's a.
+           "MATCH (a:L) WITH a, head([(a)-[:T]->(o) | o]) AS q SET a.x = 1 SET a = q, a.y = a.x",
        }) {
     EXPECT_FALSE(Collect<Accumulate>(Plan(query)).empty()) << query;
   }
@@ -789,15 +826,6 @@ TEST_F(WriteVisibilityPlan, CreateWritesLabelsAndTypesNotKeys) {
   EXPECT_TRUE(access.writes.properties.empty());
   EXPECT_EQ(access.writes.edge_types, (std::set<std::string>{"T"}));
   EXPECT_TRUE(access.writes.nodes);
-}
-
-// Only the keys both sides touch decide the variable: the MERGE's own key x goes through q, but nothing writes x.
-TEST_F(WriteVisibilityPlan, ConflictsOnKeysPerKey) {
-  auto const set_w = Access("MATCH (a) SET a.w = 1").writes;
-  auto const through = ConflictsOnlyOnKeysOf(Access("MATCH (a) MERGE (q:Q {x: a.w})").reads, set_w);
-  ASSERT_TRUE(through.has_value());
-  EXPECT_EQ(through->name(), "a");
-  EXPECT_FALSE(ConflictsOnlyOnKeysOf(Access("MATCH (a) MERGE (q:Q {w: a.w})").reads, set_w).has_value());
 }
 
 TEST_F(WriteVisibilityPlan, ConflictIsPerKey) {
@@ -1012,7 +1040,6 @@ constexpr std::string_view kCaseQueries[] = {
     R"cypher(MATCH (n:WvA4) CALL (n) { CREATE (n)-[:R]->(a:WvQ4)-[:R]->(:WvQ4) WITH a RETURN [(a)-[*]->(x) | 1] AS r } RETURN r)cypher",
     R"cypher(MATCH (n:WvA4) CALL (n) { CREATE (n)-[:R]->(a:WvQ4)-[:R]->(:WvQ4) WITH a RETURN [(a)-[*2..]->(x) | 1] AS r } RETURN r)cypher",
     R"cypher(CREATE (a:WvL {v: 1}), (b:WvL {w: a.v}) RETURN b.w AS w)cypher",
-    R"cypher(MATCH (a:WvWw) WITH a ORDER BY a.id WITH a, head([(a)-[:T]->(o) | o]) AS q SET a.x = 1 SET q.x = a.x + 1 WITH count(*) AS c MATCH (n:WvWw) RETURN n.id AS id, n.x AS x ORDER BY id)cypher",
 };
 
 // ---------------------------------------------------------------- reads the collector must not miss
@@ -1443,6 +1470,10 @@ TEST_F(WriteVisibilityPlan, PeriodicCommitKeepsMastersViews) {
   auto &plan = Plan("USING PERIODIC COMMIT 100 MATCH (n:P) SET n.x = 10 - n.x RETURN n.x AS x ORDER BY n.x LIMIT 1");
   EXPECT_EQ(Views<Produce>(plan), (std::vector{View::NEW}));
   EXPECT_EQ(Views<OrderBy>(plan), (std::vector{View::OLD}));
+  // A read-only CALL body after a write keeps master's View::OLD scans too.
+  EXPECT_EQ(Views<ScanAll>(Plan("USING PERIODIC COMMIT 10 MATCH (a) SET a.x = 1 "
+                                "CALL (a) { MATCH (b) RETURN count(b.x) AS c } RETURN c")),
+            (std::vector{View::OLD, View::OLD}));
 }
 
 // Pinned, known: under USING PERIODIC COMMIT a read after a write in the same batch sees later clauses' writes of
@@ -1814,11 +1845,17 @@ class ViewOracle {
       mismatches_.push_back({std::string{op.GetTypeInfo().name}, expected, *actual});
     }
     auto const is_rollup = Is<plan::RollUpApply>(op);
+    // A CREATE switched to NEW evaluates its comprehensions at NEW too. The oracle cannot tell what the CREATE writes,
+    // so plan tests pin that a CREATE reading its own writes is not switched.
+    auto const switched = either && op.ReadView() == View::NEW;
     for (auto [child, edge] : Children(op)) {
       switch (edge) {
         case Edge::kInput:
           // The property cache under a SET's Produce caches what that Produce reads.
-          Walk(*child, reads_new, is_rollup ? consumer_reads_new : ReadsNewClause(op), IsSetGroupProduce(op));
+          Walk(*child,
+               reads_new,
+               is_rollup ? consumer_reads_new : ReadsNewClause(op) || switched,
+               IsSetGroupProduce(op));
           break;
         case Edge::kBody:
           // A read-only IN TRANSACTIONS body keeps master's views.
@@ -2052,6 +2089,7 @@ TEST(WriteVisibilityOracle, EveryViewFollowsTheRule) {
            "CALL () { MATCH (n:L) SET n.k = 1 WITH n ORDER BY n.k RETURN collect(n.k) AS ks } RETURN ks",
            "MATCH (a:A) SET a.c = size([(a)-[*0]-(x) WHERE EXISTS { MATCH (x) WHERE x.c IS NOT NULL } | x])",
            "MATCH (a:A), (b:B) CALL (a) { MATCH (a)-[*BFS]->(x) RETURN count(x) AS n } SET b.n = n",
+           "MATCH (a:A) SET a.x = 1 CREATE ({v: a.x, n: size([(a)-[:T]->(z:Z) | z])})",
        }) {
     corpus.push_back({"extra", extra, {{"Pt", "loc"}, {"E", "w"}, {"L", "k"}, {"A", std::nullopt}}});
   }

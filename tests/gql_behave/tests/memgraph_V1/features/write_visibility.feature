@@ -2769,8 +2769,8 @@ Feature: Write visibility inside one query
         When executing query:
             """
             MATCH (a:WvOa) WITH a ORDER BY a.id SET a.x = a.id
-            CREATE (a)-[:WvOr]->(b:WvOb {v: a.x, n: size([(:WvOa)-[:WvOr]->(z) | z])})
-            RETURN b.v AS v, b.n AS n ORDER BY v
+            CREATE (a)-[r:WvOr {v: a.x, n: size([(:WvOa)-[:WvOr]->(:WvOa) | 1])}]->(a)
+            RETURN r.v AS v, r.n AS n ORDER BY v
             """
         Then the result should be, in order:
             | v | n |
@@ -2778,7 +2778,7 @@ Feature: Write visibility inside one query
             | 2 | 0 |
             | 3 | 0 |
 
-    Scenario: A CREATE whose map reads the label it creates does not see its own earlier rows
+    Scenario: A CREATE whose map reads the nodes it creates does not see its own earlier rows
         Given an empty graph
         And having executed:
             """
@@ -2787,7 +2787,7 @@ Feature: Write visibility inside one query
         When executing query:
             """
             MATCH (a:WvOa) WITH a ORDER BY a.id SET a.x = a.id
-            CREATE (b:WvOb {v: a.x, n: size([(q:WvOb)-[*0..0]-(r) | 1])})
+            CREATE (b {v: a.x, n: size([(q)-[*0..0]-(r) WHERE q.v IS NOT NULL | 1])})
             RETURN b.v AS v, b.n AS n ORDER BY v
             """
         Then the result should be, in order:
