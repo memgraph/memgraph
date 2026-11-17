@@ -246,3 +246,76 @@ Feature: ExpressionAcceptance
       RETURN expr[idx]
       """
     Then a TypeError should be raised at runtime: InvalidElementAccess
+
+  Scenario: Merging map literals lets the right operand win on a duplicate key
+    When executing query:
+      """
+      RETURN {a: 1, b: 2} + {b: 3, c: 4} AS result
+      """
+    Then the result should be:
+      | result             |
+      | {a: 1, b: 3, c: 4} |
+    And no side effects
+
+  Scenario: Merging maps keeps a nested map as the right operand wrote it
+    When executing query:
+      """
+      RETURN {a: {x: 1}} + {a: {y: 2}} AS result
+      """
+    Then the result should be:
+      | result       |
+      | {a: {y: 2}} |
+    And no side effects
+
+  Scenario: Merging a map with an empty map keeps the map's entries
+    When executing query:
+      """
+      RETURN {} + {a: 1} AS left_empty, {a: 1} + {} AS right_empty
+      """
+    Then the result should be:
+      | left_empty | right_empty |
+      | {a: 1}     | {a: 1}      |
+    And no side effects
+
+  Scenario: Adding null and a map yields null in both directions
+    When executing query:
+      """
+      RETURN null + {a: 1} AS left_null, {a: 1} + null AS right_null
+      """
+    Then the result should be:
+      | left_null | right_null |
+      | null      | null       |
+    And no side effects
+
+  Scenario: Merging a map literal with properties of a node
+    And having executed:
+      """
+      CREATE (:Item {id: 1, name: 'a'})
+      """
+    When executing query:
+      """
+      MATCH (n:Item {id: 1})
+      RETURN {extraLabels: labels(n)} + properties(n) AS result
+      """
+    Then the result should be:
+      | result                                 |
+      | {extraLabels: ['Item'], id: 1, name: 'a'} |
+    And no side effects
+
+  Scenario: Merging a map does not change the map it is merged into
+    When executing query:
+      """
+      WITH {a: 1} AS m
+      RETURN m.a AS before, (m + {a: 2}).a AS after
+      """
+    Then the result should be:
+      | before | after |
+      | 1      | 2     |
+    And no side effects
+
+  Scenario: Adding a map and an integer raises an error
+    When executing query:
+      """
+      RETURN {a: 1} + 1
+      """
+    Then an error should be raised
