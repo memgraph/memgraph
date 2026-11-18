@@ -59,12 +59,12 @@ struct ReadWriteSet {
   bool nodes{false};
   /// A procedure, a DELETE or a graph-reading function: conflicts with any non-empty set.
   bool everything{false};
-  /// Reads only: a fine-grained access check reads the node's labels (of a label write, and of every node read). It
-  /// conflicts with `relabels` and nothing else, so a DELETE before it changes nothing.
-  bool access_check_labels{false};
+  /// Reads only: a fine-grained access check reads the node's labels (of every node read or written), through the
+  /// variable that holds the node. It conflicts with `relabel` and nothing else, so a DELETE before it changes nothing.
+  KeyReach access_check;
   /// Writes only: a SET or REMOVE label changed the labels of a node that already existed, the one write an access
   /// check can see. A created node's labels are not one: whether a read finds that node at all is a real conflict.
-  bool relabels{false};
+  KeyReach relabel;
   /// Per key in `properties`, the variable it is read or written through; `any_property_reach` for `any_property`.
   std::map<std::string, KeyReach> property_reach;
   KeyReach any_property_reach;
@@ -75,8 +75,8 @@ struct ReadWriteSet {
   /// the last barrier makes the read a View::NEW read (`ReadSeeingCreated`), which a later write must not reach.
   std::unordered_set<Symbol> referenced;
 
-  /// Whether it names no graph key. `access_check_labels` and `referenced` do not count: the first conflicts only
-  /// with `relabels`, the second only marks a read as a View::NEW read.
+  /// Whether it names no graph key. `access_check` and `referenced` do not count: the first conflicts only with
+  /// `relabel`, the second only marks a read as a View::NEW read.
   bool Empty() const;
   void Merge(const ReadWriteSet &other);
   /// Adds property @p key, read or written through @p through; nullopt (an object that is no variable) mixes it.
@@ -91,7 +91,7 @@ struct ReadWriteSet {
 /// matters only to a View::OLD reader: clear `reads.symbols` for a View::NEW one.
 bool Conflicts(const ReadWriteSet &reads, const ReadWriteSet &writes);
 
-/// Whether the reads conflict with the writes only through `access_check_labels`: a barrier for that conflict is
+/// Whether the reads conflict with the writes only through `access_check`: a barrier for that conflict is
 /// needed only while a fine-grained access check runs.
 bool ConflictsOnlyInAccessCheck(const ReadWriteSet &reads, const ReadWriteSet &writes);
 

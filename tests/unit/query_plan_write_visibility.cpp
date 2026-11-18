@@ -476,8 +476,8 @@ TEST_F(WriteVisibilityPlan, ACloneKeepsTheAccessCheckFlag) {
 
 // A subscript reads a node property as a lookup does, so its permission check waits for the label write.
 TEST_F(WriteVisibilityPlan, ASubscriptOnANodeReadsItsLabelsForTheAccessCheck) {
-  EXPECT_TRUE(Access("MATCH (a) RETURN a['x'] AS v").reads.access_check_labels);
-  EXPECT_TRUE(Access("MATCH (a) WITH a, 'x' AS k RETURN a[k] AS v").reads.access_check_labels);
+  EXPECT_TRUE(Access("MATCH (a) RETURN a['x'] AS v").reads.access_check.Any());
+  EXPECT_TRUE(Access("MATCH (a) WITH a, 'x' AS k RETURN a[k] AS v").reads.access_check.Any());
   auto const chain = Chain(Plan("MATCH (a:P), (b:P) SET b:Secret CREATE (:Y {v: a['x']})"));
   ASSERT_GE(chain.size(), 3U);
   EXPECT_EQ(std::vector(chain.begin(), chain.begin() + 3), (Names{"EmptyResult", "CreateNode", "Accumulate+(access)"}));
@@ -1877,7 +1877,7 @@ TEST_F(WriteVisibilityPlan, ConflictOnEdgeTypeAlone) {
 // The access check of a label write reads the node's labels: it waits for a label write, and only for that.
 TEST_F(WriteVisibilityPlan, LabelWriteAccessCheckConflictsOnlyWithALabelWrite) {
   auto const reads = Access("MATCH (n:A) SET n:B").reads;
-  EXPECT_TRUE(reads.access_check_labels);
+  EXPECT_TRUE(reads.access_check.Any());
   EXPECT_TRUE(Conflicts(reads, Access("MATCH (m:C) SET m:D").writes));
   EXPECT_FALSE(Conflicts(Access("MATCH (n:A) SET n:B").reads, Access("MATCH (m:C) SET m.x = 1").writes));
 }

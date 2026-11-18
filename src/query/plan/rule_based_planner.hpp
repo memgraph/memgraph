@@ -418,7 +418,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
           input_op = std::move(barrier);
         }
         access_pending_writes.Clear();
-        pending_new_reads.access_check_labels = false;
+        pending_new_reads.access_check = {};
       };
       // Rows that touch keys only through a variable no two rows share cannot see each other's writes. Root only: a
       // View::NEW index scan in a writing body could meet its own write again.

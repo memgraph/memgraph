@@ -70,13 +70,14 @@ class ReadWriteCollector final : public HierarchicalTreeVisitor {
     if (ReadsGraph(lookup.expression_)) {
       result.reads.NoteProperty(lookup.property_path_.front().name, KeySymbolOf(lookup.expression_));
       // A node's property permission depends on its labels.
-      if (!IsEdge(lookup.expression_)) ReadLabelsForAccessCheck();
+      if (!IsEdge(lookup.expression_)) ReadLabelsForAccessCheck(KeySymbolOf(lookup.expression_));
     }
     return true;
   }
 
   bool PreVisit(AllPropertiesLookup &lookup) override {
     if (ReadsGraph(lookup.expression_)) {
+      if (!IsEdge(lookup.expression_)) ReadLabelsForAccessCheck(KeySymbolOf(lookup.expression_));
       result.reads.NoteAnyProperty(KeySymbolOf(lookup.expression_));
     }
     return true;
@@ -85,7 +86,7 @@ class ReadWriteCollector final : public HierarchicalTreeVisitor {
   bool PreVisit(SubscriptOperator &op) override {
     if (!ReadsGraph(op.expression1_) || utils::Downcast<ListLiteral>(op.expression1_)) return true;
     // A subscript on a node is a property read, whose permission depends on the node's labels.
-    if (!IsEdge(op.expression1_)) ReadLabelsForAccessCheck();
+    if (!IsEdge(op.expression1_)) ReadLabelsForAccessCheck(KeySymbolOf(op.expression1_));
     if (auto *key = utils::Downcast<PrimitiveLiteral>(op.expression2_)) {
       if (key->value_.IsString()) {
         std::string name{key->value_.ValueString()};
@@ -129,7 +130,7 @@ class ReadWriteCollector final : public HierarchicalTreeVisitor {
     auto const &symbol = symbol_table_.at(*node.identifier_);
     result.reads.symbols.insert(symbol);
     // The fine-grained access check of every node a pattern reads looks at its labels.
-    ReadLabelsForAccessCheck();
+    ReadLabelsForAccessCheck(std::nullopt);
     // Only a node the pattern has to find reads which nodes exist, and only when an unlabelled node can match.
     if (node.label_term_) {
       ReadLabelTerm(*node.label_term_);
@@ -197,7 +198,8 @@ class ReadWriteCollector final : public HierarchicalTreeVisitor {
     result.writes.NoteProperty(set.property_lookup_->property_path_.front().name,
                                KeySymbolOf(set.property_lookup_->expression_));
     // A node's property permission depends on its labels.
-    if (!IsEdge(set.property_lookup_->expression_)) ReadLabelsForAccessCheck();
+    if (!IsEdge(set.property_lookup_->expression_))
+      ReadLabelsForAccessCheck(KeySymbolOf(set.property_lookup_->expression_));
     // The target is an expression too: `SET (CASE WHEN a.f THEN b ELSE a END).x` reads a.f.
     set.property_lookup_->expression_->Accept(*this);
     set.expression_->Accept(*this);
@@ -206,11 +208,13 @@ class ReadWriteCollector final : public HierarchicalTreeVisitor {
 
   bool PreVisit(SetProperties &set) override {
     result.writes.NoteAnyProperty(KeySymbolOf(set.identifier_));
-    if (!IsEdge(set.identifier_)) ReadLabelsForAccessCheck();
+    if (!IsEdge(set.identifier_)) ReadLabelsForAccessCheck(KeySymbolOf(set.identifier_));
     // `SET n = m` copies every property of an entity; any value but a map literal or a parameter may be one.
     if (!utils::Downcast<MapLiteral>(set.expression_) && !utils::Downcast<ParameterLookup>(set.expression_) &&
         ReadsGraph(set.expression_)) {
       result.reads.NoteAnyProperty(std::nullopt);
+      // Its properties are masked by its labels.
+      if (!IsEdge(set.expression_)) ReadLabelsForAccessCheck(KeySymbolOf(set.expression_));
     }
     set.expression_->Accept(*this);
     return false;
@@ -218,23 +222,25 @@ class ReadWriteCollector final : public HierarchicalTreeVisitor {
 
   bool PreVisit(SetLabels &set) override {
     WriteLabels(set.labels_);
-    result.writes.relabels = true;
-    ReadLabelsForAccessCheck();
+    result.writes.relabel.Note(KeySymbolOf(set.identifier_));
+    ReadLabelsForAccessCheck(KeySymbolOf(set.identifier_));
     return false;
   }
 
   bool PreVisit(RemoveProperty &remove) override {
     result.writes.NoteProperty(remove.property_lookup_->property_path_.front().name,
                                KeySymbolOf(remove.property_lookup_->expression_));
-    if (!IsEdge(remove.property_lookup_->expression_)) ReadLabelsForAccessCheck();
+    if (!IsEdge(remove.property_lookup_->expression_)) {
+      ReadLabelsForAccessCheck(KeySymbolOf(remove.property_lookup_->expression_));
+    }
     remove.property_lookup_->expression_->Accept(*this);
     return false;
   }
 
   bool PreVisit(RemoveLabels &remove) override {
     WriteLabels(remove.labels_);
-    result.writes.relabels = true;
-    ReadLabelsForAccessCheck();
+    result.writes.relabel.Note(KeySymbolOf(remove.identifier_));
+    ReadLabelsForAccessCheck(KeySymbolOf(remove.identifier_));
     return false;
   }
 
@@ -346,16 +352,22 @@ class ReadWriteCollector final : public HierarchicalTreeVisitor {
   }
 
   /// A fine-grained access check reads the labels a node already has: of SET and REMOVE label, and of a node read.
-  void ReadLabelsForAccessCheck() {
+  /// A fine-grained access check reads the labels of the node @p through holds; nullopt: of nodes no one variable
+  /// holds.
+  void ReadLabelsForAccessCheck(const std::optional<Symbol> &through) {
 #ifdef MG_ENTERPRISE
-    result.reads.access_check_labels = true;
+    result.reads.access_check.Note(through);
 #endif
   }
 
   void WritePattern(Pattern &pattern) {
     for (auto *atom : pattern.atoms_) {
       auto const &symbol = symbol_table_.at(*atom->identifier_);
-      if (bound_.contains(symbol)) continue;
+      if (bound_.contains(symbol)) {
+        // Creating an edge checks the labels of an existing end node.
+        if (pattern.atoms_.size() > 1 && utils::Downcast<NodeAtom>(atom)) ReadLabelsForAccessCheck(symbol);
+        continue;
+      }
       result.writes.symbols.insert(symbol);
       if (auto *node = utils::Downcast<NodeAtom>(atom)) {
         result.writes.nodes = true;
@@ -416,8 +428,8 @@ void ReadWriteSet::Merge(const ReadWriteSet &other) {
   any_edge_type |= other.any_edge_type;
   nodes |= other.nodes;
   everything |= other.everything;
-  access_check_labels |= other.access_check_labels;
-  relabels |= other.relabels;
+  access_check.Merge(other.access_check);
+  relabel.Merge(other.relabel);
   for (const auto &[key, reach] : other.property_reach) property_reach[key].Merge(reach);
   any_property_reach.Merge(other.any_property_reach);
   symbols.insert(other.symbols.begin(), other.symbols.end());
@@ -425,7 +437,7 @@ void ReadWriteSet::Merge(const ReadWriteSet &other) {
 }
 
 bool Conflicts(const ReadWriteSet &reads, const ReadWriteSet &writes) {
-  if (reads.access_check_labels && writes.relabels) return true;
+  if (reads.access_check.Any() && writes.relabel.Any()) return true;
   if (reads.Empty() || writes.Empty()) return false;
   if (reads.everything || writes.everything) return true;
   // A pattern through a node this command created: View::OLD cannot see it at all.
@@ -476,10 +488,17 @@ std::optional<Symbol> ConflictsOnlyOnKeysOf(const ReadWriteSet &reads, const Rea
   for (auto *set : {&other_reads, &other_writes}) {
     set->properties.clear();
     set->any_property = false;
+    set->access_check = {};
+    set->relabel = {};
   }
   if (Conflicts(other_reads, other_writes)) return std::nullopt;
-  // Every key both sides touch goes through one and the same variable, on both sides.
-  return SharedPropertyReach(reads, writes).One();
+  // Every key both sides touch, and every access check a label write reaches, goes through one and the same variable.
+  auto shared = SharedPropertyReach(reads, writes);
+  if (reads.access_check.Any() && writes.relabel.Any()) {
+    shared.Note(reads.access_check.One());
+    shared.Note(writes.relabel.One());
+  }
+  return shared.One();
 }
 
 bool MayHoldEntity(Expression *value, const SymbolTable &symbol_table, const std::unordered_set<Symbol> &non_graph) {
@@ -564,9 +583,9 @@ bool MayHoldEntity(Expression *value, const SymbolTable &symbol_table, const std
 }
 
 bool ConflictsOnlyInAccessCheck(const ReadWriteSet &reads, const ReadWriteSet &writes) {
-  if (!reads.access_check_labels || !Conflicts(reads, writes)) return false;
+  if (!reads.access_check.Any() || !Conflicts(reads, writes)) return false;
   auto without_check = reads;
-  without_check.access_check_labels = false;
+  without_check.access_check = {};
   return !Conflicts(without_check, writes);
 }
 
