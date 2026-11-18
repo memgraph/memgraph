@@ -6051,6 +6051,7 @@ std::unique_ptr<LogicalOperator> Delete::Clone(AstStorage *storage) const {
   }
   object->detach_ = detach_;
   object->buffer_size_ = buffer_size_ ? buffer_size_->Clone(storage) : nullptr;
+  object->deferred_to_ = deferred_to_;
 
   return object;
 }
@@ -6168,44 +6169,53 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
   }
 
   if (!has_more || (buffer_size_.has_value() && pulled_ >= *buffer_size_)) {
-    auto &dba = *context.db_accessor;
-    auto res = dba.DetachDelete(std::move(buffer_.nodes), std::move(buffer_.edges), self_.detach_);
-    if (!res) {
-      switch (res.error()) {
-        case storage::Error::SERIALIZATION_ERROR:
-          context.metric_handles->write_write_conflicts.Increment();
-          throw TransactionSerializationException();
-        case storage::Error::VERTEX_HAS_EDGES:
-          throw RemoveAttachedVertexException();
-        case storage::Error::DELETED_OBJECT:
-        case storage::Error::PROPERTIES_DISABLED:
-        case storage::Error::NONEXISTENT_OBJECT:
-          throw QueryRuntimeException("Unexpected error when deleting a node.");
-      }
+    // Only the drain that owns this Delete takes its deletes; with any other on top they apply now.
+    auto const &owners = context.delete_owners;
+    if (!has_more && self_.deferred_to_ != 0 && !owners.empty() && owners.back().first == self_.deferred_to_) {
+      owners.back().second->buffers.emplace_back(std::exchange(buffer_, {}), self_.detach_);
+    } else {
+      ApplyDeleteBuffer(std::exchange(buffer_, {}), self_.detach_, context);
     }
-
-    if (*res) {
-      context.execution_stats[ExecutionStats::Key::DELETED_NODES] += static_cast<int64_t>((*res)->first.size());
-      context.execution_stats[ExecutionStats::Key::DELETED_EDGES] += static_cast<int64_t>((*res)->second.size());
-    }
-
-    // Update deleted objects for triggers
-    if (context.trigger_context_collector && *res) {
-      for (const auto &node : (*res)->first) {
-        context.trigger_context_collector->RegisterDeletedObject(node);
-      }
-
-      if (context.trigger_context_collector->ShouldRegisterDeletedObject<query::EdgeAccessor>()) {
-        for (const auto &edge : (*res)->second) {
-          context.trigger_context_collector->RegisterDeletedObject(edge);
-        }
-      }
-    }
-
     pulled_ = 0;
   }
 
   return has_more;
+}
+
+void ApplyDeleteBuffer(DeleteBuffer &&buffer, bool detach, ExecutionContext &context) {
+  auto &dba = *context.db_accessor;
+  auto res = dba.DetachDelete(std::move(buffer.nodes), std::move(buffer.edges), detach);
+  if (!res) {
+    switch (res.error()) {
+      case storage::Error::SERIALIZATION_ERROR:
+        context.metric_handles->write_write_conflicts.Increment();
+        throw TransactionSerializationException();
+      case storage::Error::VERTEX_HAS_EDGES:
+        throw RemoveAttachedVertexException();
+      case storage::Error::DELETED_OBJECT:
+      case storage::Error::PROPERTIES_DISABLED:
+      case storage::Error::NONEXISTENT_OBJECT:
+        throw QueryRuntimeException("Unexpected error when deleting a node.");
+    }
+  }
+
+  if (*res) {
+    context.execution_stats[ExecutionStats::Key::DELETED_NODES] += static_cast<int64_t>((*res)->first.size());
+    context.execution_stats[ExecutionStats::Key::DELETED_EDGES] += static_cast<int64_t>((*res)->second.size());
+  }
+
+  // Update deleted objects for triggers
+  if (context.trigger_context_collector && *res) {
+    for (const auto &node : (*res)->first) {
+      context.trigger_context_collector->RegisterDeletedObject(node);
+    }
+
+    if (context.trigger_context_collector->ShouldRegisterDeletedObject<query::EdgeAccessor>()) {
+      for (const auto &edge : (*res)->second) {
+        context.trigger_context_collector->RegisterDeletedObject(edge);
+      }
+    }
+  }
 }
 
 void Delete::DeleteCursor::Shutdown() { input_cursor_->Shutdown(); }
@@ -7495,6 +7505,16 @@ ACCEPT_WITH_INPUT(Accumulate)
 
 std::vector<Symbol> Accumulate::ModifiedSymbols(const SymbolTable &) const { return symbols_; }
 
+namespace {
+// While a drain that owns Deletes (`id` nonzero) pulls its input, they hand it their deletes; popped on a throw too.
+auto OwnDeletes(ExecutionContext &context, uint64_t id, DeferredDeletes *list) {
+  if (id != 0) context.delete_owners.emplace_back(id, list);
+  return utils::OnScopeExit{[&context, id] {
+    if (id != 0) context.delete_owners.pop_back();
+  }};
+}
+}  // namespace
+
 class AccumulateCursor : public Cursor {
  public:
   AccumulateCursor(const Accumulate &self, utils::MemoryResource *mem, metrics::DatabaseMetricHandles &metric_handles)
@@ -7506,16 +7526,27 @@ class AccumulateCursor : public Cursor {
 
     // Decided once per run: a licence that lapses after the input was cached must not drop the cached rows.
     if (!passes_through_) passes_through_ = self_.access_check_only_ && !FineGrainedChecksActive(context);
-    if (*passes_through_) return input_cursor_->Pull(frame, context);
+    if (*passes_through_) {
+      bool has_more = false;
+      {
+        auto const owner = OwnDeletes(context, self_.defers_deletes_, &deferred_);
+        has_more = input_cursor_->Pull(frame, context);
+      }
+      if (!has_more) ApplyDeferredDeletes(context);
+      return has_more;
+    }
 
     auto &dba = *context.db_accessor;
     // cache all the input
     if (!pulled_all_input_) {
-      while (input_cursor_->Pull(frame, context)) {
-        utils::pmr::vector<TypedValue> row(cache_.get_allocator().resource());
-        row.reserve(self_.symbols_.size());
-        for (const Symbol &symbol : self_.symbols_) row.emplace_back(frame[symbol]);
-        cache_.emplace_back(std::move(row));
+      {
+        auto const owner = OwnDeletes(context, self_.defers_deletes_, &deferred_);
+        while (input_cursor_->Pull(frame, context)) {
+          utils::pmr::vector<TypedValue> row(cache_.get_allocator().resource());
+          row.reserve(self_.symbols_.size());
+          for (const Symbol &symbol : self_.symbols_) row.emplace_back(frame[symbol]);
+          cache_.emplace_back(std::move(row));
+        }
       }
       pulled_all_input_ = true;
       cache_it_ = cache_.begin();
@@ -7524,7 +7555,10 @@ class AccumulateCursor : public Cursor {
     }
 
     AbortCheck(context);
-    if (cache_it_ == cache_.end()) return false;
+    if (cache_it_ == cache_.end()) {
+      ApplyDeferredDeletes(context);
+      return false;
+    }
     auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
     auto row_it = (cache_it_++)->begin();
     for (const Symbol &symbol : self_.symbols_) {
@@ -7542,15 +7576,23 @@ class AccumulateCursor : public Cursor {
     pulled_all_input_ = false;
     // TODO: no test pins this reset; it matters only when the licence changes between two runs of the barrier.
     passes_through_.reset();
+    deferred_.buffers.clear();
   }
 
  private:
+  void ApplyDeferredDeletes(ExecutionContext &context) {
+    for (auto &[buffer, detach] : std::exchange(deferred_.buffers, {})) {
+      ApplyDeleteBuffer(std::move(buffer), detach, context);
+    }
+  }
+
   const Accumulate &self_;
   const UniqueCursorPtr input_cursor_;
   utils::pmr::deque<utils::pmr::vector<TypedValue>> cache_;
   decltype(cache_.begin()) cache_it_ = cache_.begin();
   bool pulled_all_input_{false};
   std::optional<bool> passes_through_;
+  DeferredDeletes deferred_;
 };
 
 UniqueCursorPtr Accumulate::MakeCursor(utils::MemoryResource *mem,
@@ -7566,6 +7608,7 @@ std::unique_ptr<LogicalOperator> Accumulate::Clone(AstStorage *storage) const {
   object->symbols_ = symbols_;
   object->advance_command_ = advance_command_;
   object->access_check_only_ = access_check_only_;
+  object->defers_deletes_ = defers_deletes_;
   return object;
 }
 

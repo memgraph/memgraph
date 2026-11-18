@@ -1458,6 +1458,14 @@ struct DeleteBuffer {
   std::vector<EdgeAccessor> edges{};
 };
 
+/// The deletes a drain applies after its replay, in the order their Deletes ran out of input.
+struct DeferredDeletes {
+  std::vector<std::pair<DeleteBuffer, bool>> buffers;  // {what to delete, detach}
+};
+
+/// Deletes, maps the error and records the stats and the trigger objects, as a Delete does when its input ends.
+void ApplyDeleteBuffer(DeleteBuffer &&buffer, bool detach, ExecutionContext &context);
+
 /// Operator for deleting vertices and edges.
 ///
 /// Has a flag for using DETACH DELETE when deleting vertices.
@@ -1487,6 +1495,8 @@ class Delete : public memgraph::query::plan::LogicalOperator {
   bool detach_;
   // when buffer size is reached, delete will be triggered
   Expression *buffer_size_{nullptr};
+  /// The id of the drain above that applies this Delete's deletes after its replay; 0 applies them at input end.
+  uint64_t deferred_to_{0};
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
 
@@ -1961,6 +1971,8 @@ class Accumulate : public memgraph::query::plan::LogicalOperator {
   /// Planned only because a fine-grained access check reads labels an earlier clause wrote: without a check to run,
   /// the cursor passes rows through and does not advance.
   bool access_check_only_{false};
+  /// Nonzero on the outermost drain of a segment that holds Deletes: the id those Deletes defer their deletes to.
+  uint64_t defers_deletes_{0};
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
 };
