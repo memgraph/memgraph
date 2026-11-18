@@ -196,6 +196,8 @@ class ReadWriteCollector final : public HierarchicalTreeVisitor {
   bool PreVisit(SetProperty &set) override {
     result.writes.NoteProperty(set.property_lookup_->property_path_.front().name,
                                KeySymbolOf(set.property_lookup_->expression_));
+    // A node's property permission depends on its labels.
+    if (!IsEdge(set.property_lookup_->expression_)) ReadLabelsForAccessCheck();
     // The target is an expression too: `SET (CASE WHEN a.f THEN b ELSE a END).x` reads a.f.
     set.property_lookup_->expression_->Accept(*this);
     set.expression_->Accept(*this);
@@ -204,6 +206,7 @@ class ReadWriteCollector final : public HierarchicalTreeVisitor {
 
   bool PreVisit(SetProperties &set) override {
     result.writes.NoteAnyProperty(KeySymbolOf(set.identifier_));
+    if (!IsEdge(set.identifier_)) ReadLabelsForAccessCheck();
     // `SET n = m` copies every property of an entity; any value but a map literal or a parameter may be one.
     if (!utils::Downcast<MapLiteral>(set.expression_) && !utils::Downcast<ParameterLookup>(set.expression_) &&
         ReadsGraph(set.expression_)) {
@@ -223,6 +226,7 @@ class ReadWriteCollector final : public HierarchicalTreeVisitor {
   bool PreVisit(RemoveProperty &remove) override {
     result.writes.NoteProperty(remove.property_lookup_->property_path_.front().name,
                                KeySymbolOf(remove.property_lookup_->expression_));
+    if (!IsEdge(remove.property_lookup_->expression_)) ReadLabelsForAccessCheck();
     remove.property_lookup_->expression_->Accept(*this);
     return false;
   }
