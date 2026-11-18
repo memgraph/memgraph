@@ -179,12 +179,13 @@ class VersioningFixture : public ::testing::Test {
         });
     if (!core) version_store->ReleaseCheckout(info->id);
     ASSERT_TRUE(core) << core.error();
-    auto recorded =
-        version_store->RecordGidFloors(info->id, (*core)->vertex_gid_floor(), (*core)->edge_gid_floor());
+    auto recorded = version_store->RecordGidFloors(info->id, (*core)->vertex_gid_floor(), (*core)->edge_gid_floor());
     if (!recorded) version_store->ReleaseCheckout(info->id);
     ASSERT_TRUE(recorded) << recorded.error();
     session.interpreter.current_db_.SetBranchContext(
-        std::make_unique<memgraph::versioning::BranchContext>(std::move(*core), name), version_store, info->id);
+        std::make_unique<memgraph::versioning::BranchContext>(std::move(*core), name, info->id),
+        version_store,
+        info->id);
   }
 
   void Fork(InterpreterFaker &session, const std::string &name = "b") {
