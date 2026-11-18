@@ -364,8 +364,9 @@ class DbmsHandler {
   void SetOnResume(std::function<void(DatabaseAccess)> cb) { on_resume_ = std::move(cb); }
 
   /**
-   * @brief Set the post-publish resume arm (runs on the DatabaseAccess AFTER the tenant is published
-   *        HOT). Used for work that may commit, such as re-enabling TTL. Best-effort: a throw only logs.
+   * @brief Set the post-publish arm, run on a tenant once it is published HOT: by New_ when a database is
+   *        created (under lock_, exclusive), and by Resume_ after a COLD tenant is rebuilt (off-lock,
+   *        best-effort: a throw only logs). Used for work that may commit, such as letting TTL run.
    */
   void SetOnPublished(std::function<void(DatabaseAccess)> cb) { on_published_ = std::move(cb); }
 
