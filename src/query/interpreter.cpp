@@ -8848,19 +8848,14 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
   const bool is_replica = interpreter_context->repl_state->ReadLock()->IsReplica();
 
   switch (query->action_) {
-    case MultiDatabaseQuery::Action::CREATE:
-    case MultiDatabaseQuery::Action::CREATE_IF_NOT_EXISTS: {
+    case MultiDatabaseQuery::Action::CREATE: {
       if (is_replica) {
         throw QueryException("Query forbidden on the replica!");
       }
       return PreparedQuery{
           .header = {"STATUS"},
           .privileges = std::move(parsed_query.required_privileges),
-          .query_handler = [db_name = query->db_name_,
-                            db_handler,
-                            interpreter = &interpreter,
-                            interpreter_context,
-                            if_not_exists = query->action_ == MultiDatabaseQuery::Action::CREATE_IF_NOT_EXISTS](
+          .query_handler = [db_name = query->db_name_, db_handler, interpreter = &interpreter, interpreter_context](
                                AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
             if (!interpreter->system_transaction_) {
               throw QueryException("Expected to be in a system transaction");
@@ -8872,7 +8867,7 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
             if (!success) {
               switch (success.error()) {
                 case dbms::NewError::EXISTS:
-                  res = if_not_exists ? "Database " + db_name + " already exists." : db_name + " already exists.";
+                  res = db_name + " already exists.";
                   break;
                 case dbms::NewError::DEFUNCT:
                   throw QueryRuntimeException(
@@ -8891,43 +8886,6 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
               });
             }
             status.emplace_back(std::vector<TypedValue>{TypedValue(res)});
-            auto pull_plan = std::make_shared<PullPlanVector>(std::move(status));
-            if (pull_plan->Pull(stream, n)) {
-              return QueryHandlerResult::COMMIT;
-            }
-            return std::nullopt;
-          },
-          .rw_type = RWType::W,
-          .db = std::string(dbms::kSystemDB)};
-    }
-    case MultiDatabaseQuery::Action::REPLACE: {
-      if (is_replica) {
-        throw QueryException("Query forbidden on the replica!");
-      }
-      return PreparedQuery{
-          .header = {"STATUS"},
-          .privileges = std::move(parsed_query.required_privileges),
-          .query_handler =
-              [db_name = query->db_name_, db_handler, interpreter = &interpreter, auth = interpreter_context->auth](
-                  AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
-            if (!interpreter->system_transaction_) {
-              throw QueryException("Expected to be in a system transaction");
-            }
-            auto replaced = db_handler->Replace(db_name, interpreter->system_transaction_ptr());
-            if (!replaced) {
-              switch (replaced.error()) {
-                case dbms::DbmsHandler::ReplaceError::DEFAULT_DB:
-                  throw QueryRuntimeException("Cannot replace the default database.");
-                case dbms::DbmsHandler::ReplaceError::USING:
-                  throw QueryRuntimeException("Cannot replace {}, it is currently being used.", db_name);
-                case dbms::DbmsHandler::ReplaceError::FAILED:
-                  throw QueryRuntimeException("Failed while replacing {}", db_name);
-              }
-            }
-            // The replacement is a new tenant: do not carry the old tenant's grants forward.
-            if (auth) auth->DeleteDatabase(db_name, interpreter->system_transaction_ptr());
-            std::vector<std::vector<TypedValue>> status;
-            status.emplace_back(std::vector<TypedValue>{TypedValue("Successfully created database " + db_name)});
             auto pull_plan = std::make_shared<PullPlanVector>(std::move(status));
             if (pull_plan->Pull(stream, n)) {
               return QueryHandlerResult::COMMIT;

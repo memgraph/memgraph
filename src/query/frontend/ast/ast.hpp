@@ -4276,7 +4276,7 @@ class MultiDatabaseQuery : public memgraph::query::Query {
 
   QueryTraits Traits() const override { return {.access = NoAccess{}, .operates_on_graph_data = false}; }
 
-  enum class Action : uint8_t { CREATE, CREATE_IF_NOT_EXISTS, REPLACE, DROP, RENAME, SUSPEND, RESUME };
+  enum class Action : uint8_t { CREATE, DROP, RENAME, SUSPEND, RESUME };
 
   memgraph::query::MultiDatabaseQuery::Action action_;
   std::string db_name_;

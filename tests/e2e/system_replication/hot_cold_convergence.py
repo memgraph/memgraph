@@ -1444,51 +1444,24 @@ def test_suspend_resume_requires_multi_database_edit(connection, test_name):
     execute_and_fetch_all(admin_cursor, "GRANT DATABASE * TO limited;")
 
     limited_cursor = connection(BOLT_PORTS["main"], "main", username="limited", password="limited").cursor()
-    # Keep a privileged connection as the conftest fixture's holder: its teardown DETACH DELETE must
-    # not run as the unprivileged user if a denial assertion fails first.
-    admin_holder = connection(BOLT_PORTS["main"], "main", username="dbadmin", password="dbadmin").cursor()
-    for query in (
-        "SUSPEND DATABASE A;",
-        "RESUME DATABASE A;",
-        "CREATE DATABASE B IF NOT EXISTS;",
-        "CREATE OR REPLACE DATABASE B;",
-    ):
+    for query in ("SUSPEND DATABASE A;", "RESUME DATABASE A;"):
         with pytest.raises(mgclient.DatabaseError) as exc:
             execute_and_fetch_all(limited_cursor, query)
         assert (
             "not authorized" in str(exc.value).lower()
         ), f"{query} must be denied without MULTI_DATABASE_EDIT: {exc.value}"
 
-    # A is untouched by the denied attempts — still HOT — and the denied CREATE forms did not
-    # create or alter B.
+    # A is untouched by the denied attempts — still HOT.
     rows = dict((r[0], r[1]) for r in execute_and_fetch_all(admin_cursor, "SHOW DATABASES;"))
     assert rows.get("A") == "HOT", f"a denied SUSPEND must not change state: {rows}"
-    assert "B" not in rows, f"a denied CREATE DATABASE form must not create B: {rows}"
 
     # Grant the privilege; the same user can now suspend and resume.
     execute_and_fetch_all(admin_cursor, "GRANT MULTI_DATABASE_EDIT TO limited;")
     limited_cursor = connection(BOLT_PORTS["main"], "main", username="limited", password="limited").cursor()
-    admin_holder = connection(BOLT_PORTS["main"], "main", username="dbadmin", password="dbadmin").cursor()
     execute_and_fetch_all(limited_cursor, "SUSPEND DATABASE A;")
     rows = dict((r[0], r[1]) for r in execute_and_fetch_all(admin_cursor, "SHOW DATABASES;"))
     assert rows.get("A") == "COLD", f"SUSPEND must succeed once MULTI_DATABASE_EDIT is granted: {rows}"
     execute_and_fetch_all(limited_cursor, "RESUME DATABASE A;")
-
-    # Both new CREATE DATABASE forms need the same privilege: granted, they now go through.
-    try:
-        execute_and_fetch_all(limited_cursor, "CREATE DATABASE B IF NOT EXISTS;")
-    except mgclient.DatabaseError as exc:
-        raise AssertionError(f"CREATE DATABASE B IF NOT EXISTS must pass once privileged: {exc}") from None
-    rows = dict((r[0], r[1]) for r in execute_and_fetch_all(admin_cursor, "SHOW DATABASES;"))
-    assert rows.get("B") == "HOT", f"CREATE DATABASE IF NOT EXISTS must pass once privileged: {rows}"
-    try:
-        execute_and_fetch_all(limited_cursor, "CREATE OR REPLACE DATABASE B;")
-    except mgclient.DatabaseError as exc:
-        raise AssertionError(f"CREATE OR REPLACE DATABASE B must pass once privileged: {exc}") from None
-    rows = dict((r[0], r[1]) for r in execute_and_fetch_all(admin_cursor, "SHOW DATABASES;"))
-    assert rows.get("B") == "HOT", f"CREATE OR REPLACE DATABASE must pass once privileged: {rows}"
-    names = [r[0] for r in execute_and_fetch_all(admin_cursor, "SHOW DATABASES;")]
-    assert names.count("B") == 1, f"the privileged replace must leave exactly one B: {names}"
 
     # Verify (and make dbadmin the LAST connection, so the conftest teardown's DETACH DELETE runs as a
     # privileged user rather than `limited`).
@@ -1698,76 +1671,6 @@ def test_drop_recreate_cold_tenant_uuid_fix_converges(connection, test_name):
 
     # Sanity: MAIN's own view of the new tenant is also correct.
     assert tenant_probe(main_cursor, "tenant_x")() == 8, "MAIN must also hold 8 nodes after the marker write"
-
-
-def test_replace_suspended_tenant_fresh_uuid_converges(connection, test_name):
-    # CREATE OR REPLACE on a SUSPENDED (COLD) tenant must swap in a fresh HOT tenant under the same
-    # name without the name ever being observed as absent, and a live replica must converge to it.
-    instances = {
-        "replica_1": replica_args(test_name, recovery=False),
-        "main": main_args(test_name),
-    }
-    interactive_mg_runner.start_all(instances, keep_directories=False)
-
-    def must_run(cursor, query):
-        # A rejected modifier must fail the test as an assertion, not surface as a driver error.
-        try:
-            return execute_and_fetch_all(cursor, query)
-        except mgclient.DatabaseError as exc:
-            raise AssertionError(f"{query} must be accepted: {exc}") from None
-
-    replica_cursor = connection(BOLT_PORTS["replica_1"], "replica_1").cursor()
-    set_replica_role(replica_cursor)
-    main_cursor = connection(BOLT_PORTS["main"], "main").cursor()
-    register_replica(main_cursor, sync=True)
-
-    create_and_populate(main_cursor, "A", 5)
-    mg_sleep_and_assert(5, tenant_probe(replica_cursor, "A"))
-
-    execute_and_fetch_all(main_cursor, "USE DATABASE memgraph;")
-    execute_and_fetch_all(main_cursor, "SUSPEND DATABASE A;")
-    mg_sleep_and_assert("COLD", tenant_probe(replica_cursor, "A"))
-    assert tenant_probe(main_cursor, "A")() == "COLD"
-
-    # Every sample must list A exactly once, HOT or COLD — a missing/duplicated entry means the
-    # replace exposed a half-dropped window.
-    samples = []
-    stop = threading.Event()
-
-    def observe():
-        observer = connection(BOLT_PORTS["main"], "main").cursor()
-        while not stop.is_set():
-            try:
-                samples.append([row for row in execute_and_fetch_all(observer, "SHOW DATABASES;") if row[0] == "A"])
-            except mgclient.DatabaseError:
-                samples.append([])
-            time.sleep(0.01)
-
-    watcher = threading.Thread(target=observe, daemon=True)
-    watcher.start()
-    try:
-        must_run(main_cursor, "CREATE OR REPLACE DATABASE A;")
-    finally:
-        stop.set()
-        watcher.join(timeout=10)
-
-    assert samples, "the observer never sampled SHOW DATABASES during the replace"
-    bad = [sample for sample in samples if len(sample) != 1 or sample[0][1] not in ("HOT", "COLD")]
-    assert not bad, f"OR REPLACE exposed A as absent or duplicated while it ran: {bad[:3]}"
-
-    # MAIN: A is HOT and empty; the suspended shell's 5 nodes are gone.
-    assert tenant_probe(main_cursor, "A")() == 0, "OR REPLACE must leave A HOT and empty"
-    execute_and_fetch_all(main_cursor, "USE DATABASE A;")
-    assert execute_and_fetch_all(main_cursor, "MATCH (n) RETURN count(*);")[0][0] == 0
-    execute_and_fetch_all(main_cursor, "USE DATABASE memgraph;")
-    main_rows = [row for row in execute_and_fetch_all(main_cursor, "SHOW DATABASES;") if row[0] == "A"]
-    assert len(main_rows) == 1 and main_rows[0][1] == "HOT", f"MAIN must hold exactly one HOT A: {main_rows}"
-
-    # Replica converges to the post state: empty HOT A, not the stale pre-replace copy.
-    mg_sleep_and_assert(0, tenant_probe(replica_cursor, "A"))
-    replica_rows = [row for row in execute_and_fetch_all(replica_cursor, "SHOW DATABASES;") if row[0] == "A"]
-    assert len(replica_rows) == 1, f"the replica must hold exactly one A: {replica_rows}"
-    assert replica_rows[0][1] == "HOT", f"the replica's replacement tenant must be HOT: {replica_rows}"
 
 
 def test_write_after_resume_replicates(connection, test_name):
