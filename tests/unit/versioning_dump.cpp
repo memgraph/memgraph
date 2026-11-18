@@ -191,6 +191,19 @@ TEST_F(VersioningDumpTest, DumpOnABranchIsTheBranchsDataWithMainsSchema) {
   EXPECT_FALSE(Mentions(main_lines, "BranchOnly"));
 }
 
+// A constraint created on main after the fork is enforced at branch commit but, never validated against the base's
+// data, is left out of the branch's dump so the dump stays loadable.
+TEST_F(VersioningDumpTest, ConstraintCreatedOnMainAfterTheForkIsNotInTheBranchDump) {
+  faker.Interpret("CREATE (:Person {name: 'a'}), (:Person {name: 'b'})");
+  faker.Interpret("CREATE BRANCH feature");
+
+  faker.Interpret("CREATE CONSTRAINT ON (n:Person) ASSERT EXISTS (n.name)");
+  faker.Interpret("USE BRANCH feature");
+  EXPECT_FALSE(HasLine(Dump(), "CREATE CONSTRAINT ON (u:`Person`) ASSERT EXISTS (u.`name`);"));
+  faker.Interpret("USE BRANCH main");
+  EXPECT_TRUE(HasLine(Dump(), "CREATE CONSTRAINT ON (u:`Person`) ASSERT EXISTS (u.`name`);"));
+}
+
 // Values of a vector-indexed property come from main's vector index for base vertices and from the vertex itself for
 // branch-created ones.
 TEST_F(VersioningDumpTest, DumpOnABranchWritesVectorIndexedValues) {
