@@ -2795,7 +2795,7 @@ class Union : public memgraph::query::plan::LogicalOperator {
 
   Union(const std::shared_ptr<LogicalOperator> &left_op, const std::shared_ptr<LogicalOperator> &right_op,
         const std::vector<Symbol> &union_symbols, const std::vector<Symbol> &left_symbols,
-        const std::vector<Symbol> &right_symbols);
+        const std::vector<Symbol> &right_symbols, bool advance_command = false);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
   std::vector<Symbol> OutputSymbols(const SymbolTable &) const override;
@@ -2810,6 +2810,8 @@ class Union : public memgraph::query::plan::LogicalOperator {
   std::vector<Symbol> union_symbols_;
   std::vector<Symbol> left_symbols_;
   std::vector<Symbol> right_symbols_;
+  /// Advance the command once the left side is done, so the right side's View::OLD reads see its writes.
+  bool advance_command_{false};
 
   std::string ToString(const DbAccessor *dba) const override;
 

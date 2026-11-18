@@ -266,7 +266,8 @@ std::optional<std::unordered_set<Symbol>> SymbolsReadAfter(const QueryPart &quer
 bool IsRowUnique(const LogicalOperator &plan, Symbol symbol);
 
 std::unique_ptr<LogicalOperator> GenUnion(const CypherUnion &cypher_union, std::shared_ptr<LogicalOperator> left_op,
-                                          std::shared_ptr<LogicalOperator> right_op, SymbolTable &symbol_table);
+                                          std::shared_ptr<LogicalOperator> right_op, SymbolTable &symbol_table,
+                                          bool advance_command = false);
 
 template <class TBoolOperator>
 Expression *BoolJoin(AstStorage &storage, Expression *expr1, Expression *expr2) {

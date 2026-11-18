@@ -1545,12 +1545,14 @@ std::unique_ptr<LogicalOperator> GenWith(With &with, std::unique_ptr<LogicalOper
 }
 
 std::unique_ptr<LogicalOperator> GenUnion(const CypherUnion &cypher_union, std::shared_ptr<LogicalOperator> left_op,
-                                          std::shared_ptr<LogicalOperator> right_op, SymbolTable &symbol_table) {
+                                          std::shared_ptr<LogicalOperator> right_op, SymbolTable &symbol_table,
+                                          bool advance_command) {
   return std::make_unique<Union>(left_op,
                                  right_op,
                                  cypher_union.union_symbols_,
                                  left_op->OutputSymbols(symbol_table),
-                                 right_op->OutputSymbols(symbol_table));
+                                 right_op->OutputSymbols(symbol_table),
+                                 advance_command);
 }
 
 Symbol GetSymbol(NodeAtom *atom, const SymbolTable &symbol_table) { return symbol_table.at(*atom->identifier_); }

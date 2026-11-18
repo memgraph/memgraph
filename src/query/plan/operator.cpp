@@ -9134,12 +9134,13 @@ std::unique_ptr<LogicalOperator> Distinct::Clone(AstStorage *storage) const {
 
 Union::Union(const std::shared_ptr<LogicalOperator> &left_op, const std::shared_ptr<LogicalOperator> &right_op,
              const std::vector<Symbol> &union_symbols, const std::vector<Symbol> &left_symbols,
-             const std::vector<Symbol> &right_symbols)
+             const std::vector<Symbol> &right_symbols, bool advance_command)
     : left_op_(left_op),
       right_op_(right_op),
       union_symbols_(union_symbols),
       left_symbols_(left_symbols),
-      right_symbols_(right_symbols) {}
+      right_symbols_(right_symbols),
+      advance_command_(advance_command) {}
 
 UniqueCursorPtr Union::MakeCursor(utils::MemoryResource *mem, metrics::DatabaseMetricHandles &metric_handles) const {
   metric_handles.union_operator.Increment();
@@ -9169,6 +9170,7 @@ std::unique_ptr<LogicalOperator> Union::Clone(AstStorage *storage) const {
   object->union_symbols_ = union_symbols_;
   object->left_symbols_ = left_symbols_;
   object->right_symbols_ = right_symbols_;
+  object->advance_command_ = advance_command_;
   return object;
 }
 
