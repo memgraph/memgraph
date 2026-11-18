@@ -515,6 +515,29 @@ void CollectDistinct(benchmark::State &state) {
 // This is also the one shape whose cost per row does not carry over from the large graph: a quarter
 // million labelled vertices are walked out of cache, ten million are not, so this reads about twice
 // as fast here. It is still a floor to compare a build against itself on.
+// What a predicate costs, by how many times it names one property. `quantity` runs 1 to 100, so
+// every predicate here holds for every row and the three differ only in how many reads they make.
+// The item carries no label, because a pass reads a property only where some lookup reads it on
+// every row, and a label test stands in front of the predicate.
+void FilterOnePropertyOnce(benchmark::State &state) {
+  RunQuery(state, "MATCH (:Hub)-[:HAS]->(i) WHERE i.quantity > 0 RETURN count(*) AS n");
+}
+
+void FilterOnePropertyTwice(benchmark::State &state) {
+  RunQuery(state, "MATCH (:Hub)-[:HAS]->(i) WHERE i.quantity > 0 AND i.quantity < 101 RETURN count(*) AS n");
+}
+
+void FilterOnePropertyThreeTimes(benchmark::State &state) {
+  RunQuery(state,
+           "MATCH (:Hub)-[:HAS]->(i) WHERE i.quantity > 0 AND i.quantity < 101 AND i.quantity <> 0 "
+           "RETURN count(*) AS n");
+}
+
+// Two properties read once each, which a filter keeps no value from, so there is nothing to remove.
+void FilterTwoPropertiesOnceEach(benchmark::State &state) {
+  RunQuery(state, "MATCH (:Hub)-[:HAS]->(i) WHERE i.quantity > 0 AND i.bucket > -1 RETURN count(*) AS n");
+}
+
 void CountAllItems(benchmark::State &state) { RunQuery(state, "MATCH (i:Item) RETURN count(i) AS items"); }
 
 // ------------------------------------------------------------- grouping keys, wider still ----
@@ -616,6 +639,10 @@ BENCHMARK(EdgePropertyAggregate)->Unit(kUnit);
 BENCHMARK(CollectListOfMaps)->Unit(kUnit);
 BENCHMARK(CollectDistinct)->Unit(kUnit);
 BENCHMARK(CountAllItems)->Unit(kUnit);
+BENCHMARK(FilterOnePropertyOnce)->Unit(kUnit);
+BENCHMARK(FilterOnePropertyTwice)->Unit(kUnit);
+BENCHMARK(FilterOnePropertyThreeTimes)->Unit(kUnit);
+BENCHMARK(FilterTwoPropertiesOnceEach)->Unit(kUnit);
 BENCHMARK(GroupByBucketRegion)->Unit(kUnit);
 BENCHMARK(GroupByCategoryBucket)->Unit(kUnit);
 BENCHMARK(VarLengthPaths)->Unit(kUnit);
