@@ -346,17 +346,21 @@ class ExpectScanAllById : public OpChecker<ScanAllById> {
 class ExpectCacheProperties : public OpChecker<CacheProperties> {
  public:
   ExpectCacheProperties(std::string input_symbol_name, size_t cached_count)
-      : input_symbol_name_(std::move(input_symbol_name)), cached_count_(cached_count) {}
+      : groups_{{std::move(input_symbol_name), cached_count}} {}
+
+  /// One pass may read several symbols, each with its own properties, in the order they were met.
+  explicit ExpectCacheProperties(std::vector<std::pair<std::string, size_t>> groups) : groups_(std::move(groups)) {}
 
   void ExpectOp(CacheProperties &op, const SymbolTable &) override {
-    ASSERT_EQ(op.groups_.size(), 1U) << "this expectation names one symbol";
-    EXPECT_EQ(op.groups_.front().input_symbol().name(), input_symbol_name_);
-    EXPECT_EQ(op.groups_.front().properties().size(), cached_count_);
+    ASSERT_EQ(op.groups_.size(), groups_.size());
+    for (size_t group = 0; group != groups_.size(); ++group) {
+      EXPECT_EQ(op.groups_[group].input_symbol().name(), groups_[group].first);
+      EXPECT_EQ(op.groups_[group].properties().size(), groups_[group].second);
+    }
   }
 
  private:
-  std::string input_symbol_name_;
-  size_t cached_count_;
+  std::vector<std::pair<std::string, size_t>> groups_;
 };
 
 using ExpectExpand = OpChecker<Expand>;

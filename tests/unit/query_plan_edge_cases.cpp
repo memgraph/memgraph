@@ -355,6 +355,18 @@ TYPED_TEST(QueryExecution, ADeepVariableExpansionWalksBothWaysToEveryLength) {
       EXPECT_EQ(results[1][0].ValueInt(), 2);                                                                \
     }                                                                                                        \
     {                                                                                                        \
+      /* A predicate naming one property twice keeps the rows the same two comparisons kept. */              \
+      auto results = this->Execute("MATCH (n:P) WHERE n.a > 0 AND n.a < 2 RETURN n.id AS id");               \
+      ASSERT_EQ(results.size(), 1);                                                                          \
+      EXPECT_EQ(results[0][0].ValueInt(), 1);                                                                \
+    }                                                                                                        \
+    {                                                                                                        \
+      /* A property absent from a record compares as Null there, so that row is still left out. */           \
+      auto results = this->Execute("MATCH (n:P) WHERE n.b >= 'x' AND n.b <= 'x' RETURN n.id AS id");         \
+      ASSERT_EQ(results.size(), 1);                                                                          \
+      EXPECT_EQ(results[0][0].ValueInt(), 1);                                                                \
+    }                                                                                                        \
+    {                                                                                                        \
       /* Both lookups of one property answer it, and a property absent from a record still reads Null. */    \
       auto results = this->Execute("MATCH (n:P) RETURN n.a AS x, n.a AS y, n.b AS z ORDER BY x");            \
       ASSERT_EQ(results.size(), 2);                                                                          \
@@ -513,12 +525,14 @@ TYPED_TEST(QueryExecution, ADeletedRecordRefusesWithFlagOff) {
   CachePropertiesFlagGuard guard{false};
   CHECK_A_DELETED_RECORD_REFUSES("RETURN n.a AS a, n.b AS b");
   CHECK_A_DELETED_RECORD_REFUSES("RETURN sum(n.a) AS s, max(n.a) AS m");
+  CHECK_A_DELETED_RECORD_REFUSES("WITH n WHERE n.a > 0 AND n.a < 10 RETURN n.b AS b");
 }
 
 TYPED_TEST(QueryExecution, ADeletedRecordRefusesWithFlagOn) {
   CachePropertiesFlagGuard guard{true};
   CHECK_A_DELETED_RECORD_REFUSES("RETURN n.a AS a, n.b AS b");
   CHECK_A_DELETED_RECORD_REFUSES("RETURN sum(n.a) AS s, max(n.a) AS m");
+  CHECK_A_DELETED_RECORD_REFUSES("WITH n WHERE n.a > 0 AND n.a < 10 RETURN n.b AS b");
 }
 
 TYPED_TEST(QueryExecution, LeftoverLookupResultsWithFlagOff) {
@@ -625,9 +639,9 @@ TYPED_TEST(QueryExecution, CachePropertiesLeavesLookupsBehindAShortCircuit) {
 
   CachePropertiesFlagGuard guard{true};
   // The first operand is read from another node, so it is not folded away before planning.
-  EXPECT_EQ(explained("EXPLAIN MATCH (n:Q), (g:G) RETURN g.t OR n.a AS x, g.t OR n.b AS y").find("CacheProperties"),
+  EXPECT_EQ(explained("EXPLAIN MATCH (n:Q), (g:G) RETURN g.t OR n.a AS x, n.b AS y").find("CacheProperties"),
             std::string::npos);
-  EXPECT_EQ(explained("EXPLAIN MATCH (n:Q), (g:G) RETURN g.t AND n.a AS p, g.t AND n.b AS q").find("CacheProperties"),
+  EXPECT_EQ(explained("EXPLAIN MATCH (n:Q), (g:G) RETURN g.t AND n.a AS p, n.b AS q").find("CacheProperties"),
             std::string::npos);
 
   // A projection reading the same properties outside a short circuit still gets its pass.
