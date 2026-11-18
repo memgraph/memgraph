@@ -51,15 +51,12 @@
 //   base edge deleted               -> entry of type Mark(T) in both endpoint overlays' adjacency (LinkEdgeMarker)
 namespace memgraph::versioning::overlay {
 
-// Largest real id the encoding supports; real ids come from a counter starting at 0, far below it.
-inline constexpr uint32_t kLastRealId = storage::kReservedIdBit - 3;
-
 // Labels and properties share one name mapper, so the one delete id serves both.
 inline constexpr storage::LabelId kDeleteLabel = storage::LabelId::FromUint(storage::kDeleteId);
 inline constexpr storage::PropertyId kEdgeDeletePid = storage::PropertyId::FromUint(storage::kDeleteId);
 
 static_assert(storage::IsReservedId(storage::kDeleteId));
-static_assert((kLastRealId | storage::kReservedIdBit) < storage::kDeleteId,
+static_assert((storage::kLastRealId | storage::kReservedIdBit) < storage::kDeleteId,
               "no real id's mark is a delete marker, nor the invalid id 0xFFFFFFFF");
 
 inline storage::LabelId Mark(storage::LabelId l) noexcept {
