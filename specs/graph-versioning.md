@@ -71,7 +71,7 @@ queries do.
 | `CREATE BRANCH <b>` | Forks the current database's `main` at its latest commit. The session does not switch. Issued from a branch, it still forks from `main`. Result: no rows. | `BRANCH_EDIT` | `Branch '<b>' already exists.`; `Cannot persist the branch registry: …` (nothing created) |
 | `DROP BRANCH <b>` | Discards the branch: its changes, files and fork pin. If **this** session is on `<b>`, it moves to `main` once the drop succeeded. "In use" means any other session attached to `<b>`: running or idle, a Bolt-pinned pooled connection, or an in-flight `USING BRANCH`. | `BRANCH_EDIT` | `Branch '<b>' does not exist.` (also for `main`); `Cannot drop branch '<b>': it is in use by another session. Use DROP BRANCH '<b>' FORCE.`; `Cannot persist the branch registry: …` (branch kept) |
 | `DROP BRANCH <b> FORCE` | Drops the branch first, then terminates the transactions of every other session on `<b>` (best effort, as `DROP DATABASE … FORCE`). A transaction that cannot be terminated keeps running on its open view. The next query of those sessions gets the dead-branch error (§5.3). | `BRANCH_EDIT` and `TRANSACTION_MANAGEMENT` | `Branch '<b>' does not exist.` |
-| `USE BRANCH <b>` | Switches this session to `<b>` (or back with `USE BRANCH main`) until the next `USE BRANCH`, a `USE DATABASE` to another database, or disconnect. Result: one `STATUS` row, `Using branch <b>` or `Already using branch <b>`. | `BRANCH_USE` | `Branch '<b>' does not exist.` (session stays where it was); `Branch switching is prohibited if the session explicitly defines the database.` (Bolt `db` pin, §4.3) |
+| `USE BRANCH <b>` | Switches this session to `<b>` (or back with `USE BRANCH main`) until the next `USE BRANCH`, a `USE DATABASE` to another database, or disconnect. Result: one `STATUS` row, `Using branch <b>` or `Already using branch <b>`. | `BRANCH_USE`, except `USE BRANCH main` (§4.2) | `Branch '<b>' does not exist.` (session stays where it was); `Branch switching is prohibited if the session explicitly defines the database.` (Bolt `db` pin, §4.3) |
 | `USING BRANCH <b> <query>` | Runs one autocommit query on `<b>` (any branch or `main`). The session's current branch is unchanged. Combinable with other `USING` directives. Honoured under `EXPLAIN`/`PROFILE`. | `BRANCH_USE`, plus the query's own privileges | `Branch '<b>' does not exist.`; inside `BEGIN`: `USING BRANCH is not allowed inside an explicit transaction.`; `Branch can be set only once in the USING statement.`; on a subquery: `USING BRANCH applies to a whole query, not to a subquery.` |
 | `SHOW BRANCHES [FOR DATABASE <db>]` | Lists `main` and every branch of the current database (or `<db>`). Columns below. | `BRANCH_USE`, authorised against the **listed** database | Unknown `<db>`: standard error |
 | `SHOW BRANCH [<b>]` | One row: the session's current branch, or `<b>`. Same columns. | `BRANCH_USE` | `Branch '<b>' does not exist.`; session on a dropped branch: dead-branch error (§5.3) |
@@ -124,6 +124,10 @@ replicated auth data. `DROP BRANCH … FORCE` also needs `TRANSACTION_MANAGEMENT
 terminates other users' transactions (as `DROP DATABASE … FORCE` does). In addition:
 
 - The user needs normal access to the database the branch belongs to (`GRANT DATABASE`).
+- Every query from a session attached to a branch also needs `BRANCH_USE`, checked per query like
+  a database grant, so `REVOKE BRANCH_USE` takes effect on that session's next query. `USE BRANCH
+  main` and `USE DATABASE` are exempt (`USE BRANCH main` needs database access only), so a revoked
+  user can always get back to `main`.
 - Queries run on a branch need their usual privileges (`MATCH` → READ, `CREATE` → WRITE, …).
   Fine-grained (label/property) access control applies on a branch exactly as on `main`.
 - There are no per-branch ACLs: any holder of `BRANCH_USE` on a database can use any of its
