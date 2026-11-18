@@ -757,6 +757,7 @@ TEST_F(WriteVisibilityPlan, AValueThatMayHoldAnEntityKeepsItsBarrier) {
            std::pair{"{k: b} AS m", "m.k.v"},
            std::pair{"a {k: b} AS m", "m.k.v"},
            std::pair{"CASE WHEN a.id > 0 THEN a ELSE b END AS m", "m.v"},
+           std::pair{"CASE WHEN a.id > 0 THEN null ELSE b END AS m", "m.v"},
            std::pair{"coalesce(null, b) AS m", "m.v"},
            std::pair{"[b][0] AS m", "m.v"},
            std::pair{"head([b]) AS m", "m.v"},
