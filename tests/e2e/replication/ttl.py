@@ -292,7 +292,7 @@ def test_ttl_runs_on_replica_created_tenant_after_promotion(connection, test_nam
     mg_sleep_and_assert(True, v_checker.is_less, max_duration=3)
 
     # 2/
-    interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL, "main")
+    interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL, "main", keep_directories=False)
     cursor_replica = connection(BOLT_PORTS["replica_1"], "replica").cursor()
     execute_and_fetch_all(cursor_replica, "USE DATABASE tenant;")
     v_checker = VertexChecker(partial(n_vertices, cursor_replica))
