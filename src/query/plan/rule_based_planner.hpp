@@ -569,6 +569,14 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
         // FOREACH arms below read to ask about this part alone.
         auto const branch_sees_write = [&] { return write_occurred || subquery_branch_after_write_; };
 
+        // A value that holds no entity is data: a lookup on its alias reads no graph.
+        auto const note_non_graph = [&](const std::vector<NamedExpression *> &items) {
+          for (auto *named : items) {
+            if (!MayHoldEntity(named->expression_, *context.symbol_table, non_graph_symbols_)) {
+              non_graph_symbols_.insert(context.symbol_table->at(*named));
+            }
+          }
+        };
         // Whether the current clause reads View::NEW (`ClauseReadsNew`).
         bool clause_reads_new = false;
         // Set when a View::OLD reader reads View::NEW instead of a barrier; a read-only CALL body then reads NEW too.
@@ -681,6 +689,8 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
 
           if (auto *ret = utils::Downcast<Return>(clause)) {
             CheckSubqueryBodyInvariants(context, wrote_since_with, query_parts.commit_frequency);
+            // A CALL body's results are read through these symbols after the call.
+            note_non_graph(ret->body_.named_expressions);
             input_op = impl::GenReturn(*ret,
                                        std::move(input_op),
                                        *context.symbol_table,
@@ -709,13 +719,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
                 *merge, std::move(input_op), single_query_part.merge_matching[merge_id++], pending_comprehensions);
           } else if (auto *with = utils::Downcast<query::With>(clause)) {
             CheckSubqueryBodyInvariants(context, wrote_since_with, /*commit_frequency=*/nullptr);
-            // A map literal holding no entity is data: a lookup on its alias reads no graph.
-            for (auto *named : with->body_.named_expressions) {
-              if (utils::Downcast<MapLiteral>(named->expression_) &&
-                  !MayHoldEntity(named->expression_, *context.symbol_table, non_graph_symbols_)) {
-                non_graph_symbols_.insert(context.symbol_table->at(*named));
-              }
-            }
+            note_non_graph(with->body_.named_expressions);
             input_op = impl::GenWith(*with,
                                      std::move(input_op),
                                      *context.symbol_table,
@@ -1009,8 +1013,8 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
     kBatching,      ///< periodic commit, or a read-only IN TRANSACTIONS body: no barriers, reads use View::NEW
   };
   ReadScope read_scope_{ReadScope::kRoot};
-  /// Symbols that hold data, never a graph entity (an entity-free UNWIND row, a WITH alias of an entity-free map
-  /// literal): a lookup on them reads nothing from the graph.
+  /// Symbols that hold data, never a graph entity (`MayHoldEntity` of what binds them: a WITH or RETURN item, an
+  /// UNWIND row, a LOAD row): a lookup on them reads nothing from the graph.
   std::unordered_set<Symbol> non_graph_symbols_;
 
   bool BarriersOn() const { return read_scope_ == ReadScope::kRoot || read_scope_ == ReadScope::kWritingTree; }

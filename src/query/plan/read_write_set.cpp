@@ -245,12 +245,10 @@ class ReadWriteCollector final : public HierarchicalTreeVisitor {
  private:
   /// Whether a lookup on @p object reads the graph: it may be a node or an edge, not a map value.
   bool ReadsGraph(Expression *object) const {
-    if (utils::Downcast<MapLiteral>(object)) return false;
+    if (utils::Downcast<MapLiteral>(object) || !MayHoldEntity(object)) return false;
     auto *ident = utils::Downcast<Identifier>(object);
     if (!ident) return true;
-    auto const &symbol = symbol_table_.at(*ident);
-    if (non_graph_.contains(symbol)) return false;
-    auto const type = symbol.type();
+    auto const type = symbol_table_.at(*ident).type();
     return type == Symbol::Type::ANY || type == Symbol::Type::VERTEX || type == Symbol::Type::EDGE;
   }
 
@@ -481,32 +479,82 @@ std::optional<Symbol> ConflictsOnlyOnKeysOf(const ReadWriteSet &reads, const Rea
 }
 
 bool MayHoldEntity(Expression *value, const SymbolTable &symbol_table, const std::unordered_set<Symbol> &non_graph) {
-  if (utils::Downcast<PrimitiveLiteral>(value) || utils::Downcast<ParameterLookup>(value)) return false;
-  if (auto *list = utils::Downcast<ListLiteral>(value)) {
-    return std::ranges::any_of(list->elements_,
-                               [&](Expression *element) { return MayHoldEntity(element, symbol_table, non_graph); });
-  }
-  if (auto *map = utils::Downcast<MapLiteral>(value)) {
-    return std::ranges::any_of(map->elements_,
-                               [&](const auto &entry) { return MayHoldEntity(entry.second, symbol_table, non_graph); });
-  }
-  if (auto *lookup = utils::Downcast<PropertyLookup>(value)) {
-    // A property of a node or an edge is never an entity; a map's may be, unless the map is a LOAD CSV row.
-    auto *object = utils::Downcast<Identifier>(lookup->expression_);
-    if (!object) return true;
-    auto const &symbol = symbol_table.at(*object);
-    return !non_graph.contains(symbol) && symbol.type() != Symbol::Type::VERTEX && symbol.type() != Symbol::Type::EDGE;
-  }
-  if (auto *subscript = utils::Downcast<SubscriptOperator>(value)) {
-    // A LOAD CSV row holds strings only.
-    auto *object = utils::Downcast<Identifier>(subscript->expression1_);
-    return !object || !non_graph.contains(symbol_table.at(*object));
+  // An allowlist: a kind not named here may hold a node, an edge or a path. Every named kind builds its value from its
+  // operands only, so it holds one only when an operand does.
+  auto const may = [&](Expression *operand) { return operand && MayHoldEntity(operand, symbol_table, non_graph); };
+  // A comprehension's variables hold elements of its list (and a reduce's start value): data when those are.
+  auto const may_with = [&](Expression *result, std::initializer_list<Identifier *> data_vars) {
+    auto seeded = non_graph;
+    for (auto *var : data_vars) seeded.insert(symbol_table.at(*var));
+    return MayHoldEntity(result, symbol_table, seeded);
+  };
+  auto const is_entity = [&](Expression *object) {
+    auto *ident = utils::Downcast<Identifier>(object);
+    if (!ident) return false;
+    auto const type = symbol_table.at(*ident).type();
+    return type == Symbol::Type::VERTEX || type == Symbol::Type::EDGE;
+  };
+  if (utils::Downcast<PrimitiveLiteral>(value) || utils::Downcast<ParameterLookup>(value) ||
+      utils::Downcast<EnumValueAccess>(value)) {
+    return false;
   }
   if (auto *ident = utils::Downcast<Identifier>(value)) return SymbolMayHoldEntity(symbol_table.at(*ident), non_graph);
-  // A built-in function makes no entity out of values that hold none; a module function may look one up.
+  if (auto *list = utils::Downcast<ListLiteral>(value)) return std::ranges::any_of(list->elements_, may);
+  if (auto *map = utils::Downcast<MapLiteral>(value)) {
+    return std::ranges::any_of(map->elements_, [&](const auto &entry) { return may(entry.second); });
+  }
+  if (auto *projection = utils::Downcast<MapProjectionLiteral>(value)) {
+    return std::ranges::any_of(projection->elements_,
+                               [&](const auto &entry) { return !entry.second || may(entry.second); });
+  }
+  // A property of a node or an edge is a property value; a map's or a list's element follows the map or list.
+  if (auto *lookup = utils::Downcast<PropertyLookup>(value))
+    return !is_entity(lookup->expression_) && may(lookup->expression_);
+  if (auto *lookup = utils::Downcast<AllPropertiesLookup>(value)) {
+    return !is_entity(lookup->expression_) && may(lookup->expression_);
+  }
+  if (auto *subscript = utils::Downcast<SubscriptOperator>(value)) {
+    return !is_entity(subscript->expression1_) && may(subscript->expression1_);
+  }
+  if (auto *aggregation = utils::Downcast<Aggregation>(value)) {
+    switch (aggregation->op_) {
+      case Aggregation::Op::PROJECT_PATH:
+      case Aggregation::Op::PROJECT_LISTS:
+      case Aggregation::Op::DERIVE:
+        return true;
+      default:
+        return may(aggregation->expression1_) || may(aggregation->expression2_);
+    }
+  }
+  if (utils::Downcast<LabelsTest>(value) || utils::Downcast<EdgeTypesTest>(value) ||
+      utils::Downcast<RegexMatch>(value) || utils::Downcast<All>(value) || utils::Downcast<Any>(value) ||
+      utils::Downcast<None>(value) || utils::Downcast<Single>(value)) {
+    return false;
+  }
+  if (auto *binary = utils::Downcast<BinaryOperator>(value))
+    return may(binary->expression1_) || may(binary->expression2_);
+  if (auto *unary = utils::Downcast<UnaryOperator>(value)) return may(unary->expression_);
+  if (auto *slice = utils::Downcast<ListSlicingOperator>(value)) return may(slice->list_);
+  if (auto *if_op = utils::Downcast<IfOperator>(value))
+    return may(if_op->then_expression_) || may(if_op->else_expression_);
+  if (auto *coalesce = utils::Downcast<Coalesce>(value)) return std::ranges::any_of(coalesce->expressions_, may);
+  if (auto *comprehension = utils::Downcast<ListComprehension>(value)) {
+    if (may(comprehension->list_)) return true;
+    return comprehension->expression_ && may_with(comprehension->expression_, {comprehension->identifier_});
+  }
+  if (auto *extract = utils::Downcast<Extract>(value)) {
+    return may(extract->list_) || may_with(extract->expression_, {extract->identifier_});
+  }
+  if (auto *reduce = utils::Downcast<Reduce>(value)) {
+    return may(reduce->initializer_) || may(reduce->list_) ||
+           may_with(reduce->expression_, {reduce->accumulator_, reduce->identifier_});
+  }
+  // A built-in makes no entity out of values that hold none, and these return only property values, names or ids; a
+  // module function may look one up.
   if (auto *function = utils::Downcast<Function>(value); function && !function->is_user_defined_) {
-    return std::ranges::any_of(function->arguments_,
-                               [&](Expression *arg) { return MayHoldEntity(arg, symbol_table, non_graph); });
+    static const std::unordered_set<std::string_view> kValueOnly{"PROPERTIES", "KEYS", "LABELS", "TYPE", "ID"};
+    if (kValueOnly.contains(function->function_name_)) return false;
+    return std::ranges::any_of(function->arguments_, may);
   }
   return true;
 }
