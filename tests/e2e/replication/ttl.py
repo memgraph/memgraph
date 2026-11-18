@@ -294,11 +294,37 @@ def test_ttl_runs_on_replica_created_tenant_after_promotion(connection, test_nam
     # 2/
     interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL, "main")
     cursor_replica = connection(BOLT_PORTS["replica_1"], "replica").cursor()
+    execute_and_fetch_all(cursor_replica, "USE DATABASE tenant;")
+    v_checker = VertexChecker(partial(n_vertices, cursor_replica))
+    time.sleep(2)
+    assert v_checker.is_same(), "TTL ran on the REPLICA before it was promoted"
     execute_and_fetch_all(cursor_replica, "SET REPLICATION ROLE TO MAIN;")
 
     # 3/
-    execute_and_fetch_all(cursor_replica, "USE DATABASE tenant;")
-    v_checker = VertexChecker(partial(n_vertices, cursor_replica))
+    mg_sleep_and_assert(True, v_checker.is_less, max_duration=3)
+
+
+def test_ttl_runs_on_tenant_created_by_init_file(connection, test_name, tmp_path):
+    # Goal: Check that TTL runs on a tenant that MAIN's init file created at startup
+    init_file = tmp_path / "init.cypherl"
+    init_file.write_text("CREATE DATABASE tenant;\n")
+    instances = {
+        "main": {
+            "args": ["--bolt-port", f"{BOLT_PORTS['main']}", "--log-level=TRACE", f"--init-file={init_file}"],
+            "log_file": f"{get_logs_path(file, test_name)}/main.log",
+            "data_directory": f"{get_data_path(file, test_name)}/main",
+            "setup_queries": [],
+        },
+    }
+    interactive_mg_runner.start_all(instances, keep_directories=False)
+    cursor = connection(BOLT_PORTS["main"], "main").cursor()
+
+    execute_and_fetch_all(cursor, "USE DATABASE tenant;")
+    execute_and_fetch_all(
+        cursor, "UNWIND RANGE(1,100) AS d CREATE (:TTL{ttl:timestamp() + timestamp(duration({second:d}))});"
+    )
+    execute_and_fetch_all(cursor, 'ENABLE TTL EVERY "1s";')
+    v_checker = VertexChecker(lambda: execute_and_fetch_all(cursor, "MATCH (n:TTL) RETURN count(n);")[0][0])
     mg_sleep_and_assert(True, v_checker.is_less, max_duration=3)
 
 
