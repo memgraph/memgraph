@@ -14,6 +14,7 @@
 #include <array>
 #include <filesystem>
 #include <memory>
+#include <set>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -25,11 +26,13 @@
 
 #include "metrics/prometheus_metrics.hpp"
 #include "query/exceptions.hpp"
+#include "query/query_user.hpp"
 #include "versioning/gate.hpp"
 #include "versioning_fixture.hpp"
 
 using memgraph::tests::versioning_fixture::IntRows;
 using memgraph::tests::versioning_fixture::kNullInt;
+using memgraph::tests::versioning_fixture::LackingPrivilegesUser;
 using memgraph::tests::versioning_fixture::Rows;
 using memgraph::tests::versioning_fixture::ThrownMessage;
 using memgraph::versioning::GateError;
@@ -254,12 +257,44 @@ TEST_F(VersioningGatedTest, UseBranchIsRefusedInATransactionAndOnADatabasePinned
   EXPECT_FALSE(current_db.CurrentVersion().has_value());
 }
 
-TEST_F(VersioningGatedTest, UseBranchNeedsBranchUse) {
-  faker.Interpret("CREATE BRANCH b");
-  auto prepared = faker.interpreter.Prepare(
-      "USE BRANCH b", [](auto *) { return memgraph::storage::ExternalPropertyValue::map_t{}; }, {});
+// The Bolt layer authorises the privileges Prepare returns, so the decision is exercised the same way.
+std::string RefusalOf(InterpreterFaker &faker, const std::string &query) {
+  auto prepared =
+      faker.interpreter.Prepare(query, [](auto *) { return memgraph::storage::ExternalPropertyValue::map_t{}; }, {});
+  auto message = ThrownMessage([&] { faker.interpreter.CheckAuthorized(prepared.privileges, prepared.db); });
   faker.Abort();
-  EXPECT_THAT(prepared.privileges, ::testing::ElementsAre(memgraph::query::AuthQuery::Privilege::BRANCH_USE));
+  return message == "<no exception>" ? "" : message;
+}
+
+constexpr std::string_view kNeedsBranchUse =
+    "You are not authorized to execute this query on database \"\"! Missing privilege: BRANCH_USE. Ask your "
+    "database administrator to grant it.";
+
+TEST_F(VersioningGatedTest, UseBranchWithoutBranchUseIsRefusedAndTheSessionStaysPut) {
+  faker.Interpret("CREATE BRANCH b");
+  faker.interpreter.SetUser(
+      std::make_shared<LackingPrivilegesUser>(std::set{memgraph::query::AuthQuery::Privilege::BRANCH_USE}));
+  EXPECT_EQ(RefusalOf(faker, "USE BRANCH b"), kNeedsBranchUse);
+  EXPECT_FALSE(faker.interpreter.current_db_.CurrentVersion().has_value());
+}
+
+// Revoking BRANCH_USE reaches a session already on a branch from its next query, as a database grant does; the way
+// back to main stays open.
+TEST_F(VersioningGatedTest, RevokedBranchUseCutsOffABranchSessionButNotItsWayToMain) {
+  faker.Interpret("CREATE BRANCH b");
+  faker.Interpret("USE BRANCH b");
+  faker.interpreter.SetUser(
+      std::make_shared<LackingPrivilegesUser>(std::set{memgraph::query::AuthQuery::Privilege::BRANCH_USE}));
+
+  EXPECT_EQ(RefusalOf(faker, "MATCH (n) RETURN n"), kNeedsBranchUse);
+  EXPECT_EQ(RefusalOf(faker, "USE BRANCH b"), kNeedsBranchUse);
+  EXPECT_EQ(faker.interpreter.current_db_.CurrentVersion(), "b");
+
+  EXPECT_EQ(RefusalOf(faker, "USE BRANCH main"), "");
+  EXPECT_EQ(RefusalOf(faker, "USE DATABASE memgraph"), "");
+  EXPECT_EQ(Status(faker, "USE BRANCH main"), "Using branch main");
+  EXPECT_FALSE(faker.interpreter.current_db_.CurrentVersion().has_value());
+  EXPECT_EQ(RefusalOf(faker, "MATCH (n) RETURN n"), "") << "main sessions never need BRANCH_USE";
 }
 
 // A branch dropped under the session never falls back to main: every query fails, the dead checkout is released once,

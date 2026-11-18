@@ -9818,9 +9818,12 @@ PreparedQuery PrepareUseBranchQuery(ParsedQuery parsed_query, std::string target
   if (current_db.in_explicit_db_) {
     throw QueryException("Branch switching is prohibited if the session explicitly defines the database.");
   }
+  // main is the way off a branch, so it needs database access only.
+  auto privileges = std::move(parsed_query.required_privileges);
+  if (target == "main") std::erase(privileges, AuthQuery::Privilege::BRANCH_USE);
   return PreparedQuery{
       .header = {"STATUS"},
-      .privileges = std::move(parsed_query.required_privileges),
+      .privileges = std::move(privileges),
       .query_handler = [version_store,
                         &current_db,
                         target = std::move(target),
@@ -11586,8 +11589,10 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     query_execution->query_string = parse_info.parsed_query.query_string;
 #ifdef MG_ENTERPRISE
     // USE DATABASE and USE BRANCH are how a session leaves a branch that is gone.
+    bool branch_session_needs_use = false;
     if (current_db_.CurrentVersion() && !utils::Downcast<UseDatabaseQuery>(parsed_query.query) &&
         !IsUseBranchQuery(parsed_query.query)) [[unlikely]] {
+      branch_session_needs_use = true;
       if (current_db_.BranchGone()) {
         current_db_.ThrowIfBranchGone(interpreter_context_->repl_state->ReadLock()->IsReplica());
       }
@@ -12135,6 +12140,14 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     }
     query_execution->summary["db"] = *query_execution->prepared_query->db;
 
+#ifdef MG_ENTERPRISE
+    // A grant is checked on every query, so a revoked BRANCH_USE also reaches a session already on a branch. USE
+    // BRANCH carries its own requirement (none for main).
+    if (auto &privileges = query_execution->prepared_query->privileges;
+        branch_session_needs_use && !std::ranges::contains(privileges, AuthQuery::Privilege::BRANCH_USE)) {
+      privileges.push_back(AuthQuery::Privilege::BRANCH_USE);
+    }
+#endif
     // prepare is done, move system txn guard to be owned by interpreter
     system_transaction_ = std::move(system_transaction);
     return {.headers = query_execution->prepared_query->header,
