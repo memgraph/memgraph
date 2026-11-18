@@ -303,7 +303,16 @@ def test_openmetrics_last_snapshot_timestamp(populated_databases):
     before = time.time()
     execute(conn.cursor(), "CREATE SNAPSHOT")
     m = parse_openmetrics(scrape_openmetrics())
-    assert om_get(m, "memgraph_last_snapshot_timestamp_seconds", "memgraph") >= before
+    assert before <= om_get(m, "memgraph_last_snapshot_timestamp_seconds", "memgraph") <= time.time()
+
+
+def test_openmetrics_longest_transaction(populated_databases):
+    conn = mgclient.connect(host="localhost", port=7687)
+    execute(conn.cursor(), "MATCH (n) RETURN count(n)")
+    time.sleep(1)
+    m = parse_openmetrics(scrape_openmetrics())
+    conn.rollback()
+    assert om_get(m, "memgraph_longest_transaction_seconds", "memgraph") >= 1
 
 
 if __name__ == "__main__":

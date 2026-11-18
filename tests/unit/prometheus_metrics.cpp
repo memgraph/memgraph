@@ -150,7 +150,9 @@ TEST(PrometheusMetrics, UpdateGaugesSetsBackgroundWorkElapsedTimes) {
 TEST(PrometheusMetrics, LongestTransactionIsReportedPerDatabase) {
   memgraph::metrics::PrometheusMetrics pm;
   memgraph::utils::UUID const db1_uuid{};
-  pm.SetTransactionAgeResolver([&] { return std::map<memgraph::utils::UUID, double>{{db1_uuid, 42.0}}; });
+  memgraph::utils::UUID const dropped_db2_uuid{};
+  pm.SetTransactionAgeResolver(
+      [&] { return std::map<memgraph::utils::UUID, double>{{db1_uuid, 42.0}, {dropped_db2_uuid, 99.0}}; });
   auto const db1 = pm.AddDatabase(db1_uuid, "db1");
   auto const db2 = pm.AddDatabase(memgraph::utils::UUID{}, "db2");
 
