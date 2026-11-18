@@ -17,6 +17,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <barrier>
 #include <cctype>
 #include <chrono>
 #include <condition_variable>
@@ -82,9 +83,15 @@ constexpr int64_t kSentinelUnlabelFirst = 1810;  // [1810, 1820): SET :L then RE
 constexpr int64_t kSentinelEdgeFirst = 1820;     // [1820, 1830): ring of new edges with w = kSentinelEdgeW
 constexpr int64_t kSentinelEdgeW = -7;
 constexpr int64_t kSentinelEdgeDelFirst = 1830;  // [1830, 1835): one base out-edge each deleted
+// [1900, 1930): DETACH DELETEd on main after the fork and never touched on the branch, which must keep seeing them.
+constexpr int64_t kMainDeleteFirst = 1900;
+constexpr int64_t kMainDeleteCount = 30;
 // Values: branch writers set v in [1, kMainValueBase), main writers set v >= kMainValueBase. A main value visible on
 // the branch is therefore a fork-isolation violation.
 constexpr int64_t kMainValueBase = 1'000'000'000;
+// Two :M vertices whose `v` sum stays constant on main: a main writer moves value between them in one transaction.
+constexpr int64_t kMoverStart = kMainValueBase + 1'000'000;
+constexpr int64_t kMoverSum = 2 * kMoverStart;
 
 uint64_t Seed() {
   static const uint64_t seed = [] {
@@ -599,13 +606,33 @@ void BranchReader(InterpreterFaker &s, int tid, int iters, FailureLog &log, Coun
 
 struct MainBookkeeping {
   std::map<int64_t, int64_t> last_v;  // seeded id -> last committed v (single writer per id)
+  std::vector<int64_t> seeded_deleted;
   int64_t created = 0;
   int64_t deleted = 0;
 };
 
+bool InMainDeleteRange(int64_t id) { return id >= kMainDeleteFirst && id < kMainDeleteFirst + kMainDeleteCount; }
+
+// The seed edge i runs from i % kSeedVertices to (i * 7 + 13) % kSeedVertices.
+std::pair<int64_t, int64_t> SeedEdgeEnds(int64_t i) { return {i % kSeedVertices, (i * 7 + 13) % kSeedVertices}; }
+
+// Seeded ids a main writer may SET: not the DETACH DELETE range nor its neighbours (the delete writes their edge
+// lists).
+std::vector<bool> MainSetAllowed() {
+  std::vector<bool> allowed(kSeedVertices, true);
+  for (int64_t i = 0; i < kSeedEdges; ++i) {
+    const auto [a, b] = SeedEdgeEnds(i);
+    if (InMainDeleteRange(a) || InMainDeleteRange(b))
+      allowed[static_cast<size_t>(a)] = allowed[static_cast<size_t>(b)] = false;
+  }
+  return allowed;
+}
+
 // Main writers own disjoint data: seeded ids with id % 2 == w for SET, and their own native (edge-less) vertices for
-// CREATE/DELETE. Therefore ANY conflict or error here is caused by the branch machinery.
-void MainWriter(InterpreterFaker &s, int w, int ops, MainBookkeeping &book, FailureLog &log, Counters &c) {
+// CREATE/DELETE. Writer 0 also DETACH DELETEs the fork-visible seeded vertices of the delete range, so GC unlinks what
+// the branch still reads. Therefore ANY conflict or error here is caused by the branch machinery.
+void MainWriter(InterpreterFaker &s, int w, int ops, const std::vector<bool> &set_allowed, MainBookkeeping &book,
+                FailureLog &log, Counters &c) {
   std::mt19937_64 rng{Seed() + 300 + static_cast<uint64_t>(w)};
   const std::string who = "main-writer-" + std::to_string(w);
   std::vector<int64_t> live;
@@ -614,11 +641,17 @@ void MainWriter(InterpreterFaker &s, int w, int ops, MainBookkeeping &book, Fail
     const int pick = static_cast<int>(rng() % 10);
     if (pick < 6) {
       const int64_t x = (static_cast<int64_t>(rng() % (kSeedVertices / 2))) * 2 + w;
+      if (!set_allowed[static_cast<size_t>(x)]) continue;
       const int64_t v = kMainValueBase + static_cast<int64_t>(rng() % 900'000'000);
       const auto o = Exec(s, "MATCH (n:P {id:" + std::to_string(x) + "}) SET n.v = " + std::to_string(v), log, c, who);
       if (o == Outcome::kOk) book.last_v[x] = v;
       if (o == Outcome::kConflict)
         log.Add(who + ": branch-caused serialization conflict on SET (id " + std::to_string(x) + ")");
+    } else if (pick == 9 && w == 0 && book.seeded_deleted.size() < static_cast<size_t>(kMainDeleteCount)) {
+      const int64_t id = kMainDeleteFirst + static_cast<int64_t>(book.seeded_deleted.size());
+      const auto o = Exec(s, "MATCH (n:P {id:" + std::to_string(id) + "}) DETACH DELETE n", log, c, who);
+      if (o == Outcome::kOk) book.seeded_deleted.push_back(id);
+      if (o == Outcome::kConflict) log.Add(who + ": branch-caused serialization conflict on DETACH DELETE");
     } else if (pick < 9 || live.empty()) {
       const int64_t id = kMainNativeBase + w * 1'000'000 + next_native++;
       const auto o = Exec(s, "CREATE (:P {id:" + std::to_string(id) + ", v:0, w:0})", log, c, who);
@@ -640,40 +673,104 @@ void MainWriter(InterpreterFaker &s, int w, int ops, MainBookkeeping &book, Fail
   }
 }
 
-// CREATE BRANCH tmp; USE BRANCH tmp; write; USE BRANCH main; DROP BRANCH tmp. This session is the only one attached to
-// tmp, so every step must succeed.
-void Lifecycle(InterpreterFaker &s, int iters, FailureLog &log, Counters &c) {
-  std::mt19937_64 rng{Seed() + 400};
-  const std::string who = "lifecycle";
-  auto step = [&](const std::string &q) { return Exec(s, q, log, c, who) == Outcome::kOk; };
+// Moves value between the two :M vertices in one transaction, so their sum is constant in every snapshot of main.
+void MainMover(InterpreterFaker &s, int ops, FailureLog &log, Counters &c) {
+  std::mt19937_64 rng{Seed() + 350};
+  for (int i = 0; i < ops; ++i) {
+    const auto d = std::to_string(static_cast<int64_t>(rng() % 2001) - 1000);
+    const auto o =
+        Exec(s, "MATCH (a:M {id:0}), (b:M {id:1}) SET a.v = a.v + " + d + ", b.v = b.v - " + d, log, c, "mover");
+    if (o == Outcome::kConflict) log.Add("mover: branch-caused serialization conflict on main");
+  }
+}
+
+// Runs `query`; true on success. A failure whose message contains `refusal` is the expected refusal (false, not
+// logged); any other failure is logged.
+bool TryStep(InterpreterFaker &s, const std::string &query, std::string_view refusal, FailureLog &log, Counters &c,
+             std::string_view who) {
+  c.ops.fetch_add(1, std::memory_order_relaxed);
+  try {
+    s.Interpret(query);
+    return true;
+  } catch (const std::exception &e) {
+    if (refusal.empty() || std::string_view{e.what()}.find(refusal) == std::string_view::npos) {
+      c.errors.fetch_add(1, std::memory_order_relaxed);
+      log.Add(std::string{who} + ": '" + query + "' threw " + typeid(e).name() + ": " + e.what());
+    }
+    return false;
+  }
+}
+
+// Two sessions run the same lifecycle on the same branch names, in lock step (barriers; a step that fails is logged and
+// the protocol goes on, so a failure never deadlocks the pair): both CREATE (exactly one wins), both USE it and both
+// are refused a plain DROP (the other session is on it), the winner writes, both leave and both DROP (exactly one
+// wins).
+struct LifecycleRace {
+  explicit LifecycleRace(int iters) : created(static_cast<size_t>(iters)), dropped(static_cast<size_t>(iters)) {}
+
+  std::barrier<> sync{2};
+  std::vector<std::atomic<int>> created, dropped;
+};
+
+void Lifecycle(InterpreterFaker &s, int self, int iters, LifecycleRace &race, FailureLog &log, Counters &c) {
+  std::mt19937_64 rng{Seed() + 400};  // both threads draw the same stream; only the creator writes
+  const std::string who = "lifecycle-" + std::to_string(self);
   for (int i = 0; i < iters; ++i) {
+    const auto at = static_cast<size_t>(i);
     const std::string name = "tmp" + std::to_string(i);
-    if (!step("CREATE BRANCH '" + name + "'")) return;
-    if (!step("USE BRANCH '" + name + "'")) return;
-    const int writes = 2 + static_cast<int>(rng() % 6);
-    for (int j = 0; j < writes; ++j) {
-      const auto x = static_cast<int64_t>(rng() % kSeedVertices);
-      if (!step("MATCH (n:P {id:" + std::to_string(x) + "}) SET n.v = " + std::to_string(j + 1) + ", n:L")) return;
+    const std::string quoted = "'" + name + "'";
+    race.sync.arrive_and_wait();
+    const bool creator = TryStep(s, "CREATE BRANCH " + quoted, "already exists", log, c, who);
+    if (creator) race.created[at].fetch_add(1, std::memory_order_relaxed);
+    race.sync.arrive_and_wait();
+    if (self == 0 && race.created[at].load() != 1) {
+      log.Add(who + ": " + std::to_string(race.created[at].load()) + " CREATE BRANCH " + quoted + " won the race");
     }
-    if (!step("CREATE (:P {id:-" + std::to_string(i + 1) + ", v:1, w:1})")) return;
-    BoltRows rows;
-    if (Exec(s, "MATCH (n:P) WHERE n.id < 0 RETURN count(*)", log, c, who, &rows) == Outcome::kOk &&
-        (rows.size() != 1 || rows[0][0].ValueInt() != 1)) {
-      log.Add(who + ": tmp branch native vertex count != 1 (another tmp's writes leaked in?)");
+    TryStep(s, "USE BRANCH " + quoted, "", log, c, who);
+    race.sync.arrive_and_wait();
+    if (TryStep(s, "DROP BRANCH " + quoted, "in use by another session", log, c, who)) {
+      log.Add(who + ": DROP BRANCH " + quoted + " succeeded while the other session was on it");
     }
-    // tmp forks main, so branch b's natives must not be visible (main natives, >= kMainNativeBase, legitimately are).
-    if (Exec(s,
-             "MATCH (n:P) WHERE n.id >= " + std::to_string(kBranchNativeBase) + " AND n.id < " +
-                 std::to_string(kMainNativeBase) + " RETURN count(*)",
-             log,
-             c,
-             who,
-             &rows) == Outcome::kOk &&
-        (rows.size() != 1 || rows[0][0].ValueInt() != 0)) {
-      log.Add(who + ": branch b's native vertices leaked into tmp");
+    if (creator) {
+      auto step = [&](const std::string &q) { return Exec(s, q, log, c, who) == Outcome::kOk; };
+      const int writes = 2 + static_cast<int>(rng() % 6);
+      for (int j = 0; j < writes; ++j) {
+        const auto x = static_cast<int64_t>(rng() % kSeedVertices);
+        step("MATCH (n:P {id:" + std::to_string(x) + "}) SET n.v = " + std::to_string(j + 1) + ", n:L");
+      }
+      step("CREATE (:P {id:-" + std::to_string(i + 1) + ", v:1, w:1})");
+      BoltRows rows;
+      if (Exec(s, "MATCH (n:P) WHERE n.id < 0 RETURN count(*)", log, c, who, &rows) == Outcome::kOk &&
+          (rows.size() != 1 || rows[0][0].ValueInt() != 1)) {
+        log.Add(who + ": tmp branch native vertex count != 1 (another tmp's writes leaked in?)");
+      }
+      // tmp forks main, so branch b's natives must not be visible (main natives, >= kMainNativeBase, legitimately are).
+      if (Exec(s,
+               "MATCH (n:P) WHERE n.id >= " + std::to_string(kBranchNativeBase) + " AND n.id < " +
+                   std::to_string(kMainNativeBase) + " RETURN count(*)",
+               log,
+               c,
+               who,
+               &rows) == Outcome::kOk &&
+          (rows.size() != 1 || rows[0][0].ValueInt() != 0)) {
+        log.Add(who + ": branch b's native vertices leaked into tmp");
+      }
+      // tmp is a consistent cut of main: the mover's transactions are all-or-nothing in it.
+      if (Exec(s, "MATCH (m:M) RETURN sum(m.v)", log, c, who, &rows) == Outcome::kOk &&
+          (rows.size() != 1 || rows[0][0].ValueInt() != kMoverSum)) {
+        log.Add(who + ": tmp forked main mid-transaction: the :M sum is not " + std::to_string(kMoverSum));
+      }
     }
-    if (!step("USE BRANCH 'main'")) return;
-    if (!step("DROP BRANCH '" + name + "'")) return;
+    race.sync.arrive_and_wait();
+    TryStep(s, "USE BRANCH 'main'", "", log, c, who);
+    race.sync.arrive_and_wait();
+    if (TryStep(s, "DROP BRANCH " + quoted, "does not exist", log, c, who)) {
+      race.dropped[at].fetch_add(1, std::memory_order_relaxed);
+    }
+    race.sync.arrive_and_wait();
+    if (self == 0 && race.dropped[at].load() != 1) {
+      log.Add(who + ": " + std::to_string(race.dropped[at].load()) + " DROP BRANCH " + quoted + " won the race");
+    }
   }
 }
 
@@ -687,6 +784,9 @@ void SeedMain(InterpreterFaker &s) {
               "}) CREATE (a)-[:R {w:i}]->(b)");
 }
 
+std::vector<std::string> StateSnapshot(InterpreterFaker &s);
+std::string FirstDifference(const std::vector<std::string> &want, const std::vector<std::string> &got);
+
 }  // namespace
 
 TEST_P(VersioningStressTest, WritersReadersMainWritersAndLifecycleChurn) {
@@ -695,6 +795,9 @@ TEST_P(VersioningStressTest, WritersReadersMainWritersAndLifecycleChurn) {
   ASSERT_NO_THROW(setup.Interpret("CREATE EDGE INDEX ON :R(w)")) << "edge-property index must be supported";
   ASSERT_EQ(Scalar(setup, "MATCH (n:P) RETURN count(*)"), kSeedVertices);
   ASSERT_EQ(Scalar(setup, "MATCH ()-[r:R]->() RETURN count(r)"), kSeedEdges);
+  setup.Interpret("CREATE INDEX ON :M");
+  setup.Interpret("CREATE (:M {id:0, v:" + std::to_string(kMoverStart) +
+                  "}), (:M {id:1, v:" + std::to_string(kMoverStart) + "})");
   setup.Interpret("CREATE BRANCH 'b'");
 
   constexpr int kBranchWriters = 4;
@@ -708,13 +811,15 @@ TEST_P(VersioningStressTest, WritersReadersMainWritersAndLifecycleChurn) {
     br.push_back(&engine->NewBranchSession("b"));
   }
   for (int i = 0; i < kMainWriters; ++i) mw.push_back(&engine->NewSession());
-  auto &life = engine->NewSession();
+  auto &mover = engine->NewSession();
+  std::array<InterpreterFaker *, 2> life{&engine->NewSession(), &engine->NewSession()};
   auto &prep = engine->NewBranchSession("b");
 
   FailureLog log;
   CommittedBranchState committed;
   std::vector<MainBookkeeping> main_books(kMainWriters);
-  Counters bw_c, br_c, mw_c, life_c;
+  const auto set_allowed = MainSetAllowed();
+  Counters bw_c, br_c, mw_c, mover_c, life_c;
   const int writer_ops = Scaled(250);
   const int reader_ops = Scaled(300);
   const int main_ops = Scaled(300);
@@ -764,9 +869,11 @@ TEST_P(VersioningStressTest, WritersReadersMainWritersAndLifecycleChurn) {
     workers.Spawn([&, i] { BranchReader(*br[i], i, reader_ops, log, br_c); });
   }
   for (int i = 0; i < kMainWriters; ++i) {
-    workers.Spawn([&, i] { MainWriter(*mw[i], i, main_ops, main_books[i], log, mw_c); });
+    workers.Spawn([&, i] { MainWriter(*mw[i], i, main_ops, set_allowed, main_books[i], log, mw_c); });
   }
-  workers.Spawn([&] { Lifecycle(life, life_iters, log, life_c); });
+  workers.Spawn([&] { MainMover(mover, main_ops, log, mover_c); });
+  LifecycleRace race{life_iters};
+  for (int i = 0; i < 2; ++i) workers.Spawn([&, i] { Lifecycle(*life[i], i, life_iters, race, log, life_c); });
   workers.Run();
 
   std::cerr << "[ STRESS ] scale=" << Scale() << " branch-writers: ops=" << bw_c.ops << " conflicts=" << bw_c.conflicts
@@ -798,8 +905,27 @@ TEST_P(VersioningStressTest, WritersReadersMainWritersAndLifecycleChurn) {
   const int64_t deleted = static_cast<int64_t>(committed.deleted.size());
   EXPECT_EQ(Scalar(chk, "MATCH (n:P) RETURN count(*)"), kSeedVertices + committed.created - deleted)
       << "branch vertex count != seed + committed native creates - committed base deletes";
-  EXPECT_EQ(Scalar(chk, "MATCH (n) RETURN count(*)"), Scalar(chk, "MATCH (n:P) RETURN count(*)"))
+  EXPECT_EQ(Scalar(chk, "MATCH (n) WHERE NOT n:M RETURN count(*)"), Scalar(chk, "MATCH (n:P) RETURN count(*)"))
       << "a vertex without :P is visible on the branch";
+  {
+    // Main DETACH DELETEd these after the fork (GC runs throughout): the branch keeps them and their base out-edges,
+    // minus the edges to targets its own committed deletes removed. No branch writer touches their out-edges.
+    const std::string range = "n.id >= " + std::to_string(kMainDeleteFirst) + " AND n.id < " +
+                              std::to_string(kMainDeleteFirst + kMainDeleteCount);
+    EXPECT_EQ(Scalar(chk, "MATCH (n:P) WHERE " + range + " RETURN count(*)"), kMainDeleteCount)
+        << "a vertex main deleted after the fork vanished from the branch";
+    int64_t want_out = 0;
+    for (int64_t i = 0; i < kSeedEdges; ++i) {
+      const auto [a, b] = SeedEdgeEnds(i);
+      want_out += InMainDeleteRange(a) && !committed.deleted.contains(b) ? 1 : 0;
+    }
+    EXPECT_EQ(Scalar(chk, "MATCH (n:P) WHERE " + range + " OPTIONAL MATCH (n)-[r:R]->() RETURN count(r)"), want_out)
+        << "base out-edges of a vertex main deleted after the fork changed on the branch";
+    auto rows = chk.Interpret("MATCH (m:M) RETURN m.v").GetResults();
+    ASSERT_EQ(rows.size(), 2U);
+    EXPECT_TRUE(rows[0][0].ValueInt() == kMoverStart && rows[1][0].ValueInt() == kMoverStart)
+        << "the branch sees main's later :M writes";
+  }
   EXPECT_EQ(Scalar(chk, "MATCH (n:P) WHERE n.id IS NULL RETURN count(*)"), 0) << "vertex without `id` on the branch";
   EXPECT_EQ(Scalar(chk, "MATCH (n:P) WHERE n.id >= " + std::to_string(kBranchNativeBase) + " RETURN count(*)"),
             committed.created)
@@ -877,21 +1003,31 @@ TEST_P(VersioningStressTest, WritersReadersMainWritersAndLifecycleChurn) {
   auto &mchk = engine->NewSession();
   int64_t created = 0, deleted_main = 0;
   std::map<int64_t, int64_t> expected_v;
+  std::set<int64_t> seeded_deleted;
   for (const auto &b : main_books) {
     created += b.created;
     deleted_main += b.deleted;
     expected_v.insert(b.last_v.begin(), b.last_v.end());
+    seeded_deleted.insert(b.seeded_deleted.begin(), b.seeded_deleted.end());
   }
-  EXPECT_EQ(Scalar(mchk, "MATCH (n:P) RETURN count(*)"), kSeedVertices + created - deleted_main)
+  int64_t main_edges = kSeedEdges;
+  for (int64_t i = 0; i < kSeedEdges; ++i) {
+    const auto [a, b] = SeedEdgeEnds(i);
+    main_edges -= seeded_deleted.contains(a) || seeded_deleted.contains(b) ? 1 : 0;
+  }
+  const auto seeded_alive = kSeedVertices - static_cast<int64_t>(seeded_deleted.size());
+  EXPECT_EQ(Scalar(mchk, "MATCH (n:P) RETURN count(*)"), seeded_alive + created - deleted_main)
       << "main vertex count != bookkeeping of main creates/deletes";
-  EXPECT_EQ(Scalar(mchk, "MATCH ()-[r:R]->() RETURN count(r)"), kSeedEdges) << "branch writes changed main's edges";
+  EXPECT_EQ(Scalar(mchk, "MATCH ()-[r:R]->() RETURN count(r)"), main_edges) << "branch writes changed main's edges";
+  EXPECT_EQ(Scalar(mchk, "MATCH (m:M) RETURN sum(m.v)"), kMoverSum) << "main lost the mover's constant sum";
+  if (full_scale) EXPECT_GT(seeded_deleted.size(), 0U) << "main deleted no fork-visible vertex";
   EXPECT_EQ(Scalar(mchk, "MATCH (n:L) RETURN count(*)"), 0) << "a branch label leaked to main";
   EXPECT_EQ(Scalar(mchk,
                    "MATCH (n:P) WHERE n.id < " + std::to_string(kSeedVertices) +
                        " AND (n.w IS NULL OR n.w <> n.id) RETURN count(*)"),
             0)
       << "a branch REMOVE/SET of `w` leaked to main";
-  EXPECT_EQ(Scalar(mchk, "MATCH (n) UNWIND labels(n) AS l WITH l WHERE l <> 'P' RETURN count(*)"), 0);
+  EXPECT_EQ(Scalar(mchk, "MATCH (n) UNWIND labels(n) AS l WITH l WHERE NOT l IN ['P','M'] RETURN count(*)"), 0);
   EXPECT_EQ(Scalar(mchk, "MATCH (n) UNWIND keys(n) AS k WITH k WHERE NOT k IN ['id','v','w'] RETURN count(*)"), 0)
       << "unexpected key on main (marker leak?)";
   EXPECT_EQ(Scalar(mchk,
@@ -901,7 +1037,7 @@ TEST_P(VersioningStressTest, WritersReadersMainWritersAndLifecycleChurn) {
       << "a branch value of `v` leaked to main";
   {
     auto stream = mchk.Interpret("MATCH (n:P) WHERE n.id < " + std::to_string(kSeedVertices) + " RETURN n.id, n.v");
-    EXPECT_EQ(stream.GetResults().size(), static_cast<size_t>(kSeedVertices));
+    EXPECT_EQ(stream.GetResults().size(), static_cast<size_t>(seeded_alive));
     for (const auto &row : stream.GetResults()) {
       const auto id = row[0].ValueInt();
       const auto it = expected_v.find(id);
@@ -917,6 +1053,23 @@ TEST_P(VersioningStressTest, WritersReadersMainWritersAndLifecycleChurn) {
     EXPECT_FALSE(engine->db()->version_store()->Exists("tmp" + std::to_string(i)))
         << "tmp" << i << " survived DROP BRANCH (or churn aborted early)";
   }
+
+  // After the churn the server restarts: exactly {b} is back (no dropped tmp branch), and b and main replay unchanged.
+  const auto branch_names = [&] {
+    std::vector<std::string> names;
+    for (const auto &listing : engine->db()->version_store()->List()) names.push_back(listing.name);
+    std::ranges::sort(names);
+    return names;
+  };
+  ASSERT_EQ(branch_names(), std::vector<std::string>{"b"});
+  const auto branch_before = StateSnapshot(chk);
+  const auto main_before = StateSnapshot(mchk);
+  ASSERT_TRUE(Restart());
+  EXPECT_EQ(branch_names(), std::vector<std::string>{"b"}) << "the restart changed the set of branches";
+  const auto branch_after = StateSnapshot(engine->NewBranchSession("b"));
+  EXPECT_EQ(branch_before, branch_after) << "restart changed the branch: "
+                                         << FirstDifference(branch_before, branch_after);
+  EXPECT_EQ(main_before, StateSnapshot(engine->NewSession())) << "restart changed main";
 }
 
 namespace {
