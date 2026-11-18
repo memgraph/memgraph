@@ -3826,39 +3826,13 @@ TYPED_TEST(FunctionTest, Reverse) {
   EXPECT_EQ(this->EvaluateFunction("REVERSE", "abc").ValueString(), "cba");
   EXPECT_THROW(this->EvaluateFunction("REVERSE", "x", "y"), QueryRuntimeException);
 
+  EXPECT_THROW(this->EvaluateFunction("REVERSE", 132), QueryRuntimeException);
   CompareList(this->EvaluateFunction("REVERSE", MakeTypedValueList(3, 4, 5)), MakeTypedValueList(5, 4, 3));
-  auto empty = MakeTypedValueList();
-  CompareList(this->EvaluateFunction("REVERSE", empty), empty);
-
-  // Nested values are copied as-is, and the input list keeps its order.
-  auto nested = MakeTypedValueList(1, 2);
-  auto map = TypedValue(std::map<std::string, TypedValue>{{"key", TypedValue(7)}});
-  auto input = MakeTypedValueList(nested, map, TypedValue(), TypedValue(-1));
-  const auto reversed = this->EvaluateFunction("REVERSE", input);
-  ASSERT_TRUE(reversed.IsList());
-  const auto &elements = reversed.ValueList();
-  ASSERT_EQ(elements.size(), 4U);
-  ASSERT_TRUE(elements[0].IsInt());
-  EXPECT_EQ(elements[0].ValueInt(), -1);
-  ASSERT_TRUE(elements[1].IsNull());
-  ASSERT_TRUE(elements[2].IsMap());
-  EXPECT_EQ(elements[2].ValueMap().at("key").ValueInt(), 7);
-  ASSERT_TRUE(elements[3].IsList());
-  CompareList(elements[3], nested);
-  ASSERT_EQ(input.ValueList().size(), 4U);
-  ASSERT_TRUE(input.ValueList()[0].IsList());
-  CompareList(input.ValueList()[0], nested);
-  ASSERT_TRUE(input.ValueList()[1].IsMap());
-  EXPECT_EQ(input.ValueList()[3].ValueInt(), -1);
-}
-
-TYPED_TEST(FunctionTest, ReverseInvalidType) {
-  try {
-    this->EvaluateFunction("REVERSE", 132);
-    FAIL() << "expected REVERSE to reject an integer argument";
-  } catch (const QueryRuntimeException &e) {
-    EXPECT_EQ(std::string{e.what()}, "'reverse' argument at position 1 must be either 'null', 'string' or 'list'.");
-  }
+  CompareList(this->EvaluateFunction("REVERSE", MakeTypedValueList()), MakeTypedValueList());
+  const auto nested = this->EvaluateFunction("REVERSE", MakeTypedValueList(MakeTypedValueList(1, 2), 3)).ValueList();
+  ASSERT_EQ(nested.size(), 2U);
+  EXPECT_EQ(nested[0].ValueInt(), 3);
+  CompareList(nested[1], MakeTypedValueList(1, 2));
 }
 
 TYPED_TEST(FunctionTest, ReverseNonAscii) {

@@ -565,6 +565,15 @@ Feature: Functions
             | n      | a      | b           |
             | null   | [3, 4] | [[2, 3, 4]] |
 
+    Scenario: Reverse list test:
+        When executing query:
+            """
+            RETURN REVERSE(['a', 'b', 'c']) AS a, REVERSE([]) AS b, REVERSE(null) AS n
+            """
+        Then the result should be:
+            | a               | b  | n    |
+            | ['c', 'b', 'a'] | [] | null |
+
     Scenario: Range test:
         When executing query:
             """
