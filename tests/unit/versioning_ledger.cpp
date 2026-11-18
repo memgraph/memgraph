@@ -85,7 +85,7 @@ TEST_F(BranchLedgerTest, RoundTrip) {
   in.branches[0].info.vertex_gid_ceiling = 70'011;
   in.branches[0].info.edge_gid_ceiling = 70'013;
   in.branches[0].info.created_at_us = 1'700'000'000'123'456;
-  // The persisted fork_ts is the durable recorded one, not the runtime pin.
+  // The persisted durable_fork_ts is the durable recorded one, not the runtime pin.
   in.branches.push_back({"b", {.id = 4, .fork_ts = 100, .durable_fork_ts = 20}});
 
   BranchLedger ledger{*store_, uuid_};
@@ -128,8 +128,8 @@ TEST_F(BranchLedgerTest, EmptyLedgerKeepsNextBranchId) {
 
 // The floor stands in for the missing ceilings.
 TEST_F(BranchLedgerTest, AnOldFormatLedgerReadsWithNoCeilingsAndIgnoresUnknownKeys) {
-  Put(Versioned(
-      OneBranch(R"({"name":"a","id":2,"fork_ts":10,"vertex_gid_floor":7,"edge_gid_floor":9,"description":"old"})")));
+  Put(Versioned(OneBranch(
+      R"({"name":"a","id":2,"durable_fork_ts":10,"vertex_gid_floor":7,"edge_gid_floor":9,"description":"old"})")));
   const auto res = Read();
   ASSERT_TRUE(res.has_value() && res->has_value()) << (res ? "" : res.error());
   ASSERT_EQ((*res)->branches.size(), 1);
@@ -143,7 +143,7 @@ TEST_F(BranchLedgerTest, AnOldFormatLedgerReadsWithNoCeilingsAndIgnoresUnknownKe
 }
 
 TEST_F(BranchLedgerTest, RejectsUnparsableValues) {
-  const auto good = Versioned(OneBranch(R"({"name":"a","id":2,"fork_ts":10})"));
+  const auto good = Versioned(OneBranch(R"({"name":"a","id":2,"durable_fork_ts":10})"));
   for (const auto &value : {good.substr(0, good.size() - 3),
                             std::string{},
                             std::string{"not json"},
@@ -157,7 +157,7 @@ TEST_F(BranchLedgerTest, RejectsUnparsableValues) {
 }
 
 TEST_F(BranchLedgerTest, RejectsAMissingOrUnsupportedVersion) {
-  const auto body = OneBranch(R"({"name":"a","id":2,"fork_ts":10})");
+  const auto body = OneBranch(R"({"name":"a","id":2,"durable_fork_ts":10})");
   Put(body);
   EXPECT_FALSE(Read().has_value()) << "missing version";
   for (const uint32_t version : {BranchLedger::kVersion + 1, uint32_t{0}}) {
@@ -174,14 +174,16 @@ TEST_F(BranchLedgerTest, RejectsAMalformedPayload) {
            R"({"next_branch_id":3})",
            R"({"next_branch_id":3,"branches":{}})",
            R"({"next_branch_id":-3,"branches":[]})",
-           OneBranch(R"({"name":"a","id":-2,"fork_ts":10})"),
-           OneBranch(R"({"name":"a","id":2.5,"fork_ts":10})"),
-           OneBranch(R"({"name":"a","id":"2","fork_ts":10})"),
-           OneBranch(R"({"name":"a","id":2,"fork_ts":-1})"),
-           OneBranch(R"({"name":"a","id":2,"fork_ts":10,"vertex_gid_floor":-1})"),
-           OneBranch(R"({"name":"a","id":2,"fork_ts":10,"edge_gid_ceiling":-1})"),
-           OneBranch(R"({"name":"a","id":2,"fork_ts":10,"created_at_us":1.5})"),
-           OneBranch(R"({"name":"a","fork_ts":10})"),
+           OneBranch(R"({"name":"a","id":-2,"durable_fork_ts":10})"),
+           OneBranch(R"({"name":"a","id":2.5,"durable_fork_ts":10})"),
+           OneBranch(R"({"name":"a","id":"2","durable_fork_ts":10})"),
+           OneBranch(R"({"name":"a","id":2,"durable_fork_ts":-1})"),
+           OneBranch(R"({"name":"a","id":2,"durable_fork_ts":10,"vertex_gid_floor":-1})"),
+           OneBranch(R"({"name":"a","id":2,"durable_fork_ts":10,"edge_gid_ceiling":-1})"),
+           OneBranch(R"({"name":"a","id":2,"durable_fork_ts":10,"created_at_us":1.5})"),
+           OneBranch(R"({"name":"a","durable_fork_ts":10})"),
+           OneBranch(R"({"name":"a","id":2})"),
+           OneBranch(R"({"name":"a","id":2,"fork_ts":10})"),
        }) {
     Put(Versioned(payload));
     EXPECT_FALSE(Read().has_value()) << payload;
@@ -190,15 +192,15 @@ TEST_F(BranchLedgerTest, RejectsAMalformedPayload) {
 
 TEST_F(BranchLedgerTest, RejectsAnInvalidRegistry) {
   const auto branch = [](std::string_view name, uint64_t branch_id) {
-    return fmt::format(R"({{"name":"{}","id":{},"fork_ts":10}})", name, branch_id);
+    return fmt::format(R"({{"name":"{}","id":{},"durable_fork_ts":10}})", name, branch_id);
   };
   for (const auto &payload : std::vector<std::string>{
            R"({"next_branch_id":1,"branches":[]})",
            OneBranch(branch("a", 0)),
            OneBranch(branch("a", 1)),
            OneBranch(branch("a", 3)),
-           OneBranch(R"({"name":"a","id":2,"fork_ts":10,"vertex_gid_floor":7,"vertex_gid_ceiling":6})"),
-           OneBranch(R"({"name":"a","id":2,"fork_ts":10,"edge_gid_floor":9,"edge_gid_ceiling":8})"),
+           OneBranch(R"({"name":"a","id":2,"durable_fork_ts":10,"vertex_gid_floor":7,"vertex_gid_ceiling":6})"),
+           OneBranch(R"({"name":"a","id":2,"durable_fork_ts":10,"edge_gid_floor":9,"edge_gid_ceiling":8})"),
            OneBranch(branch("main", 2)),
            OneBranch(branch("a/b", 2)),
            OneBranch(branch("-a", 2)),
@@ -209,7 +211,7 @@ TEST_F(BranchLedgerTest, RejectsAnInvalidRegistry) {
     EXPECT_FALSE(Read().has_value()) << payload;
   }
 
-  Put(Versioned(OneBranch(R"({"name":"a","id":2,"fork_ts":10,"vertex_gid_floor":7,"vertex_gid_ceiling":7})")));
+  Put(Versioned(OneBranch(R"({"name":"a","id":2,"durable_fork_ts":10,"vertex_gid_floor":7,"vertex_gid_ceiling":7})")));
   const auto equal = Read();
   ASSERT_TRUE(equal.has_value() && equal->has_value()) << (equal ? "" : equal.error());
   EXPECT_EQ((*equal)->branches[0].info.vertex_gid_ceiling, 7);
