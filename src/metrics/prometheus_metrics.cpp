@@ -581,7 +581,7 @@ PrometheusMetrics::PrometheusMetrics()
                                .Register(registry_)},
       worker_queue_length_family_{prometheus::BuildGauge()
                                       .Name("memgraph_worker_queue_length")
-                                      .Help("Query tasks waiting for a free worker thread")
+                                      .Help("Tasks queued on worker threads, including parallel query subtasks")
                                       .Register(registry_)},
       process_start_time_family_{prometheus::BuildGauge()
                                      .Name("process_start_time_seconds")
