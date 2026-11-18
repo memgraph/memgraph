@@ -445,6 +445,22 @@ TEST_F(WriteVisibilityPlan, ALabelWriteAfterAReadGetsAnAccessCheckDrain) {
             (Names{"EmptyResult", "SetLabels", "Accumulate+(access)", "SetProperty", "Filter", "ScanAll", "Once"}));
 }
 
+// A property write's permission check reads its node's labels too, so a later label write drains first. An edge's
+// check reads its type, which no label write changes.
+TEST_F(WriteVisibilityPlan, ALabelWriteAfterAPropertyWriteGetsAnAccessCheckDrain) {
+  for (auto const *query : {
+           "MATCH (a:P), (b:P) SET a.x = 1 SET b:Secret",
+           "MATCH (a:P), (b:P) SET a += {x: 1} SET b:Secret",
+           "MATCH (a:P), (b:P) REMOVE a.x SET b:Secret",
+       }) {
+    auto const chain = Chain(Plan(query));
+    ASSERT_GE(chain.size(), 4U) << query;
+    EXPECT_EQ(std::vector(chain.begin(), chain.begin() + 3), (Names{"EmptyResult", "SetLabels", "Accumulate+(access)"}))
+        << query;
+  }
+  EXPECT_TRUE(Collect<Accumulate>(Plan("MATCH ()-[r:T]->(b:P) SET r.x = 1 SET b:Secret")).empty());
+}
+
 TEST_F(WriteVisibilityPlan, ACloneKeepsTheAccessCheckFlag) {
   auto clone = Plan("MATCH (a:P) SET a:X SET a:Y").Clone(&storage_);
   EXPECT_EQ(Chain(*clone),
