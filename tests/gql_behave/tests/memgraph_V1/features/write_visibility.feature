@@ -2996,3 +2996,22 @@ Feature: Write visibility inside one query
         Then the result should be:
             | x | y | z |
             | 2 | 1 | 1 |
+
+    Scenario: A CASE that may return another row's node keeps the read of its property after a SET
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:WvNg {id: 1}), (:WvNg {id: 2}), (:WvNg {id: 3})
+            """
+        When executing query:
+            """
+            MATCH (a:WvNg), (b:WvNg) WHERE a <> b
+            WITH a, CASE WHEN a.id > 0 THEN b ELSE a END AS m
+            SET a.v = 1 SET a.w = coalesce(a.w, 0) + coalesce(m.v, 0)
+            WITH count(*) AS c MATCH (n:WvNg) RETURN n.id AS id, n.w AS w ORDER BY id
+            """
+        Then the result should be, in order:
+            | id | w |
+            | 1  | 2 |
+            | 2  | 2 |
+            | 3  | 2 |

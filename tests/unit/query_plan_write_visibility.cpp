@@ -703,6 +703,72 @@ TEST_F(WriteVisibilityPlan, AMapHoldingANodeReadsItsProperties) {
   EXPECT_FALSE(Collect<Accumulate>(Plan("MATCH (n) WITH n, {a: head([n])} AS m SET n.x = 1 SET n.y = m.a.x")).empty());
 }
 
+// A value that holds no node, edge or path reads no graph property, however it reaches the lookup: an alias, a
+// parameter, an operator, a comprehension or an aggregation over such values.
+TEST_F(WriteVisibilityPlan, ANonGraphValueNeedsNoBarrier) {
+  auto const set_twice = std::string{" MATCH (n:P) WHERE n.id = row.id SET n.name = row.name SET n.alias = row.name"};
+  for (auto const &prefix : {
+           "UNWIND [{id: 1, name: 'a'}] AS r WITH r AS row",
+           "UNWIND [1, 2] AS i WITH $p AS row",
+           "UNWIND [{id: 1}] AS r WITH collect(r) AS rs UNWIND rs AS row",
+           "CALL () { UNWIND [{id: 1, name: 'a'}] AS r RETURN r AS row }",
+           "UNWIND [0] AS i WITH $rows[i] AS row",
+           "UNWIND [1, 2] AS i WITH {id: i, name: 'n' + toString(i)} AS row",
+           "UNWIND [i IN range(1, 3) | {id: i}] AS row",
+           "UNWIND [{id: 1}, {id: 2}][0..1] AS row",
+           "UNWIND [1, 2] AS i WITH CASE WHEN i = 1 THEN {id: 1} ELSE {} END AS row",
+           "UNWIND [1, 2] AS i WITH coalesce($p, {}) AS row",
+           "UNWIND [1, 2] AS i WITH reduce(s = {id: 1}, x IN [1] | s) AS row",
+           "UNWIND [1, 2] AS i MATCH (q:Q) WITH q {.id, .name} AS row",
+           "UNWIND [1, 2] AS i MATCH (q:Q) WITH properties(q) AS row",
+           "UNWIND [1, 2] AS i MATCH (q:Q) WITH q['meta'] AS row",
+       }) {
+    auto const query = std::string{prefix} + set_twice;
+    EXPECT_TRUE(Collect<Accumulate>(Plan(query)).empty()) << query;
+  }
+  for (auto const *query : {
+           "UNWIND [1, 2] AS i MATCH (n:P) WHERE n.id = $p.id SET n.name = $p.name SET n.alias = $p.name",
+           "UNWIND [1, 2] AS i MATCH (n:P) WHERE n.id = $p['id'] SET n.name = $p['name'] SET n.alias = $p['name']",
+       }) {
+    EXPECT_TRUE(Collect<Accumulate>(Plan(query)).empty()) << query;
+  }
+}
+
+// Each value may hold another row's node b, so the read of v after the SET of a.v keeps its barrier.
+TEST_F(WriteVisibilityPlan, AValueThatMayHoldAnEntityKeepsItsBarrier) {
+  for (auto const &[with, read] : {
+           std::pair{"b AS m", "m.v"},
+           std::pair{"{k: b} AS m", "m.k.v"},
+           std::pair{"a {k: b} AS m", "m.k.v"},
+           std::pair{"CASE WHEN a.id > 0 THEN a ELSE b END AS m", "m.v"},
+           std::pair{"coalesce(null, b) AS m", "m.v"},
+           std::pair{"[b][0] AS m", "m.v"},
+           std::pair{"head([b]) AS m", "m.v"},
+           std::pair{"[] + b AS m", "m[0].v"},
+           std::pair{"[x IN [b] | x] AS m", "m[0].v"},
+           std::pair{"reduce(s = null, x IN [b] | x) AS m", "m.v"},
+           std::pair{"collect(b) AS m", "m[0].v"},
+           std::pair{"[(b)-->(x) | b] AS m", "m[0].v"},
+           std::pair{"b", "properties(b).v"},
+           std::pair{"b", "b {.v}.v"},
+       }) {
+    auto const query = fmt::format(
+        "MATCH (a:P), (b:P) WHERE a <> b WITH a, {} SET a.v = 1 SET a.w = coalesce(a.w, 0) + coalesce({}, 0)",
+        with,
+        read);
+    EXPECT_FALSE(Collect<Accumulate>(Plan(query)).empty()) << query;
+  }
+  for (auto const *query : {
+           "MATCH (a:P), (c)-[r]->(b:P) WITH a, endNode(r) AS m SET a.v = 1 SET a.w = m.v",
+           "MATCH (a:P), p = (b:P)-->() WITH a, nodes(p)[0] AS m SET a.v = 1 SET a.w = m.v",
+           "MATCH (a:P), p = (b:P)-->() WITH a, project(p) AS g SET a.v = 1 SET a.w = g.nodes[0].v",
+           "MATCH (a:P), (c)-[r *1..2]->(b) WITH a, r[0] AS m SET a.v = 1 SET a.w = m.v",
+           "MATCH (a:P), (b:P) WHERE a <> b CALL (b) { RETURN b AS m } SET a.v = 1 SET a.w = m.v",
+       }) {
+    EXPECT_FALSE(Collect<Accumulate>(Plan(query)).empty()) << query;
+  }
+}
+
 // ---------------------------------------------------------------- read-to-write drains after View::NEW readers
 
 TEST_F(WriteVisibilityPlan, DrainBetweenSetThatReadsAndALaterSetOfTheKey) {
