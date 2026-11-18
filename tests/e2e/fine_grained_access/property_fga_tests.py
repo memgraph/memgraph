@@ -363,5 +363,21 @@ def test_role_merge_deny_wins():
         common.execute_and_fetch_all(admin, "DROP ROLE role_b;")
 
 
+def test_create_after_a_label_write_masks_a_property_the_label_denies():
+    # The CREATE reads a after the SET made it :Employee, whose ssn the user may not read.
+    admin = admin_cursor()
+    common.execute_and_fetch_all(admin, "GRANT SET PROPERTY {v} ON NODES CONTAINING LABELS :WvLeakCopy TO user;")
+    common.execute_and_fetch_all(admin, "CREATE (:WvLeakSrc {ssn: 'S1'});")
+    try:
+        result = common.execute_and_fetch_all(
+            user_cursor(),
+            "MATCH (a:WvLeakSrc) SET a:Employee CREATE (x:WvLeakCopy {v: a{.*}.ssn}) RETURN x.v AS v;",
+        )
+        assert result == [(None,)]
+    finally:
+        common.execute_and_fetch_all(admin, "MATCH (n) WHERE n:WvLeakSrc OR n:WvLeakCopy DETACH DELETE n;")
+        common.execute_and_fetch_all(admin, "REVOKE SET PROPERTY {v} ON NODES CONTAINING LABELS :WvLeakCopy FROM user;")
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))

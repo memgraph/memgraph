@@ -398,9 +398,12 @@ TEST_F(WriteVisibilityPlan, ANodeReadAfterALabelWriteGetsAnAccessCheckBarrier) {
   EXPECT_TRUE(barrier->access_check_only_);
 }
 
+// a may repeat, so another row's label write can reach this row's check.
 TEST_F(WriteVisibilityPlan, ChainedLabelSetsGetAnAccessCheckBarrier) {
-  EXPECT_EQ(Chain(Plan("MATCH (a:P) SET a:X SET a:Y")),
-            (Names{"EmptyResult", "SetLabels", "Accumulate+(access)", "SetLabels", "Filter", "ScanAll", "Once"}));
+  auto const chain = Chain(Plan("MATCH (a:P), (b:P) SET a:X SET a:Y"));
+  ASSERT_GE(chain.size(), 4U);
+  EXPECT_EQ(std::vector(chain.begin(), chain.begin() + 4),
+            (Names{"EmptyResult", "SetLabels", "Accumulate+(access)", "SetLabels"}));
 }
 
 TEST_F(WriteVisibilityPlan, ALabelReadKeepsAFullBarrier) {
@@ -441,8 +444,10 @@ TEST_F(WriteVisibilityPlan, OneAccessCheckBarrierCoversTheLabelWritesBeforeIt) {
 
 // The label write after a property read reaches the read's access check only through the drain.
 TEST_F(WriteVisibilityPlan, ALabelWriteAfterAReadGetsAnAccessCheckDrain) {
-  EXPECT_EQ(Chain(Plan("MATCH (a:P) SET a.y = a.k SET a:Y")),
-            (Names{"EmptyResult", "SetLabels", "Accumulate+(access)", "SetProperty", "Filter", "ScanAll", "Once"}));
+  auto const chain = Chain(Plan("MATCH (a:P), (b:P) SET a.y = a.k SET a:Y"));
+  ASSERT_GE(chain.size(), 4U);
+  EXPECT_EQ(std::vector(chain.begin(), chain.begin() + 4),
+            (Names{"EmptyResult", "SetLabels", "Accumulate+(access)", "SetProperty"}));
 }
 
 // A property write's permission check reads its node's labels too, so a later label write drains first. An edge's
@@ -462,17 +467,73 @@ TEST_F(WriteVisibilityPlan, ALabelWriteAfterAPropertyWriteGetsAnAccessCheckDrain
 }
 
 TEST_F(WriteVisibilityPlan, ACloneKeepsTheAccessCheckFlag) {
-  auto clone = Plan("MATCH (a:P) SET a:X SET a:Y").Clone(&storage_);
-  EXPECT_EQ(Chain(*clone),
-            (Names{"EmptyResult", "SetLabels", "Accumulate+(access)", "SetLabels", "Filter", "ScanAll", "Once"}));
+  auto clone = Plan("MATCH (a:P), (b:P) SET a:X SET a:Y").Clone(&storage_);
+  auto const chain = Chain(*clone);
+  ASSERT_GE(chain.size(), 4U);
+  EXPECT_EQ(std::vector(chain.begin(), chain.begin() + 4),
+            (Names{"EmptyResult", "SetLabels", "Accumulate+(access)", "SetLabels"}));
 }
 
 // A subscript reads a node property as a lookup does, so its permission check waits for the label write.
 TEST_F(WriteVisibilityPlan, ASubscriptOnANodeReadsItsLabelsForTheAccessCheck) {
   EXPECT_TRUE(Access("MATCH (a) RETURN a['x'] AS v").reads.access_check_labels);
   EXPECT_TRUE(Access("MATCH (a) WITH a, 'x' AS k RETURN a[k] AS v").reads.access_check_labels);
-  EXPECT_EQ(Chain(Plan("MATCH (a:P) SET a:Secret CREATE (:Y {v: a['x']})")),
-            (Names{"EmptyResult", "CreateNode", "Accumulate+(access)", "SetLabels", "Filter", "ScanAll", "Once"}));
+  auto const chain = Chain(Plan("MATCH (a:P), (b:P) SET b:Secret CREATE (:Y {v: a['x']})"));
+  ASSERT_GE(chain.size(), 3U);
+  EXPECT_EQ(std::vector(chain.begin(), chain.begin() + 3), (Names{"EmptyResult", "CreateNode", "Accumulate+(access)"}));
+}
+
+// Every check and every label write goes through a, and no two rows hold the same a: no row's label write can reach
+// another row's check.
+TEST_F(WriteVisibilityPlan, ARowUniqueNodeNeedsNoAccessCheckBarrier) {
+  for (auto const *query : {
+           "MATCH (a:P) SET a.x = 1 SET a:Secret",
+           "MATCH (a:P) REMOVE a.x SET a:Secret",
+           "MATCH (a:P) SET a = {x: 1} SET a:Secret",
+           "MATCH (a:P) SET a.y = a.k SET a:Y",
+           "MATCH (a:P) SET a:X SET a:Y",
+           "MATCH (a:P) SET a:Secret SET a.x = 1",
+           "MATCH (a:P) WITH a, count(*) AS c SET a.x = 1 SET a:Secret",
+       }) {
+    EXPECT_TRUE(Collect<Accumulate>(Plan(query)).empty()) << query;
+  }
+}
+
+/// Whether @p plan has an access-check-only barrier.
+bool HasAccessCheckBarrier(LogicalOperator &plan) {
+  return std::ranges::any_of(Collect<Accumulate>(plan), [](auto *acc) { return acc->access_check_only_; });
+}
+
+// Another row may hold the node, or the check and the label write go through different variables: the barrier stays.
+TEST_F(WriteVisibilityPlan, TwoRowsThatMayShareANodeKeepTheAccessCheck) {
+  auto const twin = Chain(Plan("MATCH (a:P), (b:P) SET a.x = 1 SET a:Secret"));
+  ASSERT_GE(twin.size(), 3U);
+  EXPECT_EQ(std::vector(twin.begin(), twin.begin() + 3), (Names{"EmptyResult", "SetLabels", "Accumulate+(access)"}));
+  auto const label_first = Chain(Plan("MATCH (a:P), (b:P) SET b:Secret SET a.x = 1"));
+  ASSERT_GE(label_first.size(), 4U);
+  EXPECT_EQ(std::vector(label_first.begin(), label_first.begin() + 4),
+            (Names{"EmptyResult", "SetProperty", "Accumulate+(access)", "SetLabels"}));
+  for (auto const *query : {
+           "MATCH (a:P) WITH a, a AS b SET a.x = 1 SET b:Secret",
+           "MATCH (a:P) WITH a, head([(a)-[:R]->(x) | x]) AS b SET a.x = 1 SET b:Secret",
+           "UNWIND [1, 1, 2] AS i MATCH (n:P {id: i}) SET n.x = 1 SET n:Secret",
+           "MATCH (s:P) WITH s, head([(s)-[:R]->(m) | m]) AS m SET s.y = m.v SET s:Secret",
+           "MATCH (s:P) WITH s, head([(s)-[:R]->(m) | m]) AS m SET s.y = m{.*}.v SET s:Secret",
+           "MATCH (s:P) WITH s, head([(s)-[:R]->(m) | m]) AS m SET s = m SET s:Secret",
+           "MATCH (s:P) SET s.y = size([(s)-[:R]->(m) | 1]) SET s:Secret",
+       }) {
+    EXPECT_TRUE(HasAccessCheckBarrier(Plan(query))) << query;
+  }
+}
+
+// Reading every property of a node, and creating an edge from it, check its labels too.
+TEST_F(WriteVisibilityPlan, AnAllPropertiesReadOrAnEdgeCreateAfterALabelWriteGetsAnAccessCheck) {
+  auto const all = Chain(Plan("MATCH (a:P), (b:P) SET b:Secret CREATE (:X {v: a{.*}.v})"));
+  ASSERT_GE(all.size(), 3U);
+  EXPECT_EQ(std::vector(all.begin(), all.begin() + 3), (Names{"EmptyResult", "CreateNode", "Accumulate+(access)"}));
+  auto const edge = Chain(Plan("MATCH (a:P), (b:P) SET b:Secret CREATE (a)-[:R]->(:X)"));
+  ASSERT_GE(edge.size(), 3U);
+  EXPECT_EQ(std::vector(edge.begin(), edge.begin() + 3), (Names{"EmptyResult", "CreateExpand", "Accumulate+(access)"}));
 }
 #endif
 

@@ -296,8 +296,7 @@ TYPED_TEST(TestPlanner, MatchDelete) {
 
 TYPED_TEST(TestPlanner, MatchNodeSet) {
   // Test MATCH (n) SET n.prop = 42, n = n, n :label
-  // `n = n` reads every property, so it waits behind a barrier for the `n.prop` write of every row. The property
-  // writes' permission checks read n's labels, so the label write drains them (an access-check-only barrier).
+  // `n = n` reads every property, so it waits behind a barrier for the `n.prop` write of every row.
   FakeDbAccessor dba;
   auto prop = dba.Property("prop");
   auto label = "label";
@@ -315,30 +314,19 @@ TYPED_TEST(TestPlanner, MatchNodeSet) {
             ExpectSetProperty(),
             acc,
             ExpectSetProperties(),
-            ExpectAccumulate({symbol_table.at(*ident_n)}),
             ExpectSetLabels(),
             ExpectEmptyResult());
 }
 
 TYPED_TEST(TestPlanner, MatchRemove) {
   // Test MATCH (n) REMOVE n.prop REMOVE n :label
-  // The property write's permission check reads n's labels, so the label write drains it (an access-check-only
-  // barrier).
   FakeDbAccessor dba;
   auto prop = dba.Property("prop");
   auto label = "label";
-  auto *ident_n = IDENT("n");
   auto *query =
-      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), REMOVE(PROPERTY_LOOKUP(dba, ident_n, prop)), REMOVE("n", {label})));
-  auto symbol_table = memgraph::query::MakeSymbolTable(query);
-  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
-  CheckPlan(planner.plan(),
-            symbol_table,
-            ExpectScanAll(),
-            ExpectRemoveProperty(),
-            ExpectAccumulate({symbol_table.at(*ident_n)}),
-            ExpectRemoveLabels(),
-            ExpectEmptyResult());
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), REMOVE(PROPERTY_LOOKUP(dba, "n", prop)), REMOVE("n", {label})));
+  CheckPlan<TypeParam>(
+      query, this->storage, ExpectScanAll(), ExpectRemoveProperty(), ExpectRemoveLabels(), ExpectEmptyResult());
 }
 
 TYPED_TEST(TestPlanner, MatchMultiPattern) {
