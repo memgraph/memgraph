@@ -9673,7 +9673,7 @@ PreparedQuery PrepareDropBranchQuery(ParsedQuery parsed_query, std::string name,
             throw QueryRuntimeException("Branch '{}' does not exist.", name);
           case kInUse:
             throw QueryRuntimeException(
-                "Cannot drop branch '{}': it is in use by another session. Use DROP BRANCH {} FORCE.", name, name);
+                "Cannot drop branch '{}': it is in use by another session. Use DROP BRANCH '{}' FORCE.", name, name);
           case kDropped:
             break;
         }
