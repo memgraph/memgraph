@@ -219,7 +219,7 @@ yet (§12 says what each needs). Only triggers, TTL and streams are main-only by
 | Periodic commit | Yes |
 | Edge properties | Follow main's `--storage-properties-on-edges` |
 | Triggers, TTL, streams | Not planned for branches: they act on `main` only; branch writes fire no triggers |
-| `DUMP DATABASE` | The branch's data with main's schema |
+| `DUMP DATABASE` | The branch's data with main's schema: indexes and constraints visible at the fork that main still has; ones created on main after the fork are left out (they are still enforced at branch commit) |
 | `CREATE SNAPSHOT`, `SHOW SNAPSHOTS`, `SHOW NEXT SNAPSHOT`, `FREE MEMORY`, `SET GLOBAL TRANSACTION ISOLATION LEVEL`, `LOCK` / `UNLOCK DATA DIRECTORY`, `DATA DIRECTORY LOCK STATUS` | Run on `main`, with an INFO notification `<statement> ran on main, not on branch '<b>'.` |
 | Schema DDL (index, constraint, enum, TTL, trigger, stream, description), `DROP ALL INDEXES` / `DROP ALL CONSTRAINTS`, `SHOW TRIGGERS`, `SHOW STREAMS`, `SHOW DESCRIPTIONS`, `ANALYZE GRAPH`, `DROP GRAPH`, `STORAGE MODE`, `RECOVER SNAPSHOT`, `EDGE IMPORT MODE`, `schema.assert` | Not in v1: in v1, schema and storage-wide state are `main`'s (§12 says what each item needs; TTL, trigger and stream DDL stay main-only). Error: `Schema and storage-global operations are not allowed on a branch. Run USE BRANCH main first.`; `schema.assert` under `USING BRANCH <b>`: `… Run the query on main: USING BRANCH main.` |
 | `SHOW INDEX INFO` / `SHOW CONSTRAINT INFO` | Main's current ones, including indexes created after the fork that the branch does not use |
