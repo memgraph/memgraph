@@ -221,9 +221,9 @@ class BranchContext {
   static std::expected<std::unique_ptr<BranchContext>, BuildError> BuildFromFork(
       storage::InMemoryStorage &main, uint64_t fork_ts, std::optional<uint64_t> branch_number = std::nullopt);
 
-  // `name` and `number`: the branch this context was attached through (empty/0 for test-built contexts);
-  // AttachBranchOf reuses them.
-  explicit BranchContext(std::shared_ptr<BranchCore> core, std::string name = {}, uint64_t number = 0)
+  // `name` and `number`: the branch this context was attached through (empty/0 for a context attached to none);
+  // AttachBranchOf reuses them and refuses a context whose number is not the live branch's.
+  BranchContext(std::shared_ptr<BranchCore> core, std::string name, uint64_t number)
       : core_(std::move(core)), name_(std::move(name)), number_(number) {}
 
   BranchContext(const BranchContext &) = delete;

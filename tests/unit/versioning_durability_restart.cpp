@@ -619,7 +619,7 @@ TEST_F(VersioningDurabilityRestartTest, DroppingABranchDeletesItsDirectory) {
         return std::move(*fresh);
       });
       ASSERT_TRUE(core.has_value());
-      mv::BranchContext ctx{*core};
+      mv::BranchContext ctx{*core, {}, 0};
       auto diff_acc = ctx.diff_engine().Access(ms::WRITE);
       ASSERT_TRUE(ctx.BeginTransaction(diff_acc.get()).has_value());
       ctx.CreateNativeVertex();
