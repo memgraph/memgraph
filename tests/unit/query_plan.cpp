@@ -9290,6 +9290,50 @@ TYPED_TEST(TestPlanner, CachePropertiesAnAggregationsConditionalLookupsEarnNoPas
   CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), aggr, ExpectProduce());
 }
 
+// Each form here either runs a body once per element, which an empty list runs no times, or stands
+// where a row may never reach it. A pass reading ahead for a lookup inside one could read a record
+// the query never asked for, and refuse a query that answers, so every one of them is declined.
+TYPED_TEST(TestPlanner, CachePropertiesALookupOnlyInsideADeferredBodyEarnsNoPass) {
+  CachePropertiesFlagGuard guard{true};
+  FakeDbAccessor dba;
+  auto prop = dba.Property("value");
+  // Two lookups of one property, which is what a projection takes a pass for when it can reach them.
+  auto repeated = [&] { return ADD(PROPERTY_LOOKUP(dba, "n", prop), PROPERTY_LOOKUP(dba, "n", prop)); };
+  auto variable = [&](char const *name) { return this->storage.template Create<memgraph::query::Identifier>(name); };
+  auto one_element = [&] { return LIST(LITERAL(1)); };
+
+  auto deferred = std::vector<memgraph::query::Expression *>{
+      REDUCE("acc", LITERAL(0), "x", one_element(), repeated()),
+      EXTRACT("x", one_element(), repeated()),
+      ALL("x", one_element(), WHERE(EQ(repeated(), LITERAL(1)))),
+      SINGLE("x", one_element(), WHERE(EQ(repeated(), LITERAL(1)))),
+      this->storage.template Create<memgraph::query::Any>(
+          variable("x"), one_element(), WHERE(EQ(repeated(), LITERAL(1)))),
+      this->storage.template Create<memgraph::query::None>(
+          variable("x"), one_element(), WHERE(EQ(repeated(), LITERAL(1)))),
+      this->storage.template Create<memgraph::query::ListComprehension>(
+          variable("x"), one_element(), nullptr, repeated()),
+      COALESCE(LITERAL(1), repeated()),
+      AND(LITERAL(true), EQ(repeated(), LITERAL(1))),
+  };
+
+  // Standing on its own the same pair of lookups does earn a pass, so each form below suppresses
+  // one rather than being declined for want of anything to save.
+  {
+    auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN(repeated(), AS("r"))));
+    auto symbol_table = memgraph::query::MakeSymbolTable(query);
+    auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+    CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectCacheProperties("n", 1), ExpectProduce());
+  }
+
+  for (auto *expression : deferred) {
+    auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN(expression, AS("r"))));
+    auto symbol_table = memgraph::query::MakeSymbolTable(query);
+    auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+    CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectProduce());
+  }
+}
+
 // A map collection reaches its key only once the row's value is accepted, so a repeat that only the
 // key gives earns no pass.
 TYPED_TEST(TestPlanner, CachePropertiesAnAggregationsSecondArgumentEarnsNoPass) {

@@ -287,8 +287,7 @@ class PropertyLookupCacher final : public ExpressionVisitor<void> {
   NOT_ENTERED(SubqueryExpression)
 
   // May never be evaluated, so reading ahead would read a record the query never asked for and
-  // could refuse a query that answers. AND and OR are declined for the same reason but are still
-  // entered to retune, further down.
+  // could refuse a query that answers.
   NOT_ENTERED(IfOperator)
   NOT_ENTERED(Coalesce)
 
@@ -317,11 +316,13 @@ class PropertyLookupCacher final : public ExpressionVisitor<void> {
   NOT_ENTERED(EdgeTypesTest)
   NOT_ENTERED(RegexMatch)
 
-  // A short circuit may never evaluate what it holds, so reading ahead for it has the same fault as
-  // the group above. A literal is built from its entries rather than read from a frame, so a lookup
-  // inside one is reached through the entry rather than here.
+  // A short circuit may never evaluate its second operand, so reading ahead for a lookup there has
+  // the same fault as the conditionals above.
   NOT_ENTERED(AndOperator)
   NOT_ENTERED(OrOperator)
+
+  // Always evaluated, so entering these would be safe. An entry or an element consumes the value
+  // rather than handing it back, though, so a slot drawn for one adds a write and removes no read.
   NOT_ENTERED(ListLiteral)
   NOT_ENTERED(MapLiteral)
 
