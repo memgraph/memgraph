@@ -9481,6 +9481,23 @@ TYPED_TEST(TestPlanner, CachePropertiesLeavesOutAPropertyBehindAShortCircuit) {
   CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectCacheProperties("n", 2), ExpectProduce());
 }
 
+// Two properties earn a projection a pass, counting only the ones every row reads. The second
+// here sits behind a short circuit, leaving one for the pass to read and no read for it to remove.
+TYPED_TEST(TestPlanner, CachePropertiesAProjectionNeedsTwoPropertiesEveryRowReads) {
+  CachePropertiesFlagGuard guard{true};
+  FakeDbAccessor dba;
+  auto reached = PROPERTY_PAIR(dba, "a");
+  auto behind = PROPERTY_PAIR(dba, "b");
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                                   RETURN(PROPERTY_LOOKUP(dba, "n", reached),
+                                          AS("x"),
+                                          OR(LESS(LITERAL(1), LITERAL(2)), PROPERTY_LOOKUP(dba, "n", behind)),
+                                          AS("y"))));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectProduce());
+}
+
 // Two reads either way, so a pass would add a slot and remove nothing.
 TYPED_TEST(TestPlanner, CachePropertiesAFiltersDistinctPropertiesEarnNoPass) {
   CachePropertiesFlagGuard guard{true};
