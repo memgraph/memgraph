@@ -387,21 +387,31 @@ namespace {
 struct BranchPending {
   std::vector<int64_t> created;
   std::vector<int64_t> deleted;
+  std::vector<int64_t> incremented;  // base ids whose `v` was incremented
+  std::vector<int64_t> removed_w;    // base ids whose `w` was removed
 };
 
 struct BranchOp {
   std::string query;
   int64_t created{-1};
   int64_t deleted{-1};
+  int64_t incremented{-1};
+  int64_t removed_w{-1};
 };
 
 struct CommittedBranchState {
   std::mutex mutex;
   std::set<int64_t> deleted;  // base ids whose DETACH DELETE committed
   std::atomic<int64_t> created{0};
+  // `SET n.v = n.v + 1` commits are serialised per vertex (first-writer-wins), so the final `v` of a surviving base
+  // vertex is exactly the number of committed increments; a lost update or a resurrected older version breaks that.
+  std::array<std::atomic<int64_t>, kRandomIds> increments{};
+  std::array<std::atomic<bool>, kRandomIds> w_removed{};
 
   void Publish(const BranchPending &p) {
     created.fetch_add(static_cast<int64_t>(p.created.size()), std::memory_order_relaxed);
+    for (const auto id : p.incremented) increments[static_cast<size_t>(id)].fetch_add(1, std::memory_order_relaxed);
+    for (const auto id : p.removed_w) w_removed[static_cast<size_t>(id)].store(true, std::memory_order_relaxed);
     if (p.deleted.empty()) return;
     std::lock_guard lock{mutex};
     deleted.insert(p.deleted.begin(), p.deleted.end());
@@ -417,9 +427,11 @@ BranchOp MakeBranchOp(std::mt19937_64 &rng, int tid, int64_t &next_native) {
   const int pick = static_cast<int>(rng() % 100);
   BranchOp op;
   if (pick < 22) {
-    op.query = "MATCH (n:P {id:" + std::to_string(x) + "}) SET n.v = " + std::to_string(val);
+    op.query = "MATCH (n:P {id:" + std::to_string(x) + "}) SET n.v = n.v + 1";
+    op.incremented = x;
   } else if (pick < 32) {
     op.query = "MATCH (n:P {id:" + std::to_string(x) + "}) REMOVE n.w";
+    op.removed_w = x;
   } else if (pick < 40) {
     op.query = "MATCH (n:P {id:" + std::to_string(x) + "}) SET n:L";
   } else if (pick < 48) {
@@ -448,6 +460,13 @@ BranchOp MakeBranchOp(std::mt19937_64 &rng, int tid, int64_t &next_native) {
   return op;
 }
 
+void Record(const BranchOp &op, BranchPending &p) {
+  if (op.created >= 0) p.created.push_back(op.created);
+  if (op.deleted >= 0) p.deleted.push_back(op.deleted);
+  if (op.incremented >= 0) p.incremented.push_back(op.incremented);
+  if (op.removed_w >= 0) p.removed_w.push_back(op.removed_w);
+}
+
 void BranchWriter(InterpreterFaker &s, int tid, int ops, CommittedBranchState &committed, FailureLog &log,
                   Counters &c) {
   std::mt19937_64 rng{Seed() + 100 + static_cast<uint64_t>(tid)};
@@ -458,8 +477,7 @@ void BranchWriter(InterpreterFaker &s, int tid, int ops, CommittedBranchState &c
       auto op = MakeBranchOp(rng, tid, next_native);
       if (Exec(s, op.query, log, c, who) == Outcome::kOk) {
         BranchPending p;
-        if (op.created >= 0) p.created.push_back(op.created);
-        if (op.deleted >= 0) p.deleted.push_back(op.deleted);
+        Record(op, p);
         committed.Publish(p);
       }
       continue;
@@ -474,8 +492,7 @@ void BranchWriter(InterpreterFaker &s, int tid, int ops, CommittedBranchState &c
         failed = true;
         break;
       }
-      if (op.created >= 0) pending.created.push_back(op.created);
-      if (op.deleted >= 0) pending.deleted.push_back(op.deleted);
+      Record(op, pending);
     }
     if (failed) {
       SwallowRollback(s);
@@ -783,6 +800,24 @@ TEST_P(VersioningStressTest, WritersReadersMainWritersAndLifecycleChurn) {
       << "committed branch-native vertices missing/extra (or main natives leaked in)";
   EXPECT_EQ(Scalar(chk, "MATCH (n:P) WHERE n.v >= " + std::to_string(kMainValueBase) + " RETURN count(*)"), 0)
       << "main writes are visible on the branch";
+  {
+    // Last-writer oracle for the random base ids: v == number of committed increments, w removed iff a REMOVE
+    // committed.
+    const auto rows =
+        chk.Interpret("MATCH (n:P) WHERE n.id < " + std::to_string(kRandomIds) + " RETURN n.id, n.v, n.w").GetResults();
+    size_t want_rows = 0;
+    for (int64_t id = 0; id < kRandomIds; ++id) want_rows += committed.deleted.contains(id) ? 0 : 1;
+    EXPECT_EQ(rows.size(), want_rows);
+    for (const auto &r : rows) {
+      const auto id = r[0].ValueInt();
+      const auto at = static_cast<size_t>(id);
+      EXPECT_TRUE(r[1].IsInt() && r[1].ValueInt() == committed.increments[at].load())
+          << "base vertex " << id << ": v=" << r[1] << ", committed increments=" << committed.increments[at].load();
+      const bool removed = committed.w_removed[at].load();
+      EXPECT_TRUE(removed ? r[2].type() == BoltValue::Type::Null : (r[2].IsInt() && r[2].ValueInt() == id))
+          << "base vertex " << id << ": w=" << r[2] << ", REMOVE committed=" << removed;
+    }
+  }
   EXPECT_EQ(Scalar(chk, "MATCH (n) UNWIND labels(n) AS l WITH l WHERE l STARTS WITH '__mg' RETURN count(*)"), 0)
       << "marker label leaked through labels()";
   EXPECT_EQ(Scalar(chk, "MATCH (n) UNWIND keys(n) AS k WITH k WHERE k STARTS WITH '__mg' RETURN count(*)"), 0)
@@ -1005,33 +1040,45 @@ struct NativeEdge {
   int64_t nid, src, dst;
 };
 
+// One committed write of an object: `version` is the object's own write counter after the write (every write bumps
+// `ver`), `value` what it left in w/z (or v).
+struct HotWrite {
+  int64_t id, version, value;
+};
+
 struct HotPending {
-  std::vector<std::pair<int64_t, int64_t>> edge_values;    // (eid, w == z)
-  std::vector<std::pair<int64_t, int64_t>> vertex_values;  // (vertex id, v)
+  std::vector<HotWrite> edge_writes;
+  std::vector<HotWrite> vertex_writes;
   std::vector<int64_t> deleted_edges;
   std::vector<int64_t> deleted_vertices;
   std::vector<NativeEdge> natives;
 };
 
-// What committed. Values are unique per (session, phase, write), so membership proves a final value was never rolled
-// back or invented.
+// What committed. Writes to one object are serialised (first-writer-wins) and each bumps the object's `ver`, so the
+// committed (version -> value) map of an object is gap-free and its newest entry is exactly what must be read back:
+// a lost update, a resurrected older value or a doubly committed version shows up.
 struct HotCommitted {
   std::mutex mutex;
-  std::array<std::set<int64_t>, kHotEdges> edge_values;
-  std::array<std::set<int64_t>, kHotVertices> vertex_values;
+  std::array<std::map<int64_t, int64_t>, kHotEdges> edge_writes;
+  std::array<std::map<int64_t, int64_t>, kHotVertices> vertex_writes;
+  size_t duplicate_versions{0};
   std::set<int64_t> deleted_edges;
   std::set<int64_t> deleted_vertices;
   std::vector<NativeEdge> natives;
 
   HotCommitted() {
-    for (auto &s : edge_values) s.insert(0);
-    for (auto &s : vertex_values) s.insert(0);
+    for (auto &m : edge_writes) m.emplace(0, 0);
+    for (auto &m : vertex_writes) m.emplace(0, 0);
   }
 
   void Publish(const HotPending &p) {
     std::lock_guard lock{mutex};
-    for (auto [eid, v] : p.edge_values) edge_values[static_cast<size_t>(eid)].insert(v);
-    for (auto [id, v] : p.vertex_values) vertex_values[static_cast<size_t>(id)].insert(v);
+    for (const auto &w : p.edge_writes) {
+      duplicate_versions += edge_writes[static_cast<size_t>(w.id)].emplace(w.version, w.value).second ? 0 : 1;
+    }
+    for (const auto &w : p.vertex_writes) {
+      duplicate_versions += vertex_writes[static_cast<size_t>(w.id)].emplace(w.version, w.value).second ? 0 : 1;
+    }
     deleted_edges.insert(p.deleted_edges.begin(), p.deleted_edges.end());
     deleted_vertices.insert(p.deleted_vertices.begin(), p.deleted_vertices.end());
     natives.insert(natives.end(), p.natives.begin(), p.natives.end());
@@ -1059,10 +1106,10 @@ void SetupHot(InterpreterFaker &s) {
   s.Interpret("CREATE INDEX ON :H");
   s.Interpret("CREATE INDEX ON :H(id)");
   s.Interpret("CREATE EDGE INDEX ON :E(eid)");
-  s.Interpret("UNWIND range(0," + std::to_string(kHotVertices - 1) + ") AS i CREATE (:H {id:i, v:0})");
+  s.Interpret("UNWIND range(0," + std::to_string(kHotVertices - 1) + ") AS i CREATE (:H {id:i, v:0, ver:0})");
   for (int64_t e = 0; e < kHotEdges; ++e) {
     s.Interpret("MATCH (a:H {id:" + std::to_string(HotSrc(e)) + "}), (b:H {id:" + std::to_string(HotDst(e)) +
-                "}) CREATE (a)-[:E {eid:" + std::to_string(e) + ", w:0, z:0}]->(b)");
+                "}) CREATE (a)-[:E {eid:" + std::to_string(e) + ", w:0, z:0, ver:0}]->(b)");
   }
   s.Interpret("CREATE BRANCH 'hot'");
 }
@@ -1079,10 +1126,11 @@ HotOp MakeHotOpOfAnyKind(std::mt19937_64 &rng, NextValue &&next_value) {
     op.kind = HotKind::kEdgeSet;
     op.value = next_value();
     const auto v = std::to_string(op.value);
-    op.query = "MATCH ()-[r:E {eid:" + eid_s + "}]->() SET r.w = " + v + ", r.z = " + v + " RETURN r.w, r.z";
+    op.query = "MATCH ()-[r:E {eid:" + eid_s + "}]->() SET r.w = " + v + ", r.z = " + v +
+               ", r.ver = r.ver + 1 RETURN r.w, r.z, r.ver";
   } else if (pick < 34) {
     op.kind = HotKind::kEdgeRemove;
-    op.query = "MATCH ()-[r:E {eid:" + eid_s + "}]->() REMOVE r.w, r.z RETURN r.eid";
+    op.query = "MATCH ()-[r:E {eid:" + eid_s + "}]->() REMOVE r.w, r.z SET r.ver = r.ver + 1 RETURN r.ver";
   } else if (pick < 43) {
     op.kind = HotKind::kEdgeDelete;
     op.eid = eid - eid % 3 + 2;
@@ -1093,9 +1141,10 @@ HotOp MakeHotOpOfAnyKind(std::mt19937_64 &rng, NextValue &&next_value) {
     const auto v = std::to_string(op.value);
     op.a = HotSrc(eid);
     op.b = HotDst(eid);
-    op.query = "MATCH (a:H {id:" + std::to_string(op.a) + "})-[r:E {eid:" + eid_s +
-               "}]->(b:H {id:" + std::to_string(op.b) + "}) SET a.v = " + v + ", b.v = " + v + ", r.w = " + v +
-               ", r.z = " + v + " RETURN a.v, b.v, r.w, r.z";
+    op.query =
+        "MATCH (a:H {id:" + std::to_string(op.a) + "})-[r:E {eid:" + eid_s + "}]->(b:H {id:" + std::to_string(op.b) +
+        "}) SET a.v = " + v + ", b.v = " + v + ", r.w = " + v + ", r.z = " + v +
+        ", a.ver = a.ver + 1, b.ver = b.ver + 1, r.ver = r.ver + 1 RETURN a.v, b.v, r.w, r.z, a.ver, b.ver, r.ver";
   } else if (pick < 77) {
     op.kind = HotKind::kNative;
     op.value = next_value();
@@ -1148,21 +1197,24 @@ void RecordHotOp(const HotOp &op, const BoltRows &rows, HotPending &p, FailureLo
   switch (op.kind) {
     case HotKind::kEdgeSet:
       if (!is_value(rows[0][0]) || !is_value(rows[0][1])) bad("read-your-writes violated");
-      p.edge_values.emplace_back(op.eid, op.value);
+      if (!rows[0][2].IsInt()) return bad("edge lost its `ver`");
+      p.edge_writes.push_back({op.eid, rows[0][2].ValueInt(), op.value});
       break;
     case HotKind::kEdgeRemove:
-      p.edge_values.emplace_back(op.eid, kRemoved);
+      if (!rows[0][0].IsInt()) return bad("edge lost its `ver`");
+      p.edge_writes.push_back({op.eid, rows[0][0].ValueInt(), kRemoved});
       break;
     case HotKind::kEdgeDelete:
       p.deleted_edges.push_back(op.eid);
       break;
     case HotKind::kEndpoints:
-      for (const auto &cell : rows[0]) {
-        if (!is_value(cell)) bad("read-your-writes violated");
+      for (size_t i = 0; i < 4; ++i) {
+        if (!is_value(rows[0][i])) bad("read-your-writes violated");
       }
-      p.vertex_values.emplace_back(op.a, op.value);
-      p.vertex_values.emplace_back(op.b, op.value);
-      p.edge_values.emplace_back(op.eid, op.value);
+      if (!rows[0][4].IsInt() || !rows[0][5].IsInt() || !rows[0][6].IsInt()) return bad("object lost its `ver`");
+      p.vertex_writes.push_back({op.a, rows[0][4].ValueInt(), op.value});
+      p.vertex_writes.push_back({op.b, rows[0][5].ValueInt(), op.value});
+      p.edge_writes.push_back({op.eid, rows[0][6].ValueInt(), op.value});
       break;
     case HotKind::kNative:
       if (!is_value(rows[0][0])) bad("native edge lost its nid");
@@ -1325,26 +1377,43 @@ void VerifyHotBranch(InterpreterFaker &chk, HotCommitted &c, std::string_view wh
   const auto rows_of = [&](const std::string &q) { return chk.Interpret(q).GetResults(); };
   const auto alive = [&](int64_t v) { return !c.deleted_vertices.contains(v); };
 
-  const auto vertices = rows_of("MATCH (n:H) RETURN n.id, n.v");
+  EXPECT_EQ(c.duplicate_versions, 0U) << "two committed writes produced the same version of one object (lost update)";
+  // The newest committed write of an object is exactly its final state.
+  const auto expect_last_writer =
+      [&](const std::map<int64_t, int64_t> &writes, const BoltValue &ver, int64_t value, const std::string &what) {
+        if (!ver.IsInt()) {
+          ADD_FAILURE() << what << " lost its `ver`";
+          return;
+        }
+        EXPECT_EQ(writes.rbegin()->first, ver.ValueInt()) << what << ": last committed version != final `ver`";
+        EXPECT_EQ(writes.size(), static_cast<size_t>(ver.ValueInt()) + 1) << what << ": a committed write is missing";
+        const auto it = writes.find(ver.ValueInt());
+        EXPECT_TRUE(it != writes.end() && it->second == value)
+            << what << ": final value " << value << " != value of the last committed write";
+      };
+
+  const auto vertices = rows_of("MATCH (n:H) RETURN n.id, n.v, n.ver");
   std::set<int64_t> seen_vertices;
   for (const auto &r : vertices) {
     const auto id = r[0].ValueInt();
     EXPECT_TRUE(seen_vertices.insert(id).second) << "vertex " << id << " visible twice";
     EXPECT_TRUE(alive(id)) << "DETACH DELETEd vertex " << id << " still visible";
-    EXPECT_TRUE(r[1].IsInt() && c.vertex_values[static_cast<size_t>(id)].contains(r[1].ValueInt()))
-        << "vertex " << id << " v=" << Canon(r[1]) << " was never committed";
+    EXPECT_TRUE(r[1].IsInt()) << "vertex " << id << " lost its `v`";
+    expect_last_writer(c.vertex_writes[static_cast<size_t>(id)],
+                       r[2],
+                       r[1].IsInt() ? r[1].ValueInt() : kRemoved,
+                       "vertex " + std::to_string(id));
   }
   EXPECT_EQ(vertices.size(), static_cast<size_t>(kHotVertices) - c.deleted_vertices.size());
 
   std::map<int64_t, std::pair<int64_t, int64_t>> base_edges;  // eid -> (src, dst)
-  for (const auto &r : rows_of("MATCH (a)-[r:E]->(b) RETURN r.eid, r.w, r.z, a.id, b.id")) {
+  for (const auto &r : rows_of("MATCH (a)-[r:E]->(b) RETURN r.eid, r.w, r.z, a.id, b.id, r.ver")) {
     const auto eid = r[0].ValueInt();
     EXPECT_TRUE(base_edges.emplace(eid, std::pair{r[3].ValueInt(), r[4].ValueInt()}).second)
         << "base edge " << eid << " visible twice";
     EXPECT_EQ(Canon(r[1]), Canon(r[2])) << "torn edge " << eid;
     const int64_t w = r[1].IsInt() ? r[1].ValueInt() : kRemoved;
-    EXPECT_TRUE(c.edge_values[static_cast<size_t>(eid)].contains(w))
-        << "base edge " << eid << " final w=" << w << " was never committed";
+    expect_last_writer(c.edge_writes[static_cast<size_t>(eid)], r[5], w, "base edge " + std::to_string(eid));
   }
   size_t want_base = 0;
   for (int64_t e = 0; e < kHotEdges; ++e) {
@@ -1396,7 +1465,7 @@ void VerifyHotBranch(InterpreterFaker &chk, HotCommitted &c, std::string_view wh
 }
 
 void VerifyHotMain(InterpreterFaker &mchk) {
-  const auto rows = mchk.Interpret("MATCH (a)-[r:E]->(b) RETURN r.eid, r.w, r.z, a.id, b.id").GetResults();
+  const auto rows = mchk.Interpret("MATCH (a)-[r:E]->(b) RETURN r.eid, r.w, r.z, a.id, b.id, r.ver").GetResults();
   ASSERT_EQ(rows.size(), static_cast<size_t>(kHotEdges)) << "main lost or gained base edges";
   for (const auto &r : rows) {
     const auto eid = r[0].ValueInt();
@@ -1405,14 +1474,16 @@ void VerifyHotMain(InterpreterFaker &mchk) {
         << "branch value " << r[1].ValueInt() << " leaked onto main edge " << eid;
     EXPECT_EQ(r[3].ValueInt(), HotSrc(eid));
     EXPECT_EQ(r[4].ValueInt(), HotDst(eid));
+    EXPECT_EQ(r[5].ValueInt(), 0) << "a branch write bumped `ver` of main edge " << eid;
   }
   EXPECT_EQ(mchk.Interpret("MATCH ()-[r:N]->() RETURN count(r)").GetResults().at(0).at(0).ValueInt(), 0)
       << "a branch-native edge leaked onto main";
-  const auto vertices = mchk.Interpret("MATCH (n:H) RETURN n.id, n.v").GetResults();
+  const auto vertices = mchk.Interpret("MATCH (n:H) RETURN n.id, n.v, n.ver").GetResults();
   ASSERT_EQ(vertices.size(), static_cast<size_t>(kHotVertices)) << "main lost or gained hot vertices";
   for (const auto &r : vertices) {
     EXPECT_TRUE(r[1].ValueInt() == 0 || r[1].ValueInt() >= kMainValueBase)
         << "branch value leaked onto main vertex " << r[0].ValueInt();
+    EXPECT_EQ(r[2].ValueInt(), 0) << "a branch write bumped `ver` of main vertex " << r[0].ValueInt();
   }
 }
 
