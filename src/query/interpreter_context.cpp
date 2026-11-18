@@ -331,9 +331,9 @@ std::vector<uint64_t> InterpreterContext::ShowTransactionsUsingDBName(
   return results;
 }
 
-std::map<std::string, double, std::less<>> InterpreterContext::LongestTransactionSeconds(
+std::map<utils::UUID, double> InterpreterContext::LongestTransactionSeconds(
     const std::unordered_set<Interpreter *> &interpreters) {
-  std::map<std::string, double, std::less<>> longest;
+  std::map<utils::UUID, double> longest;
   auto const now = std::chrono::steady_clock::now();
   for (Interpreter *interpreter : interpreters) {
     const auto verifier = interpreter->TryAcquireForVerification();
@@ -342,7 +342,7 @@ std::map<std::string, double, std::less<>> InterpreterContext::LongestTransactio
     auto const view = interpreter->current_db_.foreign_db_view();
     if (view.name.empty()) continue;
     auto const age = std::chrono::duration<double>(now - interpreter->transaction_start_steady_).count();
-    auto &oldest = longest[std::string{view.name}];
+    auto &oldest = longest[view.uuid];
     oldest = std::max(oldest, age);
   }
   return longest;

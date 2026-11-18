@@ -1364,7 +1364,7 @@ void PrometheusMetrics::UpdateGauges() {
   auto const snaps = db_uuids | rv::transform([&](auto const &uuid) { return ResolveStorageSnapshot(uuid); }) |
                      r::to<std::vector<StorageSnapshot>>();
   auto const transaction_ages =
-      transaction_age_resolver_ ? transaction_age_resolver_() : std::map<std::string, double, std::less<>>{};
+      transaction_age_resolver_ ? transaction_age_resolver_() : std::map<utils::UUID, double>{};
 
   {
     std::shared_lock const lock{databases_.mutex};
@@ -1377,7 +1377,7 @@ void PrometheusMetrics::UpdateGauges() {
       it->handles.disk_usage_bytes.Set(static_cast<double>(snapshot.disk_usage));
       it->handles.snapshot_running_seconds.Set(snapshot.snapshot_running_seconds);
       it->handles.gc_running_seconds.Set(snapshot.gc_running_seconds);
-      auto const age = transaction_ages.find(it->db_name);
+      auto const age = transaction_ages.find(it->uuid);
       it->handles.longest_transaction_seconds.Set(age == transaction_ages.end() ? 0.0 : age->second);
       it->handles.db_memory_tracked_bytes.Set(static_cast<double>(snapshot.db_memory_tracked));
       it->handles.db_peak_memory_tracked_bytes.Set(static_cast<double>(snapshot.db_peak_memory_tracked));

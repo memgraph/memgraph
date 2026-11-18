@@ -90,8 +90,8 @@ struct WorkerPoolStats {
 
 using WorkerPoolResolver = std::function<WorkerPoolStats()>;
 
-/// Age in seconds of the oldest open transaction per database, keyed by database name.
-using TransactionAgeResolver = std::function<std::map<std::string, double, std::less<>>()>;
+/// Age in seconds of the oldest open transaction per database, keyed by database uuid.
+using TransactionAgeResolver = std::function<std::map<utils::UUID, double>()>;
 
 #ifdef MG_ENTERPRISE
 using InstanceStatusResolver = std::function<std::vector<coordination::InstanceStatus>()>;
