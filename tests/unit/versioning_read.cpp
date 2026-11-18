@@ -1919,7 +1919,7 @@ TEST_F(VersioningReadTest, StatementsOfOneBranchTransactionReadOneSnapshotWhileO
   expect_snapshot(2, 2);
 
   {
-    mv::BranchContext other_session{Ctx().core()};
+    mv::BranchContext other_session{Ctx().core(), {}, 0};
     auto diff = Ctx().diff_engine().Access(ms::WRITE);
     ASSERT_TRUE(other_session.BeginTransaction(diff.get()).has_value());
     WriteProperty(other_session, a, x, ms::PropertyValue{10});
@@ -1966,7 +1966,7 @@ TEST_F(VersioningReadTest, ConcurrentBranchSessionsSeeAConstantTotal) {
   {
     std::vector<std::jthread> threads;
     threads.emplace_back([&] {
-      mv::BranchContext ctx{core};
+      mv::BranchContext ctx{core, {}, 0};
       for (int round = 1; round <= kRounds; ++round) {
         auto diff = diff_engine.Access(ms::WRITE);
         ASSERT_TRUE(ctx.BeginTransaction(diff.get()).has_value());
