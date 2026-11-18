@@ -684,7 +684,7 @@ TEST_F(VersioningGatedTest, RefusedDropLeavesTheBranchDataAndBothSessionsIntact)
   faker.Interpret("CREATE (:B {v: 2})");
   auto sessions = SessionsOnBranch(1);
   auto &other = *sessions[0];
-  auto const in_use = "Cannot drop branch 'b': it is in use by another session. Use DROP BRANCH b FORCE.";
+  auto const in_use = "Cannot drop branch 'b': it is in use by another session. Use DROP BRANCH 'b' FORCE.";
   constexpr auto kBranchValues = "MATCH (n:B) RETURN n.v ORDER BY n.v";
 
   other.Interpret("BEGIN");
