@@ -729,7 +729,7 @@ class VersioningBranchEngineTest : public testing::Test {
     Ctx().EndTransaction();
 
     // An uncommitted delete hides the edge from its own transaction only, and not at OLD before the command advances.
-    mv::BranchContext other{Ctx().core()};
+    mv::BranchContext other{Ctx().core(), {}, 0};
     auto other_acc = Diff().Access(ms::READ);
     ASSERT_TRUE(other.BeginTransaction(other_acc.get()).has_value());
     {
@@ -1148,26 +1148,26 @@ class VersioningBranchEngineTest : public testing::Test {
   template <typename Read, typename Write>
   void OldSnapshotsReadTheOverlayPropertyBeforeAWrite(ms::PropertyId x, Read &&read, Write &&write) {
     {  // (c): the overlay holds no entry for x, the base has 1.
-      mv::BranchContext snapshot{Ctx().core()};
+      mv::BranchContext snapshot{Ctx().core(), {}, 0};
       auto snapshot_acc = Diff().Access(ms::READ);
       ASSERT_TRUE(snapshot.BeginTransaction(snapshot_acc.get()).has_value());
       write([&](OverlayEdit &s) { s.RemoveProperty(x); });
       EXPECT_EQ(read(snapshot, ms::View::NEW), Int(1)) << "the snapshot predates the delete";
       snapshot.EndTransaction();
-      mv::BranchContext after{Ctx().core()};
+      mv::BranchContext after{Ctx().core(), {}, 0};
       auto after_acc = Diff().Access(ms::READ);
       ASSERT_TRUE(after.BeginTransaction(after_acc.get()).has_value());
       EXPECT_TRUE(read(after, ms::View::NEW).IsNull()) << "the delete removed the base's value";
       after.EndTransaction();
     }
     {  // (d): the overlay holds an explicit null for x.
-      mv::BranchContext snapshot{Ctx().core()};
+      mv::BranchContext snapshot{Ctx().core(), {}, 0};
       auto snapshot_acc = Diff().Access(ms::READ);
       ASSERT_TRUE(snapshot.BeginTransaction(snapshot_acc.get()).has_value());
       write([&](OverlayEdit &s) { s.SetProperty(x, Int(7)); });
       EXPECT_TRUE(read(snapshot, ms::View::NEW).IsNull()) << "the snapshot predates the overwrite";
       snapshot.EndTransaction();
-      mv::BranchContext after{Ctx().core()};
+      mv::BranchContext after{Ctx().core(), {}, 0};
       auto after_acc = Diff().Access(ms::READ);
       ASSERT_TRUE(after.BeginTransaction(after_acc.get()).has_value());
       EXPECT_EQ(read(after, ms::View::NEW), Int(7));
@@ -1479,8 +1479,8 @@ TEST_F(VersioningBranchEngineTest, SnapshotAndReadCommittedBranchReadersSeeAnOve
   Fork();
   SeedVertex(b, [](OverlayEdit &) {});  // an overlay that exists but changes nothing yet
 
-  mv::BranchContext snapshot_ctx{branch_context_->core()};
-  mv::BranchContext committed_ctx{branch_context_->core()};
+  mv::BranchContext snapshot_ctx{branch_context_->core(), {}, 0};
+  mv::BranchContext committed_ctx{branch_context_->core(), {}, 0};
   auto snapshot_acc = Diff().Access(ms::READ, ms::IsolationLevel::SNAPSHOT_ISOLATION, std::nullopt);
   auto committed_acc = Diff().Access(ms::READ, ms::IsolationLevel::READ_COMMITTED, std::nullopt);
   ASSERT_TRUE(snapshot_ctx.BeginTransaction(snapshot_acc.get()).has_value());
@@ -1568,7 +1568,7 @@ TEST_F(VersioningBranchEngineTest, ConcurrentBranchReadersAndWritersSeeStableSna
   });
   for (int reader = 0; reader < 3; ++reader) {
     threads.emplace_back([&, reader] {
-      mv::BranchContext ctx{branch_context_->core()};
+      mv::BranchContext ctx{branch_context_->core(), {}, 0};
       int64_t last_round = 0;
       do {
         if (reader == 2) {  // read committed: each value is some commit's, and never goes back
@@ -1620,7 +1620,7 @@ struct SnapshotReader {
 SnapshotReader OpenSnapshotReader(mv::BranchContext &like) {
   SnapshotReader reader{
       .acc = like.diff_engine().Access(ms::READ, ms::IsolationLevel::SNAPSHOT_ISOLATION, std::nullopt),
-      .ctx = std::make_unique<mv::BranchContext>(like.core())};
+      .ctx = std::make_unique<mv::BranchContext>(like.core(), std::string{}, 0)};
   EXPECT_TRUE(reader.ctx->BeginTransaction(reader.acc.get()).has_value());
   return reader;
 }
@@ -2100,7 +2100,7 @@ TEST_F(VersioningBranchWriteTest, WritesConflictOnTheOverlayAsOnMain) {
   ASSERT_TRUE(Ctx().SetProperty(base_first, x, Int(2)).has_value());
 
   auto second = Writer();
-  mv::BranchContext other{Ctx().core()};
+  mv::BranchContext other{Ctx().core(), {}, 0};
   ASSERT_TRUE(other.BeginTransaction(second.get()).has_value());
   auto base_vertex = *other.FindBaseVertex(a);
   EXPECT_EQ(other.SetProperty(base_vertex, x, Int(3)).error(), ms::Error::SERIALIZATION_ERROR);
@@ -2177,7 +2177,7 @@ TEST_F(VersioningBranchWriteTest, DeletingDifferentBaseEdgesAtOneVertexConcurren
   ASSERT_TRUE(*Ctx().DeleteBaseVertex(b, true));
 
   auto second = Writer();
-  mv::BranchContext other{Ctx().core()};
+  mv::BranchContext other{Ctx().core(), {}, 0};
   ASSERT_TRUE(other.BeginTransaction(second.get()).has_value());
   EXPECT_TRUE(*other.DeleteBaseVertex(c, true)) << "no conflict with the other delete at a";
   other.EndTransaction();
@@ -2209,7 +2209,7 @@ TEST_F(VersioningBranchWriteTest, DeletingTheSameBaseEdgeConcurrentlyConflictsOn
   ASSERT_TRUE(*Ctx().DeleteBaseVertex(b, true));
 
   auto second = Writer();
-  mv::BranchContext other{Ctx().core()};
+  mv::BranchContext other{Ctx().core(), {}, 0};
   ASSERT_TRUE(other.BeginTransaction(second.get()).has_value());
   EXPECT_EQ(other.DeleteBaseVertex(a, true).error(), ms::Error::SERIALIZATION_ERROR);
   other.EndTransaction();

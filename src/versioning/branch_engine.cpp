@@ -188,7 +188,7 @@ std::expected<std::unique_ptr<BranchContext>, BranchContext::BuildError> BranchC
                        .edge_gid_floor = main.edge_id_.load(std::memory_order_acquire)};
   auto core = BranchCore::Build(main, fork, fork_ts, branch_number);
   if (!core) return std::unexpected(std::move(core.error()));
-  return std::make_unique<BranchContext>(std::move(*core));
+  return std::make_unique<BranchContext>(std::move(*core), std::string{}, branch_number.value_or(0));
 }
 
 std::expected<BranchContext::HistoricalAccessor, BranchContext::BuildError> BranchContext::OpenHistorical() {
