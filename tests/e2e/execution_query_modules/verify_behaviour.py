@@ -183,5 +183,21 @@ def test_fetch_results_with_result_count_on_multitenancy(connection):
     execute_and_fetch_all(cursor, f"DROP DATABASE mg2;")
 
 
+def test_failed_prepare_releases_database_access(connection):
+    cursor = connection.cursor()
+
+    execute_and_fetch_all(cursor, "CREATE DATABASE mg2;")
+    execute_and_fetch_all(cursor, "USE DATABASE mg2;")
+
+    with pytest.raises(DatabaseError):
+        execute_and_fetch_all(
+            cursor, "CALL execution_module.execute_fetch_headers('THIS IS NOT CYPHER') YIELD output RETURN output;"
+        )
+
+    execute_and_fetch_all(cursor, "USE DATABASE memgraph;")
+    # A nested interpreter leaked by the failed Prepare would keep mg2 in use and refuse the drop.
+    execute_and_fetch_all(cursor, "DROP DATABASE mg2;")
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))

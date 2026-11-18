@@ -5953,11 +5953,11 @@ mgp_error mgp_execute_query(mgp_graph *graph, mgp_memory *memory, const char *qu
         auto query_string = std::string(query);
         auto &instance = memgraph::query::InterpreterContextHolder::GetInstance();
 
-        auto *result = NewRawMgpObject<mgp_execution_result>(memory->impl, graph);
+        auto result = NewMgpObject<mgp_execution_result>(memory, graph);
         result->pImpl->interpreter->SetUser(graph->ctx->user_or_role ? graph->ctx->user_or_role->clone() : nullptr);
 
         instance.interpreters.WithLock(
-            [result](auto &interpreters) { interpreters.insert(result->pImpl->interpreter.get()); });
+            [&result](auto &interpreters) { interpreters.insert(result->pImpl->interpreter.get()); });
         auto query_params_func =
             [&](memgraph::storage::Storage const *) -> memgraph::storage::ExternalPropertyValue::map_t {
           return CreateQueryParams(params);
@@ -5970,7 +5970,7 @@ mgp_error mgp_execute_query(mgp_graph *graph, mgp_memory *memory, const char *qu
         }
         result->pImpl->headers = std::make_unique<mgp_execution_headers>(std::move(headers));
 
-        return result;
+        return result.release();
       },
       result);
 }
