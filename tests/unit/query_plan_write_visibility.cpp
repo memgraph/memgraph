@@ -177,6 +177,54 @@ TEST_F(WriteVisibilityPlan, BodyReturnDrainDoesNotAdvance) {
   EXPECT_FALSE(accumulates[2]->advance_command_);
 }
 
+/// Whether each Union of @p plan advances the command after its left side, top first.
+std::vector<bool> UnionAdvances(LogicalOperator &plan) {
+  return Collect<Union>(plan) | std::views::transform([](auto *op) { return op->advance_command_; }) |
+         std::ranges::to<std::vector<bool>>();
+}
+
+// A UNION leg is a later clause: at the root, the right side reads what a writing left side wrote.
+TEST_F(WriteVisibilityPlan, ARootUnionAdvancesAfterAWritingLeg) {
+  EXPECT_EQ(UnionAdvances(Plan("MATCH (a:P) SET a.v = 99 UNION ALL MATCH (a:P) CREATE (:X {v: a.v})")),
+            (std::vector{true}));
+  EXPECT_EQ(UnionAdvances(Plan("MATCH (a:P) SET a.v = 99 UNION MATCH (a:P) CREATE (:X {v: a.v})")),
+            (std::vector{true}));
+  EXPECT_EQ(UnionAdvances(Plan("MATCH (a:P) SET a.v = 99 UNION ALL MATCH (a:P) CREATE (:X {v: a.v}) "
+                               "UNION ALL MATCH (x:X) CREATE (:Y {v: x.v})")),
+            (std::vector{true, true}));
+  // Only the leg right before the boundary decides it. Top first: the last boundary, then the first.
+  EXPECT_EQ(UnionAdvances(Plan("MATCH (a:P) RETURN a.v AS v UNION ALL MATCH (a:P) SET a.v = 1 RETURN a.v AS v "
+                               "UNION ALL MATCH (a:P) RETURN a.v AS v")),
+            (std::vector{true, false}));
+  EXPECT_EQ(UnionAdvances(Plan("MATCH (a:P) SET a.v = 1 RETURN a.v AS v UNION ALL MATCH (a:P) RETURN a.v AS v "
+                               "UNION ALL MATCH (a:P) RETURN a.v AS v")),
+            (std::vector{false, true}));
+  auto clone = Plan("MATCH (a:P) SET a.v = 99 UNION ALL MATCH (a:P) CREATE (:X {v: a.v})").Clone(&storage_);
+  EXPECT_EQ(UnionAdvances(*clone), (std::vector{true}));
+}
+
+// Only the root may advance: a body runs once per outer row, and a batched query plans no advance.
+TEST_F(WriteVisibilityPlan, AUnionOutsideTheRootDoesNotAdvance) {
+  for (auto const *query : {
+           "MATCH (p:P) CALL (p) { CREATE (:P {v: p.v}) UNION ALL CREATE (:Q) } RETURN count(*) AS c",
+           "MATCH (p:P) CALL (p) { CREATE (:P {v: p.v}) UNION ALL CREATE (:Q) } IN TRANSACTIONS OF 1 ROWS "
+           "RETURN count(*) AS c",
+           "USING PERIODIC COMMIT 10 MATCH (a:P) SET a.v = 99 UNION ALL MATCH (a:P) CREATE (:X {v: a.v})",
+           "MATCH (a:P) WHERE COUNT { MATCH (a) RETURN 1 AS x UNION ALL MATCH (a) RETURN 2 AS x } = 2 "
+           "CREATE (:P {v: 1})",
+           "MATCH (a:P) RETURN a.v AS v UNION ALL MATCH (a:P) RETURN a.v AS v",
+       }) {
+    auto const advances = UnionAdvances(Plan(query));
+    ASSERT_FALSE(advances.empty()) << query;
+    EXPECT_TRUE(std::ranges::none_of(advances, std::identity{})) << query;
+  }
+  // A label disjunction the index rewriter turns into a Union of scans.
+  dba_.SetIndexCount(dba_.Label("A"), 1);
+  dba_.SetIndexCount(dba_.Label("B"), 1);
+  auto const scans = UnionAdvances(Plan("MATCH (n:A|B) SET n.v = 1"));
+  EXPECT_TRUE(std::ranges::none_of(scans, std::identity{}));
+}
+
 TEST_F(WriteVisibilityPlan, ReadOnlyReturnHasNoDrain) {
   EXPECT_TRUE(Collect<Accumulate>(Plan("MATCH (n) RETURN n.x AS x ORDER BY x")).empty());
 }
@@ -521,12 +569,28 @@ TEST_F(WriteVisibilityPlan, TwoRowsThatMayShareANodeKeepTheAccessCheck) {
            "MATCH (s:P) WITH s, head([(s)-[:R]->(m) | m]) AS m SET s.y = m{.*}.v SET s:Secret",
            "MATCH (s:P) WITH s, head([(s)-[:R]->(m) | m]) AS m SET s = m SET s:Secret",
            "MATCH (s:P) SET s.y = size([(s)-[:R]->(m) | 1]) SET s:Secret",
+           // The path's middle node may be another row's a.
+           "MATCH (a:P) SET a:Secret SET a.y = size([(a)-[*2]->(a) | 1])",
        }) {
     EXPECT_TRUE(HasAccessCheckBarrier(Plan(query))) << query;
   }
 }
 
 // Reading every property of a node, and creating an edge from it, check its labels too.
+// A DELETE checks its node's labels, or both end nodes' labels for an edge.
+TEST_F(WriteVisibilityPlan, ADeleteAfterALabelWriteGetsAnAccessCheck) {
+  for (auto const *query : {
+           "MATCH (a:P), (b:P) SET a:Secret DELETE b",
+           "MATCH (a:P), (b:P) SET a:Secret DETACH DELETE b",
+           "MATCH (a:P), ()-[r]->() SET a:Secret DELETE r",
+       }) {
+    auto const chain = Chain(Plan(query));
+    ASSERT_GE(chain.size(), 3U) << query;
+    EXPECT_EQ(std::vector(chain.begin(), chain.begin() + 3), (Names{"EmptyResult", "Delete", "Accumulate+(access)"}))
+        << query;
+  }
+}
+
 TEST_F(WriteVisibilityPlan, AnAllPropertiesReadOrAnEdgeCreateAfterALabelWriteGetsAnAccessCheck) {
   auto const all = Chain(Plan("MATCH (a:P), (b:P) SET b:Secret CREATE (:X {v: a{.*}.v})"));
   ASSERT_GE(all.size(), 3U);

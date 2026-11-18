@@ -3194,3 +3194,206 @@ Feature: Write visibility inside one query
         Then the result should be:
             | k | x |
             | 1 | 5 |
+
+    Scenario: A UNION ALL leg reads what an earlier leg with no RETURN wrote
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:WvU {id: 1, v: 10}), (:WvU {id: 2, v: 20})
+            """
+        And having executed:
+            """
+            MATCH (a:WvU) SET a.v = 99 UNION ALL MATCH (a:WvU) CREATE (:WvUx {v: a.v})
+            """
+        When executing query:
+            """
+            MATCH (x:WvUx) RETURN x.v AS v
+            """
+        Then the result should be:
+            | v |
+            | 99 |
+            | 99 |
+
+    Scenario: A UNION leg reads what an earlier leg with no RETURN wrote
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:WvU {id: 1, v: 10}), (:WvU {id: 2, v: 20})
+            """
+        And having executed:
+            """
+            MATCH (a:WvU) SET a.v = 99 UNION MATCH (a:WvU) CREATE (:WvUx {v: a.v})
+            """
+        When executing query:
+            """
+            MATCH (x:WvUx) RETURN x.v AS v
+            """
+        Then the result should be:
+            | v |
+            | 99 |
+            | 99 |
+
+    Scenario: A UNION leg's projection reads what an earlier leg wrote
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:WvU {id: 1, v: 10}), (:WvU {id: 2, v: 20})
+            """
+        And having executed:
+            """
+            MATCH (a:WvU) SET a.v = 99 UNION ALL MATCH (a:WvU) WITH a.v AS w CREATE (:WvUx {v: w})
+            """
+        When executing query:
+            """
+            MATCH (x:WvUx) RETURN x.v AS v
+            """
+        Then the result should be:
+            | v |
+            | 99 |
+            | 99 |
+
+    Scenario: A UNION leg reads what the leg before it wrote, after a leg that wrote nothing
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:WvU {id: 1, v: 10}), (:WvU {id: 2, v: 20})
+            """
+        And having executed:
+            """
+            MATCH (a:WvU) WITH a LIMIT 0 CREATE (:WvUz) UNION ALL MATCH (a:WvU) SET a.v = 99 UNION ALL MATCH (a:WvU) CREATE (:WvUx {v: a.v})
+            """
+        When executing query:
+            """
+            MATCH (x:WvUx) RETURN x.v AS v
+            """
+        Then the result should be:
+            | v |
+            | 99 |
+            | 99 |
+
+    Scenario: A third UNION leg reads what the second leg created
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:WvU {id: 1, v: 10}), (:WvU {id: 2, v: 20})
+            """
+        And having executed:
+            """
+            MATCH (a:WvU) SET a.v = 99 UNION ALL MATCH (a:WvU) CREATE (:WvUx {v: a.v}) UNION ALL MATCH (x:WvUx) CREATE (:WvUy {v: x.v})
+            """
+        When executing query:
+            """
+            MATCH (y:WvUy) RETURN y.v AS v
+            """
+        Then the result should be:
+            | v |
+            | 99 |
+            | 99 |
+
+    Scenario: A UNION leg sees a node an earlier leg created
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:WvU {id: 1, v: 10}), (:WvU {id: 2, v: 20})
+            """
+        And having executed:
+            """
+            CREATE (:WvU {id: 3, v: 30}) UNION ALL MATCH (a:WvU) CREATE (:WvUx {v: a.v})
+            """
+        When executing query:
+            """
+            MATCH (x:WvUx) RETURN x.v AS v
+            """
+        Then the result should be:
+            | v |
+            | 10 |
+            | 20 |
+            | 30 |
+
+    Scenario: A UNION leg does not see nodes an earlier leg deleted
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:WvU {id: 1, v: 10}), (:WvU {id: 2, v: 20})
+            """
+        And having executed:
+            """
+            MATCH (a:WvU) DETACH DELETE a UNION ALL MATCH (a:WvU) CREATE (:WvUx {v: a.v})
+            """
+        When executing query:
+            """
+            MATCH (x:WvUx) RETURN count(x) AS c
+            """
+        Then the result should be:
+            | c |
+            | 0 |
+
+    Scenario: A UNION leg's filter reads what an earlier leg wrote
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:WvU {id: 1, v: 10}), (:WvU {id: 2, v: 20})
+            """
+        And having executed:
+            """
+            MATCH (a:WvU) SET a.v = 99 UNION ALL MATCH (a:WvU) WHERE a.v = 99 CREATE (:WvUx {v: a.v})
+            """
+        When executing query:
+            """
+            MATCH (x:WvUx) RETURN x.v AS v
+            """
+        Then the result should be:
+            | v |
+            | 99 |
+            | 99 |
+
+    Scenario: A UNION leg's index lookup reads what an earlier leg wrote
+        Given an empty graph
+        And with new index :WvU(v)
+        And having executed:
+            """
+            CREATE (:WvU {id: 1, v: 10}), (:WvU {id: 2, v: 20})
+            """
+        And having executed:
+            """
+            MATCH (a:WvU) SET a.v = 99 UNION ALL MATCH (a:WvU) WHERE a.v = 99 CREATE (:WvUx {v: a.v})
+            """
+        When executing query:
+            """
+            MATCH (x:WvUx) RETURN x.v AS v
+            """
+        Then the result should be:
+            | v |
+            | 99 |
+            | 99 |
+
+    Scenario: A read UNION leg before a writing leg does not see its write
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:WvU {id: 1, v: 10}), (:WvU {id: 2, v: 20})
+            """
+        When executing query:
+            """
+            MATCH (a:WvU) RETURN a.v AS v UNION ALL MATCH (a:WvU) SET a.v = 99 RETURN a.v AS v
+            """
+        Then the result should be:
+            | v  |
+            | 10 |
+            | 20 |
+            | 99 |
+            | 99 |
+
+    Scenario: A UNION inside a writing CALL body does not let the outer scan see the body's nodes
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:WvU {id: 1, v: 10}), (:WvU {id: 2, v: 20})
+            """
+        When executing query:
+            """
+            MATCH (p:WvU) CALL (p) { CREATE (:WvU {id: p.id + 10}) UNION ALL CREATE (:WvUq) } RETURN count(*) AS c
+            """
+        Then the result should be:
+            | c |
+            | 2 |

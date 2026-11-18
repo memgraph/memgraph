@@ -379,5 +379,50 @@ def test_create_after_a_label_write_masks_a_property_the_label_denies():
         common.execute_and_fetch_all(admin, "REVOKE SET PROPERTY {v} ON NODES CONTAINING LABELS :WvLeakCopy FROM user;")
 
 
+def test_a_union_leg_after_a_label_write_masks_a_property_the_label_denies():
+    # The second leg runs after the first made a :Employee, whose ssn the user may not read.
+    admin = admin_cursor()
+    common.execute_and_fetch_all(admin, "GRANT SET PROPERTY {v} ON NODES CONTAINING LABELS :WvLeakCopy TO user;")
+    common.execute_and_fetch_all(admin, "CREATE (:WvLeakSrc {ssn: 'S1'});")
+    try:
+        common.execute_and_fetch_all(
+            user_cursor(),
+            "MATCH (a:WvLeakSrc) SET a:Employee UNION ALL MATCH (a:WvLeakSrc) CREATE (:WvLeakCopy {v: a.ssn});",
+        )
+        result = common.execute_and_fetch_all(admin, "MATCH (x:WvLeakCopy) RETURN x.v AS v;")
+        assert result == [(None,)]
+    finally:
+        common.execute_and_fetch_all(admin, "MATCH (n) WHERE n:WvLeakSrc OR n:WvLeakCopy DETACH DELETE n;")
+        common.execute_and_fetch_all(admin, "REVOKE SET PROPERTY {v} ON NODES CONTAINING LABELS :WvLeakCopy FROM user;")
+
+
+def test_create_edge_after_a_label_write_checks_the_new_label():
+    # Clause order makes node 1 :WvSecretE (row a=3) before row a=1 creates an edge from it, which the user may not.
+    admin = admin_cursor()
+    for query in [
+        "CREATE USER wv_edge IDENTIFIED BY 'test';",
+        "GRANT ALL PRIVILEGES TO wv_edge;",
+        "GRANT DATABASE * TO wv_edge;",
+        "GRANT CREATE, READ, UPDATE, DELETE ON NODES CONTAINING LABELS * TO wv_edge;",
+        "GRANT CREATE, READ, UPDATE, DELETE ON EDGES OF TYPE * TO wv_edge;",
+        "GRANT READ, SET PROPERTY {*} ON NODES CONTAINING LABELS * TO wv_edge;",
+        "GRANT CREATE, READ, UPDATE ON NODES CONTAINING LABELS :WvSecretE TO wv_edge;",
+        "DENY CREATE EDGE ON NODES CONTAINING LABELS :WvSecretE TO wv_edge;",
+        "UNWIND [1, 2, 3] AS i CREATE (:WvE {id: i});",
+    ]:
+        common.execute_and_fetch_all(admin, query)
+    try:
+        cursor = common.connect(username="wv_edge", password="test").cursor()
+        with pytest.raises(Exception, match="CREATE EDGE"):
+            common.execute_and_fetch_all(
+                cursor,
+                "MATCH (a:WvE) WHERE a.id IN [1, 3] WITH a ORDER BY a.id "
+                "MATCH (b:WvE {id: CASE a.id WHEN 1 THEN 2 ELSE 1 END}) SET b:WvSecretE CREATE (a)-[:WvR]->(:WvEx);",
+            )
+    finally:
+        common.execute_and_fetch_all(admin, "MATCH (n) WHERE n:WvE OR n:WvEx DETACH DELETE n;")
+        common.execute_and_fetch_all(admin, "DROP USER wv_edge;")
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))
