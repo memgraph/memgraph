@@ -96,10 +96,12 @@ metrics::StorageSnapshot MetricsSnapshot(Database &db) {
                                     .db_embedding_memory_tracked = db.DbEmbeddingMemoryUsage(),
                                     .db_query_memory_tracked = db.DbQueryMemoryUsage()};
   if (auto const *mem = dynamic_cast<storage::InMemoryStorage const *>(db.storage())) {
-    if (auto const progress = mem->TryGetSnapshotProgress()) {
+    if (auto const progress = mem->TryGetSnapshotProgress(); progress && progress->start_steady_ms > 0) {
       snapshot.snapshot_running_seconds = SecondsSince(progress->start_steady_ms);
     }
-    if (auto const gc = mem->TryGetGcRunInfo()) snapshot.gc_running_seconds = SecondsSince(gc->start_steady_ms);
+    if (auto const gc = mem->TryGetGcRunInfo(); gc && gc->start_steady_ms > 0) {
+      snapshot.gc_running_seconds = SecondsSince(gc->start_steady_ms);
+    }
   }
   return snapshot;
 }
