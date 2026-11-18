@@ -66,11 +66,14 @@ constexpr EdgeTypeId kInvalidEdgeTypeId = EdgeTypeId::FromUint(-1);
 #undef STORAGE_DEFINE_ID_TYPE
 
 #ifdef MG_ENTERPRISE
-/// Branch diff markers are labels/properties/edge types with this bit set; mapper ids count from 0 and never have it.
+/// Branch diff markers are labels/properties/edge types with this bit set; NameIdMapper refuses ids above kLastRealId.
 inline constexpr uint32_t kReservedIdBit = uint32_t{1} << 31U;
 
 /// The id of the label (vertex) / property (edge) that marks a branch overlay as deleted.
 inline constexpr uint32_t kDeleteId = 0xFFFFFFFEU;
+
+/// Largest id a name may get; its mark stays below kDeleteId and the invalid id 0xFFFFFFFF.
+inline constexpr uint32_t kLastRealId = kReservedIdBit - 3;
 
 constexpr uint32_t StripReservedId(uint32_t id) noexcept { return id & ~kReservedIdBit; }
 
