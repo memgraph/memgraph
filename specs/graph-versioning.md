@@ -368,7 +368,7 @@ leave the gauge until it is resumed.
 | `memgraph_versioning_branches_created_total` | `VersioningBranchesCreated` | counter |
 | `memgraph_versioning_branches_dropped_total` | `VersioningBranchesDropped` | counter |
 | `memgraph_versioning_active_branches` | `VersioningActiveBranches` | gauge |
-| `memgraph_versioning_active_sessions` | `VersioningActiveSessions` | gauge (sessions on a branch) |
+| `memgraph_versioning_active_sessions` | `VersioningActiveSessions` | gauge (branch attachments: counts a session parked under `USING BRANCH` and each in-flight `USING BRANCH` query, so one session can count twice) |
 
 **Logs.** Every automatic drop (on a REPLICA: resync, restart, resume, coordinator demotion), every
 branch set aside as unavailable at startup, and every
