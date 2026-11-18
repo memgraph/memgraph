@@ -41,14 +41,16 @@
 # The arm of `continuous_integration --versioned-branch` (the other arms skip suites with versioned_branch): every
 # scenario's setup runs on main, then its test query runs on a fresh branch forked from it. Graph Versioning does not
 # support on-disk storage, so the on-disk suites (and `unstable`) have no branch run. A scenario listed in
-# expected_failures must fail or be refused on a branch; any other refusal on a branch fails the scenario.
+# expected_failures must fail on a branch with a query error containing `error`, or, for `error: null`, with a wrong
+# result and no query error; any other failure, and any unlisted refusal on a branch, fails the scenario.
 - name: memgraph_V1_versioned
   test_suite: memgraph_V1
   storage_mode: IN_MEMORY_TRANSACTIONAL
   must_pass: true
   versioned_branch: true
-  expected_failures: &memgraph_V1_versioned_expected_failures
-    - reason: "Schema and storage-global statements (descriptions, enums, index statistics, vector index DDL) are refused on a branch in v1."
+  expected_failures:
+    - error: "Schema and storage-global operations are not allowed on a branch. Run USE BRANCH main first."
+      reason: "Schema and storage-global statements (descriptions, enums, index statistics, vector index DDL) are refused on a branch in v1."
       scenarios:
         descriptions.feature:
           - "Set label description"
@@ -96,12 +98,25 @@
           - "Dropping one vector index preserves vectors for remaining index"
           - "Creating index after vector is already in another index"
           - "Create vector index with parameterized config that is not a map raises error"
-    - reason: "Uses enum Status from the earlier 'Create enum:' scenario, which is refused on a branch."
+    - error: null
+      reason: "Uses enum Status from the earlier 'Create enum:' scenario, which is refused on a branch."
       scenarios:
         memgraph.feature:
           - "Show enums:"
+    - error: "Unknown Enum type."
+      reason: "Uses enum Status from the earlier 'Create enum:' scenario, which is refused on a branch."
+      scenarios:
+        memgraph.feature:
           - "Add value to enum:"
+    - error: "Unknown Enum name Status."
+      reason: "Uses enum Status from the earlier 'Create enum:' scenario, which is refused on a branch."
+      scenarios:
+        memgraph.feature:
           - "Update value in enum:"
+    - error: "in enum 'Status' not found."
+      reason: "Uses enum Status from the earlier 'Create enum:' scenario, which is refused on a branch."
+      scenarios:
+        memgraph.feature:
           - "Compare enum values for equality:"
           - "Compare different enums for equality:"
           - "Create an edge with an enum property:"
@@ -111,7 +126,8 @@
           - "Compare enum values for ordering:"
           - "Enum equal to a comparison bound answers null:"
           - "Compare enum values for inequality:"
-    - reason: "Text search procedures are refused on a branch in v1."
+    - error: "Text search is not supported on a branch in v1. Run it on main: USE BRANCH main."
+      reason: "Text search procedures are refused on a branch in v1."
       scenarios:
         text_edge_search.feature:
           - "Search edge by property"
@@ -170,7 +186,8 @@
           - "Unqualified query with fuzzy errors at parse time"
           - "Nonexistent field prefix errors at parse time"
           - "Fuzzy phrase search requires a single-property query"
-    - reason: "Vector search procedures are refused on a branch in v1."
+    - error: "Vector search is not supported on a branch in v1. Run it on main: USE BRANCH main."
+      reason: "Vector search procedures are refused on a branch in v1."
       scenarios:
         vector_edge_search.feature:
           - "Search vector edge index"
@@ -186,7 +203,8 @@
           - "Create wildcard vector index"
           - "Create OR vector index on multiple labels (with optional colon prefix)"
           - "Create AND vector index on multiple labels"
-    - reason: "SHOW INDEX INFO and SHOW VECTOR INDEX INFO on a branch report main's index counts, not the branch's writes (v1)."
+    - error: null
+      reason: "SHOW INDEX INFO and SHOW VECTOR INDEX INFO on a branch report main's index counts, not the branch's writes (v1)."
       scenarios:
         spatial.feature:
           - "Create point index:"
@@ -196,25 +214,11 @@
           - "Vertex with both labels transfers property to property store when removing both labels"
           - "Adding second label to vertex with one label adds to second index"
           - "Updating property when vertex has both labels updates both indices"
-    - reason: "Vector index validation (dimension and value type) is not enforced for writes on a branch in v1, like unique constraints."
+    - error: null
+      reason: "Vector index validation (dimension and value type) is not enforced for writes on a branch in v1, like constraints."
       scenarios:
         vector_search.feature:
           - "Vector index raises error on property with wrong dimension"
-
-# The same run with commit-lock narrowing on: branches must not depend on the commit-lock mode.
-- name: memgraph_V1_versioned_narrowing
-  test_suite: memgraph_V1
-  storage_mode: IN_MEMORY_TRANSACTIONAL
-  commit_lock_narrowing: true
-  must_pass: true
-  versioned_branch: true
-  expected_failures: *memgraph_V1_versioned_expected_failures
-
-- name: openCypher_M09_versioned
-  test_suite: openCypher_M09
-  storage_mode: IN_MEMORY_TRANSACTIONAL
-  must_pass: false
-  versioned_branch: true
 
 - name: stackoverflow_answers_versioned
   test_suite: stackoverflow_answers

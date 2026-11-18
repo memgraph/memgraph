@@ -77,7 +77,7 @@ def main():
     add_argument(
         "--expected-failures",
         default="",
-        help="JSON file {feature file: {scenario name: reason}} of scenarios that must fail on a branch",
+        help="JSON file {feature file: {scenario name: {reason, error}}} of scenarios that must fail on a branch",
     )
 
     # Parse arguments

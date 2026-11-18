@@ -101,17 +101,24 @@ def after_scenario(context, scenario):
     status = scenario.status
     versioned = getattr(context.config, "versioned_branch", False)
     if versioned:
-        reason = context.expected_failures.get(os.path.basename(scenario.filename), {}).get(scenario.name)
+        entry = context.expected_failures.get(os.path.basename(scenario.filename), {}).get(scenario.name)
         # A scenario that failed before the fork (setup) says nothing about the branch.
         failed_on_branch = getattr(context, "vbranch_forked", False) and (
             scenario.status == "failed" or context.vbranch_refused
         )
-        if reason is not None:
-            status = "passed" if failed_on_branch else "failed"
-            if failed_on_branch:
-                print(f"\nExpected failure on a branch ({reason}): {scenario.name}")
+        if entry is not None:
+            # error is the expected query error text; null means a wrong result with no query error. Anything else
+            # (another error, a dropped connection) is a real regression.
+            error = "" if context.exception is None else str(context.exception)
+            matches = failed_on_branch and (entry["error"] in error if entry["error"] is not None else not error)
+            status = "passed" if matches else "failed"
+            if matches:
+                print(f"\nExpected failure on a branch ({entry['reason']}): {scenario.name}")
             else:
-                print(f"\nListed in expected_failures but passed on a branch: {scenario.name}")
+                print(
+                    f"\nListed in expected_failures but did not fail as expected on a branch "
+                    f"(want error {entry['error']!r}, got {error!r}): {scenario.name}"
+                )
         elif context.vbranch_refused:
             status = "failed"
             print(f"\nRefused on a branch but not listed in expected_failures: {scenario.name}")
