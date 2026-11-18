@@ -864,6 +864,24 @@ TEST_F(AuthWithStorage, DatabaseSpecificAccess) {
   }
 }
 
+TEST(RolesImpersonate, RequiresImpersonateUserPermission) {
+  memgraph::license::global_license_checker.EnableTesting();
+
+  User const target{"target"};
+  auto const roles_with = [&target](std::optional<PermissionLevel> const level) {
+    Role role{"role"};
+    role.db_access().Grant("db1");
+    role.GrantUserImp({target});
+    if (level == PermissionLevel::GRANT) role.permissions().Grant(Permission::IMPERSONATE_USER);
+    if (level == PermissionLevel::DENY) role.permissions().Deny(Permission::IMPERSONATE_USER);
+    return Roles{{role}};
+  };
+
+  EXPECT_TRUE(roles_with(PermissionLevel::GRANT).CanImpersonate(target, "db1"));
+  EXPECT_FALSE(roles_with(std::nullopt).CanImpersonate(target, "db1"));
+  EXPECT_FALSE(roles_with(PermissionLevel::DENY).CanImpersonate(target, "db1"));
+}
+
 TEST(RolesFga, PerDatabaseRoleAssignmentScopesFga) {
   memgraph::license::global_license_checker.EnableTesting();
 

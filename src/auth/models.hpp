@@ -903,6 +903,7 @@ class Roles {
   }
 
   bool CanImpersonate(const User &user, std::optional<std::string_view> db_name = std::nullopt) const {
+    if (GetPermissions(db_name).Has(Permission::IMPERSONATE_USER) != PermissionLevel::GRANT) return false;
     return !UserImpIsDenied(user, db_name) && UserImpIsGranted(user, db_name);
   }
 
