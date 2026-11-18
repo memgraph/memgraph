@@ -248,7 +248,9 @@ so it fails closed: the deny holds and no grant overrides it. During a rolling
 upgrade, a replica still on an earlier version can receive a version 5 user or
 role from an upgraded main. From 3.14.0, the replica rejects it and system
 replication to that replica fails until it is upgraded. Earlier versions accept
-it and enforce each weak deny as strong until they are upgraded.
+it and enforce each weak deny as strong until they are upgraded. If such a
+replica writes the user or role back, it drops the weak field, and the deny
+stays strong after the upgrade until the `WEAK DENY` is issued again.
 
 ## Testing Decisions
 
