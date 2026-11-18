@@ -180,8 +180,12 @@ Trigger::Trigger(std::string name, const std::string &query, const UserParameter
       event_type_{event_type},
       creator_{creator ? creator->clone() : nullptr},  // deep copy (otherwise not thread safe)
       privilege_context_{privilege_context} {
-  if (!utils::Downcast<CypherQuery>(parsed_statements_.query)) {
+  auto *const cypher_query = utils::Downcast<CypherQuery>(parsed_statements_.query);
+  if (!cypher_query) {
     throw utils::BasicException("A trigger statement must be a Cypher query.");
+  }
+  if (cypher_query->pre_query_directives_.branch_target_ != nullptr) {
+    throw utils::BasicException("USING BRANCH is not allowed in a trigger statement.");
   }
   // We check immediately if the query is valid by trying to create a plan.
   if (privilege_context_ == TriggerPrivilegeContext::DEFINER) {
