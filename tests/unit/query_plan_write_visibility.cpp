@@ -18,6 +18,7 @@
 #include <map>
 #include <memory>
 #include <optional>
+#include <ranges>
 #include <regex>
 #include <set>
 #include <sstream>
@@ -576,7 +577,6 @@ TEST_F(WriteVisibilityPlan, TwoRowsThatMayShareANodeKeepTheAccessCheck) {
   }
 }
 
-// Reading every property of a node, and creating an edge from it, check its labels too.
 // A DELETE checks its node's labels, or both end nodes' labels for an edge.
 TEST_F(WriteVisibilityPlan, ADeleteAfterALabelWriteGetsAnAccessCheck) {
   for (auto const *query : {
@@ -589,6 +589,97 @@ TEST_F(WriteVisibilityPlan, ADeleteAfterALabelWriteGetsAnAccessCheck) {
     EXPECT_EQ(std::vector(chain.begin(), chain.begin() + 3), (Names{"EmptyResult", "Delete", "Accumulate+(access)"}))
         << query;
   }
+}
+
+// A row that deletes or relabels only its own node meets no other row's write.
+TEST_F(WriteVisibilityPlan, ARowLocalDeleteGetsNoBarrier) {
+  for (auto const *query : {"MATCH (a:P) SET a:Secret DELETE a", "MATCH (a:P) DELETE a SET a:Z"}) {
+    EXPECT_TRUE(Collect<Accumulate>(Plan(query)).empty()) << query;
+  }
+}
+
+// ---------------------------------------------------------------- DELETE deferral
+
+constexpr std::string_view kDeletePairs = "MATCH (a:P), (b:P) WHERE a.id <> b.id ";
+
+std::string DeletePairs(std::string_view rest) { return std::string{kDeletePairs} + std::string{rest}; }
+
+/// The drain ids of @p plan's Accumulates and Deletes, top first.
+std::vector<uint64_t> DrainIds(LogicalOperator &plan) {
+  return Collect<Accumulate>(plan) | std::views::transform([](auto *op) { return op->defers_deletes_; }) |
+         std::ranges::to<std::vector>();
+}
+
+std::vector<uint64_t> DeleteIds(LogicalOperator &plan) {
+  return Collect<plan::Delete>(plan) | std::views::transform([](auto *op) { return op->deferred_to_; }) |
+         std::ranges::to<std::vector>();
+}
+
+// The deletes land at the end of the segment, so only its outermost drain applies them.
+TEST_F(WriteVisibilityPlan, ADeleteDefersToTheOutermostDrain) {
+  for (auto const *rest : {
+           "DELETE b SET a:Z",
+           "DELETE b SET a.k = 1 SET a:Z",
+           "DELETE b SET a:Y SET a.k = 1",
+           "DELETE b SET a:Y SET a.k = 1 SET a:Z",
+           "WITH a, b ORDER BY a.id DELETE (CASE WHEN b.v > 0 THEN b ELSE null END) SET a.v = 0 SET a:Z",
+       }) {
+    auto &plan = Plan(DeletePairs(rest));
+    auto const drains = DrainIds(plan);
+    auto const deletes = DeleteIds(plan);
+    ASSERT_GE(drains.size(), 1U) << rest;
+    ASSERT_EQ(deletes.size(), 1U) << rest;
+    EXPECT_NE(drains.front(), 0U) << rest;
+    EXPECT_EQ(deletes.front(), drains.front()) << rest;
+    EXPECT_EQ(std::ranges::count(drains, 0U), drains.size() - 1) << rest;
+  }
+}
+
+// A read after the DELETE sees it, so its barrier applies the deletes; WITH, RETURN and a writing CALL end the segment.
+TEST_F(WriteVisibilityPlan, ABarrierOrAProjectionEndsDeleteDeferral) {
+  for (auto const *rest : {
+           "DELETE b SET a.v = a.v + 1",
+           "DELETE b WITH a SET a.k = 1 SET a:Z",
+           "DELETE b WITH a, count(*) AS c SET a:Z",
+       }) {
+    auto &plan = Plan(DeletePairs(rest));
+    EXPECT_EQ(DeleteIds(plan), (std::vector<uint64_t>{0})) << rest;
+  }
+}
+
+TEST_F(WriteVisibilityPlan, AWritingCallEndsDeleteDeferral) {
+  auto &plan = Plan(
+      DeletePairs("DELETE b CALL (a) { SET a.q = 1 } DELETE (CASE WHEN a.v > 0 THEN null ELSE null END) SET a.v = 0"));
+  auto const deletes = DeleteIds(plan);
+  ASSERT_EQ(deletes.size(), 2U);
+  EXPECT_NE(deletes[0], 0U);
+  EXPECT_EQ(deletes[1], 0U);
+}
+
+// A CALL body's Delete applies when the body ends, per outer row: it never defers to a root drain.
+TEST_F(WriteVisibilityPlan, BodyAndRootDrainIdsDiffer) {
+  auto &plan = Plan(
+      DeletePairs("CALL (a, b) { DELETE b SET a:Z } DELETE (CASE WHEN a.v > 0 THEN null ELSE null END) SET a.v = 0"));
+  auto const deletes = DeleteIds(plan);
+  ASSERT_EQ(deletes.size(), 2U);
+  EXPECT_NE(deletes[0], 0U);
+  EXPECT_NE(deletes[1], 0U);
+  EXPECT_NE(deletes[0], deletes[1]);
+}
+
+// The deletes have not landed after a full drain, so a later read of what the DELETE wrote still gets a barrier.
+TEST_F(WriteVisibilityPlan, AFullDrainKeepsTheDeleteWritesPending) {
+  auto const chain = Chain(Plan(DeletePairs(
+      "WITH a, b ORDER BY a.id DELETE (CASE WHEN b.v > 0 THEN b ELSE null END) SET a.v = 0 SET a.w = a.id")));
+  ASSERT_GE(chain.size(), 3U);
+  EXPECT_EQ(std::vector(chain.begin(), chain.begin() + 3), (Names{"EmptyResult", "SetProperty", "Accumulate+"}));
+}
+
+TEST_F(WriteVisibilityPlan, CloneKeepsTheDeleteDeferral) {
+  auto clone = Plan(DeletePairs("DELETE b SET a.k = 1 SET a:Z")).Clone(&storage_);
+  EXPECT_EQ(DrainIds(*clone), DrainIds(*plan_));
+  EXPECT_EQ(DeleteIds(*clone), DeleteIds(*plan_));
+  EXPECT_NE(DeleteIds(*clone), (std::vector<uint64_t>{0}));
 }
 
 TEST_F(WriteVisibilityPlan, AnAllPropertiesReadOrAnEdgeCreateAfterALabelWriteGetsAnAccessCheck) {

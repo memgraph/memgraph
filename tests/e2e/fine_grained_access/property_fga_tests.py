@@ -424,5 +424,87 @@ def test_create_edge_after_a_label_write_checks_the_new_label():
         common.execute_and_fetch_all(admin, "DROP USER wv_edge;")
 
 
+def _wv_delete_user(name, *grants):
+    admin = admin_cursor()
+    for query in [
+        f"CREATE USER {name} IDENTIFIED BY 'test';",
+        f"GRANT ALL PRIVILEGES TO {name};",
+        f"GRANT DATABASE * TO {name};",
+        f"GRANT CREATE, READ, UPDATE, DELETE ON NODES CONTAINING LABELS * TO {name};",
+        f"GRANT CREATE, READ, UPDATE, DELETE ON EDGES OF TYPE * TO {name};",
+        f"GRANT READ, SET PROPERTY {{*}} ON NODES CONTAINING LABELS * TO {name};",
+        *(grant.format(name=name) for grant in grants),
+    ]:
+        common.execute_and_fetch_all(admin, query)
+    return common.connect(username=name, password="test").cursor()
+
+
+WV_PAIRS = "MATCH (a:WvDel), (b:WvDel) WHERE a.id <> b.id "
+
+
+# Each drain above the DELETE checks or reads before the later write; the deletes still land at the end of the part.
+@pytest.mark.parametrize(
+    "query",
+    [
+        WV_PAIRS + "DELETE b SET a:WvDelZ",
+        WV_PAIRS + "DETACH DELETE b SET a:WvDelZ",
+        WV_PAIRS + "SET a.k = 1 DELETE b SET a:WvDelZ",
+        WV_PAIRS + "DELETE b SET a.k = 1 SET a:WvDelZ",
+        WV_PAIRS + "DELETE b SET a:WvDelY SET a.k = 1",
+        WV_PAIRS + "DELETE b SET a:WvDelY SET a.k = 1 SET a:WvDelZ",
+        WV_PAIRS + "SET a:WvDelQ DELETE b SET a:WvDelZ",
+        WV_PAIRS + "DELETE b SET a:WvDelZ RETURN count(*) AS c",
+        "MATCH p = (a:WvDel)-[:WvDelR]->(), q = (b:WvDel)-[:WvDelR]->() WHERE a.id <> b.id DETACH DELETE q SET a:WvDelZ",
+    ],
+)
+def test_a_drain_above_a_delete_does_not_apply_it_early(query):
+    admin = admin_cursor()
+    if "WvDelR" in query:
+        common.execute_and_fetch_all(admin, "CREATE (a:WvDel {id: 1})-[:WvDelR]->(b:WvDel {id: 2})-[:WvDelR]->(a);")
+    else:
+        common.execute_and_fetch_all(admin, "CREATE (:WvDel {id: 1}), (:WvDel {id: 2});")
+    try:
+        cursor = _wv_delete_user("wv_del", "DENY DELETE ON NODES CONTAINING LABELS :WvDelUnrelated TO {name};")
+        common.execute_and_fetch_all(cursor, query)
+        assert common.execute_and_fetch_all(admin, "MATCH (n:WvDel) RETURN count(n);") == [(0,)]
+    finally:
+        common.execute_and_fetch_all(admin, "MATCH (n:WvDel) DETACH DELETE n;")
+        common.execute_and_fetch_all(admin, "DROP USER wv_del;")
+
+
+def test_a_delete_checks_its_permission_before_a_later_label_removal():
+    # Row a=2 removes :WvDelSecret from node 2 before row a=1 deletes it; the check must see the label.
+    admin = admin_cursor()
+    common.execute_and_fetch_all(admin, "CREATE (:WvDel {id: 1}), (:WvDel:WvDelSecret {id: 2});")
+    try:
+        cursor = _wv_delete_user(
+            "wv_del",
+            "GRANT CREATE, READ, UPDATE ON NODES CONTAINING LABELS :WvDel, :WvDelSecret MATCHING EXACTLY TO {name};",
+            "DENY DELETE ON NODES CONTAINING LABELS :WvDel, :WvDelSecret MATCHING EXACTLY TO {name};",
+        )
+        with pytest.raises(Exception, match="DELETE permission"):
+            common.execute_and_fetch_all(
+                cursor, WV_PAIRS + "WITH a, b ORDER BY a.id DESC DELETE b REMOVE a:WvDelSecret"
+            )
+        assert common.execute_and_fetch_all(admin, "MATCH (n:WvDel) RETURN count(n);") == [(2,)]
+    finally:
+        common.execute_and_fetch_all(admin, "MATCH (n:WvDel) DETACH DELETE n;")
+        common.execute_and_fetch_all(admin, "DROP USER wv_del;")
+
+
+def test_a_with_ends_what_a_later_drain_may_defer():
+    # The WITH applies the deletes, so the later label write meets a deleted node.
+    admin = admin_cursor()
+    common.execute_and_fetch_all(admin, "CREATE (:WvDel {id: 1}), (:WvDel {id: 2});")
+    try:
+        cursor = _wv_delete_user("wv_del", "DENY DELETE ON NODES CONTAINING LABELS :WvDelUnrelated TO {name};")
+        with pytest.raises(Exception, match="deleted"):
+            common.execute_and_fetch_all(cursor, WV_PAIRS + "DELETE b WITH a SET a.k = 1 SET a:WvDelZ")
+        assert common.execute_and_fetch_all(admin, "MATCH (n:WvDel) RETURN count(n);") == [(2,)]
+    finally:
+        common.execute_and_fetch_all(admin, "MATCH (n:WvDel) DETACH DELETE n;")
+        common.execute_and_fetch_all(admin, "DROP USER wv_del;")
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))

@@ -3397,3 +3397,91 @@ Feature: Write visibility inside one query
         Then the result should be:
             | c |
             | 2 |
+
+    Scenario: A drain above a DELETE leaves the deletes to the end of the segment
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:WvDd {id: 1, v: 10}), (:WvDd {id: 2, v: 20})
+            """
+        When executing query:
+            """
+            MATCH (a:WvDd), (b:WvDd) WHERE a.id <> b.id WITH a, b ORDER BY a.id DELETE (CASE WHEN b.v > 0 THEN b ELSE null END) SET a.v = 0 WITH count(*) AS c MATCH (n:WvDd) RETURN count(n) AS n
+            """
+        Then the result should be, in order:
+            | n |
+            | 0 |
+
+    Scenario: An access-check drain above a full drain above a DELETE leaves the deletes to the end
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:WvDd {id: 1, v: 10}), (:WvDd {id: 2, v: 20})
+            """
+        When executing query:
+            """
+            MATCH (a:WvDd), (b:WvDd) WHERE a.id <> b.id WITH a, b ORDER BY a.id DELETE (CASE WHEN b.v > 0 THEN b ELSE null END) SET a.v = 0 SET a:WvDz WITH count(*) AS c MATCH (n:WvDd) RETURN count(n) AS n
+            """
+        Then the result should be, in order:
+            | n |
+            | 0 |
+
+    Scenario: A read after a drained DELETE sees the delete
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:WvDd {id: 1, v: 10}), (:WvDd {id: 2, v: 20})
+            """
+        When executing query:
+            """
+            MATCH (a:WvDd), (b:WvDd) WHERE a.id <> b.id WITH a, b ORDER BY a.id DELETE (CASE WHEN b.v > 0 THEN b ELSE null END) SET a.v = 0 SET a.w = a.id
+            """
+        Then an error should be raised
+
+    Scenario: A read after a DELETE in the same part sees the delete
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:WvDd {id: 1, v: 10}), (:WvDd {id: 2, v: 20})
+            """
+        When executing query:
+            """
+            MATCH (a:WvDd), (b:WvDd) WHERE a.id <> b.id DELETE b SET a.v = a.v + 1
+            """
+        Then an error should be raised
+
+    Scenario: A DELETE below a passing access check and a barrier lands before the barrier's read
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:WvDd {id: 1, v: 10}), (:WvDd {id: 2, v: 20}), (:WvDq {x: 1})
+            """
+        When executing query:
+            """
+            MATCH (a:WvDd), (b:WvDd), (c:WvDq) WHERE a.id <> b.id DELETE b SET a:WvDz SET a.v = a.v + 1 DELETE (CASE WHEN c.x > 0 THEN c ELSE null END) SET c.x = 0
+            """
+        Then an error should be raised
+
+    Scenario: A DELETE in a CALL body lands at the end of the body under a later drain
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:WvDd {id: 1, v: 10}), (:WvDd {id: 2, v: 20})
+            """
+        When executing query:
+            """
+            MATCH (a:WvDd), (b:WvDd) WHERE a.id <> b.id CALL (a, b) { DELETE b SET a:WvDz } DELETE (CASE WHEN a.v > 0 THEN null END) SET a.v = 0
+            """
+        Then an error should be raised
+
+    Scenario: A DELETE in a FOREACH body lands at the end of the body
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:WvDd {id: 1, v: 10}), (:WvDd {id: 2, v: 20})
+            """
+        When executing query:
+            """
+            MATCH (a:WvDd), (b:WvDd) WHERE a.id <> b.id FOREACH (x IN [1] | DELETE b) SET a:WvDz
+            """
+        Then an error should be raised

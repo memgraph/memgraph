@@ -13,6 +13,7 @@
 #include <cmath>
 #include <iterator>
 #include <memory>
+#include <utility>
 #include <vector>
 
 #include "disk_test_utils.hpp"
@@ -174,6 +175,83 @@ TYPED_TEST(QueryPlanTest, AccumulateAdvance) {
   };
   check(false);
   check(true);
+}
+
+// 'MATCH (n) DELETE n <drain>' with three nodes: the nodes left after the drain's first Pull, then after its last.
+template <class TStorage>
+std::pair<int, int> NodesLeftAroundAReplay(QueryPlanTest<TStorage> &test, uint64_t delete_owner, uint64_t drain,
+                                           bool access_check_only = false) {
+  auto storage_dba = test.db->Access(memgraph::storage::WRITE);
+  memgraph::query::DbAccessor dba(storage_dba.get());
+  for (int i = 0; i < 3; ++i) dba.InsertVertex();
+  dba.AdvanceCommand();
+  SymbolTable symbol_table;
+  auto n = MakeScanAll(test.storage, symbol_table, "n");
+  auto n_get = test.storage.template Create<Identifier>("n")->MapTo(n.sym_);
+  auto delete_op = std::make_shared<plan::Delete>(n.op_, std::vector<Expression *>{n_get}, false);
+  delete_op->deferred_to_ = delete_owner;
+  auto accumulate = std::make_shared<Accumulate>(delete_op, std::vector<Symbol>{n.sym_}, false);
+  accumulate->defers_deletes_ = drain;
+  accumulate->access_check_only_ = access_check_only;
+  auto context = MakeContext(test.storage, symbol_table, &dba);
+  Frame frame(context.symbol_table.max_position());
+  auto cursor = accumulate->MakeCursor(memgraph::utils::NewDeleteResource(), TestMetricHandles());
+  auto const left = [&] { return static_cast<int>(CountIterable(dba.Vertices(memgraph::storage::View::NEW))); };
+  EXPECT_TRUE(cursor->Pull(frame, context));
+  auto const after_first = left();
+  while (cursor->Pull(frame, context)) {
+  }
+  EXPECT_TRUE(context.delete_owners.empty());
+  return {after_first, left()};
+}
+
+TYPED_TEST(QueryPlanTest, AnOwnerDrainAppliesItsDeletesAfterItsReplay) {
+  EXPECT_EQ(NodesLeftAroundAReplay(*this, 7, 7), std::pair(3, 0));
+  // Another drain's id, or none: the Delete applies when its input ends, inside the fill.
+  EXPECT_EQ(NodesLeftAroundAReplay(*this, 7, 8), std::pair(0, 0));
+  EXPECT_EQ(NodesLeftAroundAReplay(*this, 0, 7), std::pair(0, 0));
+  // A passing drain still owns: the deletes land when its input ends, not before.
+  EXPECT_EQ(NodesLeftAroundAReplay(*this, 7, 7, true), std::pair(3, 0));
+}
+
+// A body's passing drain sits between a Delete and a filling outer drain: the Delete goes to its own drain only.
+TYPED_TEST(QueryPlanTest, ADeleteDefersOnlyToTheDrainOnTop) {
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
+  memgraph::query::DbAccessor dba(storage_dba.get());
+  for (int i = 0; i < 3; ++i) dba.InsertVertex();
+  dba.AdvanceCommand();
+  SymbolTable symbol_table;
+  auto n = MakeScanAll(this->storage, symbol_table, "n");
+  auto n_get = this->storage.template Create<Identifier>("n")->MapTo(n.sym_);
+  auto delete_op = std::make_shared<plan::Delete>(n.op_, std::vector<Expression *>{n_get}, false);
+  delete_op->deferred_to_ = 1;
+  auto inner = std::make_shared<Accumulate>(delete_op, std::vector<Symbol>{n.sym_}, false);
+  inner->defers_deletes_ = 1;
+  inner->access_check_only_ = true;
+  auto outer = std::make_shared<Accumulate>(inner, std::vector<Symbol>{n.sym_}, false);
+  outer->defers_deletes_ = 2;
+  auto context = MakeContext(this->storage, symbol_table, &dba);
+  Frame frame(context.symbol_table.max_position());
+  auto cursor = outer->MakeCursor(memgraph::utils::NewDeleteResource(), TestMetricHandles());
+  ASSERT_TRUE(cursor->Pull(frame, context));
+  EXPECT_EQ(CountIterable(dba.Vertices(memgraph::storage::View::NEW)), 0);
+}
+
+// A throw inside the fill leaves no owner behind for the next Delete to find.
+TYPED_TEST(QueryPlanTest, AThrowInsideAnOwnerDrainPopsIt) {
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
+  memgraph::query::DbAccessor dba(storage_dba.get());
+  dba.InsertVertex();
+  dba.AdvanceCommand();
+  SymbolTable symbol_table;
+  auto n = MakeScanAll(this->storage, symbol_table, "n");
+  auto delete_op = std::make_shared<plan::Delete>(n.op_, std::vector<Expression *>{LITERAL(5)}, false);
+  delete_op->deferred_to_ = 3;
+  auto accumulate = std::make_shared<Accumulate>(delete_op, std::vector<Symbol>{n.sym_}, false);
+  accumulate->defers_deletes_ = 3;
+  auto context = MakeContext(this->storage, symbol_table, &dba);
+  EXPECT_THROW(PullAll(*accumulate, &context), QueryRuntimeException);
+  EXPECT_TRUE(context.delete_owners.empty());
 }
 
 #ifdef MG_ENTERPRISE
