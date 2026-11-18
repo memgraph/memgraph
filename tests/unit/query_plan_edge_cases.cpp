@@ -499,12 +499,9 @@ TYPED_TEST(QueryExecution, AggregationCacheResultsWithFlagOn) {
     EXPECT_EQ(listed[0][2].ValueList().at(1).ValueInt(), 5);                                                   \
   } while (false)
 
-// A row's properties are read together before the row's expressions are evaluated, so a record the
-// same query has deleted is reached earlier than a lookup would reach it. There is nothing to read
-// either way, so the query refuses either way: when the read happens must not decide whether a
-// query answers.
-/// Reading a record the same query has deleted refuses, whatever reads it. `reads` is the clause
-/// that reads it, so a caller can ask the same question of a projection and of an aggregation.
+/// Reading a record the same query has deleted refuses, whatever reads it: there is nothing to
+/// read either way, so when the read happens must not decide whether the query answers. `reads` is
+/// the clause that reads it.
 #define CHECK_A_DELETED_RECORD_REFUSES(reads)                                                                \
   do {                                                                                                       \
     this->Execute("MATCH (n) DETACH DELETE n");                                                              \

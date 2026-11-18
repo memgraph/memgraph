@@ -365,17 +365,16 @@ void ProjectWithLookupsInsideAMap(benchmark::State &state) {
            "RETURN i.value AS v, i.quantity AS q, {category: i.category, region: i.region} AS m");
 }
 
-// Every lookup inside a map literal, so the symbol has none the pass takes and gets no pass at all.
-// A map is built from its entries, so each of these reads the record for itself.
+// Every lookup inside a map literal, which the pass does not enter, so each reads the record for
+// itself.
 void ProjectAMapOfFourProperties(benchmark::State &state) {
   RunQuery(state,
            "MATCH (:Hub)-[:HAS]->(i:Item) "
            "RETURN {category: i.category, region: i.region, value: i.value, quantity: i.quantity} AS m");
 }
 
-// One property named twice inside a map literal. The pass does not enter a literal, so neither
-// lookup is read by it, and this is the shape where a record is read twice for one property with
-// nothing able to make it once.
+// One property named twice inside a map literal, so the record is read twice for it with nothing
+// able to make that once.
 void ProjectAMapNamingOnePropertyTwice(benchmark::State &state) {
   RunQuery(state,
            "MATCH (:Hub)-[:HAS]->(i:Item) "

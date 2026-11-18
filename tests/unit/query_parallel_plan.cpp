@@ -303,9 +303,8 @@ TYPED_TEST(TestPlanner, MultiAgg) {
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 
-  // Three aggregations read one property, so it is read once per row for each of them, and the pass
-  // that reads it once sits with them inside the parallel region. Each thread builds its own cursor
-  // chain, so the pass each one runs is its own.
+  // The pass sits with the aggregations inside the parallel region. Each thread builds its own
+  // cursor chain, so the pass each one runs is its own.
   CheckPlan(planner.plan(),
             symbol_table,
             ExpectScanParallel(),

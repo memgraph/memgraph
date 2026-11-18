@@ -9138,8 +9138,7 @@ TYPED_TEST(TestPlanner, CachePropertiesSingleLookupDoesNotFire) {
   CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectProduce());
 }
 
-// Two lookups of one property are two reads of the record, and the pass makes them one. It reads
-// the one property, so the group holds one however many lookups asked for it.
+// The group holds one property however many lookups asked for it.
 TYPED_TEST(TestPlanner, CachePropertiesAProjectionReadingOnePropertyTwice) {
   CachePropertiesFlagGuard guard{true};
   FakeDbAccessor dba;
@@ -9236,7 +9235,6 @@ TYPED_TEST(TestPlanner, CachePropertiesTwoSymbolsDoNotFire) {
   CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectExpand(), ExpectProduce());
 }
 
-// The pass goes below the aggregation, which is the only place the record is still there to read.
 TYPED_TEST(TestPlanner, CachePropertiesAnAggregationReadingOnePropertySeveralTimes) {
   CachePropertiesFlagGuard guard{true};
   FakeDbAccessor dba;
@@ -9253,10 +9251,8 @@ TYPED_TEST(TestPlanner, CachePropertiesAnAggregationReadingOnePropertySeveralTim
   CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectCacheProperties("n", 1), aggr, ExpectProduce());
 }
 
-// An aggregation compares a value and discards it, so a frame slot is cost it would not otherwise
-// pay, and reading two properties together saves it nothing when each is read once anyway. A
-// projection asks for less than this, because the slot holds the value its row returns.
-TYPED_TEST(TestPlanner, CachePropertiesAnAggregationReadingTwoPropertiesOnceEachDoesNotFire) {
+// Two reads either way, so a pass would add a slot and remove nothing.
+TYPED_TEST(TestPlanner, CachePropertiesAnAggregationsDistinctPropertiesEarnNoPass) {
   CachePropertiesFlagGuard guard{true};
   FakeDbAccessor dba;
   auto prop_a = dba.Property("a");
@@ -9270,9 +9266,8 @@ TYPED_TEST(TestPlanner, CachePropertiesAnAggregationReadingTwoPropertiesOnceEach
   CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), aggr, ExpectProduce());
 }
 
-// A CASE evaluates one branch or the other, so a property named in a branch is read for some rows
-// and not for others, and repeating it there earns no pass. The property sits in the branches
-// rather than in the condition, which is the part a CASE always evaluates.
+// The property sits in the branches rather than in the condition, which is the part a CASE
+// evaluates for every row.
 TYPED_TEST(TestPlanner, CachePropertiesAnAggregationsConditionalLookupsEarnNoPass) {
   CachePropertiesFlagGuard guard{true};
   FakeDbAccessor dba;
@@ -9290,9 +9285,8 @@ TYPED_TEST(TestPlanner, CachePropertiesAnAggregationsConditionalLookupsEarnNoPas
   CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), aggr, ExpectProduce());
 }
 
-// Each form here either runs a body once per element, which an empty list runs no times, or stands
-// where a row may never reach it. A pass reading ahead for a lookup inside one could read a record
-// the query never asked for, and refuse a query that answers, so every one of them is declined.
+// A body run once per element runs no times for an empty list, so no lookup inside one is a read
+// every row makes.
 TYPED_TEST(TestPlanner, CachePropertiesALookupOnlyInsideADeferredBodyEarnsNoPass) {
   CachePropertiesFlagGuard guard{true};
   FakeDbAccessor dba;
@@ -9334,8 +9328,7 @@ TYPED_TEST(TestPlanner, CachePropertiesALookupOnlyInsideADeferredBodyEarnsNoPass
   }
 }
 
-// A map collection reaches its key only once the row's value is accepted, so a repeat that only the
-// key gives earns no pass.
+// A map collection reaches its key only once the row's value is accepted.
 TYPED_TEST(TestPlanner, CachePropertiesAnAggregationsSecondArgumentEarnsNoPass) {
   CachePropertiesFlagGuard guard{true};
   FakeDbAccessor dba;
@@ -9352,8 +9345,7 @@ TYPED_TEST(TestPlanner, CachePropertiesAnAggregationsSecondArgumentEarnsNoPass) 
   CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), aggr, ExpectProduce());
 }
 
-// A grouping key is evaluated per input row just as what is aggregated is, so a property read as
-// both is read twice for one record.
+// A grouping key is evaluated per input row, as what is aggregated is.
 TYPED_TEST(TestPlanner, CachePropertiesAnAggregationReadingItsGroupingKeyAgain) {
   CachePropertiesFlagGuard guard{true};
   FakeDbAccessor dba;
@@ -9362,10 +9354,8 @@ TYPED_TEST(TestPlanner, CachePropertiesAnAggregationReadingItsGroupingKeyAgain) 
   auto group_by = PROPERTY_LOOKUP(dba, "n", prop);
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN(group_by, AS("k"), count, AS("c"))));
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
-  // The aggregation now groups on what the pass read into a frame slot, so its key is an identifier
-  // where it was a lookup. This expectation compares the kind of expression rather than which one,
-  // so it says that the key reads a slot. The projection above keeps a lookup of its own, which is
-  // what still answers the key: the execution tests are what pin that.
+  // This compares the kind of expression rather than which one, so it says only that the key reads
+  // a slot. That the answer is unchanged is pinned by the execution tests.
   auto reads_the_pass = IDENT("read_by_the_pass");
   auto aggr = ExpectAggregate({count}, {reads_the_pass});
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
