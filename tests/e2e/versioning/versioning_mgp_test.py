@@ -84,7 +84,7 @@ def test_nested_query_follows_using_branch(cursor):
     assert _count(cursor, "ToMain") == 1
 
 
-@pytest.mark.skip(reason="needs the mgp_execute_query leak fix from fix/mgp-execute-query-leak (BL-0315)")
+@pytest.mark.skip(reason="needs the mgp_execute_query leak fix from #5435 (BL-0315)")
 def test_nested_query_releases_the_branch(cursor):
     execute_and_fetch_all(cursor, "USE BRANCH b")
     _nested(cursor, "CREATE (:Tmp)")
