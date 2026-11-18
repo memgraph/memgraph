@@ -3015,3 +3015,182 @@ Feature: Write visibility inside one query
             | 1  | 2 |
             | 2  | 2 |
             | 3  | 2 |
+
+    Scenario: One SET run reads its pattern comprehension as of the run's start
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:WvSr {x: 1, y: 2})-[:R]->(:WvSv)
+            """
+        When executing query:
+            """
+            MATCH (a:WvSr) SET a.x = a.y, a.y = a.x + size([(a)-->(v) | v])
+            WITH count(*) AS c MATCH (n:WvSr) RETURN n.x AS x, n.y AS y
+            """
+        Then the result should be:
+            | x | y |
+            | 2 | 2 |
+
+    Scenario: One SET run's first item comprehension reads the run's start
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:WvSr {x: 1, y: 2})-[:R]->(:WvSv)
+            """
+        When executing query:
+            """
+            MATCH (a:WvSr) SET a.x = a.y + size([(a)-->(v) | v]), a.y = a.x
+            WITH count(*) AS c MATCH (n:WvSr) RETURN n.x AS x, n.y AS y
+            """
+        Then the result should be:
+            | x | y |
+            | 3 | 1 |
+
+    Scenario: One SET run's comprehension filter reads the run's start
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:WvSr {x: 1, y: 2})-[:R]->(:WvSv)
+            """
+        When executing query:
+            """
+            MATCH (a:WvSr) SET a.x = 5, a.y = size([(a)-->(v) WHERE a.x = 5 | v])
+            WITH count(*) AS c MATCH (n:WvSr) RETURN n.x AS x, n.y AS y
+            """
+        Then the result should be:
+            | x | y |
+            | 5 | 0 |
+
+    Scenario: One SET run's comprehension result reads the run's start
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:WvSr {x: 1, y: 2})-[:R]->(:WvSv)
+            """
+        When executing query:
+            """
+            MATCH (a:WvSr) SET a.x = 5, a.y = [(a)-->(v) | a.x][0]
+            WITH count(*) AS c MATCH (n:WvSr) RETURN n.x AS x, n.y AS y
+            """
+        Then the result should be:
+            | x | y |
+            | 5 | 1 |
+
+    Scenario: One SET run with a comprehension in a CALL body reads the run's start
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:WvSr {x: 1, y: 2})-[:R]->(:WvSv)
+            """
+        When executing query:
+            """
+            MATCH (a:WvSr) CALL (a) { SET a.x = a.y, a.y = a.x + size([(a)-->(v) | v]) }
+            WITH count(*) AS c MATCH (n:WvSr) RETURN n.x AS x, n.y AS y
+            """
+        Then the result should be:
+            | x | y |
+            | 2 | 2 |
+
+    Scenario: One SET run with a comprehension in a FOREACH body reads the run's start
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:WvSr {x: 1, y: 2})-[:R]->(:WvSv)
+            """
+        When executing query:
+            """
+            MATCH (a:WvSr) FOREACH (i IN [1] | SET a.x = a.y, a.y = a.x + size([(a)-->(v) | v]))
+            WITH count(*) AS c MATCH (n:WvSr) RETURN n.x AS x, n.y AS y
+            """
+        Then the result should be:
+            | x | y |
+            | 2 | 2 |
+
+    Scenario: One SET run reads a written key through an alias as of the run's start
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:WvSr {x: 1, y: 2})-[:R]->(:WvSv)
+            """
+        When executing query:
+            """
+            MATCH (a:WvSr) WITH a, a AS b SET a.x = 10, a.y = b.x
+            WITH count(*) AS c MATCH (n:WvSr) RETURN n.x AS x, n.y AS y
+            """
+        Then the result should be:
+            | x | y |
+            | 10 | 1 |
+
+    Scenario: One SET run reads a written key through startNode as of the run's start
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:WvSr {x: 1, y: 2})-[:R]->(:WvSv)
+            """
+        When executing query:
+            """
+            MATCH (a:WvSr)-[r]->() SET a.x = 10, a.y = startNode(r).x
+            WITH count(*) AS c MATCH (n:WvSr) RETURN n.x AS x, n.y AS y
+            """
+        Then the result should be:
+            | x | y |
+            | 10 | 1 |
+
+    Scenario: A map merge ends a SET run
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:WvSr {x: 1, y: 2})-[:R]->(:WvSv)
+            """
+        When executing query:
+            """
+            MATCH (a:WvSr) SET a += {x: 10}, a.y = a.x
+            WITH count(*) AS c MATCH (n:WvSr) RETURN n.x AS x, n.y AS y
+            """
+        Then the result should be:
+            | x | y |
+            | 10 | 10 |
+
+    Scenario: A label item ends a SET run
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:WvSr {x: 1, y: 2})-[:R]->(:WvSv)
+            """
+        When executing query:
+            """
+            MATCH (a:WvSr) SET a.x = 10, a:WvSk, a.y = a.x
+            WITH count(*) AS c MATCH (n:WvSr) RETURN n.x AS x, n.y AS y
+            """
+        Then the result should be:
+            | x | y |
+            | 10 | 10 |
+
+    Scenario: An item after a SET run sees the run's writes and plans its own comprehension after them
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:WvSr {x: 1, y: 2})-[:R]->(:WvSv)
+            """
+        When executing query:
+            """
+            MATCH (a:WvSr)-->(b:WvSv) SET a.x = a.y, a.y = a.x, b.z = size([(b)<--(u) WHERE u.x = 2 | u])
+            RETURN a.x AS x, a.y AS y, b.z AS z
+            """
+        Then the result should be:
+            | x | y | z |
+            | 2 | 1 | 1 |
+
+    Scenario: One SET run reads a nested property as of the run's start
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:WvSn {x: 1, m: {k: 5}})
+            """
+        When executing query:
+            """
+            MATCH (a:WvSn) SET a.m.k = a.x, a.x = a.m.k RETURN a.m.k AS k, a.x AS x
+            """
+        Then the result should be:
+            | k | x |
+            | 1 | 5 |

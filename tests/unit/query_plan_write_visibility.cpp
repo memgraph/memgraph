@@ -1353,6 +1353,58 @@ TEST_F(WriteVisibilityPlan, WritesAgreeWithRwCheckerAndQueryParts) {
 
 // One SET evaluates every right-hand side before its first write when a later item reads what an earlier item
 // writes: a Produce of the right-hand sides goes before the group. Independent items keep their plan.
+// A run's pattern comprehensions are planned below its Produce, so they read the node as of the run's start too.
+TEST_F(WriteVisibilityPlan, ASetRunPlansItsComprehensionsBeforeItsFirstWrite) {
+  EXPECT_EQ(
+      Chain(Plan("MATCH (a:U) SET a.x = a.y, a.y = a.x + size([(a)-->(v) | v])")),
+      (Names{"EmptyResult", "SetProperty", "SetProperty", "Produce", "RollUpApply", "Filter", "ScanAll", "Once"}));
+  for (auto const *query : {
+           "MATCH (a:U) SET a.x = a.y + size([(a)-->(v) | v]), a.y = a.x",
+           "MATCH (a:U) SET a.x = 5, a.y = size([(a)-->(v) WHERE a.x = 5 | v])",
+           "MATCH (a:U) SET a.x = 5, a.y = [(a)-->(v) | a.x][0]",
+       }) {
+    auto const chain = Chain(Plan(query));
+    ASSERT_GE(chain.size(), 4U) << query;
+    EXPECT_EQ(std::vector(chain.begin(), chain.begin() + 4),
+              (Names{"EmptyResult", "SetProperty", "SetProperty", "Produce"}))
+        << query;
+  }
+  // Only the run's own comprehensions: b's item comes after the run and sees its writes.
+  auto const chain =
+      Chain(Plan("MATCH (a:U)-->(b:V) SET a.x = a.y, a.y = a.x, b.z = size([(b)<--(u) WHERE u.x = 2 | u])"));
+  ASSERT_GE(chain.size(), 5U);
+  EXPECT_EQ(std::vector(chain.begin(), chain.begin() + 5),
+            (Names{"EmptyResult", "SetProperty", "RollUpApply", "SetProperty", "SetProperty"}));
+}
+
+// A run item that reads a written key through another expression reads the run's start too.
+TEST_F(WriteVisibilityPlan, ASetRunSnapshotsReadsThroughAnotherExpression) {
+  for (auto const *query : {
+           "MATCH (a:U) WITH a, a AS b SET a.x = 10, a.y = b.x",
+           "MATCH (a:U) WITH a, a AS b SET a.x = 10, a.y = properties(b).x",
+           "MATCH (a:U)-[r]->() SET a.x = 10, a.y = startNode(r).x",
+           "MATCH (a:U) SET a.m.k = a.x, a.x = a.m.k",
+       }) {
+    // Under the EmptyResult and the run's two writes.
+    auto const chain = Chain(Plan(query));
+    ASSERT_GE(chain.size(), 4U) << query;
+    EXPECT_EQ(chain[3], "Produce") << query;
+  }
+}
+
+// No run item reads a key an earlier item writes: master's plan, with no Produce.
+TEST_F(WriteVisibilityPlan, ASetRunKeepsMastersPlanWhenNoItemReadsAWrittenKey) {
+  for (auto const *query : {
+           "MATCH (a:U) SET a.x = 10, a.y = 20",
+           "MATCH (a:U) SET a.x = a.y + 1, a.z = a.y",
+           "MATCH (a:U) SET a.x = 10, a.y = id(a)",
+           "MATCH (a:U) SET a.x = 1, a.y = size([(a)-->(v:V) | v])",
+           "UNWIND [{x: 1, y: 2}] AS row MATCH (a:U) SET a.x = row.x, a.y = row.y",
+       }) {
+    EXPECT_TRUE(Collect<Produce>(Plan(query)).empty()) << query;
+  }
+}
+
 TEST_F(WriteVisibilityPlan, OneSetEvaluatesItsRightHandSidesFirst) {
   EXPECT_EQ(Chain(Plan("MATCH (a) SET a.x = 1, a.y = a.x + 1")),
             (Names{"EmptyResult", "SetProperty", "SetProperty", "Produce", "ScanAll", "Once"}));
