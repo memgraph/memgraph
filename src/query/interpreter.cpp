@@ -327,8 +327,14 @@ void memgraph::query::CurrentDB::AttachBranchOf(versioning::VersionStore *versio
   if (!info) {
     throw QueryRuntimeException(info.error());
   }
+  if (info->id != outer.number()) {
+    // `name` now names a re-created branch; outer.core() belongs to the dropped one.
+    version_store->ReleaseCheckout(info->id);
+    throw QueryRuntimeException("Branch '{}' no longer exists.", name);
+  }
   try {
-    SetBranchContext(std::make_unique<versioning::BranchContext>(outer.core(), name), version_store, info->id);
+    SetBranchContext(
+        std::make_unique<versioning::BranchContext>(outer.core(), name, info->id), version_store, info->id);
   } catch (...) {
     // Fields may or may not be installed yet: ClearBranchContext releases iff they are.
     if (branch_context_) {

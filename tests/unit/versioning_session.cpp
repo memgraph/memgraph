@@ -188,6 +188,23 @@ TEST_F(VersioningGatedTest, NestedSessionAttachesToTheCallersBranch) {
   EXPECT_FALSE(nested.current_db_.CurrentVersion().has_value());
 }
 
+// A same-name branch created after the caller's was dropped is a different branch: a nested session must not run on
+// the dropped core while holding the new branch's checkout.
+TEST_F(VersioningGatedTest, NestedSessionRefusesARecreatedBranchOfTheSameName) {
+  Fork();
+  auto *version_store = db->version_store();
+  auto &outer = *faker.interpreter.current_db_.branch_context();
+  ASSERT_TRUE(version_store->ForceDropBranch("b"));
+  ASSERT_TRUE(version_store->CreateBranch("b"));
+  {
+    memgraph::query::Interpreter nested{&interpreter_context, db};
+    EXPECT_THROW(nested.current_db_.AttachBranchOf(version_store, outer), memgraph::query::QueryRuntimeException);
+    EXPECT_EQ(nested.current_db_.branch_context(), nullptr);
+  }
+  EXPECT_EQ(CheckoutCount(version_store, "b"), 0U) << "the refused attach must release its checkout";
+  EXPECT_TRUE(version_store->DropBranch("b"));
+}
+
 // A branch dropped under the session never falls back to main: every query, with or without a transaction, fails until
 // the session leaves it; the dead checkout is released on the first refusal.
 TEST_F(VersioningGatedTest, ABranchDroppedUnderTheSessionFailsEveryQueryUntilItLeaves) {
