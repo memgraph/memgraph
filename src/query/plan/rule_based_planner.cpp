@@ -1260,48 +1260,6 @@ void ReadNewThroughout(LogicalOperator &plan) {
   plan.Accept(setter);
 }
 
-namespace {
-
-class PropertyOfFinder final : public HierarchicalTreeVisitor {
- public:
-  PropertyOfFinder(const Symbol &symbol, const std::set<std::string> &keys, const SymbolTable &symbol_table)
-      : symbol_(symbol), keys_(keys), symbol_table_(symbol_table) {}
-
-  using HierarchicalTreeVisitor::PostVisit;
-  using HierarchicalTreeVisitor::PreVisit;
-  using HierarchicalTreeVisitor::Visit;
-
-  // Any other read of the variable (a subscript, a map projection, properties()) may read a written key.
-  bool Visit(Identifier &ident) override {
-    if (IsSymbol(ident)) found = true;
-    return !found;
-  }
-
-  bool Visit(PrimitiveLiteral & /*literal*/) override { return true; }
-
-  bool Visit(ParameterLookup & /*lookup*/) override { return true; }
-
-  bool Visit(EnumValueAccess & /*access*/) override { return true; }
-
-  bool PreVisit(PropertyLookup &lookup) override {
-    auto *object = utils::Downcast<Identifier>(lookup.expression_);
-    if (!object || !IsSymbol(*object)) return !found;
-    if (keys_.contains(lookup.property_path_.front().name)) found = true;
-    return false;
-  }
-
-  bool found{false};
-
- private:
-  bool IsSymbol(Identifier &ident) const { return ident.symbol_pos_ >= 0 && symbol_table_.at(ident) == symbol_; }
-
-  const Symbol &symbol_;
-  const std::set<std::string> &keys_;
-  const SymbolTable &symbol_table_;
-};
-
-}  // namespace
-
 std::optional<std::unordered_set<Symbol>> SymbolsReadAfter(const QueryPart &query_part, size_t part,
                                                            const SingleQueryPart *matched_after,
                                                            std::span<Clause *const> rest,
@@ -1418,13 +1376,6 @@ bool IsRowUnique(const LogicalOperator &plan, Symbol symbol) {
     op = op->input().get();
   }
   return false;
-}
-
-bool ReadsPropertyOf(Expression &expression, const Symbol &symbol, const std::set<std::string> &keys,
-                     const SymbolTable &symbol_table) {
-  PropertyOfFinder finder(symbol, keys, symbol_table);
-  expression.Accept(finder);
-  return finder.found;
 }
 
 bool HasBoundFilterSymbols(const std::unordered_set<Symbol> &bound_symbols, const FilterInfo &filter) {

@@ -265,11 +265,6 @@ std::optional<std::unordered_set<Symbol>> SymbolsReadAfter(const QueryPart &quer
 /// on it alone, binds it, with only operators that never repeat a row above. Used at the root only.
 bool IsRowUnique(const LogicalOperator &plan, Symbol symbol);
 
-/// Whether @p expression may read a property of @p symbol named in @p keys: a lookup of one, or any other read of
-/// the variable.
-bool ReadsPropertyOf(Expression &expression, const Symbol &symbol, const std::set<std::string> &keys,
-                     const SymbolTable &symbol_table);
-
 std::unique_ptr<LogicalOperator> GenUnion(const CypherUnion &cypher_union, std::shared_ptr<LogicalOperator> left_op,
                                           std::shared_ptr<LogicalOperator> right_op, SymbolTable &symbol_table);
 
@@ -741,8 +736,15 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
           } else if (IsWriteClause(clause)) {
             wrote_since_with = true;
             write_occurred = true;
-            plan_and_apply_comprehensions(impl::OriginatingIn(clause, pending_comprehensions));
-            input_op = PreEvaluateSetGroup(clauses, std::distance(clauses.begin(), clause_it), std::move(input_op));
+            auto const index = static_cast<size_t>(std::distance(clauses.begin(), clause_it));
+            auto eligible = impl::OriginatingIn(clause, pending_comprehensions);
+            // A SET run evaluates every value before its first write, its comprehensions included.
+            if (auto const end = SnapshotRunEnd(clauses, index)) {
+              for (auto i = index + 1; i < *end; ++i)
+                eligible.merge(impl::OriginatingIn(clauses[i], pending_comprehensions));
+            }
+            plan_and_apply_comprehensions(eligible);
+            input_op = PreEvaluateSetGroup(clauses, index, std::move(input_op));
             // View::OLD reads a created entity by failing, then reading View::NEW; read only those, read View::NEW.
             auto const created = [&](const Symbol &symbol) {
               return created_since_barrier.contains(symbol) || created_here.contains(symbol);
@@ -1307,45 +1309,53 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
     return input_op;
   }
 
-  /// Consecutive SET items on one variable read it as of the run's start (`SET a.x = a.y, a.y = a.x` swaps): if one
-  /// reads a key an earlier one wrote, a Produce evaluates the run's values first. A run with a pattern is left alone.
-  std::unique_ptr<LogicalOperator> PreEvaluateSetGroup(const std::vector<Clause *> &clauses, size_t first,
-                                                       std::unique_ptr<LogicalOperator> input_op) {
+  /// The end of the run of consecutive SET items on one variable that starts at @p first, when an item reads a key an
+  /// earlier item of the run writes; nullopt otherwise. The run reads the variable as of its start.
+  // TODO: two textually equal non-variable targets (`(CASE ... END).x`) could form a run too; it needs AST equality.
+  std::optional<size_t> SnapshotRunEnd(const std::vector<Clause *> &clauses, size_t first) const {
     auto &symbol_table = *context_->symbol_table;
     auto const target_of = [&](Clause *clause) -> std::optional<Symbol> {
       auto *set = utils::Downcast<query::SetProperty>(clause);
-      if (!set || set->property_lookup_->use_nested_property_update_) return std::nullopt;
+      if (!set) return std::nullopt;
       auto *ident = utils::Downcast<Identifier>(set->property_lookup_->expression_);
       if (!ident) return std::nullopt;
       return symbol_table.at(*ident);
     };
     auto const target = target_of(clauses[first]);
-    if (!target) return input_op;
+    if (!target) return std::nullopt;
     auto const in_run = [&](size_t i) { return clauses[i]->continues_previous_ && target_of(clauses[i]) == target; };
-    if (first > 0 && in_run(first) && target_of(clauses[first - 1]) == target) return input_op;
+    if (first > 0 && in_run(first) && target_of(clauses[first - 1]) == target) return std::nullopt;
     auto last = first + 1;
     while (last < clauses.size() && in_run(last)) ++last;
-    if (last - first < 2) return input_op;
 
-    std::set<std::string> written;
+    ReadWriteSet written;
     bool reads_earlier_item = false;
     for (auto i = first; i < last; ++i) {
-      auto *set = utils::Downcast<query::SetProperty>(clauses[i]);
-      if (!CollectReadsAndWrites(*set->expression_, symbol_table, context_->bound_symbols, non_graph_symbols_)
-               .reads.symbols.empty()) {
-        return input_op;
-      }
-      // The first item has no earlier write to read.
-      reads_earlier_item =
-          reads_earlier_item ||
-          (!written.empty() && impl::ReadsPropertyOf(*set->expression_, *target, written, symbol_table));
-      written.insert(set->property_lookup_->property_path_.front().name);
+      auto &set = *utils::Downcast<query::SetProperty>(clauses[i]);
+      // A value is read before any write of the row, at View::NEW: a pattern through a symbol does not matter.
+      auto reads =
+          CollectReadsAndWrites(*set.expression_, symbol_table, context_->bound_symbols, non_graph_symbols_).reads;
+      reads.symbols.clear();
+      reads_earlier_item = reads_earlier_item || Conflicts(reads, written);
+      written.Merge(CollectReadsAndWrites(set, symbol_table, context_->bound_symbols, non_graph_symbols_).writes);
     }
-    if (!reads_earlier_item) return input_op;
+    if (!reads_earlier_item) return std::nullopt;
+    return last;
+  }
+
+  /// Consecutive SET items on one variable read it as of the run's start (`SET a.x = a.y, a.y = a.x` swaps): if one
+  /// reads a key an earlier one wrote, a Produce evaluates the run's values first. Its comprehensions are planned
+  /// below the Produce by the caller.
+  // TODO: EXISTS and COUNT in a run's value must be planned below the Produce too, once a SET value accepts them.
+  std::unique_ptr<LogicalOperator> PreEvaluateSetGroup(const std::vector<Clause *> &clauses, size_t first,
+                                                       std::unique_ptr<LogicalOperator> input_op) {
+    auto &symbol_table = *context_->symbol_table;
+    auto const last = SnapshotRunEnd(clauses, first);
+    if (!last) return input_op;
 
     auto &storage = *context_->ast_storage;
     std::vector<NamedExpression *> values;
-    for (auto i = first; i < last; ++i) {
+    for (auto i = first; i < *last; ++i) {
       auto *set = utils::Downcast<query::SetProperty>(clauses[i]);
       if (utils::Downcast<PrimitiveLiteral>(set->expression_) || utils::Downcast<ParameterLookup>(set->expression_)) {
         continue;
