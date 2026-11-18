@@ -516,9 +516,8 @@ void CollectDistinct(benchmark::State &state) {
 // million labelled vertices are walked out of cache, ten million are not, so this reads about twice
 // as fast here. It is still a floor to compare a build against itself on.
 // What a predicate costs, by how many times it names one property. `quantity` runs 1 to 100, so
-// every predicate here holds for every row and the three differ only in how many reads they make.
-// The item carries no label, because a pass reads a property only where some lookup reads it on
-// every row, and a label test stands in front of the predicate.
+// every predicate here holds for every row and they differ only in how many reads they make. No
+// label on the item, because a label test would stand in front of the lookups.
 void FilterOnePropertyOnce(benchmark::State &state) {
   RunQuery(state, "MATCH (:Hub)-[:HAS]->(i) WHERE i.quantity > 0 RETURN count(*) AS n");
 }

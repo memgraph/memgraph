@@ -355,7 +355,7 @@ TYPED_TEST(QueryExecution, ADeepVariableExpansionWalksBothWaysToEveryLength) {
       EXPECT_EQ(results[1][0].ValueInt(), 2);                                                                \
     }                                                                                                        \
     {                                                                                                        \
-      /* A predicate naming one property twice keeps the rows the same two comparisons kept. */              \
+      /* A repeated property keeps the rows the two comparisons kept. */                                     \
       auto results = this->Execute("MATCH (n:P) WHERE n.a > 0 AND n.a < 2 RETURN n.id AS id");               \
       ASSERT_EQ(results.size(), 1);                                                                          \
       EXPECT_EQ(results[0][0].ValueInt(), 1);                                                                \
