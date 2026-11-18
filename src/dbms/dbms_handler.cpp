@@ -697,7 +697,7 @@ struct CreateDatabase : memgraph::system::ISystemAction {
 bool DbmsHandler::Droppable_(std::string_view name) {
   auto db = db_handler_.Get(name);
   if (!db) return false;
-  return db->try_exclusively([](Database &) {}) ? true : false;  // destroys nothing
+  return static_cast<bool>(db->try_exclusively([](Database &) {}));  // destroys nothing
 }
 
 void DbmsHandler::DropHold_(std::string_view hold_name, const std::filesystem::path &dir, DatabaseAccess &acc) {
@@ -714,7 +714,7 @@ void DbmsHandler::DropHold_(std::string_view hold_name, const std::filesystem::p
 }
 
 DbmsHandler::ReplaceResultT DbmsHandler::Replace(std::string_view name, system::Transaction *txn) {
-  auto wr = std::lock_guard{lock_};
+  auto wr = std::scoped_lock{lock_};
   if (name == kDefaultDB) return std::unexpected{ReplaceError::DEFAULT_DB};
   const auto name_copy = std::string{name};
   auto old_conf = db_handler_.GetConfig(name);  // nullopt for a COLD or absent tenant
