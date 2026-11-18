@@ -33,6 +33,7 @@
 #include "flags/run_time_configurable.hpp"
 #include "memory/db_arena_fwd.hpp"
 #include "memory/global_memory_control.hpp"
+#include "metrics/metric_handles.hpp"
 #include "replication_coordination_glue/mode.hpp"
 #include "replication_coordination_glue/role.hpp"
 #include "requests/requests.hpp"
@@ -87,6 +88,21 @@ namespace {
 // Sub-directory holding durability files superseded by a new base state. Kept in sync with the name
 // utils::GetFilesFromDir filters out, so archived files are invisible to every directory scan.
 constexpr std::string_view kOldDurabilityDir = ".old";
+
+void MarkSnapshotCurrent(metrics::DatabaseMetricHandles const &handles) {
+  handles.last_snapshot_timestamp_seconds.Set(
+      std::chrono::duration<double>(std::chrono::system_clock::now().time_since_epoch()).count());
+}
+
+// kAborted covers both a requested abort and a failed write; only the latter is a failure.
+void RecordSnapshotFailure(metrics::DatabaseMetricHandles const &handles, durability::SnapshotCreationError const error,
+                           std::atomic_bool const &abort_requested) {
+  if (error == durability::SnapshotCreationError::kNoSpaceLeft) {
+    handles.snapshot_failures_no_space.Increment();
+  } else if (!abort_requested.load(std::memory_order_acquire)) {
+    handles.snapshot_failures_write_error.Increment();
+  }
+}
 
 constexpr auto ActionToStorageOperation(MetadataDelta::Action const action) -> durability::StorageMetadataOperation {
   // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
@@ -3144,6 +3160,7 @@ void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode) {
                                                             &snapshot_progress_,
                                                             "storage_mode_change");
       if (!snapshot_path) {
+        RecordSnapshotFailure(metric_handles_, snapshot_path.error(), abort_snapshot_);
         // Analytical writes never reached a WAL, so this snapshot is the only durable record the episode
         // will ever have. Completing the switch without it would leave the data live in memory but absent
         // from durability, and the next recovery would silently drop it. Stay analytical instead: the
@@ -3153,6 +3170,7 @@ void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode) {
             "Failed to create the snapshot required to leave IN_MEMORY_ANALYTICAL. The database is still in "
             "analytical mode and its data is unchanged; check the logs for the cause and retry.");
       }
+      MarkSnapshotCurrent(metric_handles_);
 
       // Publish the snapshot's timestamp as the cached ldt. Analytical writes never reach
       // FinalizeCommitPhase, so without this main keeps advertising the pre-analytical ldt and a replica
@@ -4684,11 +4702,6 @@ std::expected<std::filesystem::path, InMemoryStorage::CreateSnapshotError> InMem
   DMG_ASSERT(transaction->last_durable_ts_.has_value());
   auto const &storage_uuid = uuid();
 
-  auto const mark_snapshot_current = [this] {
-    metric_handles_.last_snapshot_timestamp_seconds.Set(
-        std::chrono::duration<double>(std::chrono::system_clock::now().time_since_epoch()).count());
-  };
-
   SnapshotDigest current_digest;
   // In memory analytical doesn't update last_durable_ts so digest isn't valid
   if (transaction->storage_mode == StorageMode::IN_MEMORY_TRANSACTIONAL) {
@@ -4698,7 +4711,7 @@ std::expected<std::filesystem::path, InMemoryStorage::CreateSnapshotError> InMem
                                     .last_durable_ts_ = *transaction->last_durable_ts_};
 
     if (!force && last_snapshot_digest_ == current_digest) {
-      mark_snapshot_current();
+      MarkSnapshotCurrent(metric_handles_);
       return std::unexpected{CreateSnapshotError::NothingNewToWrite};
     }
   }
@@ -4717,12 +4730,10 @@ std::expected<std::filesystem::path, InMemoryStorage::CreateSnapshotError> InMem
                                                         &snapshot_progress_,
                                                         trigger);
   if (!snapshot_path) {
+    RecordSnapshotFailure(metric_handles_, snapshot_path.error(), abort_snapshot_);
     if (snapshot_path.error() == durability::SnapshotCreationError::kNoSpaceLeft) {
-      metric_handles_.snapshot_failures_no_space.Increment();
       return std::unexpected{CreateSnapshotError::NoSpaceLeft};
     }
-    // kAborted covers both a requested abort and a failed write; only the latter is a failure.
-    if (!abort_snapshot_.load(std::memory_order_acquire)) metric_handles_.snapshot_failures_write_error.Increment();
     return std::unexpected{CreateSnapshotError::AbortSnapshot};
   }
 
@@ -4736,7 +4747,7 @@ std::expected<std::filesystem::path, InMemoryStorage::CreateSnapshotError> InMem
     auto snapshot_elapsed = std::chrono::duration<double>(timer.Elapsed());
     metric_handles_.snapshot_creation_latency_seconds.Observe(snapshot_elapsed.count());
   }
-  mark_snapshot_current();
+  MarkSnapshotCurrent(metric_handles_);
 
   return *snapshot_path;
 }
