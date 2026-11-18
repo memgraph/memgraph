@@ -736,6 +736,26 @@ TEST_F(VersioningGatedTest, PinnedBranchDroppedFailsEveryTransactionUntilTheDbCh
   EXPECT_DOUBLE_EQ(sessions.Value(), sessions0) << "the dead checkout was released exactly once";
 }
 
+// A re-Configure with changed metadata (mode, tx_metadata) re-runs SelectPinnedBranch with the same name; it must not
+// follow the name to a re-created branch.
+TEST_F(VersioningGatedTest, PinnedBranchStaysOnTheDroppedOneWhenTheNameIsSelectedAgain) {
+  faker.Interpret("CREATE (:K {v: 10})");
+  faker.Interpret("CREATE BRANCH b");
+  faker.interpreter.SetCurrentDB(*db_gk.access(), true);
+  faker.interpreter.SelectPinnedBranch("b");
+  ASSERT_EQ(db->version_store()->Drop("b", {.force = true}), memgraph::versioning::DropResult::kDropped);
+
+  EXPECT_NO_THROW(faker.interpreter.SelectPinnedBranch("b"));
+  EXPECT_EQ(ThrownMessage([&] { faker.Interpret("MATCH (n:K) RETURN n.v"); }), "Branch 'b' no longer exists.");
+
+  InterpreterFaker other{&interpreter_context, db};
+  other.Interpret("CREATE BRANCH b");
+  EXPECT_NO_THROW(faker.interpreter.SelectPinnedBranch("b"));
+  EXPECT_THAT(ThrownMessage([&] { faker.Interpret("MATCH (n:K) RETURN n.v"); }),
+              ::testing::HasSubstr("this connection stays on the dropped one"));
+  EXPECT_EQ(CheckoutCount(db->version_store(), "b"), 0U) << "the new branch was never attached";
+}
+
 TEST_F(VersioningGatedTest, PinnedBranchTransactionsReadASnapshotThenWriteAndRollBack) {
   faker.Interpret("CREATE (:K {id: 1, v: 10}), (:K {id: 2, v: 20})");
   faker.Interpret("CREATE BRANCH b");
