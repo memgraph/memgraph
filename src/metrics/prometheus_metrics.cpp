@@ -786,8 +786,8 @@ PrometheusMetrics::PrometheusMetrics()
                                               .Register(registry_)},
       transaction_begin_family_{prometheus::BuildHistogram()
                                     .Name("memgraph_transaction_begin_seconds")
-                                    .Help("Time to start a transaction, mostly waiting for the storage access "
-                                          "lock and the engine lock")
+                                    .Help("Time to start a query's transaction, mostly waiting for the storage "
+                                          "access lock and the engine lock")
                                     .Register(registry_)},
       commit_lock_wait_family_{prometheus::BuildHistogram()
                                    .Name("memgraph_commit_lock_wait_seconds")
@@ -795,7 +795,8 @@ PrometheusMetrics::PrometheusMetrics()
                                    .Register(registry_)},
       commit_family_{prometheus::BuildHistogram()
                          .Name("memgraph_commit_seconds")
-                         .Help("Time to commit a write transaction, including the WAL write and SYNC replicas")
+                         .Help("Time spent in each write transaction commit attempt, including the WAL write and SYNC "
+                               "replicas")
                          .Register(registry_)},
       gc_index_sweeps_family_{prometheus::BuildCounter()
                                   .Name("memgraph_gc_index_sweeps_total")

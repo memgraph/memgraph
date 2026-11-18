@@ -934,10 +934,6 @@ class InMemoryStorage final : public Storage {
   }
 
  private:
-  std::unique_ptr<Accessor> TimedAccess(StorageAccessType rw_type,
-                                        std::optional<IsolationLevel> override_isolation_level,
-                                        std::optional<std::chrono::milliseconds> timeout);
-
   /// @throw std::system_error
   /// @throw std::bad_alloc
   void CollectGarbage(utils::ResourceLockGuard main_guard, bool periodic);

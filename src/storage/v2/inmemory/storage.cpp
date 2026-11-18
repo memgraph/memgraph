@@ -5089,25 +5089,20 @@ std::unique_ptr<Storage::Accessor> InMemoryStorage::Access(StorageAccessType rw_
                                                            std::optional<IsolationLevel> override_isolation_level,
                                                            std::optional<std::chrono::milliseconds> timeout) {
   DMG_ASSERT(rw_type != StorageAccessType::UNIQUE, "UNIQUE access must go through UniqueAccess()");
-  return TimedAccess(rw_type, override_isolation_level, timeout);
+  return std::unique_ptr<InMemoryAccessor>(
+      new InMemoryAccessor{this, override_isolation_level, AcquireGuardOrThrow(this, rw_type, timeout)});
 }
 
 std::unique_ptr<Storage::Accessor> InMemoryStorage::UniqueAccess(std::optional<IsolationLevel> override_isolation_level,
                                                                  std::optional<std::chrono::milliseconds> timeout) {
-  return TimedAccess(StorageAccessType::UNIQUE, override_isolation_level, timeout);
+  return std::unique_ptr<InMemoryAccessor>(new InMemoryAccessor{
+      this, override_isolation_level, AcquireGuardOrThrow(this, StorageAccessType::UNIQUE, timeout)});
 }
 
 std::unique_ptr<Storage::Accessor> InMemoryStorage::ReadOnlyAccess(
     std::optional<IsolationLevel> override_isolation_level, std::optional<std::chrono::milliseconds> timeout) {
-  return TimedAccess(StorageAccessType::READ_ONLY, override_isolation_level, timeout);
-}
-
-std::unique_ptr<Storage::Accessor> InMemoryStorage::TimedAccess(StorageAccessType rw_type,
-                                                                std::optional<IsolationLevel> override_isolation_level,
-                                                                std::optional<std::chrono::milliseconds> timeout) {
-  metrics::ScopedHistogramTimer const timer{metric_handles_.transaction_begin_seconds.histogram};
-  return std::unique_ptr<InMemoryAccessor>(
-      new InMemoryAccessor{this, override_isolation_level, AcquireGuardOrThrow(this, rw_type, timeout)});
+  return std::unique_ptr<InMemoryAccessor>(new InMemoryAccessor{
+      this, override_isolation_level, AcquireGuardOrThrow(this, StorageAccessType::READ_ONLY, timeout)});
 }
 
 std::unique_ptr<Storage::Accessor> InMemoryStorage::TryAccess(StorageAccessType rw_type,
