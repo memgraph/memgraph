@@ -1078,7 +1078,7 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
     return {};
   }
 
-  metrics::ScopedHistogramTimer const commit_timer{mem_storage->metric_handles_.commit_seconds.get()};
+  metrics::ScopedHistogramTimer const commit_timer{mem_storage->metric_handles_.commit_seconds.histogram};
 
   // This is usually done by the MVCC, but it does not handle the metadata deltas
   transaction_.EnsureCommitInfoExists();
@@ -5105,7 +5105,7 @@ std::unique_ptr<Storage::Accessor> InMemoryStorage::ReadOnlyAccess(
 std::unique_ptr<Storage::Accessor> InMemoryStorage::TimedAccess(StorageAccessType rw_type,
                                                                 std::optional<IsolationLevel> override_isolation_level,
                                                                 std::optional<std::chrono::milliseconds> timeout) {
-  metrics::ScopedHistogramTimer const timer{metric_handles_.transaction_begin_seconds.get()};
+  metrics::ScopedHistogramTimer const timer{metric_handles_.transaction_begin_seconds.histogram};
   return std::unique_ptr<InMemoryAccessor>(
       new InMemoryAccessor{this, override_isolation_level, AcquireGuardOrThrow(this, rw_type, timeout)});
 }
