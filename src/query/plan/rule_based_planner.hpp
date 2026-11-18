@@ -381,11 +381,27 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
       // The node and edge symbols a CREATE bound since the last barrier: each holds an entity this command created.
       std::unordered_set<Symbol> created_since_barrier;
       const std::unordered_set<Symbol> no_symbols;
+      // The Deletes of this segment, what they write, and the drain that owns them: their deletes land at the end of
+      // the segment, and a drain moves only reads earlier.
+      std::vector<plan::Delete *> segment_deletes;
+      ReadWriteSet segment_delete_writes;
+      Accumulate *delete_owner = nullptr;
       auto forget_pending = [&] {
         created_since_barrier.clear();
         pending_writes.Clear();
         pending_new_reads.Clear();
         access_pending_writes.Clear();
+        segment_deletes.clear();
+        segment_delete_writes.Clear();
+        delete_owner = nullptr;
+      };
+      // The outermost drain owns the segment's Deletes and applies them after its replay.
+      auto own_deletes = [&](Accumulate &drain) {
+        if (segment_deletes.empty()) return;
+        if (delete_owner) delete_owner->defers_deletes_ = 0;
+        drain.defers_deletes_ = ++last_drain_id_;
+        for (auto *del : segment_deletes) del->deferred_to_ = drain.defers_deletes_;
+        delete_owner = &drain;
       };
       // Where a barrier would go: before the matching of `barrier_matched_after`, or before the clauses
       // `barrier_rest` of the single query part at index `barrier_part`.
@@ -404,10 +420,26 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
         return symbols;
       };
       // Ends the command here: drains every row through the clauses so far, so a read above sees all their writes.
-      auto plan_barrier = [&]() {
+      // A drain (`drain`) over Deletes owns them instead: they have not landed, so their writes stay pending.
+      auto plan_barrier = [&](bool drain = false) {
+        Accumulate *barrier = nullptr;
         if (input_op) {
           auto symbols = barrier_symbols();
-          input_op = std::make_unique<Accumulate>(std::move(input_op), symbols, read_scope_ == ReadScope::kRoot);
+          auto accumulate = std::make_unique<Accumulate>(std::move(input_op), symbols, read_scope_ == ReadScope::kRoot);
+          barrier = accumulate.get();
+          input_op = std::move(accumulate);
+        }
+        if (drain && barrier && !segment_deletes.empty()) {
+          own_deletes(*barrier);
+          auto deletes = std::move(segment_deletes);
+          auto writes = std::move(segment_delete_writes);
+          forget_pending();
+          pending_writes.Merge(writes);
+          access_pending_writes.Merge(writes);
+          segment_deletes = std::move(deletes);
+          segment_delete_writes = std::move(writes);
+          delete_owner = barrier;
+          return;
         }
         forget_pending();
         wrote_since_with = false;
@@ -419,6 +451,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
           auto barrier =
               std::make_unique<Accumulate>(std::move(input_op), barrier_symbols(), read_scope_ == ReadScope::kRoot);
           barrier->access_check_only_ = true;
+          own_deletes(*barrier);
           input_op = std::move(barrier);
         }
         access_pending_writes.Clear();
@@ -453,7 +486,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
         if (ConflictsOnlyInAccessCheck(pending_new_reads, writes)) {
           plan_access_check_barrier();
         } else {
-          plan_barrier();
+          plan_barrier(/*drain=*/true);
         }
       };
       for (const auto &single_query_part : query_part.single_query_parts) {
@@ -765,6 +798,11 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
             auto op = HandleWriteClause(clause, input_op, *context.symbol_table, context.bound_symbols, view);
             MG_ASSERT(op, "Expected write clause to be handled");
             input_op = std::move(op);
+            if (auto *del = dynamic_cast<plan::Delete *>(input_op.get());
+                del && utils::Downcast<query::Delete>(clause)) {
+              segment_deletes.push_back(del);
+              segment_delete_writes.Merge(access.writes);
+            }
           } else if (auto *unwind = utils::Downcast<query::Unwind>(clause)) {
             const auto &symbol = context.symbol_table->at(*unwind->named_expression_);
             context.bound_symbols.insert(symbol);
@@ -1023,6 +1061,8 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
     kBatching,      ///< periodic commit, or a read-only IN TRANSACTIONS body: no barriers, reads use View::NEW
   };
   ReadScope read_scope_{ReadScope::kRoot};
+  /// The last id a drain that owns Deletes took: one counter for the root and every CALL body planned under it.
+  uint64_t last_drain_id_{0};
   /// Symbols that hold data, never a graph entity (`MayHoldEntity` of what binds them: a WITH or RETURN item, an
   /// UNWIND row, a LOAD row): a lookup on them reads nothing from the graph.
   std::unordered_set<Symbol> non_graph_symbols_;
