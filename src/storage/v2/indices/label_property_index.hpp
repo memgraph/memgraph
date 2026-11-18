@@ -431,7 +431,7 @@ struct LabelPropertyIndexActiveIndices {
   virtual bool IndexReady(LabelId label, std::span<PropertyPath const> properties) const = 0;
 
 #ifdef MG_ENTERPRISE
-  virtual bool IndexVisibleAt(LabelId /*label*/, std::span<PropertyPath const> /*properties*/,
+  virtual bool IndexVisibleAt(LabelId /*label*/, std::span<PropertyPath const> /*properties*/, IndexOrder /*order*/,
                               uint64_t /*timestamp*/) const {
     LOG_FATAL("IndexVisibleAt is implemented only for in-memory indices");
   }

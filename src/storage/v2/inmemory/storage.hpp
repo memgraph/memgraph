@@ -507,12 +507,22 @@ class InMemoryStorage final : public Storage {
 #ifdef MG_ENTERPRISE
       return transaction_.is_historical_
                  ? transaction_.active_indices_->label_properties_->IndexVisibleAt(
-                       label, properties, transaction_.start_timestamp)
+                       label, properties, IndexOrder::ASC, transaction_.start_timestamp) ||
+                       transaction_.active_indices_->label_properties_->IndexVisibleAt(
+                           label, properties, IndexOrder::DESC, transaction_.start_timestamp)
                  : transaction_.active_indices_->label_properties_->IndexReady(label, properties);
 #else
       return transaction_.active_indices_->label_properties_->IndexReady(label, properties);
 #endif
     }
+
+#ifdef MG_ENTERPRISE
+    bool HistoricalLabelPropertyIndexReady(LabelId label, std::span<PropertyPath const> properties,
+                                           IndexOrder order) const override {
+      return transaction_.active_indices_->label_properties_->IndexVisibleAt(
+          label, properties, order, transaction_.start_timestamp);
+    }
+#endif
 
     bool EdgeTypeIndexReady(EdgeTypeId edge_type) const override {
 #ifdef MG_ENTERPRISE

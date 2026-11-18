@@ -618,7 +618,7 @@ VerticesIterable DbAccessor::BranchVertices(storage::View view, storage::LabelId
     if (!key || !BranchKeyInRange(*key, owned_ranges)) return std::nullopt;
     return key;
   };
-  if (!historical.LabelPropertyIndexReady(label, properties) ||
+  if (!historical.HistoricalLabelPropertyIndexReady(label, properties, order) ||
       !accessor_->LabelPropertyIndexReady(label, properties)) {
     return FallbackScan(ctx, view, match_key, order);
   }
