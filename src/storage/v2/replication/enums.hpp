@@ -13,6 +13,7 @@
 #include <array>
 #include <cstdint>
 #include <string_view>
+#include <utility>
 
 namespace memgraph::storage::replication {
 
@@ -39,6 +40,7 @@ constexpr auto ReplicaStatusName(ReplicaState const state) -> std::string_view {
     case DIVERGED_FROM_MAIN:
       return "diverged";
   }
+  std::unreachable();
 }
 
 }  // namespace memgraph::storage::replication
