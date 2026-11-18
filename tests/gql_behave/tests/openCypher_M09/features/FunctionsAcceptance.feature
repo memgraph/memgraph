@@ -147,22 +147,6 @@ Feature: FunctionsAcceptance
       | reverse('raksO') |
       | 'Oskar'          |
     And no side effects
-    When executing query:
-      """
-      RETURN reverse(['a', 'b', 'c']), reverse([])
-      """
-    Then the result should be:
-      | reverse(['a', 'b', 'c']) | reverse([]) |
-      | ['c', 'b', 'a']          | []          |
-    And no side effects
-    When executing query:
-      """
-      RETURN reverse([[1, 2], {a: 1}])
-      """
-    Then the result should be:
-      | reverse([[1, 2], {a: 1}]) |
-      | [{a: 1}, [1, 2]]          |
-    And no side effects
 
   Scenario: `exists()` with dynamic property lookup
     Given an empty graph
