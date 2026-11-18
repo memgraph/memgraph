@@ -236,6 +236,40 @@ TEST_F(VersioningMgpTest, NestedSessionOnABranchTimesOutBehindAQueuedUniqueReque
   EXPECT_NE(message, "<no exception>");
 }
 
+// A nested session attaching a branch whose core is not loaded builds the core under the outer transaction's shared
+// hold on main's storage guard; behind a queued UNIQUE request that build must time out, as the nested session's
+// accessors do, and leave no cached failure, so the attach succeeds once the request is gone.
+TEST_F(VersioningMgpTest, NestedAttachBuildingABranchCoreTimesOutBehindAQueuedUniqueRequestInsteadOfHanging) {
+  faker.Interpret("CREATE (:K {v: 1})");
+  faker.Interpret("CREATE BRANCH c");
+  faker.Interpret("BEGIN");
+  faker.Interpret("MATCH (n:K) RETURN n.v");
+
+  InterpreterFaker nested{&interpreter_context, db};
+
+  std::atomic<bool> unique_requested{false};
+  std::thread unique([&] {
+    unique_requested = true;
+    auto accessor = db->storage()->UniqueAccess();
+  });
+  while (!unique_requested) std::this_thread::yield();
+  std::this_thread::sleep_for(std::chrono::milliseconds(300));  // The request is queued behind the outer READ guard.
+
+  auto nested_run = std::async(std::launch::async, [&] {
+    return memgraph::tests::versioning_fixture::ThrownMessage(
+        [&] { nested.Interpret("USING BRANCH c MATCH (n:K) RETURN n.v"); });
+  });
+  const auto finished = nested_run.wait_for(std::chrono::seconds(20)) == std::future_status::ready;
+  // Ending the outer transaction unblocks a hung build, so the test reports instead of hanging.
+  faker.Interpret("ROLLBACK");
+  unique.join();
+  const auto message = nested_run.get();
+  ASSERT_TRUE(finished) << "the nested attach built the branch core without a timeout";
+  EXPECT_NE(message, "<no exception>");
+
+  EXPECT_EQ(nested.Interpret("USING BRANCH c MATCH (n:K) RETURN n.v").GetResults().at(0).at(0).ValueInt(), 1);
+}
+
 // A procedure's graph is the outer transaction's: repeated reads see one snapshot while another branch session and main
 // commit, the transaction's own write shows through, and a rollback leaves the committed state.
 TEST_F(VersioningMgpTest, ProcedureReadsOnABranchSeeTheOuterSnapshotAndItsOwnWrites) {
