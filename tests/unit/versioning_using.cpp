@@ -26,6 +26,7 @@
 
 using memgraph::tests::versioning_fixture::ExplainText;
 using memgraph::tests::versioning_fixture::IntRows;
+using memgraph::tests::versioning_fixture::LackingPrivilegesUser;
 using memgraph::tests::versioning_fixture::PlanHasOperator;
 using memgraph::tests::versioning_fixture::Rows;
 using memgraph::tests::versioning_fixture::ThrownMessage;
@@ -301,6 +302,31 @@ TEST_F(VersioningGatedTest, UsingBranchNeedsBranchUseAndTheQuerysPrivileges) {
               ::testing::UnorderedElementsAre(AuthQuery::Privilege::MATCH, AuthQuery::Privilege::BRANCH_USE));
   EXPECT_THAT(privileges_of("USING BRANCH b CREATE (n)"),
               ::testing::UnorderedElementsAre(AuthQuery::Privilege::CREATE, AuthQuery::Privilege::BRANCH_USE));
+}
+
+// The refusal comes before the attach, so a user without BRANCH_USE cannot probe which branches exist or are usable.
+TEST_F(VersioningGatedTest, UsingBranchWithoutBranchUseIsRefusedBeforeAnythingIsAttached) {
+  using memgraph::query::AuthQuery;
+  faker.Interpret("CREATE BRANCH b");
+  faker.Interpret("CREATE BRANCH bad");
+  auto *store = db->version_store();
+  store->MarkUnavailable(store->Get("bad")->id, "the write-ahead log directory is missing");
+  faker.interpreter.SetUser(std::make_shared<LackingPrivilegesUser>(std::set{AuthQuery::Privilege::BRANCH_USE}));
+
+  const auto prepare = [&](const std::string &query) {
+    auto message = ThrownMessage([&] {
+      faker.interpreter.Prepare(query, [](auto *) { return memgraph::storage::ExternalPropertyValue::map_t{}; }, {});
+    });
+    faker.Abort();
+    return message;
+  };
+  for (const auto *target : {"nope", "b", "bad"}) {
+    EXPECT_THAT(prepare(fmt::format("USING BRANCH {} MATCH (n) RETURN n", target)),
+                ::testing::HasSubstr("Missing privilege: BRANCH_USE"))
+        << target;
+  }
+  EXPECT_EQ(CheckoutCount(store, "b"), 0U);
+  EXPECT_EQ(prepare("USING BRANCH main MATCH (n) RETURN n"), "<no exception>") << "main never needs BRANCH_USE";
 }
 
 // Quoted targets share one stripped query text ("USING BRANCH $0 ..."); main has an index created after the fork, the
