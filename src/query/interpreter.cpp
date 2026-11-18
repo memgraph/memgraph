@@ -9773,7 +9773,7 @@ void AttachBranchEngine(CurrentDB &current_db, versioning::VersionStore *version
       throw QueryRuntimeException(recorded.error());
     }
     current_db.SetBranchContext(
-        std::make_unique<versioning::BranchContext>(std::move(*core), name), version_store, info->id);
+        std::make_unique<versioning::BranchContext>(std::move(*core), name, info->id), version_store, info->id);
   } catch (...) {
     // Once SetBranchContext installed the checkout, leaving the branch is what releases it.
     if (current_db.branch_context() != nullptr) {
