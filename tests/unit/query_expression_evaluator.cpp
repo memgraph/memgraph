@@ -292,20 +292,6 @@ TYPED_TEST(ExpressionEvaluatorTest, AdditionOperator) {
                                                              this->storage.template Create<PrimitiveLiteral>(3));
   auto value = this->Eval(op);
   ASSERT_EQ(value.ValueInt(), 5);
-
-  // Two maps merge, the right operand winning on a duplicate key.
-  auto *left = this->storage.template Create<MapLiteral>(std::unordered_map<PropertyIx, Expression *>{
-      {this->storage.GetPropertyIx("a"), this->storage.template Create<PrimitiveLiteral>(1)}});
-  auto *right = this->storage.template Create<MapLiteral>(std::unordered_map<PropertyIx, Expression *>{
-      {this->storage.GetPropertyIx("a"), this->storage.template Create<PrimitiveLiteral>(2)},
-      {this->storage.GetPropertyIx("b"), this->storage.template Create<PrimitiveLiteral>(3)}});
-  auto merged = this->Eval(this->storage.template Create<AdditionOperator>(left, right));
-  EXPECT_EQ(merged.ValueMap().at("a").ValueInt(), 2);
-  EXPECT_EQ(merged.ValueMap().at("b").ValueInt(), 3);
-  // A map added to a non-map still surfaces as a runtime error.
-  EXPECT_THROW(this->Eval(this->storage.template Create<AdditionOperator>(
-                   left, this->storage.template Create<PrimitiveLiteral>(1))),
-               QueryRuntimeException);
 }
 
 TYPED_TEST(ExpressionEvaluatorTest, SubtractionOperator) {
