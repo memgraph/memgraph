@@ -326,7 +326,7 @@ void InMemoryEdgeTypeIndex::ActiveIndices::UpdateOnEdgeCreation(Vertex *from, Ve
     return;
   }
   auto acc = it->second->skip_list_.access();
-  acc.insert(Entry{from, to, edge_ref.ptr, tx.start_timestamp});
+  acc.insert(Entry{from, to, edge_ref.ptr, tx.index_stamp});
 }
 
 void InMemoryEdgeTypeIndex::DropGraphClearIndices() {

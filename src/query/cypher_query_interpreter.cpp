@@ -56,6 +56,27 @@ bool IsFresh(AstStorage const &ast_storage, uint64_t stamped_generation, uint64_
   return !ast_storage.DependsOnModules() || stamped_generation == current_generation;
 }
 
+/// Finds an operator that commits the transaction in batches.
+struct BatchCommitFinder : plan::HierarchicalLogicalOperatorVisitor {
+  using HierarchicalLogicalOperatorVisitor::PostVisit;
+  using HierarchicalLogicalOperatorVisitor::PreVisit;
+  using HierarchicalLogicalOperatorVisitor::Visit;
+
+  bool PreVisit(plan::PeriodicCommit & /*unused*/) override {
+    found = true;
+    return true;
+  }
+
+  bool PreVisit(plan::PeriodicSubquery & /*unused*/) override {
+    found = true;
+    return true;
+  }
+
+  bool Visit(plan::Once & /*unused*/) override { return true; }
+
+  bool found{false};
+};
+
 }  // namespace
 
 PlanWrapper::PlanWrapper(std::unique_ptr<LogicalPlan> plan, uint64_t module_generation)
@@ -65,6 +86,9 @@ PlanWrapper::PlanWrapper(std::unique_ptr<LogicalPlan> plan, uint64_t module_gene
   //          ATM to work with a const visitor. This maybe addressed when the planner is redone.
   const_cast<plan::LogicalOperator &>(plan_->GetRoot()).Accept(checker);
   required_indices_ = std::move(checker.required_indices_);
+  auto batch_commit_finder = BatchCommitFinder{};
+  const_cast<plan::LogicalOperator &>(plan_->GetRoot()).Accept(batch_commit_finder);
+  commits_in_batches_ = batch_commit_finder.found;
 }
 
 auto PrepareQueryParameters(frontend::StrippedQuery const &stripped_query, UserParameters const &user_parameters,

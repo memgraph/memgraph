@@ -146,6 +146,7 @@ struct Transaction {
         start_timestamp(start_timestamp),
         original_start_timestamp(start_timestamp),
         command_id(0),
+        index_stamp(start_timestamp),
         deltas(unreleased_delta_gauge),
         md_deltas(utils::NewDeleteResource()),
         has_serialization_error(false),
@@ -290,6 +291,12 @@ struct Transaction {
   uint64_t command_id{};
   // The current batch wrote at a command before the current one.
   bool wrote_at_earlier_command{false};
+  // Written into new index entries: the batch start, or the stamp of the command that raised it.
+  uint64_t index_stamp{};
+  // Every stamp this transaction raised, ascending; kept across batch commits for scans opened earlier.
+  std::vector<uint64_t> index_stamps;
+  // Set while a query that commits in batches runs; an advance then raises a stamp.
+  bool index_stamps_armed{false};
 
   delta_container deltas;
   utils::pmr::list<MetadataDelta> md_deltas;

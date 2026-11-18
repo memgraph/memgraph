@@ -217,7 +217,7 @@ void InMemoryLabelIndex::ActiveIndices::UpdateOnAddLabel(LabelId added_label, Ve
   auto it = index_container_->find(added_label);
   if (it == index_container_->end()) return;
   auto acc = it->second->skiplist.access();
-  acc.insert(Entry{vertex_after_update, tx.start_timestamp});
+  acc.insert(Entry{vertex_after_update, tx.index_stamp});
 }
 
 auto InMemoryLabelIndex::DropIndex(LabelId label, ActiveIndicesUpdater const &updater)

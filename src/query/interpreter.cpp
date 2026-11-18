@@ -3757,6 +3757,8 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
   ctx_.parallel_execution = parallel_execution;
 #endif
   ctx_.db_accessor = dba;
+  // Disarmed when the last row is pulled (see Pull).
+  if (dba != nullptr && plan->commits_in_batches()) dba->ArmIndexStamps();
   ctx_.db_arena_pool = db_arena_pool;
   ctx_.symbol_table = plan->symbol_table();
   ctx_.evaluation_context.timestamp = QueryTimestamp();
@@ -3862,6 +3864,9 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
   if (has_unsent_results_) {
     return std::nullopt;
   }
+
+  // A later query of the same transaction arms again if it commits in batches.
+  if (ctx_.db_accessor != nullptr) ctx_.db_accessor->DisarmIndexStamps();
 
   summary->insert_or_assign("plan_execution_time", execution_time_.count());
   summary->insert_or_assign("number_of_hops", ctx_.number_of_hops);

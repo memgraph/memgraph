@@ -125,7 +125,7 @@ void Indices::UpdateOnSetProperty(PropertyId property, const PropertyValue &old_
     tx.index_arming.note_vertex_property(property);
 
   tx.active_indices_->label_properties_->UpdateOnSetProperty(property, old_value, new_value, vertex, tx);
-  tx.active_indices_->vertex_property_->UpdateOnSetProperty(property, new_value, vertex, tx.start_timestamp);
+  tx.active_indices_->vertex_property_->UpdateOnSetProperty(property, new_value, vertex, tx.index_stamp);
   tx.active_indices_->text_->UpdateOnSetProperty(vertex, tx, property);
   vector_index_.UpdateOnSetProperty(property, new_value, vertex);
 }
@@ -136,9 +136,9 @@ void Indices::UpdateOnSetProperty(EdgeTypeId edge_type, PropertyId property, con
     tx.index_arming.note_edge_property(property);
 
   tx.active_indices_->edge_type_properties_->UpdateOnSetProperty(
-      from_vertex, to_vertex, edge, edge_type, property, value, tx.start_timestamp);
+      from_vertex, to_vertex, edge, edge_type, property, value, tx.index_stamp);
   tx.active_indices_->edge_property_->UpdateOnSetProperty(
-      from_vertex, to_vertex, edge, edge_type, property, value, tx.start_timestamp);
+      from_vertex, to_vertex, edge, edge_type, property, value, tx.index_stamp);
   vector_edge_index_.UpdateOnSetProperty(from_vertex, to_vertex, edge, edge_type, property, value);
   tx.active_indices_->text_edge_->UpdateOnSetProperty(edge, from_vertex, to_vertex, edge_type, tx, property);
 }

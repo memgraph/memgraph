@@ -726,7 +726,7 @@ void InMemoryLabelPropertyIndex::ActiveIndices::UpdateOnAddLabel(LabelId added_l
         auto values = BuildEntryValues<EntryT>(index.permutations_helper, vertex_after_update->properties);
         if (!values) return;
         auto acc = index.skiplist.access();
-        acc.insert({std::move(*values), vertex_after_update, tx.start_timestamp});
+        acc.insert({std::move(*values), vertex_after_update, tx.index_stamp});
       });
     }
   };
@@ -814,7 +814,7 @@ void InMemoryLabelPropertyIndex::ActiveIndices::UpdateOnSetProperty(PropertyId p
         }
 
         if (auto values = BuildEntryValues<EntryT>(helper, vertex->properties); values) {
-          with_acc().insert({std::move(*values), vertex, tx.start_timestamp});
+          with_acc().insert({std::move(*values), vertex, tx.index_stamp});
         }
       });
     }

@@ -1451,6 +1451,7 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
 
   auto new_transaction = mem_storage->CreateTransaction(transaction_.isolation_level, transaction_.storage_mode);
   transaction_.start_timestamp = new_transaction.start_timestamp;
+  transaction_.index_stamp = new_transaction.start_timestamp;
   transaction_.transaction_id = new_transaction.transaction_id;
   // So the next batch sees what this one committed. With the experiment OFF snapshot_ts equals
   // start_timestamp, so this is inert to the read path.
@@ -1468,6 +1469,8 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
 
   return result;
 }
+
+void InMemoryStorage::InMemoryAccessor::ArmIndexStamps() { transaction_.index_stamps_armed = true; }
 
 void InMemoryStorage::InMemoryAccessor::GCRapidDeltaCleanup(BatchedList<Edge *> &current_deleted_edges,
                                                             BatchedList<Gid> &current_deleted_vertices,

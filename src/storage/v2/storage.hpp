@@ -820,6 +820,11 @@ class Accessor {
 
   void AdvanceCommand();
 
+  // For a query that commits in batches: each later advance gives new index entries a fresh stamp.
+  virtual void ArmIndexStamps() {}
+
+  void DisarmIndexStamps() { transaction_.index_stamps_armed = false; }
+
   const std::string &LabelToName(LabelId label) const { return storage_->LabelToName(label); }
 
   const std::string &PropertyToName(PropertyId property) const { return storage_->PropertyToName(property); }

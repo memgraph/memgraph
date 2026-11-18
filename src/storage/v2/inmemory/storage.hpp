@@ -477,6 +477,8 @@ class InMemoryStorage final : public Storage {
 
     std::expected<void, StorageManipulationError> PeriodicCommit(CommitArgs commit_args) override;
 
+    void ArmIndexStamps() override;
+
     // `on_progress` is reported per delta undone. An interrupted 2PC leaves a transaction whose abort is
     // O(deltas), and on a replica that runs inside an RPC handler whose peer is timing it.
     void AbortAndResetCommitTs(ProgressCallback const &on_progress = {});

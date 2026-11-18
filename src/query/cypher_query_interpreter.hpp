@@ -95,10 +95,14 @@ class PlanWrapper {
   /// readiness check every time this plan is served.
   auto required_indices() const -> storage::IndicesCollection const & { return required_indices_; }
 
+  /// The plan holds a PERIODIC COMMIT or an IN TRANSACTIONS call.
+  bool commits_in_batches() const { return commits_in_batches_; }
+
  private:
   std::unique_ptr<LogicalPlan> plan_;
   uint64_t module_generation_;
   storage::IndicesCollection required_indices_;
+  bool commits_in_batches_{false};
 };
 
 struct CachedQuery {
