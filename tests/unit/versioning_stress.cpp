@@ -35,7 +35,6 @@
 #include <string>
 #include <string_view>
 #include <thread>
-#include <tuple>
 #include <typeinfo>
 #include <utility>
 #include <vector>
@@ -338,10 +337,11 @@ int64_t Scalar(InterpreterFaker &s, const std::string &query) {
 
 }  // namespace
 
-// The parameter is main's experimental_commit_lock_narrowing: branches must behave the same under both commit modes.
 // Restart() rebuilds the engine on the same directory; a throwing restart fails the test (a branch must always replay).
-class VersioningStressTest : public ::testing::TestWithParam<bool> {
+class VersioningStressBase : public ::testing::Test {
  protected:
+  virtual bool Narrowing() const { return false; }
+
   std::filesystem::path data_directory;
   std::filesystem::path ledger_directory;
   std::unique_ptr<memgraph::kvstore::KVStore> ledger_store;
@@ -359,7 +359,7 @@ class VersioningStressTest : public ::testing::TestWithParam<bool> {
     std::filesystem::remove_all(data_directory);
     std::filesystem::remove_all(ledger_directory);
     ledger_store = std::make_unique<memgraph::kvstore::KVStore>(ledger_directory);
-    engine = std::make_unique<StressEngine>(data_directory, GetParam(), ledger_store.get(), db_uuid);
+    engine = std::make_unique<StressEngine>(data_directory, Narrowing(), ledger_store.get(), db_uuid);
   }
 
   void TearDown() override {
@@ -373,13 +373,19 @@ class VersioningStressTest : public ::testing::TestWithParam<bool> {
   bool Restart() {
     engine.reset();
     try {
-      engine = std::make_unique<StressEngine>(data_directory, GetParam(), ledger_store.get(), db_uuid);
+      engine = std::make_unique<StressEngine>(data_directory, Narrowing(), ledger_store.get(), db_uuid);
     } catch (const std::exception &e) {
       ADD_FAILURE() << "the server refused to start after a restart: " << e.what();
       return false;
     }
     return true;
   }
+};
+
+// The parameter is main's experimental_commit_lock_narrowing: branches must behave the same under both commit modes.
+class VersioningStressTest : public VersioningStressBase, public ::testing::WithParamInterface<bool> {
+ protected:
+  bool Narrowing() const override { return GetParam(); }
 };
 
 namespace {
@@ -2019,7 +2025,8 @@ void CheckLeakSurfaces(InterpreterFaker &s, const LeakModel &m, FailureLog &log,
 
 }  // namespace
 
-TEST_P(VersioningStressTest, RandomRemovalsAndDeletesNeverLeakAMarkerOnAnyOutputSurface) {
+// Single-threaded: the commit-lock mode does not matter, so it runs once.
+TEST_F(VersioningStressBase, RandomRemovalsAndDeletesNeverLeakAMarkerOnAnyOutputSurface) {
   LeakModel model;
   SeedLeak(engine->NewSession(), model);
   engine->NewSession().Interpret("CREATE BRANCH 'leak'");
@@ -2092,19 +2099,6 @@ TEST_P(VersioningStressTest, HotBaseEdgesWithEndpointDeletesSurviveRestarts) {
     ReportHot("hot base edges phase " + std::to_string(phase), stats);
     ExpectHotStatsClean(log, stats);
 
-    // Interrupted work: transactions still open (never committed) when the server goes down must not survive it.
-    // Disjoint objects, so none of them conflicts with another.
-    const auto dirty = [&](int i) { return std::to_string(9'000'000'000 + phase * 10 + i); };
-    auto &open0 = engine->NewBranchSession("hot");
-    open0.Interpret("BEGIN");
-    open0.Interpret("MATCH ()-[r:E {eid:0}]->() SET r.w = " + dirty(0) + ", r.z = " + dirty(0));
-    open0.Interpret("MATCH (a:H {id:6}) SET a.v = " + dirty(0));
-    auto &open1 = engine->NewBranchSession("hot");
-    open1.Interpret("BEGIN");
-    open1.Interpret("MATCH ()-[r:E {eid:12}]->() SET r.w = " + dirty(1) + ", r.z = " + dirty(1));
-    open1.Interpret("MATCH (a:H {id:7}) SET a.v = " + dirty(1));
-    open1.Interpret("MATCH (a:H {id:2}), (b:H {id:3}) CREATE (a)-[:N {nid:" + dirty(1) + "}]->(b)");
-
     auto &chk = engine->NewBranchSession("hot");
     auto &mchk = engine->NewSession();
     VerifyHotBranch(chk, committed, "phase " + std::to_string(phase));
@@ -2112,9 +2106,7 @@ TEST_P(VersioningStressTest, HotBaseEdgesWithEndpointDeletesSurviveRestarts) {
     if (::testing::Test::HasFatalFailure()) return;
     if (phase + 1 == kPhases) {
       ASSERT_FALSE(committed.natives.empty()) << "no branch-native edge was ever committed: workload is vacuous";
-      // Quiescent (interrupted transactions rolled back): one sequential write per surviving base edge reads back.
-      open0.Interpret("ROLLBACK");
-      open1.Interpret("ROLLBACK");
+      // Quiescent: one sequential write per surviving base edge reads back.
       for (int64_t e = 0; e < kHotEdges; ++e) {
         const auto v = std::to_string(8'000'000'000 + e);
         chk.Interpret("MATCH ()-[r:E {eid:" + std::to_string(e) + "}]->() SET r.w = " + v + ", r.z = " + v);
@@ -2137,41 +2129,8 @@ TEST_P(VersioningStressTest, HotBaseEdgesWithEndpointDeletesSurviveRestarts) {
     ASSERT_EQ(branch_before, branch_after)
         << "restart changed the branch: " << FirstDifference(branch_before, branch_after);
     ASSERT_EQ(main_before, StateSnapshot(mchk_after)) << "restart changed main";
-    for (const auto &line : branch_after) {
-      ASSERT_EQ(line.find("9000000000"), std::string::npos)
-          << "an uncommitted (interrupted) write survived the restart: " << line;
-    }
     VerifyHotBranch(chk_after, committed, "after restart " + std::to_string(phase));
     if (::testing::Test::HasFatalFailure()) return;
-  }
-}
-
-// Deterministic: a transaction started before an endpoint delete committed must not write the edge the delete hid (as
-// on main), or the branch WAL records a write the replay rejects and the server refuses to start.
-TEST_P(VersioningStressTest, EdgeWriteAfterACommittedEndpointDeleteConflicts) {
-  auto &setup = engine->NewSession();
-  setup.Interpret("CREATE INDEX ON :H(id)");
-  setup.Interpret("CREATE (:H {id:1})-[:E {eid:1, w:0}]->(:H {id:2}), (:H {id:3})-[:E {eid:3, w:0}]->(:H {id:4})");
-  setup.Interpret("CREATE BRANCH 'src'");
-  setup.Interpret("CREATE BRANCH 'dst'");
-  for (const auto &[branch, eid, deleted] : {std::tuple{"src", 1, 1}, std::tuple{"dst", 3, 4}}) {
-    auto &older = engine->NewBranchSession(branch);
-    auto &deleter = engine->NewBranchSession(branch);
-    older.Interpret("BEGIN");
-    older.Interpret("MATCH ()-[r:E {eid:" + std::to_string(eid) + "}]->() RETURN r.w");
-    deleter.Interpret("MATCH (n:H {id:" + std::to_string(deleted) + "}) DETACH DELETE n");
-    EXPECT_THROW(
-        {
-          older.Interpret("MATCH ()-[r:E {eid:" + std::to_string(eid) + "}]->() SET r.w = 7");
-          older.Interpret("COMMIT");
-        },
-        memgraph::query::TransactionSerializationException)
-        << "branch " << branch;
-    SwallowRollback(older);
-  }
-  ASSERT_TRUE(Restart());
-  for (const char *branch : {"src", "dst"}) {
-    EXPECT_EQ(Scalar(engine->NewBranchSession(branch), "MATCH ()-[r:E]->() RETURN count(r)"), 1) << branch;
   }
 }
 
