@@ -11424,6 +11424,9 @@ void Interpreter::SelectPinnedBranch(std::optional<std::string> const &branch) {
     current_db_.LeaveBranch();
     return;
   }
+  // The pin is by name: re-selecting the current one (a Configure with changed metadata) keeps the checkout, even a
+  // dead one, so a dropped branch is never followed to a re-created namesake.
+  if (current_db_.CurrentVersion() == *branch) return;
   auto &db_acc = *current_db_.db_acc_;
   auto *version_store = CheckBranchPrerequisites(interpreter_context_, db_acc, versioning::GateOperation::kObserve);
   EnterSessionBranch(current_db_, version_store, db_acc->storage(), *branch);

@@ -94,13 +94,19 @@ def test_dropped_pinned_branch_is_never_followed(driver):
         for _ in range(2):
             with pytest.raises(ClientError, match="Branch 'pinned' no longer exists."):
                 s.run("MATCH (n:V) RETURN count(n)").consume()
+            with pytest.raises(ClientError, match="Branch 'pinned' no longer exists."):
+                s.execute_read(lambda tx: tx.run("MATCH (n:V) RETURN count(n)").consume())
         # A branch re-created under the same name is a different branch: the pin stays on the dropped one and only a
         # new connection resolves the name to the new one.
         with GraphDatabase.driver(URI, auth=NO_AUTH) as other:
             with other.session(database="memgraph") as a:
                 a.run("CREATE BRANCH pinned").consume()
-            with pytest.raises(ClientError, match=r"this connection stays on the dropped one"):
-                s.run("MATCH (n:V) RETURN count(n)").consume()
+            # execute_read sends mode "r", so Configure re-runs; the pin must not follow the name to the new branch.
+            for _ in range(2):
+                with pytest.raises(ClientError, match=r"this connection stays on the dropped one"):
+                    s.run("MATCH (n:V) RETURN count(n)").consume()
+                with pytest.raises(ClientError, match=r"this connection stays on the dropped one"):
+                    s.execute_read(lambda tx: tx.run("MATCH (n:V) RETURN count(n)").consume())
             with other.session(database="memgraph@pinned") as fresh:
                 assert _count(fresh, "V") == 1
     with driver.session(database="memgraph") as s:
