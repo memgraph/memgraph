@@ -9826,13 +9826,36 @@ PreparedQuery PrepareUseBranchQuery(ParsedQuery parsed_query, std::string target
       .rw_type = RWType::NONE};
 }
 
-// A transaction binds one storage engine when it begins, so USING BRANCH runs only as an autocommit query.
+// The refusal Interpreter::CheckAuthorized gives for a missing BRANCH_USE / BRANCH_EDIT.
+[[noreturn]] void ThrowMissingBranchPrivileges(std::string_view missing, const std::optional<std::string> &db) {
+  if (!db) {
+    throw QueryException(
+        "You are not authorized to execute this query! Missing privilege: {}. Ask your database administrator to "
+        "grant it.",
+        missing);
+  }
+  throw QueryException(
+      "You are not authorized to execute this query on database \"{}\"! Missing privilege: {}. Ask your database "
+      "administrator to grant it.",
+      *db,
+      missing);
+}
+
+// A transaction binds one storage engine when it begins, so USING BRANCH runs only as an autocommit query. The
+// target attaches before the Bolt-level check of Prepare's privileges, so BRANCH_USE is checked here first: a refusal
+// must not reveal which branches exist or build their cores.
 versioning::VersionStore *CheckUsingBranch(InterpreterContext *interpreter_context, CurrentDB &current_db,
-                                           bool in_explicit_transaction) {
+                                           bool in_explicit_transaction, const QueryUserOrRole *user_or_role,
+                                           std::string_view target) {
   if (in_explicit_transaction) {
     throw QueryRuntimeException("USING BRANCH is not allowed inside an explicit transaction.");
   }
   if (!current_db.db_acc_) throw DatabaseContextRequiredException("Database required for query execution.");
+  if (const auto db = std::optional<std::string>{(*current_db.db_acc_)->name()};
+      user_or_role != nullptr && target != "main" &&
+      !user_or_role->IsAuthorized({AuthQuery::Privilege::BRANCH_USE}, db, &query::session_long_policy)) {
+    ThrowMissingBranchPrivileges("BRANCH_USE", db);
+  }
   return CheckBranchPrerequisites(interpreter_context, *current_db.db_acc_, versioning::GateOperation::kObserve);
 }
 
@@ -11623,7 +11646,10 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
       auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
       using_branch = GetOptionalStringValue(branch_target, evaluator);
       DMG_ASSERT(using_branch, "The grammar requires a branch name");
-      using_branch_store = CheckUsingBranch(interpreter_context_, current_db_, in_explicit_transaction_);
+      using_branch_store = CheckUsingBranch(
+          interpreter_context_, current_db_, in_explicit_transaction_, user_or_role_.get(), *using_branch);
+      // The extractor cannot see the target; main needs database access only, as for USE BRANCH main.
+      if (*using_branch == "main") std::erase(parsed_query.required_privileges, AuthQuery::Privilege::BRANCH_USE);
       if (parsed_query.using_schema_assert && *using_branch != "main") {
         throw QueryRuntimeException(
             "Schema and storage-global operations are not allowed on a branch. Run the query on main: USING BRANCH "
@@ -12219,17 +12245,7 @@ void Interpreter::CheckAuthorized(std::vector<AuthQuery::Privilege> const &privi
     Abort();
 #ifdef MG_ENTERPRISE
     if (const auto missing = MissingBranchPrivileges(*user_or_role_, privileges, db); !missing.empty()) {
-      if (!db) {
-        throw QueryException(
-            "You are not authorized to execute this query! Missing privilege: {}. Ask your database administrator to "
-            "grant it.",
-            missing);
-      }
-      throw QueryException(
-          "You are not authorized to execute this query on database \"{}\"! Missing privilege: {}. Ask your database "
-          "administrator to grant it.",
-          db.value(),
-          missing);
+      ThrowMissingBranchPrivileges(missing, db);
     }
 #endif
     if (!db) {
