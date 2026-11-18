@@ -240,6 +240,22 @@ TEST_F(MultiTenantTest, ShowBranchesForDatabaseListsTheNamedDatabase) {
   EXPECT_THROW(RunQuery(caller, "SHOW BRANCHES FOR DATABASE nope"), memgraph::query::QueryRuntimeException);
 }
 
+// The Bolt layer authorizes the prepared query against its reported database, so FOR DATABASE must report the listed
+// one.
+TEST_F(MultiTenantTest, ShowBranchesForDatabaseIsPreparedAgainstTheListedDatabase) {
+  min_mg.reset();
+  config.experimental_versioning = true;
+  min_mg.emplace(config);
+  auto caller = this->NewInterpreter();
+  RunMtQuery(caller, "CREATE DATABASE db1", "Successfully created database db1");
+  const auto listed = caller.interpreter.Prepare(
+      "SHOW BRANCHES FOR DATABASE db1", [](auto *) { return memgraph::storage::ExternalPropertyValue::map_t{}; }, {});
+  EXPECT_EQ(listed.db, "db1");
+  const auto own = caller.interpreter.Prepare(
+      "SHOW BRANCHES", [](auto *) { return memgraph::storage::ExternalPropertyValue::map_t{}; }, {});
+  EXPECT_EQ(own.db, memgraph::dbms::kDefaultDB);
+}
+
 TEST_F(MultiTenantTest, RenameNonExistingDB) {
   auto interpreter1 = this->NewInterpreter();
   ASSERT_THROW(RenameDatabase(interpreter1, "db1", "db1"), memgraph::query::QueryRuntimeException);

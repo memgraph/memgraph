@@ -9571,6 +9571,8 @@ PreparedQuery PrepareShowBranchQuery(ParsedQuery parsed_query, std::optional<std
 PreparedQuery PrepareShowBranchesQuery(ParsedQuery parsed_query, memgraph::dbms::DatabaseAccess target_db_acc,
                                        versioning::VersionStore *version_store, InterpreterContext *interpreter_context,
                                        CurrentDB &current_db) {
+  // The Bolt layer authorizes against `.db`, which must be the listed database, not the session's.
+  auto db_name = std::string{target_db_acc->name()};
   return PreparedQuery{
       .header = BranchColumns(),
       .privileges = std::move(parsed_query.required_privileges),
@@ -9600,7 +9602,8 @@ PreparedQuery PrepareShowBranchesQuery(ParsedQuery parsed_query, memgraph::dbms:
         if (pull_plan->Pull(stream, n)) return QueryHandlerResult::COMMIT;
         return std::nullopt;
       },
-      .rw_type = RWType::NONE};
+      .rw_type = RWType::NONE,
+      .db = std::move(db_name)};
 }
 }  // namespace
 
