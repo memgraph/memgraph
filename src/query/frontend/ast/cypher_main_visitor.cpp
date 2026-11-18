@@ -4892,7 +4892,13 @@ EdgeTypeIx CypherMainVisitor::AddEdgeType(const std::string &name) { return stor
 antlrcpp::Any CypherMainVisitor::visitCreateDatabase(MemgraphCypher::CreateDatabaseContext *ctx) {
   auto *mdb_query = storage_->Create<MultiDatabaseQuery>();
   mdb_query->db_name_ = std::any_cast<std::string>(ctx->databaseName()->accept(this));
-  mdb_query->action_ = MultiDatabaseQuery::Action::CREATE;
+  if (ctx->REPLACE() != nullptr) {
+    mdb_query->action_ = MultiDatabaseQuery::Action::REPLACE;
+  } else if (ctx->ifNotExists() != nullptr) {
+    mdb_query->action_ = MultiDatabaseQuery::Action::CREATE_IF_NOT_EXISTS;
+  } else {
+    mdb_query->action_ = MultiDatabaseQuery::Action::CREATE;
+  }
   query_ = mdb_query;
   return mdb_query;
 }

@@ -109,6 +109,9 @@ class DbmsHandler {
   using DeleteResult = std::expected<void, DeleteError>;
   using RenameResult = std::expected<void, RenameError>;
 
+  enum class ReplaceError : uint8_t { DEFAULT_DB, USING, FAILED };
+  using ReplaceResultT = std::expected<DatabaseAccess, ReplaceError>;
+
   // Hot/cold suspend: reasons a tenant cannot be suspended (moved HOT -> COLD).
   enum class SuspendError : uint8_t {
     DEFAULT_DB,             //!< the default database is never suspendable
@@ -254,6 +257,8 @@ class DbmsHandler {
   }
 
   void UpdateDurability(const storage::Config &config, std::optional<std::filesystem::path> rel_dir = {});
+
+  ReplaceResultT Replace(std::string_view name, system::Transaction *txn = nullptr);
 
   /**
    * @brief Get the context associated with the "name" database
@@ -976,6 +981,9 @@ class DbmsHandler {
    * @return NewResultT context on success, error on failure
    */
   DbmsHandler::NewResultT New_(storage::Config storage_config, system::Transaction *txn = nullptr);
+
+  bool Droppable_(std::string_view name);
+  void DropHold_(std::string_view hold_name, const std::filesystem::path &dir, DatabaseAccess &acc);
 
   // TODO: new overload of Delete_ with DatabaseAccess
   DeleteResult Delete_(std::string db_name);

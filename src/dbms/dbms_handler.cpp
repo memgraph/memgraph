@@ -48,6 +48,7 @@ namespace {
 constexpr std::string_view kDBPrefix = "database:";  // Key prefix for database durability
 constexpr std::string_view kUuidKey = "uuid";        // JSON key for a durable entry's tenant uuid
 constexpr std::string_view kRelDirKey = "rel_dir";   // JSON key for a durable entry's relative data dir
+constexpr std::string_view kReplaceHoldPrefix = "__replace_hold_";  // temporary name of a not-yet-published tenant
 #endif
 
 // Per storage
@@ -692,6 +693,128 @@ struct CreateDatabase : memgraph::system::ISystemAction {
   storage::SalientConfig config_;
   DatabaseAccess db_acc;
 };
+
+bool DbmsHandler::Droppable_(std::string_view name) {
+  auto db = db_handler_.Get(name);
+  if (!db) return false;
+  return db->try_exclusively([](Database &) {}) ? true : false;  // destroys nothing
+}
+
+void DbmsHandler::DropHold_(std::string_view hold_name, const std::filesystem::path &dir, DatabaseAccess &acc) {
+  acc.reset();
+  try {
+    (void)db_handler_.TryDelete(hold_name);
+  } catch (...) {  // best effort: never durably recorded; the dir is removed below
+    spdlog::warn(R"(Failed to remove replacement hold "{}" via the handler; removing its directory instead.)",
+                 hold_name);
+  }
+  std::error_code ec;
+  (void)std::filesystem::remove_all(dir, ec);
+  if (ec) spdlog::error(R"(Failed to clean disk while dropping replacement hold "{}" at {})", hold_name, dir.string());
+}
+
+DbmsHandler::ReplaceResultT DbmsHandler::Replace(std::string_view name, system::Transaction *txn) {
+  auto wr = std::lock_guard{lock_};
+  if (name == kDefaultDB) return std::unexpected{ReplaceError::DEFAULT_DB};
+  const auto name_copy = std::string{name};
+  auto old_conf = db_handler_.GetConfig(name);  // nullopt for a COLD or absent tenant
+  const bool cold_old = suspended_.contains(name);
+  if (!cold_old && !old_conf) {  // absent: a replace is a plain create
+    auto created = New_(name, utils::UUID{}, txn);
+    if (!created) return std::unexpected{ReplaceError::FAILED};
+    return std::move(*created);
+  }
+  std::optional<utils::UUID> old_uuid;
+  std::filesystem::path old_dir;
+  if (cold_old) {
+    auto it = suspended_.find(name);
+    auto *gk = db_handler_.GetGatekeeper(name);
+    if (it == suspended_.end() || gk == nullptr || gk->state() != utils::GatekeeperState::COLD)
+      return std::unexpected{ReplaceError::USING};
+    old_uuid = it->second.salient.uuid;
+    old_dir = default_config_.durability.storage_directory / it->second.rel_dir;
+  } else {
+    if (!Droppable_(name)) return std::unexpected{ReplaceError::USING};
+    old_uuid = old_conf->salient.uuid;
+    old_dir = old_conf->durability.storage_directory;
+  }
+  const auto new_uuid = utils::UUID{};
+  const auto hold_name = fmt::format("{}{}", kReplaceHoldPrefix, std::string{new_uuid});
+  auto hold_config = default_config_;
+  hold_config.salient.name = hold_name;
+  hold_config.salient.uuid = new_uuid;
+  storage::UpdatePaths(hold_config,
+                       default_config_.durability.storage_directory / kMultiTenantDir / std::string{new_uuid});
+  const auto hold_dir = hold_config.durability.storage_directory;
+  auto built = db_handler_.New(hold_config);
+  if (!built) return std::unexpected{ReplaceError::FAILED};
+  auto built_acc = std::move(*built);
+  if (durability_) {
+    bool recorded = false;
+    try {
+      recorded = durability_->Put(
+          Durability::GenKey(name_copy),
+          Durability::GenVal(new_uuid,
+                             std::filesystem::relative(hold_dir, default_config_.durability.storage_directory)));
+    } catch (...) {
+      recorded = false;
+    }
+    if (!recorded) {
+      spdlog::error("Failed to persist the durability record for replaced database '{}'.", name_copy);
+      DropHold_(hold_name, hold_dir, built_acc);
+      return std::unexpected{ReplaceError::FAILED};
+    }
+  }
+  bool retired = false;
+  if (cold_old) {
+    auto it = suspended_.find(name_copy);
+    const auto dir = default_config_.durability.storage_directory / it->second.rel_dir;
+    suspended_.erase(it);
+    db_handler_.EraseColdShell(name_copy);
+    std::error_code ec;
+    (void)std::filesystem::remove_all(dir, ec);
+    if (ec) spdlog::error(R"(Failed to clean disk while replacing suspended database "{}")", name_copy);
+    NotifyUuidRetired_(*old_uuid, name_copy);
+    UpdateColdGauge_();
+    retired = true;
+  } else {
+    try {
+      retired = db_handler_.TryDelete(name_copy);
+    } catch (...) {
+      retired = false;
+    }
+    if (retired) {
+      std::error_code ec;
+      (void)std::filesystem::remove_all(old_dir, ec);
+      if (ec) spdlog::error(R"(Failed to clean disk while replacing database "{}")", name_copy);
+      NotifyUuidRetired_(*old_uuid, name_copy);
+    }
+  }
+  if (!retired) {
+    if (!cold_old && durability_) {
+      try {
+        (void)durability_->Put(
+            Durability::GenKey(name_copy),
+            Durability::GenVal(*old_uuid,
+                               std::filesystem::relative(old_dir, default_config_.durability.storage_directory)));
+      } catch (...) {
+        spdlog::error("Failed to restore the durability record for database '{}' after a failed replace.", name_copy);
+      }
+    }
+    DropHold_(hold_name, hold_dir, built_acc);
+    return std::unexpected{ReplaceError::USING};
+  }
+  if (tenant_profiles_) {
+    auto detached = tenant_profiles_->DetachFromDatabase(name_copy);
+    if (!detached && detached.error() != TenantProfiles::DetachError::NOT_ATTACHED)
+      spdlog::warn("Failed to detach replaced database '{}' from its tenant profile.", name_copy);
+  }
+  auto renamed = db_handler_.Rename(hold_name, name_copy);
+  MG_ASSERT(renamed.has_value(), "Failed to publish the replacement for database '{}'", name_copy);
+  built_acc->Rename(name_copy);
+  if (txn) txn->AddAction<CreateDatabase>(built_acc->config().salient, built_acc);
+  return built_acc;
+}
 
 constexpr int64_t kUnusedMemoryLimit = 0;
 
