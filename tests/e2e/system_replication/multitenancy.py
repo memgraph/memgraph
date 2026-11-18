@@ -2114,16 +2114,10 @@ def test_replica_tenant_uses_local_flags(connection, test_name):
 
 
 def test_create_database_idempotency_forms(connection, test_name):
-    # Goal: the idempotency modifiers accepted by sibling CREATE statements must work on CREATE
-    # DATABASE end-to-end on a licensed MAIN:
-    #   - IF NOT EXISTS (both spellings) on an existing name is a benign no-op (name set, state and
-    #     data unchanged); on an absent name it creates the database.
-    #   - CREATE OR REPLACE DATABASE replaces an existing tenant with a fresh EMPTY one under the
-    #     same name (exactly one row, old data gone), and creates an absent name.
-    #   - A tenant pinned by another live session is refused (USING) with its data intact; the
-    #     default database is refused (DEFAULT_DB) and stays untouched.
-    #   - The post-replace state survives a MAIN restart (durable-before-retire ordering): no
-    #     duplicate or stale copy comes back from disk.
+    # IF NOT EXISTS is a benign no-op on an existing name and creates an absent one.
+    # OR REPLACE leaves one fresh empty tenant, or creates an absent name.
+    # A pinned tenant is refused (USING) and the default database is refused.
+    # The post-replace state survives a MAIN restart.
     instances = {
         "main": {
             "args": [
@@ -2142,11 +2136,10 @@ def test_create_database_idempotency_forms(connection, test_name):
     main_cursor = connection(BOLT_PORTS["main"], "main").cursor()
 
     def db_names(cursor):
-        return [row[0] for row in execute_and_fetch_all(cursor, "SHOW DATABASES;")]
+        return [row[0] for row in show_databases_func(cursor)()]
 
     def must_run(cursor, query):
-        # A modifier this feature adds must parse and execute; surface a rejection as a failed
-        # assertion (the contract's expected behaviour) rather than a raised driver error.
+        # A modifier statement must parse and execute, so a rejection is a failed assertion, not a driver error.
         try:
             return execute_and_fetch_all(cursor, query)
         except mgclient.DatabaseError as exc:
@@ -2169,7 +2162,7 @@ def test_create_database_idempotency_forms(connection, test_name):
     must_run(main_cursor, "CREATE DATABASE IF NOT EXISTS tenant_b;")
     assert db_names(main_cursor).count("tenant_b") == 1, "before-name IF NOT EXISTS must create tenant_b"
 
-    # Plain CREATE keeps its "already exists." STATUS row (A4: no exception, nothing changed).
+    # Plain CREATE keeps its "already exists." STATUS row with no exception and nothing changed.
     status = execute_and_fetch_all(main_cursor, "CREATE DATABASE tenant_a;")
     assert "already exists" in status[0][0].lower(), f"plain duplicate CREATE must keep the STATUS row: {status}"
 
