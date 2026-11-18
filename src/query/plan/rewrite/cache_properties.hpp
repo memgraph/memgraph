@@ -353,12 +353,13 @@ class CachePropertiesRewriter final : public HierarchicalLogicalOperatorVisitor 
   bool Visit(Once &) override { return true; }
 
   bool PostVisit(Produce &op) override {
-    CacheBelow(op,
-               {op.named_expressions_.begin(), op.named_expressions_.end()},
-               PropertyLookupCacher::Threshold::kAnythingToSave,
-               [&op](auto &&each) {
-                 for (auto *&named_expression : op.named_expressions_) each(named_expression);
-               });
+    CacheBelow(
+        op,
+        [&op] { return std::vector<Tree const *>{op.named_expressions_.begin(), op.named_expressions_.end()}; },
+        PropertyLookupCacher::Threshold::kAnythingToSave,
+        [&op](auto &&each) {
+          for (auto *&named_expression : op.named_expressions_) each(named_expression);
+        });
     return true;
   }
 
@@ -369,9 +370,13 @@ class CachePropertiesRewriter final : public HierarchicalLogicalOperatorVisitor 
     auto const owned = ExpressionsOf(op);
     if (owned.empty()) return true;
 
-    CacheBelow(op, PoolKeyOf(owned), PropertyLookupCacher::Threshold::kAReadToRemove, [&owned](auto &&each) {
-      for (auto *expression : owned) each(*expression);
-    });
+    CacheBelow(
+        op,
+        [&owned] { return PoolKeyOf(owned); },
+        PropertyLookupCacher::Threshold::kAReadToRemove,
+        [&owned](auto &&each) {
+          for (auto *expression : owned) each(*expression);
+        });
     return true;
   }
 
@@ -380,10 +385,12 @@ class CachePropertiesRewriter final : public HierarchicalLogicalOperatorVisitor 
   ///
   /// `for_each_expression` applies what it is given to each expression the operator evaluates once
   /// per row, which is what a projection and an aggregation each name differently. `pool_key`
-  /// identifies the operator and must be taken before anything is copied, since that is what makes
-  /// two candidate plans for one query draw the same slots.
-  template <class TForEachExpression>
-  void CacheBelow(LogicalOperator &op, std::vector<Tree const *> pool_key, PropertyLookupCacher::Threshold threshold,
+  /// answers with what identifies the operator, and is asked only once a pass is going to be hung,
+  /// since every operator reaching here would otherwise build one to discard it. It still names the
+  /// expressions as they stand before any is copied, which is what makes two candidate plans for one
+  /// query draw the same slots.
+  template <class TPoolKey, class TForEachExpression>
+  void CacheBelow(LogicalOperator &op, TPoolKey pool_key, PropertyLookupCacher::Threshold threshold,
                   TForEachExpression for_each_expression) {
     auto input = op.input();
     if (!input) return;
@@ -396,7 +403,7 @@ class CachePropertiesRewriter final : public HierarchicalLogicalOperatorVisitor 
     auto const candidates = cacher.Candidates(threshold);
     if (candidates.empty()) return;
 
-    auto pool = slots_->PoolFor(pool_key);
+    auto pool = slots_->PoolFor(pool_key());
     auto groups = DrawGroups(cacher, candidates, *input, pool);
     if (groups.empty()) return;
 
