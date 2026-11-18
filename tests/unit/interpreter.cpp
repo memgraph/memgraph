@@ -15,6 +15,7 @@
 #include <filesystem>
 #include <future>
 #include <map>
+#include <optional>
 #include <set>
 #include <sstream>
 #include <string>
@@ -582,6 +583,94 @@ TYPED_TEST(InterpreterTest, WriteBelowProcedureInsideSubqueryRunsForEveryInputRo
   EXPECT_EQ(count_nodes("Proc"), 3);
 
   this->Interpret("MATCH (n) DETACH DELETE n");
+}
+
+// A write, an advance, then a batched update over an index: each node is updated once, and the batched scan sees
+// the earlier write. Setup: index :L(p), p = 1, 2. `rows`: the final p values, ascending.
+TYPED_TEST(InterpreterTest, AWriteBeforeAnInTransactionsCallIsUpdatedOnce) {
+  if constexpr (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
+    GTEST_SKIP() << "On-disk storage has no periodic commit.";
+  } else {
+    constexpr auto kBody = "MATCH (n:L) WHERE n.p > 0 CALL (n) { SET n.p = n.p + 10 } IN TRANSACTIONS OF 1 ROWS";
+    constexpr auto kPeriodic = "MATCH (n:L) WHERE n.p > 0 SET n.p = n.p + 10";
+
+    struct Case {
+      std::string id;
+      std::vector<std::string> queries;
+      std::vector<int64_t> rows;
+      bool analytical{false};
+      std::optional<size_t> result_rows{};
+      std::string setup{"UNWIND [1, 2] AS i CREATE (:L {p: i})"};
+    };
+
+    auto const cases = std::vector<Case>{
+        // Red on 724c2a008: each updates a node twice, or misses one.
+        {"U1", {fmt::format("CREATE (:Z) UNION ALL {}", kBody)}, {11, 12}},
+        {"U3", {fmt::format("CREATE (:L {{p: 5}}) UNION ALL {}", kBody)}, {11, 12, 15}},
+        {"U3 analytical", {fmt::format("CREATE (:L {{p: 5}}) UNION ALL {}", kBody)}, {11, 12, 15}, true},
+        {"U4 analytical", {fmt::format("OPTIONAL MATCH (z:Absent) SET z.x = 1 UNION ALL {}", kBody)}, {11, 12}, true},
+        {"U5", {fmt::format("CREATE (:Z) RETURN 1 AS k UNION ALL {} RETURN 2 AS k", kBody)}, {11, 12}, false, 3},
+        {"U6", {fmt::format("CREATE (:Z) UNION ALL MATCH (q:Absent) SET q.x = 1 UNION ALL {}", kBody)}, {11, 12}},
+        {"W2", {fmt::format("CREATE (:L {{p: 5}}) WITH 1 AS x {}", kBody)}, {11, 12, 15}},
+        {"W3", {fmt::format("MATCH (a:L) SET a.p = a.p + 100 WITH count(*) AS x {}", kBody)}, {111, 112}},
+        {"W5 analytical",
+         {fmt::format("OPTIONAL MATCH (z:Absent) SET z.x = 1 WITH count(*) AS x {}", kBody)},
+         {11, 12},
+         true},
+        {"W6", {fmt::format("CREATE (:L {{p: 5}}) WITH * {}", kBody)}, {11, 12, 15}},
+        {"G3",
+         {fmt::format("MATCH (a:L {{p: -1}}) SET a.p = 3 UNION ALL {}", kBody)},
+         {11, 12, 13},
+         false,
+         {},
+         "UNWIND [1, 2, -1] AS i CREATE (:L {p: i})"},
+        {"E1", {"BEGIN", "CREATE (:Z)", kBody, "COMMIT"}, {11, 12}},
+        {"E2", {"BEGIN", "CREATE (:L {p: 5})", kBody, "COMMIT"}, {11, 12, 15}},
+        {"P1", {fmt::format("USING PERIODIC COMMIT 1 CREATE (:Z) WITH * {}", kPeriodic)}, {11, 12}},
+        {"P2", {fmt::format("USING PERIODIC COMMIT 1 CREATE (:L {{p: 5}}) WITH * {}", kPeriodic)}, {11, 12, 15}},
+        // Green on 724c2a008: guards.
+        {"G1", {fmt::format("MATCH (a:L {{p: 2}}) DETACH DELETE a UNION ALL {}", kBody)}, {11}},
+        {"G2", {fmt::format("MATCH (a:L {{p: 2}}) SET a.p = -2 UNION ALL {}", kBody)}, {-2, 11}},
+        {"C0", {kBody}, {11, 12}},
+        {"P0", {fmt::format("USING PERIODIC COMMIT 1 {}", kPeriodic)}, {11, 12}},
+        {"P8", {"USING PERIODIC COMMIT 1 CREATE (:L {p: 5}) MERGE (m:L {p: 5}) ON MATCH SET m.p = 50"}, {1, 2, 50}},
+        {"M12", {"USING PERIODIC COMMIT 10 UNWIND [1, 1] AS i MERGE (n:L {p: 9})"}, {1, 2, 9}},
+    };
+
+    auto values = [this](std::string const &query) {
+      std::vector<int64_t> out;
+      for (auto const &row : this->Interpret(query).GetResults()) out.push_back(row[0].ValueInt());
+      return out;
+    };
+    auto reset = [this] {
+      this->Interpret("STORAGE MODE IN_MEMORY_TRANSACTIONAL");
+      this->Interpret("MATCH (n) DETACH DELETE n");
+    };
+
+    this->Interpret("CREATE INDEX ON :L(p)");
+    for (auto const &c : cases) {
+      SCOPED_TRACE(c.id);
+      reset();
+      this->Interpret(c.setup);
+      if (c.analytical) this->Interpret("STORAGE MODE IN_MEMORY_ANALYTICAL");
+      size_t returned = 0;
+      for (auto const &query : c.queries) returned = this->Interpret(query).GetResults().size();
+      if (c.result_rows) EXPECT_EQ(returned, *c.result_rows);
+      EXPECT_EQ(values("MATCH (n:L) RETURN n.p AS p ORDER BY p"), c.rows);
+    }
+
+    // F1: the first batch fails, so the earlier write rolls back with it.
+    reset();
+    this->Interpret("UNWIND [1, 2] AS i CREATE (:L {p: i})");
+    EXPECT_ANY_THROW(this->Interpret(
+        "CREATE (:Z) UNION ALL MATCH (n:L) WHERE n.p > 0 CALL (n) { SET n.p = 1 / (n.p - 1) } IN TRANSACTIONS OF 1 "
+        "ROWS"));
+    EXPECT_EQ(values("MATCH (n:L) RETURN n.p AS p ORDER BY p"), (std::vector<int64_t>{1, 2}));
+    EXPECT_EQ(values("MATCH (z:Z) RETURN count(z) AS c"), (std::vector<int64_t>{0}));
+
+    reset();
+    this->Interpret("DROP INDEX ON :L(p)");
+  }
 }
 
 namespace {

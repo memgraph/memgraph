@@ -3485,3 +3485,86 @@ Feature: Write visibility inside one query
             MATCH (a:WvDd), (b:WvDd) WHERE a.id <> b.id FOREACH (x IN [1] | DELETE b) SET a:WvDz
             """
         Then an error should be raised
+
+    Scenario: A node a UNION leg creates before an IN TRANSACTIONS update is updated once
+        Given an empty graph
+        And with new index :WvStU(p)
+        And having executed:
+            """
+            UNWIND [1, 2] AS i CREATE (:WvStU {p: i})
+            """
+        And having executed:
+            """
+            CREATE (:WvStU {p: 5}) UNION ALL MATCH (n:WvStU) WHERE n.p > 0 CALL (n) { SET n.p = n.p + 10 } IN TRANSACTIONS OF 1 ROWS
+            """
+        When executing query:
+            """
+            MATCH (n:WvStU) RETURN n.p AS p ORDER BY p
+            """
+        Then the result should be, in order:
+            | p  |
+            | 11 |
+            | 12 |
+            | 15 |
+
+    Scenario: A node created before a WITH and an IN TRANSACTIONS update is updated once
+        Given an empty graph
+        And with new index :WvStW(p)
+        And having executed:
+            """
+            UNWIND [1, 2] AS i CREATE (:WvStW {p: i})
+            """
+        And having executed:
+            """
+            CREATE (:WvStW {p: 5}) WITH 1 AS x MATCH (n:WvStW) WHERE n.p > 0 CALL (n) { SET n.p = n.p + 10 } IN TRANSACTIONS OF 1 ROWS
+            """
+        When executing query:
+            """
+            MATCH (n:WvStW) RETURN n.p AS p ORDER BY p
+            """
+        Then the result should be, in order:
+            | p  |
+            | 11 |
+            | 12 |
+            | 15 |
+
+    Scenario: A PERIODIC COMMIT update after a write and a WITH updates each node once
+        Given an empty graph
+        And with new index :WvStP(p)
+        And having executed:
+            """
+            UNWIND [1, 2] AS i CREATE (:WvStP {p: i})
+            """
+        And having executed:
+            """
+            USING PERIODIC COMMIT 1 CREATE (:WvStZ) WITH * MATCH (n:WvStP) WHERE n.p > 0 SET n.p = n.p + 10
+            """
+        When executing query:
+            """
+            MATCH (n:WvStP) RETURN n.p AS p ORDER BY p
+            """
+        Then the result should be, in order:
+            | p  |
+            | 11 |
+            | 12 |
+
+    Scenario: A node a UNION leg moves into the range before an IN TRANSACTIONS update is updated once
+        Given an empty graph
+        And with new index :WvStG(p)
+        And having executed:
+            """
+            UNWIND [1, 2, -1] AS i CREATE (:WvStG {p: i})
+            """
+        And having executed:
+            """
+            MATCH (a:WvStG {p: -1}) SET a.p = 3 UNION ALL MATCH (n:WvStG) WHERE n.p > 0 CALL (n) { SET n.p = n.p + 10 } IN TRANSACTIONS OF 1 ROWS
+            """
+        When executing query:
+            """
+            MATCH (n:WvStG) RETURN n.p AS p ORDER BY p
+            """
+        Then the result should be, in order:
+            | p  |
+            | 11 |
+            | 12 |
+            | 13 |
