@@ -237,9 +237,9 @@ def test_system_query_acknowledged_across_demotion_reaches_new_main(test_name):
     mg_sleep_and_assert([("replica",)], lambda: show_replication_role(instance_1_cursor))
     execute_and_fetch_all(coord_cursor, "SET INSTANCE instance_2 TO MAIN")
 
-    if acknowledged:
-        new_main_cursor = connect(host="localhost", port=7688).cursor()
-        assert "demoted_role" in [row[0] for row in execute_and_fetch_all(new_main_cursor, "SHOW ROLES")]
+    new_main_cursor = connect(host="localhost", port=7688).cursor()
+    roles = [row[0] for row in execute_and_fetch_all(new_main_cursor, "SHOW ROLES")]
+    assert ("demoted_role" in roles) == acknowledged
 
 
 def test_multi_database_no_auth(test_name):

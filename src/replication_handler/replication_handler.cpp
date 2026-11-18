@@ -222,6 +222,7 @@ bool ReplicationHandler::SetReplicationRoleReplica(const ReplicationServerConfig
   try {
     // System writes hold no storage accessor, so the read-only access below would not wait for them.
     if (!system_.MainWrites().CloseAndDrain(2s)) {
+      spdlog::warn("Demotion to replica waited 2s for system writes in progress and will be retried.");
       return false;
     }
 
