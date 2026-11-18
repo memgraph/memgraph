@@ -569,10 +569,12 @@ PrometheusMetrics::PrometheusMetrics()
                                              .Help("Current number of live and unavailable branches of loaded "
                                                    "databases")
                                              .Register(registry_)},
-      versioning_active_sessions_family_{prometheus::BuildGauge()
-                                             .Name("memgraph_versioning_active_sessions")
-                                             .Help("Current number of sessions checked out on a branch")
-                                             .Register(registry_)},
+      versioning_active_sessions_family_{
+          prometheus::BuildGauge()
+              .Name("memgraph_versioning_active_sessions")
+              .Help("Current number of branch attachments, including a session parked under USING BRANCH "
+                    "and each in-flight USING BRANCH query")
+              .Register(registry_)},
 #endif
       // HighAvailability counters
       successful_failovers_family_{prometheus::BuildCounter()

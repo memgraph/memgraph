@@ -20,6 +20,7 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include "metrics/prometheus_metrics.hpp"
 #include "query/exceptions.hpp"
 #include "versioning/gate.hpp"
 #include "versioning_fixture.hpp"
@@ -91,6 +92,21 @@ TEST_F(VersioningGatedTest, AnAbortedOrDisconnectedUsingBranchQueryRestoresTheSe
   EXPECT_EQ(CheckoutCount(store, "b"), 1U) << "only the faker's session is left on b";
   EXPECT_EQ(CheckoutCount(store, "c"), 0U);
   EXPECT_EQ(IntRows(faker, "USING BRANCH c MATCH (n:X) RETURN count(n)"), (Rows{{0}}));
+}
+
+// The gauge counts checkouts: a session parked under USING BRANCH keeps its own checkout while the target takes one.
+TEST_F(VersioningGatedTest, TheActiveSessionsGaugeCountsAParkedSessionAndItsUsingTarget) {
+  faker.Interpret("CREATE BRANCH b");
+  faker.Interpret("CREATE BRANCH c");
+  faker.Interpret("USE BRANCH b");
+  auto &gauge = *memgraph::metrics::Metrics().global.versioning_active_sessions;
+  const auto before = gauge.Value();
+
+  auto [stream, qid] = faker.Prepare("USING BRANCH c UNWIND range(1, 100) AS i RETURN i");
+  faker.Pull(&stream, 10, qid);
+  EXPECT_EQ(gauge.Value(), before + 1) << "the session's checkout on b plus the query's on c, counted once more";
+  faker.Abort();
+  EXPECT_EQ(gauge.Value(), before);
 }
 
 // The session gets an error, never an acknowledgement for writes that die with the branch.
