@@ -239,7 +239,7 @@ def main():
     mandatory_fails = []
 
     # Run suites
-    old_server_config = None
+    old_storage_mode = ""
     for suite in suites:
         # --versioned-branch runs exactly the suites marked versioned_branch; the other arms skip them.
         if args.versioned_branch != suite.get("versioned_branch", False):
@@ -248,15 +248,13 @@ def main():
         print("Starting suite '{}' scenarios.".format(suite["name"]))
 
         suite_storage_mode = suite["storage_mode"]
-        suite_server_config = (suite_storage_mode, suite.get("commit_lock_narrowing", False))
-        if old_server_config != suite_server_config:
+        if old_storage_mode != suite_storage_mode:
             memgraph.stop()
-            versioning = []
-            if args.versioned_branch:
-                experiments = ["versioning"] + (["commit-lock-narrowing"] if suite_server_config[1] else [])
-                versioning = [f"--experimental-enabled={','.join(experiments)}", "--storage-wal-enabled=true"]
+            versioning = (
+                ["--experimental-enabled=versioning", "--storage-wal-enabled=true"] if args.versioned_branch else []
+            )
             memgraph.start(["--storage-mode", suite_storage_mode] + versioning)
-            old_server_config = suite_server_config
+            old_storage_mode = suite_storage_mode
 
         suite["stats_file"] = os.path.join(output_dir.name, suite["name"] + ".json")
         cmd = [
@@ -276,8 +274,9 @@ def main():
             if suite.get("expected_failures"):
                 expected_failures = {}
                 for entry in suite["expected_failures"]:
+                    expected = {"reason": entry["reason"], "error": entry["error"]}
                     for feature, scenarios in entry["scenarios"].items():
-                        expected_failures.setdefault(feature, {}).update({name: entry["reason"] for name in scenarios})
+                        expected_failures.setdefault(feature, {}).update({name: expected for name in scenarios})
                 expected_failures_path = os.path.join(output_dir.name, suite["name"] + ".expected_failures.json")
                 with open(expected_failures_path, "w") as f:
                     json.dump(expected_failures, f)
