@@ -336,7 +336,7 @@ std::map<utils::UUID, double> InterpreterContext::LongestTransactionSeconds(
   std::map<utils::UUID, double> longest;
   auto const now = std::chrono::steady_clock::now();
   for (Interpreter *interpreter : interpreters) {
-    const auto verifier = interpreter->TryAcquireForVerification();
+    auto const verifier = interpreter->TryAcquireForVerification();
     if (!verifier || !interpreter->GetTransactionId()) continue;
     // Foreign thread: route through foreign_db_view(), as ShowTransactionsUsingDBName does.
     auto const view = interpreter->current_db_.foreign_db_view();

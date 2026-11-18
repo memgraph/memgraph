@@ -77,7 +77,7 @@ void RestoreReplication(replication::RoleMainData &mainData, DatabaseAccess db_a
   spdlog::info("Replication role restored to MAIN.");
 }
 
-// Seconds since a progress tracker's steady-clock start, in milliseconds since the clock's epoch.
+// Seconds elapsed since `start_steady_ms`, a steady_clock reading in milliseconds.
 double SecondsSince(int64_t start_steady_ms) {
   auto const now_ms =
       std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch())

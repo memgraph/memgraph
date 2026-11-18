@@ -241,7 +241,6 @@ TEST(PriorityThreadPool, StartupRunsInitCallbackOnEveryThread) {
   EXPECT_EQ(ran, 1);
 }
 
-// TaskCollection Tests
 TEST(PriorityThreadPool, BusyMixedWorkersCountsWorkersRunningATask) {
   memgraph::utils::PriorityThreadPool pool{4, 1};
   EXPECT_EQ(pool.GetNumBusyMixedWorkers(), 0);
@@ -295,6 +294,7 @@ TEST(PriorityThreadPool, QueuedTasksCountsTasksWaitingForAMixedWorker) {
   EXPECT_EQ(pool.GetNumQueuedTasks(), 0);
 }
 
+// TaskCollection Tests
 TEST(TaskCollection, BasicAddAndSize) {
   using namespace memgraph;
   memgraph::utils::TaskCollection collection;
