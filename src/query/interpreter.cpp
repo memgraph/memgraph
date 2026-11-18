@@ -8872,7 +8872,6 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
             if (!success) {
               switch (success.error()) {
                 case dbms::NewError::EXISTS:
-                  // IF NOT EXISTS is a benign no-op on an existing name; plain CREATE keeps its STATUS row.
                   res = if_not_exists ? "Database " + db_name + " already exists." : db_name + " already exists.";
                   break;
                 case dbms::NewError::DEFUNCT:

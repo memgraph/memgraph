@@ -767,12 +767,10 @@ DbmsHandler::ReplaceResultT DbmsHandler::Replace(std::string_view name, system::
   }
   bool retired = false;
   if (cold_old) {
-    auto it = suspended_.find(name_copy);
-    const auto dir = default_config_.durability.storage_directory / it->second.rel_dir;
-    suspended_.erase(it);
+    suspended_.erase(name_copy);
     db_handler_.EraseColdShell(name_copy);
     std::error_code ec;
-    (void)std::filesystem::remove_all(dir, ec);
+    (void)std::filesystem::remove_all(old_dir, ec);
     if (ec) spdlog::error(R"(Failed to clean disk while replacing suspended database "{}")", name_copy);
     NotifyUuidRetired_(*old_uuid, name_copy);
     UpdateColdGauge_();

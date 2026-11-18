@@ -1701,14 +1701,8 @@ def test_drop_recreate_cold_tenant_uuid_fix_converges(connection, test_name):
 
 
 def test_replace_suspended_tenant_fresh_uuid_converges(connection, test_name):
-    # CREATE OR REPLACE DATABASE on a SUSPENDED (COLD) tenant must build a fresh HOT tenant under
-    # the same name and retire the cold shell + its data, with the name never observable as absent:
-    #   - an observer sampling SHOW DATABASES while the replace runs must always see exactly one
-    #     "A" entry, HOT or COLD (never a half-dropped window);
-    #   - MAIN ends with A HOT and empty, with none of the old nodes (so the new tenant has a fresh
-    #     identity, not the old one re-opened);
-    #   - the live SYNC replica converges to that post state — empty HOT tenant, not the stale
-    #     pre-replace copy — with exactly one A on each side.
+    # CREATE OR REPLACE on a SUSPENDED (COLD) tenant must swap in a fresh HOT tenant under the same
+    # name without the name ever being observed as absent, and a live replica must converge to it.
     instances = {
         "replica_1": replica_args(test_name, recovery=False),
         "main": main_args(test_name),
@@ -1716,8 +1710,7 @@ def test_replace_suspended_tenant_fresh_uuid_converges(connection, test_name):
     interactive_mg_runner.start_all(instances, keep_directories=False)
 
     def must_run(cursor, query):
-        # The modifier must parse and execute; surface a rejection as a failed assertion (the
-        # contract's expected behaviour), not as a raised driver error.
+        # A rejected modifier must fail the test as an assertion, not surface as a driver error.
         try:
             return execute_and_fetch_all(cursor, query)
         except mgclient.DatabaseError as exc:
@@ -1736,8 +1729,8 @@ def test_replace_suspended_tenant_fresh_uuid_converges(connection, test_name):
     mg_sleep_and_assert("COLD", tenant_probe(replica_cursor, "A"))
     assert tenant_probe(main_cursor, "A")() == "COLD"
 
-    # Observe SHOW DATABASES while the replace runs. Every sample must list A exactly once, in a
-    # legal state; a MISSING/duplicate sample is the half-dropped window A3 forbids.
+    # Every sample must list A exactly once, HOT or COLD — a missing/duplicated entry means the
+    # replace exposed a half-dropped window.
     samples = []
     stop = threading.Event()
 
