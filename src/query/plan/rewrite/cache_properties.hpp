@@ -24,15 +24,13 @@
 
 namespace memgraph::query::plan {
 
-/// The frame slots a one-pass read writes into, held for as long as one query is being planned.
+/// The frame slots a one-pass read writes into, for the length of one query's planning.
 ///
-/// A planner may weigh many plans for one query against the single symbol table that sizes a
-/// frame, and only the plan it settles on ever runs. Each operator reading a pass therefore draws
-/// from a pool of its own: whichever plan is chosen gets slots nothing else is using, and the frame
-/// is as wide as that plan needs rather than as wide as every plan considered.
+/// Candidate plans for one query share the symbol table that sizes a frame, and only the chosen
+/// plan runs. Giving each operator a pool of its own keeps the frame as wide as that plan needs
+/// rather than as wide as every plan weighed.
 class CachedPropertySlots {
  public:
-  /// Draws one operator's slots in order, minting one only when the pool runs out.
   class Pool {
    public:
     explicit Pool(std::vector<Symbol> *slots) : slots_{slots} {}
@@ -47,9 +45,8 @@ class CachedPropertySlots {
     size_t drawn_{0};
   };
 
-  /// The expressions identify the operator reading the pass: a plan holds its own copy of the
-  /// pointers, so two plans for one query name the same operator and a second operator names itself.
-  /// Taken before any of them is copied, which is what makes the two plans agree.
+  /// Keyed on the expressions because a plan holds its own copy of the pointers, so two plans for
+  /// one query name the same operator. Taken before any is copied, which is what makes them agree.
   [[nodiscard]] auto PoolFor(std::vector<Tree const *> const &expressions) -> Pool {
     return Pool{&slots_[expressions]};
   }
@@ -60,12 +57,10 @@ class CachedPropertySlots {
 
 namespace impl {
 
-/// Walks the expressions one operator evaluates once per row it is given, counting the lookups
-/// worth reading in a pass and then swapping the chosen ones for identifiers on that pass's frame
-/// slots.
+/// Counts the lookups worth reading in a pass and swaps the chosen ones for identifiers on its
+/// frame slots.
 ///
-/// The phases share one traversal, so a lookup it does not reach is neither counted nor replaced,
-/// and keeps reading properties as it did.
+/// The phases share one traversal, so a lookup it does not reach is neither counted nor replaced.
 class PropertyLookupCacher final : public ExpressionVisitor<void> {
  public:
   enum class Phase : uint8_t { GATHER, PROBE, REPLACE };
@@ -80,16 +75,15 @@ class PropertyLookupCacher final : public ExpressionVisitor<void> {
     named_expression->Accept(*this);
   }
 
-  /// As above for an expression its operator owns outright rather than through a named expression.
-  /// The replacing phase may swap the whole of it for an identifier, so it is taken by reference.
+  /// As above, for an expression the operator owns outright. By reference because replacing may
+  /// swap the whole of it for an identifier.
   void Run(Phase phase, Expression *&expression) {
     phase_ = phase;
     AcceptExpression(expression);
   }
 
-  /// The frontend's index for a property. A `storage::PropertyId` is the other integer naming a
-  /// property here and means something else entirely, so this is constructible only from the index
-  /// itself: the two cannot be written in place of one another.
+  /// The frontend's index for a property. `storage::PropertyId` is the other integer naming one
+  /// and means something else, so this is constructible only from the index itself.
   class PropertyIndex {
    public:
     PropertyIndex() = default;
@@ -102,28 +96,27 @@ class PropertyLookupCacher final : public ExpressionVisitor<void> {
     int64_t value_{-1};
   };
 
-  /// A property gathered for a symbol, with how many lookups named it. A pass reads a property once
-  /// however many lookups asked for it, so the count is what says how many reads the pass saves.
+  /// A property gathered for a symbol, with how many lookups named it. A pass reads it once
+  /// however many asked, so the count says how many reads the pass saves.
   struct GatheredProperty {
     PropertyIx property;
     size_t lookups{0};
   };
 
-  /// One symbol and the properties gathered for it, each named once and in the order they were met.
-  /// A pass reads a set of properties, so what matters is that a property written twice is one entry
-  /// and that the order is the same on every planning of the same query, not what that order is.
+  /// One symbol and its gathered properties, each named once. The order must be the same on every
+  /// planning of a query rather than any particular order.
   struct Gathered {
     Symbol symbol;
     std::vector<GatheredProperty> properties;
 
-    /// Whether some property here was named by more than one lookup.
+    /// Whether a pass here would remove a read rather than move one.
     [[nodiscard]] auto AnyPropertyReadTwice() const -> bool {
       return std::ranges::any_of(properties, [](auto const &p) { return p.lookups > 1; });
     }
   };
 
-  /// Which frame slot each cached property was read into. Sized once from the gathered properties,
-  /// so the whole mapping is one allocation.
+  /// Which frame slot each cached property was read into, sized once so the mapping is one
+  /// allocation.
   using CachedSymbolsOfProperty = std::vector<std::pair<PropertyIndex, Symbol>>;
 
   /// What a symbol's lookups must show before a pass of its own pays for itself. What separates the
@@ -164,7 +157,7 @@ class PropertyLookupCacher final : public ExpressionVisitor<void> {
     return probe_found_;
   }
 
-  /// As above. Taken by value because probing only reads: the phase that rewrites is a later one.
+  /// As above. By value because probing only reads.
   [[nodiscard]] auto WouldRewrite(Expression *expression) -> bool {
     probe_found_ = false;
     Run(Phase::PROBE, expression);
@@ -181,8 +174,8 @@ class PropertyLookupCacher final : public ExpressionVisitor<void> {
     switch (phase_) {
       case Phase::GATHER: {
         auto const &symbol = symbol_table_->at(*identifier);
-        // A vertex and an edge each keep their properties in a record the cursor can read in one pass. The cursor
-        // fills its slots with Null for anything else, so an untyped symbol would silently lose its properties.
+        // The cursor fills a slot with Null for anything that is not a record, so an untyped symbol
+        // would silently lose its properties.
         if (!symbol.BindsOneRecord()) return;
         auto found = std::ranges::find_if(gathered_, [&symbol](auto const &g) { return g.symbol == symbol; });
         if (found == gathered_.end()) {
@@ -200,8 +193,7 @@ class PropertyLookupCacher final : public ExpressionVisitor<void> {
         return;
       }
       case Phase::PROBE: {
-        // Replacing acts on a lookup of a symbol read in one pass, so one found here is one it
-        // would write to.
+        // A symbol match is enough, since this only decides whether the expression needs its own copy.
         auto const &symbol = symbol_table_->at(*identifier);
         if (std::ranges::any_of(cached_, [&symbol](auto const &entry) { return entry.first == symbol; })) {
           probe_found_ = true;
@@ -275,13 +267,12 @@ class PropertyLookupCacher final : public ExpressionVisitor<void> {
   void Visit(NamedExpression &op) override { AcceptExpression(op.expression_); }
 
 /// An expression no phase enters. A lookup inside one keeps reading as it did, so declining is
-/// always safe and costs only the pass. Each group below is one reason for it.
+/// always safe. Each group below is one reason for it.
 #define NOT_ENTERED(TOp) \
   void Visit(TOp &op) override {}
 
   // Evaluated by a subplan below the operator holding this expression rather than in it, so a slot
-  // read here would never be written. What an aggregation evaluates is reached when this runs for
-  // the aggregation itself, where its arguments stand on their own rather than inside one of these.
+  // read here would never be written.
   NOT_ENTERED(Aggregation)
   NOT_ENTERED(PatternComprehension)
   NOT_ENTERED(SubqueryExpression)
@@ -308,8 +299,7 @@ class PropertyLookupCacher final : public ExpressionVisitor<void> {
   NOT_ENTERED(EnumValueAccess)
   NOT_ENTERED(AllPropertiesLookup)
 
-  // Always evaluated, so entering these would be safe. Left for a later pass rather than for a
-  // reason, which is worth saying: the groups above are declined because entering them is not.
+  // Safe to enter, unlike the groups above, and not yet entered.
   NOT_ENTERED(MapProjectionLiteral)
   NOT_ENTERED(ListSlicingOperator)
   NOT_ENTERED(LabelsTest)
@@ -363,9 +353,8 @@ class CachePropertiesRewriter final : public HierarchicalLogicalOperatorVisitor 
     return true;
   }
 
-  /// An aggregation evaluates its own expressions once per input row, so a property two of them
-  /// read is read twice for every row. The pass belongs below the aggregation, which is where the
-  /// record still is: above it only the grouping keys and the aggregated values are defined.
+  /// Below the aggregation, which is where the record still is: above it only the grouping keys
+  /// and the aggregated values are defined.
   bool PostVisit(Aggregate &op) override {
     auto const owned = ExpressionsOf(op);
     if (owned.empty()) return true;
@@ -383,12 +372,9 @@ class CachePropertiesRewriter final : public HierarchicalLogicalOperatorVisitor 
  private:
   /// Hangs a one-pass read below `op` for the symbols whose lookups clear `threshold`.
   ///
-  /// `for_each_expression` applies what it is given to each expression the operator evaluates once
-  /// per row, which is what a projection and an aggregation each name differently. `pool_key`
-  /// answers with what identifies the operator, and is asked only once a pass is going to be hung,
-  /// since every operator reaching here would otherwise build one to discard it. It still names the
-  /// expressions as they stand before any is copied, which is what makes two candidate plans for one
-  /// query draw the same slots.
+  /// `for_each_expression` reaches each expression the operator evaluates for every row, which a
+  /// projection and an aggregation name differently. `pool_key` is asked only once a pass is going
+  /// to be hung, since every operator reaching here would otherwise build one to discard.
   template <class TPoolKey, class TForEachExpression>
   void CacheBelow(LogicalOperator &op, TPoolKey pool_key, PropertyLookupCacher::Threshold threshold,
                   TForEachExpression for_each_expression) {
@@ -398,8 +384,8 @@ class CachePropertiesRewriter final : public HierarchicalLogicalOperatorVisitor 
     auto cacher = PropertyLookupCacher{symbol_table_, ast_storage_};
     for_each_expression([&cacher](auto &expression) { cacher.Run(PropertyLookupCacher::Phase::GATHER, expression); });
 
-    // Asked before a slot is drawn or the input is walked for what it binds, because most operators
-    // read nothing worth a pass and should pay only for the gathering that says so.
+    // Before a slot is drawn or the input is walked, because most operators read nothing worth a
+    // pass and should pay only for the gathering that says so.
     auto const candidates = cacher.Candidates(threshold);
     if (candidates.empty()) return;
 
@@ -407,10 +393,9 @@ class CachePropertiesRewriter final : public HierarchicalLogicalOperatorVisitor 
     auto groups = DrawGroups(cacher, candidates, *input, pool);
     if (groups.empty()) return;
 
-    // The planner may weigh several candidate plans for one query, and they share the expressions
-    // they were planned from, so a phase below writes to this plan's own copy. One the phases
-    // leave alone is shared as it stands: copying it would duplicate all it holds, down to a
-    // whole subquery, once for every candidate.
+    // Candidate plans share the expressions they were planned from, so a phase below writes to this
+    // plan's own copy. One left alone stays shared, since copying it would duplicate all it holds,
+    // down to a whole subquery, for every candidate.
     for_each_expression([this, &cacher](auto &expression) {
       if (cacher.WouldRewrite(expression)) expression = expression->Clone(ast_storage_);
     });
@@ -419,14 +404,12 @@ class CachePropertiesRewriter final : public HierarchicalLogicalOperatorVisitor 
     op.set_input(std::make_shared<CacheProperties>(input, std::move(groups)));
   }
 
-  /// The expressions an aggregation evaluates for every row it is given: what it aggregates, and
-  /// what it groups by. `count(*)` carries nothing to read.
+  /// What an aggregation evaluates for every row: what it aggregates, and what it groups by.
   ///
   /// A secondary argument, which a map collection and the graph projections take, is left out
-  /// however many lookups it holds: it is reached only once the row's first value is accepted, so a
-  /// Null one, or a repeat a distinct aggregation ignores, never evaluates it. Reading ahead for it
-  /// would reach a record such a row never asks about, and on a deleted one that refuses a query
-  /// that answered.
+  /// however many lookups it holds. It is reached only once the row's first value is accepted, so a
+  /// Null value, or a repeat a distinct aggregation ignores, never evaluates it, and reading ahead
+  /// would reach a record such a row never asks about.
   [[nodiscard]] static auto ExpressionsOf(Aggregate &op) -> std::vector<Expression **> {
     auto owned = std::vector<Expression **>{};
     for (auto &element : op.aggregations_) {
