@@ -65,7 +65,7 @@ std::string Serialize(const LedgerContents &contents) {
     nlohmann::json b{{"name", name},
                      {"id", info.id},
                      // Persist the recorded boundary, not the runtime pin: they differ after startup restore.
-                     {"fork_ts", info.durable_fork_ts}};
+                     {"durable_fork_ts", info.durable_fork_ts}};
     if (info.vertex_gid_floor) b["vertex_gid_floor"] = *info.vertex_gid_floor;
     if (info.edge_gid_floor) b["edge_gid_floor"] = *info.edge_gid_floor;
     if (info.vertex_gid_ceiling) b["vertex_gid_ceiling"] = *info.vertex_gid_ceiling;
@@ -89,9 +89,12 @@ std::expected<LedgerContents, std::string> Deserialize(std::string_view payload)
     const auto &branches = root.at("branches");
     if (!branches.is_array()) throw std::invalid_argument("'branches' is not an array");
     for (const auto &b : branches) {
+      // fork_ts only holds the durable value until the pin is taken after startup replay.
+      const auto durable_fork_ts = Unsigned(b.at("durable_fork_ts"), "durable_fork_ts");
       out.branches.push_back({.name = b.at("name").get<std::string>(),
                               .info = {.id = Unsigned(b.at("id"), "id"),
-                                       .fork_ts = Unsigned(b.at("fork_ts"), "fork_ts"),
+                                       .fork_ts = durable_fork_ts,
+                                       .durable_fork_ts = durable_fork_ts,
                                        .vertex_gid_floor = OptionalUnsigned(b, "vertex_gid_floor"),
                                        .edge_gid_floor = OptionalUnsigned(b, "edge_gid_floor"),
                                        .vertex_gid_ceiling = OptionalUnsigned(b, "vertex_gid_ceiling"),
