@@ -763,13 +763,13 @@ TEST_F(VersioningReadTest, DirectExpansionDropsADeletedEdgeOnlyForReadersThatSee
     EXPECT_TRUE(ctx.BeginTransaction(acc.get()).has_value());
     return acc;
   };
-  mv::BranchContext snapshot{core};
-  mv::BranchContext committed{core};
+  mv::BranchContext snapshot{core, {}, 0};
+  mv::BranchContext committed{core, {}, 0};
   auto const snapshot_acc = open(snapshot, ms::IsolationLevel::SNAPSHOT_ISOLATION);
   auto const committed_acc = open(committed, ms::IsolationLevel::READ_COMMITTED);
 
   {
-    mv::BranchContext writer{core};
+    mv::BranchContext writer{core, {}, 0};
     auto acc = diff_engine.Access(ms::WRITE);
     ASSERT_TRUE(writer.BeginTransaction(acc.get()).has_value());
     auto const far_vertex = BaseVertexOn(writer, far);
@@ -805,7 +805,7 @@ TEST_F(VersioningReadTest, DirectExpansionDropsADeletedEdgeOnlyForReadersThatSee
   });
   EXPECT_EQ(edges_of(snapshot, ms::View::NEW), 3U) << "a snapshot older than the commit";
   EXPECT_EQ(edges_of(committed, ms::View::NEW), 2U) << "read committed";
-  mv::BranchContext later{core};
+  mv::BranchContext later{core, {}, 0};
   auto const later_acc = open(later, ms::IsolationLevel::SNAPSHOT_ISOLATION);
   EXPECT_EQ(edges_of(later, ms::View::NEW), 2U);
   EXPECT_EQ(BaseVertexOn(later, far).InEdges(ms::View::NEW, {r})->edges.size(), 0U) << "and from the far end";
@@ -867,7 +867,7 @@ TEST_F(VersioningReadTest, ASnapshotReaderKeepsANativeEdgeDeletedAfterItsSnapsho
     native_gid = edge->Gid();
   });
 
-  mv::BranchContext snapshot{core};
+  mv::BranchContext snapshot{core, {}, 0};
   auto const snapshot_acc = Ctx().diff_engine().Access(ms::READ, ms::IsolationLevel::SNAPSHOT_ISOLATION, std::nullopt);
   ASSERT_TRUE(snapshot.BeginTransaction(snapshot_acc.get()).has_value());
 
@@ -1092,7 +1092,7 @@ TEST_F(VersioningReadTest, ConcurrentNativeEdgeAttachAndExpansionNeverLoseOrDupl
   {
     std::vector<std::jthread> threads;
     threads.emplace_back([&] {
-      mv::BranchContext ctx{core};
+      mv::BranchContext ctx{core, {}, 0};
       for (int round = 1; round <= kRounds; ++round) {
         auto diff = diff_engine.Access(ms::WRITE);
         ASSERT_TRUE(ctx.BeginTransaction(diff.get()).has_value());
@@ -1107,7 +1107,7 @@ TEST_F(VersioningReadTest, ConcurrentNativeEdgeAttachAndExpansionNeverLoseOrDupl
     });
     for (int reader = 0; reader < 3; ++reader) {
       threads.emplace_back([&] {
-        mv::BranchContext ctx{core};
+        mv::BranchContext ctx{core, {}, 0};
         size_t last_seen = 0;
         do {
           auto diff = diff_engine.Access(ms::READ);
@@ -1418,7 +1418,7 @@ TEST_F(VersioningReadTest, RepeatedReadsInOneBranchTransactionStaySnapshotStable
     }
   };
 
-  mv::BranchContext other_session{Ctx().core()};
+  mv::BranchContext other_session{Ctx().core(), {}, 0};
   auto reader_diff = Ctx().diff_engine().Access(ms::READ);
   ASSERT_TRUE(Ctx().BeginTransaction(reader_diff.get()).has_value());
   expect_reads(1, false);
@@ -1470,7 +1470,7 @@ TEST_F(VersioningReadTest, ReadsThenAWriteInOneBranchTransaction) {
     EXPECT_EQ(*BranchVertex(v).GetProperty(ms::View::NEW, x), ms::PropertyValue{1}) << "the rollback left nothing";
   });
 
-  mv::BranchContext other_session{Ctx().core()};
+  mv::BranchContext other_session{Ctx().core(), {}, 0};
   auto diff = Ctx().diff_engine().Access(ms::WRITE);
   ASSERT_TRUE(Ctx().BeginTransaction(diff.get()).has_value());
   EXPECT_EQ(*BranchVertex(v).GetProperty(ms::View::NEW, x), ms::PropertyValue{1});
@@ -1507,7 +1507,7 @@ TEST_F(VersioningReadTest, ConcurrentBranchReadersAndWritersSeeAConstantTotal) {
   {
     std::vector<std::jthread> threads;
     threads.emplace_back([&] {
-      mv::BranchContext ctx{core};
+      mv::BranchContext ctx{core, {}, 0};
       for (int round = 1; round <= kRounds; ++round) {
         auto diff = diff_engine.Access(ms::WRITE);
         ASSERT_TRUE(ctx.BeginTransaction(diff.get()).has_value());
@@ -1527,7 +1527,7 @@ TEST_F(VersioningReadTest, ConcurrentBranchReadersAndWritersSeeAConstantTotal) {
     });
     for (int reader = 0; reader < 3; ++reader) {
       threads.emplace_back([&] {
-        mv::BranchContext ctx{core};
+        mv::BranchContext ctx{core, {}, 0};
         int64_t last_round = 0;
         do {
           auto diff = diff_engine.Access(ms::READ);
