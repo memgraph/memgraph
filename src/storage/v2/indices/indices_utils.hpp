@@ -11,6 +11,8 @@
 
 #pragma once
 
+#include <algorithm>
+
 #include <range/v3/algorithm/any_of.hpp>
 #include <range/v3/range/conversion.hpp>
 #include <range/v3/view/transform.hpp>
@@ -349,23 +351,24 @@ inline void PopulateIndexDispatch(TVerticesAccessor &vertices, TSkipListAccessor
   }
 }
 
-/// Where an index scan opened: its batch, and whether that batch's own entries are the scan's to see.
+/// Where an index scan opened: its batch start, and the index stamp of the command it opened at.
 struct ScanStart {
   uint64_t timestamp;
-  bool sees_own_batch;
+  uint64_t stamp;
 
-  static ScanStart Of(Transaction const &transaction, View view) {
-    return {transaction.start_timestamp, view == View::NEW || transaction.wrote_at_earlier_command};
-  }
+  static ScanStart Of(Transaction const &transaction) { return {transaction.start_timestamp, transaction.index_stamp}; }
 };
 
 // Whether an index scan may see an entry inserted at `insertion_timestamp`; if so, MVCC decides the version. After a
-// batch commit an entry of the scan's batch is visible only if the scan sees its own batch, and a later one never is.
+// batch commit the scan sees what was committed before its batch and what its batch wrote at an earlier command.
 inline bool CanSeeEntityWithTimestamp(uint64_t insertion_timestamp, Transaction *transaction, View view,
                                       ScanStart scan) {
   if (transaction->start_timestamp != scan.timestamp) {
-    if (insertion_timestamp == scan.timestamp) return scan.sees_own_batch;
-    return insertion_timestamp < scan.timestamp;
+    if (insertion_timestamp < scan.timestamp) return true;
+    // The scan's own command or later, a later batch, or another transaction that started after this batch.
+    if (insertion_timestamp >= scan.stamp) return false;
+    return insertion_timestamp == scan.timestamp ||
+           std::ranges::binary_search(transaction->index_stamps, insertion_timestamp);
   }
   // Not enough information, need to rely on MVCC to fully check entry
   if (transaction->command_id != 0) return true;

@@ -21,6 +21,7 @@
 #include <future>
 #include <mutex>
 #include <optional>
+#include <span>
 #include <system_error>
 #include <unordered_set>
 #include <utility>
@@ -1456,7 +1457,6 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
   // So the next batch sees what this one committed. With the experiment OFF snapshot_ts equals
   // start_timestamp, so this is inert to the read path.
   transaction_.snapshot_ts = new_transaction.snapshot_ts;
-  transaction_.wrote_at_earlier_command = false;
   transaction_.commit_info.reset();
   // What the batch just committed wrote has been checked and is no longer owed. Carrying it into
   // the next batch would have every later commit re-enter its vertices into constraints none of
@@ -1470,7 +1470,24 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
   return result;
 }
 
-void InMemoryStorage::InMemoryAccessor::ArmIndexStamps() { transaction_.index_stamps_armed = true; }
+void InMemoryStorage::InMemoryAccessor::ArmIndexStamps() {
+  transaction_.index_stamps_armed = true;
+  // At command 0 the batch start already is the stamp: a View::NEW scan there sees `ts <= start` only.
+  if (transaction_.command_id > 0) MintIndexStamp();
+}
+
+void InMemoryStorage::InMemoryAccessor::MintIndexStamp() {
+  auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
+  uint64_t stamp = 0;
+  {
+    auto const engine_guard = std::lock_guard{storage_->engine_lock_};
+    stamp = storage_->timestamp_++;
+  }
+  // No transaction starts at a stamp; the batch start below it keeps the GC horizon while the stamp matters.
+  mem_storage->commit_log_->MarkFinished(stamp);
+  transaction_.index_stamps.push_back(stamp);
+  transaction_.index_stamp = stamp;
+}
 
 void InMemoryStorage::InMemoryAccessor::GCRapidDeltaCleanup(BatchedList<Edge *> &current_deleted_edges,
                                                             BatchedList<Gid> &current_deleted_vertices,
@@ -1864,9 +1881,14 @@ void InMemoryStorage::InMemoryAccessor::Abort(ProgressCallback const &on_progres
     /// this is because they point into vertices skip_list
 
     // Cleanup INDICES
+    // The batch's entries carry its start or a stamp raised since; earlier batches' stamps are committed.
+    auto const &stamps = transaction_.index_stamps;
+    auto const batch_stamps =
+        std::span<uint64_t const>{std::ranges::upper_bound(stamps, transaction_.start_timestamp), stamps.end()};
     index_abort_processor.Process(storage_->indices_,
                                   *transaction_.active_indices_,
                                   transaction_.start_timestamp,
+                                  batch_stamps,
                                   mem_storage->name_id_mapper_.get());
     // Handed to CollectGarbage for the same reason as the edges below: a removal on this thread
     // races a sweep or scan holding no pin on `vertices_`.

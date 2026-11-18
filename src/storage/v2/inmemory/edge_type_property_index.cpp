@@ -474,7 +474,7 @@ InMemoryEdgeTypePropertyIndex::Iterable::Iterable(utils::SkipListDb<Entry>::Acce
       storage_(storage),
       transaction_(transaction),
       max_gid_(max_gid),
-      scan_start_(ScanStart::Of(*transaction, view)) {}
+      scan_start_(ScanStart::Of(*transaction)) {}
 
 InMemoryEdgeTypePropertyIndex::Iterable::Iterator::Iterator(
     Iterable *self, utils::SkipListDb<InMemoryEdgeTypePropertyIndex::Entry>::Iterator index_iterator)
@@ -688,7 +688,7 @@ InMemoryEdgeTypePropertyIndex::ChunkedIterable::ChunkedIterable(
       storage_(storage),
       transaction_(transaction),
       max_gid_(max_gid),
-      scan_start_(ScanStart::Of(*transaction, view)) {
+      scan_start_(ScanStart::Of(*transaction)) {
   if (!bounds_valid_) return;
 
   // Chunk with bounds

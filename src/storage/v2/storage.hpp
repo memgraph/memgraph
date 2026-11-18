@@ -1399,6 +1399,9 @@ class Accessor {
   virtual storage::ttl::TtlInfo GetTtlConfig() const = 0;
 #endif
  protected:
+  // Takes a new index stamp for the commands that follow; storage without batch commits has none.
+  virtual void MintIndexStamp() {}
+
   Storage *storage_;
   /// One guard for all four ways to hold main_lock_. The mode is mutable state, not a property of
   /// this type: a READ_ONLY hold downgrades to READ, and ReleaseUniqueGuard() leaves nothing held.

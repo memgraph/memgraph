@@ -12,6 +12,7 @@
 #pragma once
 
 #include <memory>
+#include <span>
 #include "metrics/metric_handles.hpp"
 
 #include "storage/v2/index_arming.hpp"
@@ -109,8 +110,9 @@ struct Indices {
 
     bool IsInterestingEdgeProperty(PropertyId property) const;
 
+    /// Removes the entries written at `start_timestamp` and at each of `stamps`.
     void Process(Indices &indices, ActiveIndices const &active_indices, uint64_t start_timestamp,
-                 NameIdMapper *name_id_mapper);
+                 std::span<uint64_t const> stamps, NameIdMapper *name_id_mapper);
 
     /// Reached only for an edge whose link its source vertex no longer holds. The first few are
     /// answered by scanning the deltas; past that the scanning is what costs, so they are indexed.

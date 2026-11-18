@@ -448,7 +448,7 @@ InMemoryEdgePropertyIndex::Iterable::Iterable(
       storage_(storage),
       transaction_(transaction),
       max_gid_(max_gid),
-      scan_start_(ScanStart::Of(*transaction, view)) {}
+      scan_start_(ScanStart::Of(*transaction)) {}
 
 InMemoryEdgePropertyIndex::Iterable::Iterator::Iterator(
     Iterable *self, utils::SkipListDb<InMemoryEdgePropertyIndex::Entry>::Iterator index_iterator)
@@ -645,7 +645,7 @@ InMemoryEdgePropertyIndex::ChunkedIterable::ChunkedIterable(
       storage_(storage),
       transaction_(transaction),
       max_gid_(max_gid),
-      scan_start_(ScanStart::Of(*transaction, view)) {
+      scan_start_(ScanStart::Of(*transaction)) {
   if (!bounds_valid_) return;
 
   const auto lower_bound_pv = lower_bound_ ? std::optional<PropertyValue>{lower_bound_->value()} : std::nullopt;

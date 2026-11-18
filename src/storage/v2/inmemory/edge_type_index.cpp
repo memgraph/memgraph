@@ -348,7 +348,7 @@ InMemoryEdgeTypeIndex::Iterable::Iterable(utils::SkipListDb<InMemoryEdgeTypeInde
       storage_(storage),
       transaction_(transaction),
       max_gid_(max_gid),
-      scan_start_(ScanStart::Of(*transaction, view)) {}
+      scan_start_(ScanStart::Of(*transaction)) {}
 
 InMemoryEdgeTypeIndex::Iterable::Iterator::Iterator(
     Iterable *self, utils::SkipListDb<InMemoryEdgeTypeIndex::Entry>::Iterator index_iterator)
@@ -464,7 +464,7 @@ InMemoryEdgeTypeIndex::ChunkedIterable::ChunkedIterable(
       transaction_(transaction),
       chunks_{index_accessor_.create_chunks(num_chunks)},
       max_gid_(max_gid),
-      scan_start_(ScanStart::Of(*transaction, view)) {
+      scan_start_(ScanStart::Of(*transaction)) {
   // Index can have duplicate entries, we need to make sure each unique entry is inside a single chunk.
   RechunkIndex<utils::SkipListDb<Entry>>(chunks_, [](const auto &a, const auto &b) { return a.edge == b.edge; });
 }

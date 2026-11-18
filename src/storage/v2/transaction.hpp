@@ -289,8 +289,6 @@ struct Transaction {
   // `commited_transactions_` list for GC.
   std::unique_ptr<CommitInfo> commit_info{};
   uint64_t command_id{};
-  // The current batch wrote at a command before the current one.
-  bool wrote_at_earlier_command{false};
   // Written into new index entries: the batch start, or the stamp of the command that raised it.
   uint64_t index_stamp{};
   // Every stamp this transaction raised, ascending; kept across batch commits for scans opened earlier.

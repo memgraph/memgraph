@@ -184,10 +184,7 @@ utils::QueryMemoryTracker &Storage::Accessor::GetTransactionMemoryTracker() {
 
 void Storage::Accessor::AdvanceCommand() {
   transaction_.manyDeltasCache.Clear();  // TODO: Just invalidate the View::OLD cache, NEW should still be fine
-  // Analytical mode makes no deltas, so there every advance counts as a write.
-  if (!transaction_.deltas.empty() || transaction_.storage_mode == StorageMode::IN_MEMORY_ANALYTICAL) {
-    transaction_.wrote_at_earlier_command = true;
-  }
+  if (transaction_.index_stamps_armed) MintIndexStamp();
   ++transaction_.command_id;
   transaction_.point_index_ctx_.AdvanceCommand(transaction_.point_index_change_collector_);
 }

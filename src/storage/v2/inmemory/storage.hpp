@@ -479,6 +479,10 @@ class InMemoryStorage final : public Storage {
 
     void ArmIndexStamps() override;
 
+   protected:
+    void MintIndexStamp() override;
+
+   public:
     // `on_progress` is reported per delta undone. An interrupted 2PC leaves a transaction whose abort is
     // O(deltas), and on a replica that runs inside an RPC handler whose peer is timing it.
     void AbortAndResetCommitTs(ProgressCallback const &on_progress = {});
