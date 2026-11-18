@@ -1355,9 +1355,16 @@ TEST_F(WriteVisibilityPlan, WritesAgreeWithRwCheckerAndQueryParts) {
 // writes: a Produce of the right-hand sides goes before the group. Independent items keep their plan.
 // A run's pattern comprehensions are planned below its Produce, so they read the node as of the run's start too.
 TEST_F(WriteVisibilityPlan, ASetRunPlansItsComprehensionsBeforeItsFirstWrite) {
-  EXPECT_EQ(
-      Chain(Plan("MATCH (a:U) SET a.x = a.y, a.y = a.x + size([(a)-->(v) | v])")),
-      (Names{"EmptyResult", "SetProperty", "SetProperty", "Produce", "RollUpApply", "Filter", "ScanAll", "Once"}));
+  EXPECT_EQ(Chain(Plan("MATCH (a:U) SET a.x = a.y, a.y = a.x + size([(a)-->(v) | v])")),
+            (Names{"EmptyResult",
+                   "SetProperty",
+                   "SetProperty",
+                   "Produce",
+                   "CacheProperties",
+                   "RollUpApply",
+                   "Filter",
+                   "ScanAll",
+                   "Once"}));
   for (auto const *query : {
            "MATCH (a:U) SET a.x = a.y + size([(a)-->(v) | v]), a.y = a.x",
            "MATCH (a:U) SET a.x = 5, a.y = size([(a)-->(v) WHERE a.x = 5 | v])",
@@ -1401,7 +1408,8 @@ TEST_F(WriteVisibilityPlan, ASetRunKeepsMastersPlanWhenNoItemReadsAWrittenKey) {
            "MATCH (a:U) SET a.x = 1, a.y = size([(a)-->(v:V) | v])",
            "UNWIND [{x: 1, y: 2}] AS row MATCH (a:U) SET a.x = row.x, a.y = row.y",
        }) {
-    EXPECT_TRUE(Collect<Produce>(Plan(query)).empty()) << query;
+    // The main chain only: a comprehension's branch has a Produce of its own.
+    EXPECT_FALSE(std::ranges::contains(Chain(Plan(query)), "Produce")) << query;
   }
 }
 
@@ -1995,7 +2003,9 @@ class ViewOracle {
           // The property cache under a SET's Produce caches what that Produce reads.
           Walk(*child,
                reads_new,
-               is_rollup ? consumer_reads_new : ReadsNewClause(op) || switched,
+               // A property cache passes its consumer on, as a comprehension's list does.
+               is_rollup || Is<plan::CacheProperties>(op) ? consumer_reads_new
+                                                          : ReadsNewClause(op) || IsSetGroupProduce(op) || switched,
                IsSetGroupProduce(op));
           break;
         case Edge::kBody:
@@ -2231,6 +2241,7 @@ TEST(WriteVisibilityOracle, EveryViewFollowsTheRule) {
            "MATCH (a:A) SET a.c = size([(a)-[*0]-(x) WHERE EXISTS { MATCH (x) WHERE x.c IS NOT NULL } | x])",
            "MATCH (a:A), (b:B) CALL (a) { MATCH (a)-[*BFS]->(x) RETURN count(x) AS n } SET b.n = n",
            "MATCH (a:A) SET a.x = 1 CREATE ({v: a.x, n: size([(a)-[:T]->(z:Z) | z])})",
+           "MATCH (a:U) SET a.x = 5, a.y = size([(a)-->(v) WHERE a.x = 5 | v])",
        }) {
     corpus.push_back({"extra", extra, {{"Pt", "loc"}, {"E", "w"}, {"L", "k"}, {"A", std::nullopt}}});
   }
