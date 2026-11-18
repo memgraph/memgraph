@@ -54,3 +54,18 @@ Feature: Map operators
         Then the result should be:
             | m          | k         | l         |
             | {false: 1} | ['false'] | ['false'] |
+
+
+  Scenario: Adding two maps merges them, the right operand winning on a duplicate key
+        Given an empty graph
+        And having executed
+            """
+            CREATE (:Person {name: 'Alice'})
+            """
+        When executing query:
+            """
+            MATCH (n) RETURN {extraLabels: labels(n)} + properties(n) AS a, {a: 1, b: 2} + {b: 3} AS b
+            """
+        Then the result should be:
+            | a                                        | b            |
+            | {extraLabels: ['Person'], name: 'Alice'} | {a: 1, b: 3} |

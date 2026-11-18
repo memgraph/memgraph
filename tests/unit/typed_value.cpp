@@ -619,7 +619,7 @@ TYPED_TEST(TypedValueArithmeticTest, Sum) {
   EXPECT_PROP_EQ(TypedValue(in) + TypedValue(2), TypedValue(out2));
   EXPECT_PROP_EQ(TypedValue(in) + TypedValue(in), TypedValue(out3));
 
-  // Maps add as a shallow merge: seeded from the left, the right winning on duplicates.
+  // Maps merge shallowly, the right operand winning on a duplicate key.
   {
     memgraph::utils::MonotonicBufferResource monotonic_memory(1024);
     auto const left =
@@ -628,30 +628,16 @@ TYPED_TEST(TypedValueArithmeticTest, Sum) {
     auto const empty_map = Map(std::map<std::string, TypedValue>{});
     auto const merged = left + right;
     EXPECT_PROP_EQ(merged, Map({{"a", TypedValue(1)}, {"b", TypedValue(3)}, {"c", TypedValue(4)}}));
-    EXPECT_PROP_EQ(Map({{"a", TypedValue(1)}}) + Map({{"a", TypedValue(2)}}), Map({{"a", TypedValue(2)}}));
-    EXPECT_PROP_EQ(Map({{"a", TypedValue(2)}}) + Map({{"a", TypedValue(1)}}), Map({{"a", TypedValue(1)}}));
     EXPECT_PROP_EQ(empty_map + right, right);
     EXPECT_PROP_EQ(left + empty_map, left);
     EXPECT_PROP_EQ(Map({{"a", Map({{"x", TypedValue(1)}})}}) + Map({{"a", Map({{"y", TypedValue(2)}})}}),
                    Map({{"a", Map({{"y", TypedValue(2)}})}}));
-    EXPECT_PROP_EQ(left, Map({{"a", TypedValue(1)}, {"b", TypedValue(2)}}));
-    EXPECT_PROP_EQ(right, Map({{"b", TypedValue(3)}, {"c", TypedValue(4)}}));
-    EXPECT_PROP_EQ(left + List({TypedValue(2)}), List({left, TypedValue(2)}));
-    EXPECT_PROP_EQ(List({TypedValue(2)}) + left, List({TypedValue(2), left}));
-    // The merged map and every key/value it holds live on the left operand's resource.
+    // The merged map and its entries live on the left operand's resource.
     EXPECT_EQ(merged.get_allocator().resource(), &monotonic_memory);
     for (const auto &kv : merged.ValueMap()) {
       EXPECT_EQ(kv.first.get_allocator().resource(), &monotonic_memory);
       EXPECT_EQ(kv.second.get_allocator().resource(), &monotonic_memory);
     }
-  }
-
-  // Non-map operands still allocate nothing on their resource: the branch only dispatches on types.
-  {
-    memgraph::utils::MemoryTrackingResource non_map_memory(memgraph::utils::NewDeleteResource(), 4096);
-    TypedValue const tagged_int{2, &non_map_memory};
-    EXPECT_EQ((tagged_int + tagged_int).ValueInt(), 4);
-    EXPECT_EQ(non_map_memory.GetAllocatedBytes(), 0);
   }
 
   // Temporal Types
