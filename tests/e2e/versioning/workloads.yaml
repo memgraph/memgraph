@@ -16,6 +16,16 @@ versioning_narrowing_cluster: &versioning_narrowing_cluster
       setup_queries: []
       validation_queries: []
 
+# The same flags with a fixed data directory, so a test can look at the branch directories on disk.
+versioning_lifecycle_cluster: &versioning_lifecycle_cluster
+  cluster:
+    main:
+      args: ["--bolt-port", "7687", "--log-level=TRACE", "--experimental-enabled=versioning", "--storage-wal-enabled=true"]
+      log_file: "versioning-lifecycle-e2e.log"
+      data_directory: "versioning_lifecycle"
+      setup_queries: []
+      validation_queries: []
+
 # Versioning not enabled: nothing it added may be visible.
 versioning_off_cluster: &versioning_off_cluster
   cluster:
@@ -37,6 +47,12 @@ workloads:
     proc: "query_modules/"
     args: ["versioning/versioning_bolt_db_test.py"]
     <<: *versioning_narrowing_cluster
+
+  - name: "Versioning DBMS lifecycle with branch sessions"
+    binary: "tests/e2e/pytest_runner.sh"
+    proc: "query_modules/"
+    args: ["versioning/versioning_dbms_lifecycle_test.py"]
+    <<: *versioning_lifecycle_cluster
 
   - name: "Versioning off behaves as before"
     binary: "tests/e2e/pytest_runner.sh"
