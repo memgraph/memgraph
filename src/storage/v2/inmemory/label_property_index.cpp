@@ -979,7 +979,7 @@ bool InMemoryLabelPropertyIndex::ActiveIndices::IndexReady(LabelId label,
 
 #ifdef MG_ENTERPRISE
 bool InMemoryLabelPropertyIndex::ActiveIndices::IndexVisibleAt(LabelId label, std::span<PropertyPath const> properties,
-                                                               uint64_t timestamp) const {
+                                                               IndexOrder order, uint64_t timestamp) const {
   auto check = [&](auto &indices_map) {
     auto it = indices_map.find(label);
     if (it != indices_map.end()) {
@@ -990,7 +990,7 @@ bool InMemoryLabelPropertyIndex::ActiveIndices::IndexVisibleAt(LabelId label, st
     }
     return false;
   };
-  return check(index_container_->asc_indices_) || check(index_container_->desc_indices_);
+  return order == IndexOrder::ASC ? check(index_container_->asc_indices_) : check(index_container_->desc_indices_);
 }
 #endif
 

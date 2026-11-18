@@ -429,7 +429,8 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
 
     bool IndexReady(LabelId label, std::span<PropertyPath const> properties) const override;
 #ifdef MG_ENTERPRISE
-    bool IndexVisibleAt(LabelId label, std::span<PropertyPath const> properties, uint64_t timestamp) const override;
+    bool IndexVisibleAt(LabelId label, std::span<PropertyPath const> properties, IndexOrder order,
+                        uint64_t timestamp) const override;
 #endif
 
     auto RelevantLabelPropertiesIndicesInfo(std::span<LabelId const> labels,

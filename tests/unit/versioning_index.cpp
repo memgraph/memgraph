@@ -1222,6 +1222,38 @@ TEST_F(VersioningIndexTest, StreamedRangeScanYieldsOverlaysWithNoNativeVertexOnT
   EXPECT_EQ(IntRows(faker, std::string(all) + " DESC"), (Rows{{7}, {5}, {2}, {9}, {8}, {6}, {4}, {3}, {1}, {0}}));
 }
 
+// Main dropping or re-creating one order of a two-order pair after the fork must not let the other order's readiness
+// stand in for it: the branch scans in the order it was asked for, from the base state.
+TEST_F(VersioningIndexTest, BranchScanOrderFollowsTheOrderIndexVisibleAtTheFork) {
+  faker.Interpret("CREATE INDEX ON :L(p)");
+  faker.Interpret(R"(CREATE INDEX ON :L(p) WITH CONFIG {"order": "DESC"})");
+  faker.Interpret("UNWIND range(0, 4) AS i CREATE (:L {id: i, p: i + 1})");
+  Fork();
+  UseMain();
+  faker.Interpret("DROP INDEX ON :L(p)");
+  faker.Interpret("CREATE INDEX ON :L(p)");
+  faker.Interpret("CREATE (:L {id: 9, p: 9})");
+  Use(faker, "b");
+
+  auto const query = "MATCH (n:L) WHERE n.p > 0 RETURN n.id ORDER BY n.p";
+  EXPECT_EQ(IntRows(faker, query), (Rows{{0}, {1}, {2}, {3}, {4}}));
+  EXPECT_EQ(IntRows(faker, std::string(query) + " DESC"), (Rows{{4}, {3}, {2}, {1}, {0}}));
+}
+
+TEST_F(VersioningIndexTest, BranchScanOrderSurvivesMainDroppingTheOtherOrder) {
+  faker.Interpret("CREATE INDEX ON :L(p)");
+  faker.Interpret(R"(CREATE INDEX ON :L(p) WITH CONFIG {"order": "DESC"})");
+  faker.Interpret("UNWIND range(0, 4) AS i CREATE (:L {id: i, p: i + 1})");
+  Fork();
+  UseMain();
+  faker.Interpret(R"(DROP INDEX ON :L(p) WITH CONFIG {"order": "DESC"})");
+  Use(faker, "b");
+
+  auto const query = "MATCH (n:L) WHERE n.p > 0 RETURN n.id ORDER BY n.p";
+  EXPECT_EQ(IntRows(faker, query), (Rows{{0}, {1}, {2}, {3}, {4}}));
+  EXPECT_EQ(IntRows(faker, std::string(query) + " DESC"), (Rows{{4}, {3}, {2}, {1}, {0}}));
+}
+
 // SET v:L on a base vertex that already has the indexed property: the key (L, p) exists on the branch only through the
 // copy of p onto the overlay, and sorts among main's rows.
 TEST_F(VersioningIndexTest, StreamedScanFindsABaseVertexThatGainedTheLabelAtItsBaseValue) {

@@ -619,7 +619,7 @@ VerticesIterable DbAccessor::BranchVertices(storage::View view, storage::LabelId
       return key;
     };
   };
-  if (!historical.LabelPropertyIndexReady(label, properties) ||
+  if (!historical.HistoricalLabelPropertyIndexReady(label, properties, order) ||
       !accessor_->LabelPropertyIndexReady(label, properties)) {
     return FallbackScan(ctx, view, make_match_key(), order);
   }
