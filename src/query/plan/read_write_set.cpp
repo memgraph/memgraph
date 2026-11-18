@@ -190,7 +190,15 @@ class ReadWriteCollector final : public HierarchicalTreeVisitor {
 
   bool PreVisit(Delete &del) override {
     result.writes.everything = true;
-    for (auto *expression : del.expressions_) expression->Accept(*this);
+    for (auto *expression : del.expressions_) {
+      // A DELETE checks the labels of its node, or of both end nodes of an edge.
+      if (MayHoldEntity(expression)) {
+        auto *ident = utils::Downcast<Identifier>(expression);
+        bool const node = ident && symbol_table_.at(*ident).type() == Symbol::Type::VERTEX;
+        ReadLabelsForAccessCheck(node ? KeySymbolOf(expression) : std::nullopt);
+      }
+      expression->Accept(*this);
+    }
     return false;
   }
 
