@@ -9251,7 +9251,6 @@ TYPED_TEST(TestPlanner, CachePropertiesAnAggregationReadingOnePropertySeveralTim
   CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectCacheProperties("n", 1), aggr, ExpectProduce());
 }
 
-// Two reads either way, so a pass would add a slot and remove nothing.
 TYPED_TEST(TestPlanner, CachePropertiesAnAggregationsDistinctPropertiesEarnNoPass) {
   CachePropertiesFlagGuard guard{true};
   FakeDbAccessor dba;
