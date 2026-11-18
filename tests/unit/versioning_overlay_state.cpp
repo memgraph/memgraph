@@ -19,6 +19,7 @@
 
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/inmemory/storage.hpp"
+#include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/property_value.hpp"
 #include "tests/unit/versioning_overlay_codec.hpp"
 #include "versioning/overlay_state.hpp"
@@ -52,7 +53,7 @@ std::unique_ptr<ms::InMemoryStorage> MakeStorage() {
 }  // namespace
 
 TEST(OverlayMarkers, MarkAndStripAreInverseAndReservedOnEveryRealId) {
-  for (uint32_t id : {0U, 1U, 65536U, overlay::kLastRealId - 1, overlay::kLastRealId}) {
+  for (uint32_t id : {0U, 1U, 65536U, ms::kLastRealId - 1, ms::kLastRealId}) {
     auto const t = ms::EdgeTypeId::FromUint(id);
     EXPECT_FALSE(ms::IsReservedId(L(id)));
     EXPECT_TRUE(ms::IsReservedId(overlay::Mark(L(id))));
@@ -148,4 +149,20 @@ TEST(OverlayCodec, AnEdgeOverlayRoundTripsItsPropertiesRemovalsAndDelete) {
   EXPECT_TRUE(*overlay::IsEdgeDeleted(e, ms::View::NEW));
   ExpectSameState(*overlay::DecodeEdge(e, ms::View::NEW), deleted);
   acc->Abort();
+}
+
+namespace {
+struct CountedMapper : ms::NameIdMapper {
+  void SetCounter(uint64_t value) { counter_.store(value); }
+};
+}  // namespace
+
+TEST(OverlayMarkers, NameMapperRefusesNewNamesPastTheLastRealId) {
+  CountedMapper mapper;
+  EXPECT_EQ(mapper.NameToId("known"), 0U);
+  mapper.SetCounter(ms::kLastRealId);
+  EXPECT_EQ(mapper.NameToId("last"), ms::kLastRealId);
+  EXPECT_THROW(mapper.NameToId("past"), memgraph::utils::BasicException);
+  EXPECT_FALSE(mapper.NameToIdIfExists("past").has_value());
+  EXPECT_EQ(mapper.NameToId("known"), 0U);
 }
