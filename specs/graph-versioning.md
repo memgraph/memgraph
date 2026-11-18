@@ -308,7 +308,7 @@ kept), cannot be selected (the error names the reason), and `DROP BRANCH` remove
 | WAL off, recovery on startup off, or a non-transactional mode, for a database whose settings differ from the startup flags | That database's branches are unavailable (kept) |
 | Started without `--experimental-enabled=versioning` | Branches are hidden: `USE BRANCH`, `USING BRANCH`, `CREATE BRANCH` and `db="x@b"` fail with the disabled-flag error; `SHOW BRANCHES` lists them and `DROP BRANCH` removes them. All durable state and the retention for it stay. Restarting with the flag on restores every branch with its data. |
 | Main cannot be replayed to the fork points | Bounded recovery or the tail replay fails: main is recovered unbounded and every branch is unavailable. Main's recovered history ends before a branch's fork point: that branch is unavailable |
-| A branch's WAL is damaged | Main's WAL rules apply (unreadable or empty file skipped, unfinished file used up to its last complete transaction). Where main would refuse to start (e.g. a gap in the sequence), only that branch is unavailable. |
+| A branch's WAL is damaged | Main's WAL rules apply to the file still being written (unreadable or empty: skipped; otherwise used up to its last complete transaction). A finalized file that cannot be read makes the branch unavailable, because it held committed transactions. Where main would refuse to start (e.g. a gap in the sequence), only that branch is unavailable. |
 | Main itself cannot be recovered | Standard Memgraph behaviour |
 
 **Flag off while branches exist.** The ledger's fork points still bound main's snapshot and WAL
