@@ -23,6 +23,8 @@
 #include <filesystem>
 #include <limits>
 #include <memory>
+#include <optional>
+#include <set>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -35,6 +37,7 @@
 #include "license/license.hpp"
 #include "query/interpreter.hpp"
 #include "query/interpreter_context.hpp"
+#include "query/query_user.hpp"
 #include "replication/state.hpp"
 #include "storage/v2/config.hpp"
 #include "storage/v2/inmemory/storage.hpp"
@@ -112,6 +115,30 @@ inline bool PlanHasOperator(std::string_view plan, std::string_view op) {
   }
   return false;
 }
+
+struct LackingPrivilegesUser final : memgraph::query::QueryUserOrRole {
+  explicit LackingPrivilegesUser(std::set<memgraph::query::AuthQuery::Privilege> lacking)
+      : memgraph::query::QueryUserOrRole{"lacking", {}}, lacking_{std::move(lacking)} {}
+
+  bool IsAuthorized(const std::vector<memgraph::query::AuthQuery::Privilege> &privileges,
+                    std::optional<std::string_view> /*db_name*/,
+                    memgraph::query::UserPolicy * /*policy*/) const override {
+    return std::ranges::none_of(privileges, [&](auto privilege) { return lacking_.contains(privilege); });
+  }
+
+  std::shared_ptr<QueryUserOrRole> clone() const override { return std::make_shared<LackingPrivilegesUser>(*this); }
+
+  std::vector<std::string> GetRolenames(std::optional<std::string> /*db_name*/) const override { return {}; }
+
+  bool CanImpersonate(const std::string & /*target*/, memgraph::query::UserPolicy * /*policy*/,
+                      std::optional<std::string_view> /*db_name*/) const override {
+    return false;
+  }
+
+  std::string GetDefaultDB() const override { return "memgraph"; }
+
+  std::set<memgraph::query::AuthQuery::Privilege> lacking_;
+};
 
 }  // namespace memgraph::tests::versioning_fixture
 

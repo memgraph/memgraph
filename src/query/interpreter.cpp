@@ -9800,9 +9800,12 @@ PreparedQuery PrepareUseBranchQuery(ParsedQuery parsed_query, std::string target
   if (current_db.in_explicit_db_) {
     throw QueryException("Branch switching is prohibited if the session explicitly defines the database.");
   }
+  // main is the way off a branch, so it needs database access only.
+  auto privileges = std::move(parsed_query.required_privileges);
+  if (target == "main") std::erase(privileges, AuthQuery::Privilege::BRANCH_USE);
   return PreparedQuery{
       .header = {"STATUS"},
-      .privileges = std::move(parsed_query.required_privileges),
+      .privileges = std::move(privileges),
       .query_handler = [version_store,
                         &current_db,
                         target = std::move(target),
