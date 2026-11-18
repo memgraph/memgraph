@@ -2408,105 +2408,105 @@ Callback HandleReplicationInfoQuery(ReplicationInfoQuery *repl_query,
       return callback;
     }
     case ReplicationInfoQuery::Action::SHOW_REPLICAS: {
-      bool full_info = false;
 #ifdef MG_ENTERPRISE
-      full_info = true;
+      constexpr bool full_info = true;
+#else
+      constexpr bool full_info = false;
 #endif
 
       callback.header = {"name", "socket_address", "sync_mode", "system_info", "data_info"};
 
-      callback.fn =
-          [handler = ReplQueryHandler{replication_query_handler}, replica_nfields = callback.header.size(), full_info] {
-            auto const sync_mode_to_tv = [](replication_coordination_glue::ReplicationMode sync_mode) {
-              using namespace std::string_view_literals;
-              switch (sync_mode) {
-                using enum replication_coordination_glue::ReplicationMode;
-                case SYNC:
-                  return TypedValue{"sync"sv};
-                case ASYNC:
-                  return TypedValue{"async"sv};
-                case STRICT_SYNC:
-                  return TypedValue{"strict_sync"sv};
-              }
-            };
+      callback.fn = [handler = ReplQueryHandler{replication_query_handler}, replica_nfields = callback.header.size()] {
+        auto const sync_mode_to_tv = [](replication_coordination_glue::ReplicationMode sync_mode) {
+          using namespace std::string_view_literals;
+          switch (sync_mode) {
+            using enum replication_coordination_glue::ReplicationMode;
+            case SYNC:
+              return TypedValue{"sync"sv};
+            case ASYNC:
+              return TypedValue{"async"sv};
+            case STRICT_SYNC:
+              return TypedValue{"strict_sync"sv};
+          }
+        };
 
-            auto const replica_sys_state_to_tv = [](replication::ReplicationClient::State state) {
-              using namespace std::string_view_literals;
-              switch (state) {
-                using enum memgraph::replication::ReplicationClient::State;
-                case BEHIND:
-                  return TypedValue{"invalid"sv};
-                case READY:
-                  return TypedValue{"ready"sv};
-                case RECOVERY:
-                  return TypedValue{"recovery"sv};
-              }
-            };
+        auto const replica_sys_state_to_tv = [](replication::ReplicationClient::State state) {
+          using namespace std::string_view_literals;
+          switch (state) {
+            using enum memgraph::replication::ReplicationClient::State;
+            case BEHIND:
+              return TypedValue{"invalid"sv};
+            case READY:
+              return TypedValue{"ready"sv};
+            case RECOVERY:
+              return TypedValue{"recovery"sv};
+          }
+        };
 
-            auto const sys_info_to_tv = [&](ReplicaSystemInfoState orig) {
-              auto info = std::map<std::string, TypedValue>{};
-              info.emplace("ts", TypedValue{static_cast<int64_t>(orig.ts_)});
-              // TODO: behind not implemented
-              info.emplace("behind", TypedValue{/*orig.behind_*/});
-              info.emplace("status", replica_sys_state_to_tv(orig.state_));
-              return TypedValue{std::move(info)};
-            };
+        auto const sys_info_to_tv = [&](ReplicaSystemInfoState orig) {
+          auto info = std::map<std::string, TypedValue>{};
+          info.emplace("ts", TypedValue{static_cast<int64_t>(orig.ts_)});
+          // TODO: behind not implemented
+          info.emplace("behind", TypedValue{/*orig.behind_*/});
+          info.emplace("status", replica_sys_state_to_tv(orig.state_));
+          return TypedValue{std::move(info)};
+        };
 
-            auto const replica_state_to_tv = [](memgraph::storage::replication::ReplicaState state) {
-              using namespace std::string_view_literals;
-              switch (state) {
-                using enum memgraph::storage::replication::ReplicaState;
-                case READY:
-                  return TypedValue{"ready"sv};
-                case REPLICATING:
-                  return TypedValue{"replicating"sv};
-                case RECOVERY:
-                  return TypedValue{"recovery"sv};
-                case MAYBE_BEHIND:
-                  return TypedValue{"invalid"sv};
-                case DIVERGED_FROM_MAIN:
-                  return TypedValue{"diverged"sv};
-              }
-            };
+        auto const replica_state_to_tv = [](memgraph::storage::replication::ReplicaState state) {
+          using namespace std::string_view_literals;
+          switch (state) {
+            using enum memgraph::storage::replication::ReplicaState;
+            case READY:
+              return TypedValue{"ready"sv};
+            case REPLICATING:
+              return TypedValue{"replicating"sv};
+            case RECOVERY:
+              return TypedValue{"recovery"sv};
+            case MAYBE_BEHIND:
+              return TypedValue{"invalid"sv};
+            case DIVERGED_FROM_MAIN:
+              return TypedValue{"diverged"sv};
+          }
+        };
 
-            auto const info_to_tv = [&](ReplicaInfoState orig) {
-              auto info = std::map<std::string, TypedValue>{};
-              info.emplace("ts", TypedValue{static_cast<int64_t>(orig.ts_)});
-              info.emplace("behind", TypedValue{orig.behind_});
-              info.emplace("status", replica_state_to_tv(orig.state_));
-              return TypedValue{std::move(info)};
-            };
+        auto const info_to_tv = [&](ReplicaInfoState orig) {
+          auto info = std::map<std::string, TypedValue>{};
+          info.emplace("ts", TypedValue{static_cast<int64_t>(orig.ts_)});
+          info.emplace("behind", TypedValue{orig.behind_});
+          info.emplace("status", replica_state_to_tv(orig.state_));
+          return TypedValue{std::move(info)};
+        };
 
-            auto const data_info_to_tv = [&](std::map<std::string, ReplicaInfoState> orig) {
-              auto data_info = std::map<std::string, TypedValue>{};
-              for (auto &[name, info] : orig) {
-                data_info.emplace(name, info_to_tv(info));
-              }
-              return TypedValue{std::move(data_info)};
-            };
+        auto const data_info_to_tv = [&](std::map<std::string, ReplicaInfoState> orig) {
+          auto data_info = std::map<std::string, TypedValue>{};
+          for (auto &[name, info] : orig) {
+            data_info.emplace(name, info_to_tv(info));
+          }
+          return TypedValue{std::move(data_info)};
+        };
 
-            const auto replicas = handler.ShowReplicas();
-            auto typed_replicas = std::vector<std::vector<TypedValue>>{};
-            typed_replicas.reserve(replicas.size());
-            for (const auto &replica : replicas) {
-              std::vector<TypedValue> typed_replica;
-              typed_replica.reserve(replica_nfields);
+        const auto replicas = handler.ShowReplicas();
+        auto typed_replicas = std::vector<std::vector<TypedValue>>{};
+        typed_replicas.reserve(replicas.size());
+        for (const auto &replica : replicas) {
+          std::vector<TypedValue> typed_replica;
+          typed_replica.reserve(replica_nfields);
 
-              typed_replica.emplace_back(replica.name_);
-              typed_replica.emplace_back(replica.socket_address_);
-              typed_replica.emplace_back(sync_mode_to_tv(replica.sync_mode_));
-              if (full_info) {
-                typed_replica.emplace_back(sys_info_to_tv(replica.system_info_));
-              } else {
-                // Set to NULL
-                typed_replica.emplace_back();
-              }
-              typed_replica.emplace_back(data_info_to_tv(replica.data_info_));
+          typed_replica.emplace_back(replica.name_);
+          typed_replica.emplace_back(replica.socket_address_);
+          typed_replica.emplace_back(sync_mode_to_tv(replica.sync_mode_));
+          if constexpr (full_info) {
+            typed_replica.emplace_back(sys_info_to_tv(replica.system_info_));
+          } else {
+            // Set to NULL
+            typed_replica.emplace_back();
+          }
+          typed_replica.emplace_back(data_info_to_tv(replica.data_info_));
 
-              typed_replicas.emplace_back(std::move(typed_replica));
-            }
-            return typed_replicas;
-          };
+          typed_replicas.emplace_back(std::move(typed_replica));
+        }
+        return typed_replicas;
+      };
       return callback;
     }
   }
