@@ -9199,7 +9199,10 @@ bool Union::UnionCursor::Pull(Frame &frame, ExecutionContext &context) {
       results[output_symbol.name()] = frame[output_symbol];
     }
   } else {
-    is_left_exhausted_ = true;
+    if (!is_left_exhausted_) {
+      is_left_exhausted_ = true;
+      if (self_.advance_command_) context.db_accessor->AdvanceCommand();
+    }
     if (!right_cursor_->Pull(frame, context)) return false;
     // collect values from the right child
     for (const auto &output_symbol : self_.right_symbols_) {

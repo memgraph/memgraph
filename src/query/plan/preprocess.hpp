@@ -767,6 +767,8 @@ struct QueryPart {
   Tree *query_combinator = nullptr;
   /// Set when the leg is a `WHEN ... THEN ...` body.
   std::shared_ptr<ConditionalQueryParts> conditional = nullptr;
+  /// Whether this leg writes: a write clause, a writing CALL body, or a writing WHEN branch.
+  bool writes = false;
 };
 
 /// Holds query parts of all single queries together with the information

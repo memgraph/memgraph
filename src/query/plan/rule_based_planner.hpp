@@ -353,6 +353,9 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
 
     // in CALL with scoped variables, we immediately have some bound variables to work with
     auto const initial_bound_symbols = context.bound_symbols;
+    // A root UNION leg is a later clause: it reads what the leg before it wrote, so the command advances between them.
+    bool const legs_advance = is_root_query && !context.in_subquery_body && read_scope_ == ReadScope::kRoot;
+    bool previous_leg_writes = false;
     for (const auto &query_part : query_parts.query_parts) {
       context.bound_symbols = initial_bound_symbols;
       std::unique_ptr<LogicalOperator> input_op;
@@ -924,10 +927,14 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
       }
 
       if (query_part.query_combinator) {
-        final_plan = MergeWithCombinator(std::move(input_op), std::move(final_plan), *query_part.query_combinator);
+        final_plan = MergeWithCombinator(std::move(input_op),
+                                         std::move(final_plan),
+                                         *query_part.query_combinator,
+                                         legs_advance && previous_leg_writes);
       } else {
         final_plan = std::move(input_op);
       }
+      previous_leg_writes = query_part.writes;
     }
 
     if (query_parts.distinct) {
@@ -2323,10 +2330,10 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
   }
 
   std::unique_ptr<LogicalOperator> MergeWithCombinator(std::unique_ptr<LogicalOperator> curr_op,
-                                                       std::unique_ptr<LogicalOperator> last_op,
-                                                       const Tree &combinator) {
+                                                       std::unique_ptr<LogicalOperator> last_op, const Tree &combinator,
+                                                       bool advance_command) {
     if (const auto *union_ = utils::Downcast<const CypherUnion>(&combinator)) {
-      return impl::GenUnion(*union_, std::move(last_op), std::move(curr_op), *context_->symbol_table);
+      return impl::GenUnion(*union_, std::move(last_op), std::move(curr_op), *context_->symbol_table, advance_command);
     }
 
     throw utils::NotYetImplemented("This type of merging queries is not yet implemented!");
