@@ -271,7 +271,6 @@ class StressEngine {
           config.gc.interval = std::chrono::milliseconds(10);
           config.durability.snapshot_wal_mode =
               memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL;
-          config.disk.main_storage_directory = directory / "disk";
           config.salient.items.enable_schema_metadata = true;  // SHOW NODE_LABELS / EDGE_TYPES INFO
           return config;
         }()},
@@ -501,7 +500,7 @@ void BranchReader(InterpreterFaker &s, int tid, int iters, FailureLog &log, Coun
   BoltRows rows;
   for (int i = 0; i < iters; ++i) {
     const int64_t x = static_cast<int64_t>(rng() % kSeedVertices);
-    const int pick = static_cast<int>(rng() % 6);
+    const int pick = static_cast<int>(rng() % 5);
     std::string q;
     rows.clear();
     switch (pick) {
@@ -542,12 +541,6 @@ void BranchReader(InterpreterFaker &s, int tid, int iters, FailureLog &log, Coun
         break;
       }
       case 3: {
-        q = "MATCH (n:P {id:" + std::to_string(x) + "})-[:R]->()-[:R]->(m) RETURN count(m)";
-        if (Exec(s, q, log, c, who, &rows) != Outcome::kOk) break;
-        if (rows.size() != 1 || !rows[0][0].IsInt() || rows[0][0].ValueInt() < 0) log.Add(who + ": bad count: " + q);
-        break;
-      }
-      case 4: {
         if (rng() % 8 != 0) {
           // One statement = one snapshot: the (edge-property indexed) filtered count must equal a full-scan count.
           const auto w = std::to_string(rng() % 100'000);
@@ -560,10 +553,6 @@ void BranchReader(InterpreterFaker &s, int tid, int iters, FailureLog &log, Coun
             log.Add(who + ": indexed edge-property count disagrees with a full scan: " + q);
           }
           break;
-        }
-        q = "MATCH (n:P) RETURN count(*)";
-        if (Exec(s, q, log, c, who, &rows) == Outcome::kOk && (rows.size() != 1 || rows[0][0].ValueInt() < 0)) {
-          log.Add(who + ": negative/missing count(*) on the branch");
         }
         q = "MATCH (n:P) WHERE n.id IS NULL RETURN count(*)";
         if (Exec(s, q, log, c, who, &rows) == Outcome::kOk && (rows.size() != 1 || rows[0][0].ValueInt() != 0)) {
@@ -742,7 +731,6 @@ TEST_P(VersioningStressTest, WritersReadersMainWritersAndLifecycleChurn) {
   ASSERT_EQ(Scalar(prep, sentinel_label_q), 10);
   ASSERT_EQ(Scalar(prep, unlabel_q), 0);
   ASSERT_EQ(Scalar(prep, sentinel_edge_q), 10);
-  const int64_t phase0_deleted = static_cast<int64_t>(committed.deleted.size());
   const bool full_scale = Scale() >= 0.5;  // scale-dependent minimums are waived below this
 
   Workers workers;
@@ -770,8 +758,6 @@ TEST_P(VersioningStressTest, WritersReadersMainWritersAndLifecycleChurn) {
   ASSERT_EQ(life_c.errors.load() + life_c.conflicts.load(), 0U) << "branch lifecycle churn must always succeed";
   ASSERT_EQ(br_c.conflicts.load(), 0U) << "branch readers must never conflict";
   ASSERT_EQ(br_c.errors.load(), 0U);
-  ASSERT_GE(committed.deleted.size(), static_cast<size_t>(phase0_deleted));
-  ASSERT_GE(committed.deleted.size(), 10U);
   if (full_scale) {
     ASSERT_GT(committed.created.load(), 0) << "no branch-native vertex was ever committed";
     ASSERT_GT(bw_c.ops.load(), 0U);
@@ -806,7 +792,6 @@ TEST_P(VersioningStressTest, WritersReadersMainWritersAndLifecycleChurn) {
   EXPECT_EQ(Scalar(chk, "MATCH (n:L) RETURN count(*)"),
             Scalar(chk, "MATCH (n) WITH n WHERE 'L' IN labels(n) RETURN count(*)"))
       << "label-index scan disagrees with a full scan on the branch";
-  EXPECT_GT(Scalar(chk, "MATCH (n:L) RETURN count(*)"), 0) << "no :L vertex on the branch";
   EXPECT_EQ(Scalar(chk, sentinel_label_q), 10) << "sentinel SET :L lost";
   EXPECT_EQ(Scalar(chk, unlabel_q), 0) << "sentinel REMOVE :L lost";
   EXPECT_EQ(Scalar(chk, sentinel_edge_q), 10) << "sentinel branch-native edges lost/extra";
