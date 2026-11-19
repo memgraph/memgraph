@@ -1831,10 +1831,9 @@ TYPED_TEST(QueryPlanTest, PropertyReadsAtOldOnAVertexDeletedThisCommandMaskTheDe
   }
 }
 
-// A relationship's permissions come from its type, which a deleted relationship still answers, so
-// here nothing fails before the group is read. Answering Null for the whole group is the only
-// thing keeping a read the caller was never allowed to make from reporting the deletion.
-TYPED_TEST(QueryPlanTest, CachePropertiesWholeGroupDeniedOnADeletedEdge) {
+// A relationship's permissions come from its type, which a deleted relationship still answers: a
+// property rule must not hide the deletion, so a denied group and a denied lookup raise as for every caller.
+TYPED_TEST(QueryPlanTest, CachePropertiesWholeGroupDeniedOnADeletedEdgeRaises) {
   // An expansion on disk storage does not reach a relationship removed in this transaction, so the
   // row this needs cannot be produced there.
   if constexpr (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
@@ -1875,14 +1874,14 @@ TYPED_TEST(QueryPlanTest, CachePropertiesWholeGroupDeniedOnADeletedEdge) {
   auto account_ne = NEXPR("account", IDENT("cached_account")->MapTo(cached_account_sym))
                         ->MapTo(symbol_table.CreateSymbol("account_ne", true));
   auto produce = MakeProduce(cache, account_ne);
+  auto lookup_ne = NEXPR("lookup", PROPERTY_LOOKUP(dba, IDENT("r")->MapTo(r_m.edge_sym_), prop_account))
+                       ->MapTo(symbol_table.CreateSymbol("lookup_ne", true));
 
   memgraph::tests::StubPropertyFGAChecker<memgraph::query::DbAccessor> checker(&dba, {{"Pays", "account"}});
   auto context = MakeContext(this->storage, symbol_table, &dba);
   context.auth_checker = &checker;
-  auto results = CollectProduce(*produce, &context);
-  ASSERT_EQ(results.size(), 1);
-  ASSERT_EQ(results[0].size(), 1);
-  EXPECT_TRUE(results[0][0].IsNull());
+  EXPECT_TRUE(RaisesDeletedObject([&] { CollectProduce(*produce, &context); }));
+  EXPECT_TRUE(RaisesDeletedObject([&] { CollectProduce(*MakeProduce(r_m.op_, lookup_ne), &context); }));
 }
 
 // A View::OLD group over a vertex this command created decides its permissions from the created labels.
