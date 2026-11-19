@@ -13,6 +13,7 @@
 #include <cmath>
 #include <iterator>
 #include <memory>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -1706,6 +1707,17 @@ TYPED_TEST(QueryPlanTest, CachePropertiesWholeGroupDeniedIsNull) {
   EXPECT_TRUE(results[0][1].IsNull());
 }
 
+// Whether @p run raises the deleted-object error, not some other query error.
+template <class TRun>
+bool RaisesDeletedObject(TRun &&run) {
+  try {
+    run();
+  } catch (QueryRuntimeException const &e) {
+    return std::string_view{e.what()}.find("deleted object") != std::string_view::npos;
+  }
+  return false;
+}
+
 TYPED_TEST(QueryPlanTest, CachePropertiesWholeGroupDeniedOnADeletedVertexRaises) {
   auto storage_dba = this->db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());
@@ -1735,7 +1747,7 @@ TYPED_TEST(QueryPlanTest, CachePropertiesWholeGroupDeniedOnADeletedVertexRaises)
   memgraph::tests::StubPropertyFGAChecker<memgraph::query::DbAccessor> checker(&dba, {{"Person", "ssn"}});
   auto context = MakeContext(this->storage, symbol_table, &dba);
   context.auth_checker = &checker;
-  EXPECT_THROW(CollectProduce(*produce, &context), QueryRuntimeException);
+  EXPECT_TRUE(RaisesDeletedObject([&] { CollectProduce(*produce, &context); }));
 }
 
 // A single lookup of a denied property on a vertex deleted in this command raises, as an allowed one does.
@@ -1763,8 +1775,8 @@ TYPED_TEST(QueryPlanTest, DeniedPropertyLookupOnADeletedVertexRaises) {
     context.auth_checker = &checker;
     return CollectProduce(*MakeProduce(n.op_, output), &context);
   };
-  EXPECT_THROW(lookup(prop_name), QueryRuntimeException);
-  EXPECT_THROW(lookup(prop_ssn), QueryRuntimeException);
+  EXPECT_TRUE(RaisesDeletedObject([&] { lookup(prop_name); }));
+  EXPECT_TRUE(RaisesDeletedObject([&] { lookup(prop_ssn); }));
 }
 
 // At View::OLD a vertex deleted in this command is still there: a group and a lookup mask the denied property.
