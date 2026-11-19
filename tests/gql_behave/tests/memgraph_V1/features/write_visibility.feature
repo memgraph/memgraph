@@ -3424,6 +3424,33 @@ Feature: Write visibility inside one query
             """
         Then an error should be raised
 
+    Scenario: A read of a deleted relationship's property after the DELETE sees the delete
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (a:WvDeA)-[:R {w: 1}]->(:WvDeB), (a)-[:R {w: 2}]->(:WvDeB)
+            """
+        When executing query:
+            """
+            MATCH (a:WvDeA)-[r:R]->(b:WvDeB) DELETE r SET a.w = r.w
+            """
+        Then an error should be raised
+
+    Scenario: A MERGE of the deleted relationship's type after the DELETE sees the delete
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (a1:WvDeA {id: 1}), (a2:WvDeA {id: 2}), (b1:WvDeB {id: 1}), (b2:WvDeB {id: 2}),
+                   (a1)-[:R]->(b1), (a1)-[:R]->(b2), (a2)-[:R]->(b1)
+            """
+        When executing query:
+            """
+            MATCH (a:WvDeA)-[r:R]->(b:WvDeB) DELETE r MERGE (a)-[:R]->(b) WITH count(*) AS rows MATCH ()-[q:R]->() RETURN count(q) AS c
+            """
+        Then the result should be:
+            | c |
+            | 3 |
+
     Scenario: A read after a DELETE in the same part sees the delete
         Given an empty graph
         And having executed:

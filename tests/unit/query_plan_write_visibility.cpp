@@ -2124,6 +2124,36 @@ TEST_F(WriteVisibilityPlan, ConflictOnEdgeTypeAlone) {
   EXPECT_FALSE(Conflicts(Access("MATCH (p:A)-[e:U]->(q:A) RETURN 1 AS one").reads, create_t));
 }
 
+// An edge DELETE removes only edges of its variable's types and their properties; a read of neither gets no barrier.
+TEST_F(WriteVisibilityPlan, AnEdgeDeleteMeetsNoReadOfOtherKeys) {
+  for (auto const *query : {
+           "MATCH (a:A)-[r:R]->(b:B) DELETE r SET a.k = a.k - 1",
+           "MATCH (a:A)-[r:R]->(b:B) DELETE r MERGE (a)-[:S]->(b)",
+           "MATCH (a:A)-[r]->(b:B) DELETE r SET a.k = a.k - 1",
+           "MATCH (a:A)-[r:R]->(b:B) DELETE r MERGE (c:C {k: b.id})",
+           "MATCH (a:A)-[r:R]->(b:B) DELETE r FOREACH (i IN [1] | SET a.k = a.k - i)",
+       }) {
+    EXPECT_TRUE(Collect<Accumulate>(Plan(query)).empty()) << query;
+  }
+}
+
+// A later read of what an edge DELETE may remove keeps its barrier.
+TEST_F(WriteVisibilityPlan, AReadOfADeletedEdgeKeepsItsBarrier) {
+  for (auto const *query : {
+           "MATCH (a:A)-[r:R]->(b:B) DELETE r MERGE (a)-[:R]->(b)",
+           "MATCH (a:A)-[r:R]->(b:B) DELETE r SET a.w = r.w",
+           "MATCH (a:A)-[r:R]->(b:B) DELETE r SET a.w = [x IN [r] | x.w][0]",
+           "MATCH (a:A)-[r:R]->(b:B) DELETE r SET a = r",
+           "MATCH (a:A)-[r:R]->(b:B) DELETE r SET a.m = r{.*}",
+           "MATCH (a:A)-[r:R]->(b:B) DELETE r SET a.w = r['w']",
+           "MATCH (a:A)-[r]->(b:B) DELETE r MERGE (a)-[:S]->(b)",
+           "MATCH (a:A)-[r:R]->(b:B) DELETE CASE WHEN a.id = 1 THEN r ELSE null END SET a.k = a.k - 1",
+           "MATCH (a:A), (b:B) DETACH DELETE b SET a.j = a.k",
+       }) {
+    EXPECT_EQ(Collect<Accumulate>(Plan(query)).size(), 1U) << query;
+  }
+}
+
 #ifdef MG_ENTERPRISE
 // The access check of a label write reads the node's labels: it waits for a label write, and only for that.
 TEST_F(WriteVisibilityPlan, LabelWriteAccessCheckConflictsOnlyWithALabelWrite) {
