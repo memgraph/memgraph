@@ -1478,6 +1478,7 @@ void InMemoryStorage::InMemoryAccessor::ArmIndexStamps() {
 }
 
 void InMemoryStorage::InMemoryAccessor::MintIndexStamp() {
+  auto const stamp_guard = std::lock_guard{index_stamp_mutex_};
   auto stamp = transaction_.index_stamp + 1;
   if ((stamp & kIndexStampMask) == 0) {
     // The span is used up: go on in the span of a timestamp no transaction starts at, owned by this batch.

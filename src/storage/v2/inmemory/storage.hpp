@@ -823,6 +823,8 @@ class InMemoryStorage final : public Storage {
     // Bookkeeping
     durability::WalTxnDataPos wal_txn_positions_;
     bool needs_wal_update_{false};
+    // Parallel branches can advance this transaction's command at once; one stamp is minted at a time.
+    std::mutex index_stamp_mutex_;
   };
 
   using Storage::Access;
