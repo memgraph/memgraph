@@ -142,26 +142,33 @@ mgp_list *OptionalList(const mgp::Value &value, const char *name) {
   return mgp::value_get_list(value.ptr());
 }
 
-void AddNodes(JsonWriter &writer, const mgp::Graph &graph, mgp_list *nodes, const char *name) {
+// The procedure signature types json_data's lists; json_graph's come out of a map, so they are checked here before
+// any sink is opened.
+void RequireElements(mgp_list *list, mgp::Type type, const char *name, std::string_view what) {
+  if (list == nullptr) return;
+  const auto size = mgp::list_size(list);
+  for (size_t i = 0; i < size; ++i) {
+    if (mgp::Value(mgp::ref_type, mgp::list_at(list, i)).Type() != type) {
+      throw mgp::ValueException(fmt::format("Argument '{}' must contain only {}", name, what));
+    }
+  }
+}
+
+void AddNodes(JsonWriter &writer, const mgp::Graph &graph, mgp_list *nodes) {
   if (nodes == nullptr) return;
   const auto size = mgp::list_size(nodes);
   for (size_t i = 0; i < size; ++i) {
     graph.CheckMustAbort();
-    const auto value = mgp::Value(mgp::ref_type, mgp::list_at(nodes, i));
-    if (!value.IsNode()) throw mgp::ValueException(fmt::format("Argument '{}' must contain only nodes", name));
-    writer.AddNode(value.ValueNode());
+    writer.AddNode(mgp::Value(mgp::ref_type, mgp::list_at(nodes, i)).ValueNode());
   }
 }
 
-void AddRelationships(JsonWriter &writer, const mgp::Graph &graph, mgp_list *relationships, const char *name) {
+void AddRelationships(JsonWriter &writer, const mgp::Graph &graph, mgp_list *relationships) {
   if (relationships == nullptr) return;
   const auto size = mgp::list_size(relationships);
   for (size_t i = 0; i < size; ++i) {
     graph.CheckMustAbort();
-    const auto value = mgp::Value(mgp::ref_type, mgp::list_at(relationships, i));
-    if (!value.IsRelationship())
-      throw mgp::ValueException(fmt::format("Argument '{}' must contain only relationships", name));
-    writer.AddRelationship(value.ValueRelationship());
+    writer.AddRelationship(mgp::Value(mgp::ref_type, mgp::list_at(relationships, i)).ValueRelationship());
   }
 }
 
@@ -255,8 +262,8 @@ void JsonData(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp
     const auto options = ParseOptions(Argument(args, 2), Argument(args, 3));
     const mgp::Graph graph{memgraph_graph};
     JsonWriter writer(options.write, options.file, Streaming(options));
-    AddNodes(writer, graph, OptionalList(Argument(args, 0), kArgumentNodes), kArgumentNodes);
-    AddRelationships(writer, graph, OptionalList(Argument(args, 1), kArgumentRelationships), kArgumentRelationships);
+    AddNodes(writer, graph, OptionalList(Argument(args, 0), kArgumentNodes));
+    AddRelationships(writer, graph, OptionalList(Argument(args, 1), kArgumentRelationships));
     EmitResult(result, std::move(writer), options, kSourcePrefixData, started_at);
   } catch (const std::exception &e) {
     record_factory.SetErrorMessage(e.what());
@@ -298,17 +305,19 @@ void JsonGraph(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mg
     if (!graph_arg.IsMap()) throw mgp::ValueException("Argument 'graph' must be a map");
     auto *graph_map = mgp::value_get_map(graph_arg.ptr());
     RequireGraphKeys(graph_map);
-    const mgp::Graph graph{memgraph_graph};
-    JsonWriter writer(options.write, options.file, Streaming(options));
     const char *relationships_key = nullptr;
     const auto relationships = GraphRelationships(graph_map, relationships_key);
-    auto *nodes = mgp::map_at(graph_map, kGraphKeyNodes);
+    auto *nodes_value = mgp::map_at(graph_map, kGraphKeyNodes);
     // Named for the map keys, not the json_data argument names: the offending thing here is graph['relationships'].
-    AddNodes(writer,
-             graph,
-             OptionalList(nodes != nullptr ? mgp::Value(mgp::ref_type, nodes) : mgp::Value(), kGraphKeyNodes),
-             kGraphKeyNodes);
-    AddRelationships(writer, graph, OptionalList(relationships, relationships_key), relationships_key);
+    auto *nodes =
+        OptionalList(nodes_value != nullptr ? mgp::Value(mgp::ref_type, nodes_value) : mgp::Value(), kGraphKeyNodes);
+    auto *relationship_list = OptionalList(relationships, relationships_key);
+    RequireElements(nodes, mgp::Type::Node, kGraphKeyNodes, "nodes");
+    RequireElements(relationship_list, mgp::Type::Relationship, relationships_key, "relationships");
+    const mgp::Graph graph{memgraph_graph};
+    JsonWriter writer(options.write, options.file, Streaming(options));
+    AddNodes(writer, graph, nodes);
+    AddRelationships(writer, graph, relationship_list);
     EmitResult(result, std::move(writer), options, kSourcePrefixGraph, started_at);
   } catch (const std::exception &e) {
     record_factory.SetErrorMessage(e.what());
