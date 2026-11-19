@@ -11,6 +11,29 @@
 # common memgraph install isn't redone — we only add the symbols and the
 # debugging tooling. Build the variant you want with `docker build --target`.
 
+# mgagent (Memgraph Agent) package, from Memgraph's download site. Bumping
+# MGAGENT_VERSION is all an upgrade needs.
+ARG MGAGENT_VERSION=v0.2.0
+ARG MGAGENT_BASE_URL=https://download.memgraph.com/memgraph-agent/${MGAGENT_VERSION}
+# Selects the per-arch stage below. Defaults to TARGETARCH, but package_docker
+# passes --build-arg TARGETARCH="" (so the package mount paths resolve), so it
+# sets MGAGENT_ARCH explicitly.
+ARG MGAGENT_ARCH=${TARGETARCH}
+
+# Per-arch stages because the artifacts are named x86_64/aarch64 rather than
+# Docker's amd64/arm64; BuildKit only builds the one MGAGENT_ARCH selects.
+FROM scratch AS mgagent-amd64
+ARG MGAGENT_BASE_URL
+ARG MGAGENT_VERSION
+ADD ${MGAGENT_BASE_URL}/linux-x86_64/memgraph-agent-${MGAGENT_VERSION}-linux-x86_64.deb /memgraph-agent.deb
+
+FROM scratch AS mgagent-arm64
+ARG MGAGENT_BASE_URL
+ARG MGAGENT_VERSION
+ADD ${MGAGENT_BASE_URL}/linux-aarch64/memgraph-agent-${MGAGENT_VERSION}-linux-aarch64.deb /memgraph-agent.deb
+
+FROM mgagent-${MGAGENT_ARCH} AS mgagent
+
 FROM ubuntu:24.04 AS ubuntu-updated
 ARG CUSTOM_MIRROR=false
 
@@ -121,6 +144,12 @@ RUN --mount=type=secret,id=ubuntu_sources,target=/ubuntu.sources,required=false 
   else \
     /mirrors/pin_mirrors.sh restore; \
   fi
+
+RUN --mount=type=bind,from=mgagent,source=/memgraph-agent.deb,target=/memgraph-agent.deb,ro \
+  if [ -f /etc/dpkg/dpkg.cfg.d/excludes ]; then \
+    echo "path-include=/usr/share/doc/memgraph-agent/*" >> /etc/dpkg/dpkg.cfg.d/excludes; \
+  fi && \
+  DEBIAN_FRONTEND=noninteractive MGAGENT_ACCEPT_EULA=yes dpkg -i /memgraph-agent.deb
 
 # Memgraph listens for Bolt Protocol on this port by default.
 EXPOSE 7687

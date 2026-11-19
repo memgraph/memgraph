@@ -4,7 +4,7 @@ source "$SCRIPT_DIR/utils.bash"
 
 # NOTE: Downloading the last released mgconsole (macos universal binary).
 # rm -rf $SCRIPT_DIR/bin # To download it again.
-MG_CONSOLE_VERSION="v1.7.0"
+MG_CONSOLE_VERSION="v1.7.3"
 MG_CONSOLE_BINARY="$SCRIPT_DIR/bin/mgconsole"
 if [ ! -f "$MG_CONSOLE_BINARY" ]; then
   mkdir -p "$SCRIPT_DIR/bin"

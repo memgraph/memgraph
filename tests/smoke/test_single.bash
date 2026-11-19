@@ -10,10 +10,15 @@ echo "Script execution started at: $START_TIME_READABLE"
 # Set image type, and whether this is the FIPS image.
 IMAGE_TYPE="mage"
 MODE="normal"
+# --skip-mgagent: for images that test the memgraph/memgraph-mage packages on
+# their own (the per-distro package smoke images, the MAGE rpm images), which
+# don't ship mgagent.
+SKIP_MGAGENT=false
 for arg in "$@"; do
   case "$arg" in
-    --fips) MODE="fips" ;;
-    *)      IMAGE_TYPE="$arg" ;;
+    --fips)         MODE="fips" ;;
+    --skip-mgagent) SKIP_MGAGENT=true ;;
+    *)              IMAGE_TYPE="$arg" ;;
   esac
 done
 # exit if not memgraph or mage
@@ -46,6 +51,19 @@ check_container_logs
 # check that the container has the required licenses
 source $SCRIPT_DIR/check_container_licenses.sh
 check_container_licenses
+
+# check that mgagent and its EULA are in the image. The FIPS image leaves
+# mgagent out: it is a `deno compile` binary, and the embedded Deno runtime
+# does its TLS/crypto with its own unvalidated rustls/aws-lc, not the image's
+# validated OpenSSL.
+source $SCRIPT_DIR/check_container_mgagent.sh
+if [[ "$MODE" == "fips" ]]; then
+  echo "SKIP: mgagent (not shipped in the FIPS image)"
+elif [[ "$SKIP_MGAGENT" == "true" ]]; then
+  echo "SKIP: mgagent (--skip-mgagent)"
+else
+  check_container_mgagent
+fi
 
 # Test features using mgconsole. The list of tests lives in suite.bash so that
 # test_k8s.bash can run exactly the same set.

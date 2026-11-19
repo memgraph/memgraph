@@ -1,3 +1,22 @@
+# mgagent (Memgraph Agent) package, from Memgraph's download site. Bumping
+# MGAGENT_VERSION is all an upgrade needs.
+ARG MGAGENT_VERSION=v0.2.0
+ARG MGAGENT_BASE_URL=https://download.memgraph.com/memgraph-agent/${MGAGENT_VERSION}
+
+# Per-arch stages because the artifacts are named x86_64/aarch64 rather than
+# Docker's amd64/arm64; BuildKit only builds the one TARGETARCH selects.
+FROM scratch AS mgagent-amd64
+ARG MGAGENT_BASE_URL
+ARG MGAGENT_VERSION
+ADD ${MGAGENT_BASE_URL}/linux-x86_64/memgraph-agent-${MGAGENT_VERSION}-linux-x86_64.deb /memgraph-agent.deb
+
+FROM scratch AS mgagent-arm64
+ARG MGAGENT_BASE_URL
+ARG MGAGENT_VERSION
+ADD ${MGAGENT_BASE_URL}/linux-aarch64/memgraph-agent-${MGAGENT_VERSION}-linux-aarch64.deb /memgraph-agent.deb
+
+FROM mgagent-${TARGETARCH} AS mgagent
+
 FROM ubuntu:24.04 AS ubuntu-updated
 ARG CUSTOM_MIRROR=false
 
@@ -126,6 +145,12 @@ RUN mkdir -p /usr/lib/memgraph/query_modules/
 RUN --mount=type=bind,source="./memgraph-mage.deb",target=/memgraph-mage.deb,ro \
   MG_SKIP_PYTHON_DEPS=1 dpkg-deb -x /memgraph-mage.deb /
 
+RUN --mount=type=bind,from=mgagent,source=/memgraph-agent.deb,target=/memgraph-agent.deb,ro \
+  if [ -f /etc/dpkg/dpkg.cfg.d/excludes ]; then \
+    echo "path-include=/usr/share/doc/memgraph-agent/*" >> /etc/dpkg/dpkg.cfg.d/excludes; \
+  fi && \
+  DEBIAN_FRONTEND=noninteractive MGAGENT_ACCEPT_EULA=yes dpkg -i /memgraph-agent.deb
+
 FROM base AS prod
 
 USER root
@@ -141,7 +166,7 @@ ARG CUSTOM_MIRROR
 
 COPY --from=python-base /usr/local/lib/python${PY_VERSION}/dist-packages /usr/local/lib/python${PY_VERSION}/dist-packages
 
-# Stable telemetry ID for containers — see release/docker/v7_deb.dockerfile
+# Stable telemetry ID for containers — see release/docker/v8_deb.dockerfile
 # for the why. Resolved at runtime by GetMachineId() in
 # src/utils/system_info.cpp so the same memgraph build serves deb and image.
 ENV MEMGRAPH_TELEMETRY_ID=DOCKER

@@ -111,6 +111,7 @@ print_help () {
   echo -e "  test-memgraph TEST                 Run a selected test TEST (see supported tests below) inside mgbuild container"
   echo -e "                                     'smoke' accepts --image IMAGE and --fips (FIPS image: the feature subset"
   echo -e "                                     available without embedded Python, plus the FIPS compliance checks)"
+  echo -e "                                     and --skip-mgagent (image doesn't ship mgagent, e.g. package smoke images)"
   echo -e "  check-core-dumps                   Check the runner is configured to produce Memgraph core dumps (warn-only)"
   echo -e "  test-mage TEST                     Run a selected test TEST (see supported tests below) inside MAGE docker image"
   echo -e "  generate-memgraph-build-sbom       Generate Memgraph build SBOM"
@@ -191,7 +192,6 @@ print_help () {
   echo -e "  --build-logs                  Copy build logs from mgbuild container to host"
   echo -e "  --dest-dir string             Specify a custom path for destination directory on host"
   echo -e "  --package                     Copy memgraph package from mgbuild container to host"
-  echo -e "  --mgconsole                   Copy the toolchain's mgconsole from mgbuild container to tests/smoke/bin (for smoke tests)"
   echo -e "  --use-make-install            Use 'ninja install' with DESTDIR instead of copying individual files"
 
   echo -e "\npackage-docker options:"
@@ -1687,18 +1687,6 @@ copy_memgraph() {
         host_dir="$PROJECT_BUILD_DIR/src/query"
         shift 1
       ;;
-      --mgconsole)
-        # TODO(matt): remove when mgconsole 1.7.1 is released
-        # The toolchain's mgconsole is built against the sysroot (GLIBC floor
-        # 2.25), so it runs on every smoke target distro — unlike the released
-        # download (see tests/smoke/init_workflow.bash, which skips its
-        # download when this file is already staged).
-        artifact="mgconsole"
-        artifact_name="mgconsole"
-        container_artifact_path="/opt/toolchain-${toolchain_version}/bin/mgconsole"
-        host_dir="$PROJECT_ROOT/tests/smoke/bin"
-        shift 1
-      ;;
       --logs-dir)
         container_artifact_path=$2
         artifact="logs"
@@ -2485,6 +2473,7 @@ test_memgraph() {
       smoke_image=""
       reuse_env=false
       smoke_fips=""
+      smoke_skip_mgagent=""
       while [[ $# -gt 0 ]]; do
         case "$1" in
           --image)
@@ -2497,6 +2486,10 @@ test_memgraph() {
           ;;
           --fips)
             smoke_fips="--fips"
+            shift
+          ;;
+          --skip-mgagent)
+            smoke_skip_mgagent="--skip-mgagent"
             shift
           ;;
           *)
@@ -2527,7 +2520,7 @@ test_memgraph() {
         source env/bin/activate
         pip install -r "$PROJECT_ROOT/tests/smoke/requirements.txt"
       fi
-      ./test_single.bash "memgraph"  $smoke_fips
+      ./test_single.bash "memgraph"  $smoke_fips $smoke_skip_mgagent
     ;;
     *)
       echo "Error: Unknown test '$1'"
@@ -3132,6 +3125,7 @@ test_mage() {
       shift 1
       smoke_image=""
       reuse_env=false
+      smoke_skip_mgagent=""
       while [[ $# -gt 0 ]]; do
         case "$1" in
           --image)
@@ -3141,6 +3135,10 @@ test_mage() {
           --reuse-env)
             reuse_env=$2
             shift 2
+          ;;
+          --skip-mgagent)
+            smoke_skip_mgagent="--skip-mgagent"
+            shift
           ;;
           *)
             echo "Error: Unknown flag '$1'"
@@ -3171,7 +3169,7 @@ test_mage() {
         source env/bin/activate
         pip install -r "$PROJECT_ROOT/tests/smoke/requirements.txt"
       fi
-      ./test_single.bash "mage"
+      ./test_single.bash "mage" $smoke_skip_mgagent
     ;;
     *)
       echo "Error: Unknown test '$1'"
