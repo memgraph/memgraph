@@ -565,6 +565,30 @@ TYPED_TEST(QueryExecution, ADeletedRecordRefusesWithFlagOn) {
   CHECK_A_DELETED_RECORD_REFUSES("WITH n WHERE n.a > 0 AND n.a < 10 RETURN n.a AS a");
 }
 
+/// A predicate tests a record as it stood when the row was produced, which is before a write above
+/// the filter has run for any later row. Two paths into one record therefore both reach the write,
+/// whether the predicate read the record itself or a slot filled for it.
+#define CHECK_A_WRITE_ABOVE_A_FILTER_LEAVES_ITS_READS_ALONE()                                                   \
+  do {                                                                                                          \
+    this->Execute("MATCH (n) DETACH DELETE n");                                                                 \
+    this->Execute("CREATE (a1 {id: 1}), (a2 {id: 2}), (b {p: 3}) CREATE (a1)-[:E]->(b) CREATE (a2)-[:E]->(b)"); \
+    /* The filter on a starts the scan there, so the predicate on b stands above the expansion. */              \
+    auto rows = this->Execute(                                                                                  \
+        "MATCH (a)-[:E]->(b) WHERE a.id >= 1 AND b.p > 1 AND b.p < 10 SET b.p = 99 RETURN count(*) AS c");      \
+    ASSERT_EQ(rows.size(), 1);                                                                                  \
+    EXPECT_EQ(rows[0][0].ValueInt(), 2);                                                                        \
+  } while (false)
+
+TYPED_TEST(QueryExecution, AWriteAboveAFilterLeavesItsReadsAloneWithFlagOff) {
+  CachePropertiesFlagGuard guard{false};
+  CHECK_A_WRITE_ABOVE_A_FILTER_LEAVES_ITS_READS_ALONE();
+}
+
+TYPED_TEST(QueryExecution, AWriteAboveAFilterLeavesItsReadsAloneWithFlagOn) {
+  CachePropertiesFlagGuard guard{true};
+  CHECK_A_WRITE_ABOVE_A_FILTER_LEAVES_ITS_READS_ALONE();
+}
+
 TYPED_TEST(QueryExecution, LeftoverLookupResultsWithFlagOff) {
   CachePropertiesFlagGuard guard{false};
   CHECK_LEFTOVER_LOOKUP_RESULTS();

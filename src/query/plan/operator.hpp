@@ -1358,6 +1358,11 @@ class CachedPropertyGroup {
 /// lock, a shape resolution and a delta walk per property; one pass pays each once per group.
 ///
 /// A symbol holding no record answers that group's slots with Null, as a lookup would.
+///
+/// `view` is the one the operator this pass reads for evaluates at, so a slot holds what that
+/// operator's own lookup would have read. The two differ for a record this command has written, and
+/// a filter tests a row against the record as the row was produced where a projection returns what
+/// the row's own writes left.
 class CacheProperties : public memgraph::query::plan::LogicalOperator {
  public:
   static const utils::TypeInfo kType;
@@ -1367,9 +1372,10 @@ class CacheProperties : public memgraph::query::plan::LogicalOperator {
   CacheProperties() = default;
 
   CacheProperties(const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol,
-                  std::vector<CachedProperty> cached_properties);
+                  std::vector<CachedProperty> cached_properties, storage::View view);
 
-  CacheProperties(const std::shared_ptr<LogicalOperator> &input, std::vector<CachedPropertyGroup> groups);
+  CacheProperties(const std::shared_ptr<LogicalOperator> &input, std::vector<CachedPropertyGroup> groups,
+                  storage::View view);
 
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
@@ -1384,6 +1390,7 @@ class CacheProperties : public memgraph::query::plan::LogicalOperator {
 
   std::shared_ptr<memgraph::query::plan::LogicalOperator> input_;
   std::vector<CachedPropertyGroup> groups_;
+  storage::View view_{storage::View::NEW};
 
   std::string ToString(const DbAccessor *dba) const override;
 

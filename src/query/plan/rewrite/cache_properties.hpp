@@ -497,7 +497,7 @@ class CachePropertiesRewriter final : public HierarchicalLogicalOperatorVisitor 
   bool Visit(Once &) override { return true; }
 
   bool PostVisit(Produce &op) override {
-    CacheBelow(op, PropertyLookupCacher::ValueUse::kKept, [&op](auto &&each) {
+    CacheBelow(op, PropertyLookupCacher::ValueUse::kKept, storage::View::NEW, [&op](auto &&each) {
       for (auto *&named_expression : op.named_expressions_) each(named_expression);
     });
     return true;
@@ -506,14 +506,16 @@ class CachePropertiesRewriter final : public HierarchicalLogicalOperatorVisitor 
   bool PostVisit(Filter &op) override {
     if (!op.expression_) return true;
 
-    CacheBelow(op, PropertyLookupCacher::ValueUse::kDiscarded, [&op](auto &&each) { each(op.expression_); });
+    CacheBelow(op, PropertyLookupCacher::ValueUse::kDiscarded, storage::View::OLD, [&op](auto &&each) {
+      each(op.expression_);
+    });
     return true;
   }
 
   /// Below the aggregation, which is where the record still is: above it only the grouping keys
   /// and the aggregated values are defined.
   bool PostVisit(Aggregate &op) override {
-    CacheBelow(op, PropertyLookupCacher::ValueUse::kDiscarded, [&op](auto &&each) {
+    CacheBelow(op, PropertyLookupCacher::ValueUse::kDiscarded, storage::View::NEW, [&op](auto &&each) {
       // A secondary argument, which a map collection and the graph projections take, is left out
       // however many lookups it holds. It is reached only once the row's first value is accepted,
       // so a Null value, or a repeat a distinct aggregation ignores, never evaluates it, and
@@ -530,11 +532,15 @@ class CachePropertiesRewriter final : public HierarchicalLogicalOperatorVisitor 
   /// Puts a one-pass read below `op` for each symbol whose lookups save it enough, which is what
   /// `value_use` decides.
   ///
+  /// `view` is the one `op` evaluates its own expressions at, which is what the pass must read at:
+  /// a read moved out of an operator has to answer what that operator would have read of a record
+  /// this command has written.
+  ///
   /// `for_each_expression` hands each expression the operator evaluates for every row to a visitor,
   /// which a projection and an aggregation hold differently. Each is passed by reference, since
   /// both replacing a lookup and copying an expression write back to the operator.
   template <class TForEachExpression>
-  void CacheBelow(LogicalOperator &op, PropertyLookupCacher::ValueUse value_use,
+  void CacheBelow(LogicalOperator &op, PropertyLookupCacher::ValueUse value_use, storage::View view,
                   TForEachExpression for_each_expression) {
     auto input = op.input();
     if (!input) return;
@@ -577,7 +583,7 @@ class CachePropertiesRewriter final : public HierarchicalLogicalOperatorVisitor 
 
     if (groups.empty()) return;
 
-    auto pass = std::make_shared<CacheProperties>(input, std::move(groups));
+    auto pass = std::make_shared<CacheProperties>(input, std::move(groups), view);
     // Both what this pass reads and what it reused, since a row reaching an operator above holds
     // all of it.
     slots_filled_by_.emplace(pass.get(), cacher.Slots());
