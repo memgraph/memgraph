@@ -379,6 +379,15 @@ def test_raft_term_rises_when_the_leader_dies(test_name):
 
     mg_sleep_and_assert_eval_function(new_leader_elected, lambda: {port: raft_gauges(port) for port in (9095, 9096)})
 
+    def only_new_leader_reports_the_other_survivor(followers):
+        reporters = [name for name, reported in followers.items() if reported]
+        return len(reporters) == 1 and (followers.keys() - set(reporters)) <= followers[reporters[0]]
+
+    mg_sleep_and_assert_eval_function(
+        only_new_leader_reports_the_other_survivor,
+        lambda: {"coordinator_1": raft_followers(9095), "coordinator_2": raft_followers(9096)},
+    )
+
 
 def test_leadership_change(test_name):
     inner_instances_description = get_instances_description_no_setup(test_name=test_name)
