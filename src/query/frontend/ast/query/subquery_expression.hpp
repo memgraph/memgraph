@@ -50,6 +50,9 @@ class SubqueryExpression : public memgraph::query::Expression {
   int32_t symbol_pos_{-1};
   /// Symbols the body reads but does not declare. Set by @c SymbolGenerator.
   std::unordered_set<Symbol> external_symbols_;
+  /// The subset of @c external_symbols_ an enclosing list expression binds once per element. Set by
+  /// @c SymbolGenerator.
+  std::unordered_set<Symbol> element_symbols_;
 
   /// The construct a fold is written as, so a diagnostic names the spelling the user reached for. A switch, so a
   /// third fold fails to compile rather than reporting itself as an EXISTS.
@@ -78,6 +81,7 @@ class SubqueryExpression : public memgraph::query::Expression {
     }
     object->symbol_pos_ = symbol_pos_;
     object->external_symbols_ = external_symbols_;
+    object->element_symbols_ = element_symbols_;
     return object;
   }
 
