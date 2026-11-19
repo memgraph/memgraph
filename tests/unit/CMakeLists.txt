@@ -349,6 +349,15 @@ add_unit_test(query_procedure_mgp_module
     INCLUDE_DIRS ${CMAKE_SOURCE_DIR}/include
 )
 
+# Test the refactor MAGE module registration and bodies
+add_unit_test(refactor_module
+    SOURCES refactor_module.cpp
+        ${CMAKE_SOURCE_DIR}/src/mage/cpp/refactor_module/refactor_module.cpp
+        ${CMAKE_SOURCE_DIR}/src/mage/cpp/refactor_module/algorithm/refactor.cpp
+    LINK_TARGETS mg-query
+    INCLUDE_DIRS ${CMAKE_SOURCE_DIR}/include ${CMAKE_SOURCE_DIR}/src/mage/cpp
+)
+
 
 if (MG_PYTHON_SUPPORT)
 add_unit_test(query_procedure_py_module
