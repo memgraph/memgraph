@@ -2559,7 +2559,7 @@ mgp_error mgp_vertex_set_property(struct mgp_vertex *v, const char *property_nam
     auto *ctx = v->graph->ctx;
 
 #ifdef MG_ENTERPRISE
-    if (memgraph::license::global_license_checker.IsEnterpriseValidFast() && ctx && ctx->auth_checker &&
+    if (ctx && ctx->auth_checker &&
         !ctx->auth_checker->Has(
             v->getImpl(), v->graph->view, memgraph::query::AuthQuery::FineGrainedPrivilege::SET_PROPERTY)) {
       throw AuthorizationException{
@@ -2614,7 +2614,7 @@ mgp_error mgp_vertex_set_properties(struct mgp_vertex *v, struct mgp_map *proper
     auto *ctx = v->graph->ctx;
 
 #ifdef MG_ENTERPRISE
-    if (memgraph::license::global_license_checker.IsEnterpriseValidFast() && ctx && ctx->auth_checker &&
+    if (ctx && ctx->auth_checker &&
         !ctx->auth_checker->Has(
             v->getImpl(), v->graph->view, memgraph::query::AuthQuery::FineGrainedPrivilege::SET_PROPERTY)) {
       throw AuthorizationException{
@@ -2688,7 +2688,7 @@ mgp_error mgp_vertex_add_label(struct mgp_vertex *v, mgp_label label) {
 
 #ifdef MG_ENTERPRISE
     // Check SET_LABEL on existing vertex (gatekeeper) and CREATE on new label (target)
-    if (memgraph::license::global_license_checker.IsEnterpriseValidFast() && ctx && ctx->auth_checker) {
+    if (ctx && ctx->auth_checker) {
       if (!ctx->auth_checker->Has(
               v->getImpl(), v->graph->view, memgraph::query::AuthQuery::FineGrainedPrivilege::SET_LABEL)) {
         throw AuthorizationException{
@@ -2740,7 +2740,7 @@ mgp_error mgp_vertex_remove_label(struct mgp_vertex *v, mgp_label label) {  // N
         std::visit([&label](auto *impl) { return impl->NameToLabel(label.name); }, v->graph->CheckedImpl());
 
 #ifdef MG_ENTERPRISE
-    if (memgraph::license::global_license_checker.IsEnterpriseValidFast() && ctx && ctx->auth_checker) {
+    if (ctx && ctx->auth_checker) {
       // Check DELETE on target label
       if (!ctx->auth_checker->Has(std::span{&label_id, 1}, memgraph::query::AuthQuery::FineGrainedPrivilege::DELETE)) {
         throw AuthorizationException{"Removing label from vertex failed: missing DELETE permission on target label."};
@@ -2957,9 +2957,7 @@ mgp_edges_iterator *MakeEdgesIterator(mgp_vertex *v, mgp_memory *memory) {
   auto &rc = it->cursor.emplace<mgp_edges_iterator::RealCursor>(std::move(maybe_edges->edges), ForIn);
 
 #ifdef MG_ENTERPRISE
-  if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-    NextPermittedEdge(rc, *v);
-  }
+  NextPermittedEdge(rc, *v);
 #endif
 
   if (rc.it != rc.edges.end()) {
@@ -3017,9 +3015,7 @@ mgp_error mgp_edges_iterator_next(mgp_edges_iterator *it, mgp_edge **result) {
                                 }
                                 ++rc.it;
 #ifdef MG_ENTERPRISE
-                                if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-                                  NextPermittedEdge(rc, it->source_vertex);
-                                }
+                                NextPermittedEdge(rc, it->source_vertex);
 #endif
                                 if (rc.it == rc.edges.end()) {
                                   it->current_e = std::nullopt;
@@ -3158,7 +3154,7 @@ mgp_error mgp_edge_set_property(struct mgp_edge *e, const char *property_name, m
     auto *ctx = e->from.graph->ctx;
 
 #ifdef MG_ENTERPRISE
-    if (memgraph::license::global_license_checker.IsEnterpriseValidFast() && ctx && ctx->auth_checker &&
+    if (ctx && ctx->auth_checker &&
         !ctx->auth_checker->Has(ea, memgraph::query::AuthQuery::FineGrainedPrivilege::SET_PROPERTY)) {
       throw AuthorizationException{
           "Setting edge property failed: missing SET PROPERTY or UPDATE permission on edge type."};
@@ -3210,7 +3206,7 @@ mgp_error mgp_edge_set_properties(struct mgp_edge *e, struct mgp_map *properties
     auto *ctx = e->from.graph->ctx;
 
 #ifdef MG_ENTERPRISE
-    if (memgraph::license::global_license_checker.IsEnterpriseValidFast() && ctx && ctx->auth_checker &&
+    if (ctx && ctx->auth_checker &&
         !ctx->auth_checker->Has(ea, memgraph::query::AuthQuery::FineGrainedPrivilege::SET_PROPERTY)) {
       throw AuthorizationException{
           "Setting edge properties failed: missing SET PROPERTY or UPDATE permission on edge type."};
@@ -3849,8 +3845,7 @@ mgp_error mgp_graph_create_vertex(struct mgp_graph *graph, mgp_memory *memory, m
       [=]() -> mgp_vertex * {
 
 #ifdef MG_ENTERPRISE
-        if (memgraph::license::global_license_checker.IsEnterpriseValidFast() && graph->ctx &&
-            graph->ctx->auth_checker &&
+        if (graph->ctx && graph->ctx->auth_checker &&
             !graph->ctx->auth_checker->HasGlobalPrivilegeOnVertices(
                 memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE)) {
           throw AuthorizationException{"Creating vertex failed: missing global CREATE permission on labels."};
@@ -3885,7 +3880,7 @@ mgp_error mgp_graph_delete_vertex(struct mgp_graph *graph, mgp_vertex *vertex) {
     auto *ctx = graph->ctx;
 
 #ifdef MG_ENTERPRISE
-    if (memgraph::license::global_license_checker.IsEnterpriseValidFast() && ctx && ctx->auth_checker &&
+    if (ctx && ctx->auth_checker &&
         !ctx->auth_checker->Has(
             vertex->getImpl(), graph->view, memgraph::query::AuthQuery::FineGrainedPrivilege::DELETE)) {
       throw AuthorizationException{"Deleting vertex failed: missing DELETE permission on vertex labels."};
@@ -3938,7 +3933,7 @@ mgp_error mgp_graph_detach_delete_vertex(struct mgp_graph *graph, mgp_vertex *ve
   return WrapExceptions([=] {
     auto *ctx = graph->ctx;
 #ifdef MG_ENTERPRISE
-    if (memgraph::license::global_license_checker.IsEnterpriseValidFast() && ctx && ctx->auth_checker &&
+    if (ctx && ctx->auth_checker &&
         !ctx->auth_checker->Has(
             vertex->getImpl(), graph->view, memgraph::query::AuthQuery::FineGrainedPrivilege::DELETE)) {
       throw AuthorizationException{"Deleting vertex failed: missing DELETE permission on vertex labels."};
@@ -4003,7 +3998,7 @@ mgp_error mgp_graph_create_edge(mgp_graph *graph, mgp_vertex *from, mgp_vertex *
       [=]() -> mgp_edge * {
         auto *ctx = graph->ctx;
 #ifdef MG_ENTERPRISE
-        if (memgraph::license::global_license_checker.IsEnterpriseValidFast() && ctx && ctx->auth_checker) {
+        if (ctx && ctx->auth_checker) {
           const auto edge_id =
               std::visit([type](auto *impl) { return impl->NameToEdgeType(type.name); }, from->graph->CheckedImpl());
           if (!ctx->auth_checker->Has(edge_id, memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE)) {
@@ -4086,7 +4081,7 @@ mgp_error mgp_graph_delete_edge(struct mgp_graph *graph, mgp_edge *edge) {
     auto &ea = std::get<memgraph::query::EdgeAccessor>(edge->impl);
     auto *ctx = graph->ctx;
 #ifdef MG_ENTERPRISE
-    if (memgraph::license::global_license_checker.IsEnterpriseValidFast() && ctx && ctx->auth_checker) {
+    if (ctx && ctx->auth_checker) {
       if (!ctx->auth_checker->Has(ea, memgraph::query::AuthQuery::FineGrainedPrivilege::DELETE)) {
         throw AuthorizationException{"Deleting edge failed: missing DELETE permission on edge type."};
       }
@@ -5104,9 +5099,7 @@ mgp_vertices_iterator::mgp_vertices_iterator(mgp_graph *graph, allocator_type al
                  graph->CheckedImpl());
   auto &rc = cursor.emplace<RealCursor>(std::move(vertices));
 #ifdef MG_ENTERPRISE
-  if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-    NextPermitted(rc, *graph);
-  }
+  NextPermitted(rc, *graph);
 #endif
   if (rc.it != rc.vertices.end()) {
     const auto va = *rc.it;
@@ -5179,9 +5172,7 @@ mgp_error mgp_vertices_iterator_next(mgp_vertices_iterator *it, mgp_vertex **res
                                 }
                                 ++rc.it;
 #ifdef MG_ENTERPRISE
-                                if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-                                  NextPermitted(rc, *it->graph);
-                                }
+                                NextPermitted(rc, *it->graph);
 #endif
                                 if (rc.it == rc.vertices.end()) {
                                   it->current_v = std::nullopt;

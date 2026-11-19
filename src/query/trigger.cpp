@@ -293,8 +293,7 @@ void Trigger::Execute(DbAccessor *dba, dbms::DatabaseAccess db_acc, utils::Memor
 
 #ifdef MG_ENTERPRISE
   std::unique_ptr<FineGrainedAuthChecker> fine_grained_checker;
-  if (license::global_license_checker.IsEnterpriseValidFast() && auth_checker && ctx.user_or_role &&
-      *ctx.user_or_role && dba) {
+  if (auth_checker && ctx.user_or_role && *ctx.user_or_role && dba) {
     fine_grained_checker = auth_checker->GetFineGrainedAuthChecker(*ctx.user_or_role, dba);
     DMG_ASSERT(fine_grained_checker, "Auth checker should not be null");
     if (fine_grained_checker->NeedsFineGrainedAuthChecker()) {

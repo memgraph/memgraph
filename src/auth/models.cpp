@@ -1350,9 +1350,6 @@ FineGrainedAccessPermissions User::GetRoleFineGrainedAccessLabelPermissions(
 }
 
 PropertyAccessPermissions User::GetPropertyLabelPermissions(std::optional<std::string_view> db_name) const {
-  if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-    return PropertyAccessPermissions{};
-  }
   if (db_name && !HasAccess(*db_name)) return PropertyAccessPermissions{};
 
   auto result = property_access_handler_.label_properties();
@@ -1365,9 +1362,6 @@ PropertyAccessPermissions User::GetPropertyLabelPermissions(std::optional<std::s
 }
 
 PropertyAccessPermissions User::GetPropertyEdgeTypePermissions(std::optional<std::string_view> db_name) const {
-  if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-    return PropertyAccessPermissions{};
-  }
   if (db_name && !HasAccess(*db_name)) return PropertyAccessPermissions{};
 
   auto result = property_access_handler_.edge_type_properties();

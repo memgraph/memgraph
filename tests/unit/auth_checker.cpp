@@ -70,28 +70,6 @@ class FineGrainedAuthCheckerFixture : public testing::Test {
 using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
 TYPED_TEST_SUITE(FineGrainedAuthCheckerFixture, StorageTypes);
 
-namespace {
-// Drops the license for the duration of a scope and puts back what was there. The fixture turns the
-// license on, so leaving it off would leak into whatever runs next.
-struct UnlicensedScope {
-  UnlicensedScope() : was_valid_{memgraph::license::global_license_checker.IsEnterpriseValidFast()} {
-    memgraph::license::global_license_checker.DisableTesting();
-  }
-
-  ~UnlicensedScope() {
-    if (was_valid_) memgraph::license::global_license_checker.EnableTesting();
-  }
-
-  UnlicensedScope(const UnlicensedScope &) = delete;
-  UnlicensedScope &operator=(const UnlicensedScope &) = delete;
-  UnlicensedScope(UnlicensedScope &&) = delete;
-  UnlicensedScope &operator=(UnlicensedScope &&) = delete;
-
- private:
-  bool was_valid_;
-};
-}  // namespace
-
 // A license that lapses must not turn a denied label into a readable one.
 TYPED_TEST(FineGrainedAuthCheckerFixture, StoredLabelDenyIsEnforcedWithoutLicense) {
   const UnlicensedScope unlicensed;
@@ -130,6 +108,50 @@ TYPED_TEST(FineGrainedAuthCheckerFixture, StoredEdgeTypeDenyIsEnforcedWithoutLic
   memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba};
 
   EXPECT_FALSE(auth_checker.Has(this->r1, memgraph::query::AuthQuery::FineGrainedPrivilege::READ));
+}
+
+TYPED_TEST(FineGrainedAuthCheckerFixture, GlobalPrivilegeChecksAreEnforcedWithoutLicense) {
+  const UnlicensedScope unlicensed;
+
+  memgraph::auth::User user{"test"};
+  user.fine_grained_access_handler().label_permissions().DenyGlobal(memgraph::auth::FineGrainedPermission::CREATE);
+  user.fine_grained_access_handler().edge_type_permissions().DenyGlobal(memgraph::auth::FineGrainedPermission::CREATE);
+
+  memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba};
+
+  EXPECT_FALSE(auth_checker.HasGlobalPrivilegeOnVertices(memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE));
+  EXPECT_FALSE(auth_checker.HasGlobalPrivilegeOnEdges(memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE));
+}
+
+TYPED_TEST(FineGrainedAuthCheckerFixture, PropertyDenyIsEnforcedWithoutLicense) {
+  const UnlicensedScope unlicensed;
+
+  memgraph::auth::User user{"test"};
+  user.property_access_handler().label_properties().GrantGlobal("*", memgraph::auth::kAllPropertyPermissionTypes);
+  user.property_access_handler().label_properties().Deny(
+      {"l1"}, "salary", memgraph::auth::PropertyPermissionType::READ);
+
+  memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba};
+  auto const labels = std::array{this->dba.NameToLabel("l1")};
+
+  EXPECT_FALSE(auth_checker.HasPropertyPermission(
+      labels, this->dba.NameToProperty("salary"), memgraph::query::AuthQuery::PropertyPermissionType::READ));
+}
+
+// Property permissions nobody configured are not rules to enforce, so an unlicensed principal keeps
+// reading properties even when labels are restricted.
+TYPED_TEST(FineGrainedAuthCheckerFixture, UnconfiguredPropertiesStayReadableWithoutLicense) {
+  const UnlicensedScope unlicensed;
+
+  memgraph::auth::User user{"test"};
+  user.fine_grained_access_handler().label_permissions().GrantGlobal(memgraph::auth::kAllLabelPermissions);
+  user.fine_grained_access_handler().label_permissions().Deny({"l3"}, memgraph::auth::kAllLabelPermissions);
+
+  memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba};
+  auto const labels = std::array{this->dba.NameToLabel("l1")};
+
+  EXPECT_TRUE(auth_checker.HasPropertyPermission(
+      labels, this->dba.NameToProperty("salary"), memgraph::query::AuthQuery::PropertyPermissionType::READ));
 }
 
 TYPED_TEST(FineGrainedAuthCheckerFixture, GrantedAllLabels) {

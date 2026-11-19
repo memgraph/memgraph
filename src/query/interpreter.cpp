@@ -4538,8 +4538,7 @@ PreparedQuery PrepareDumpQuery(ParsedQuery parsed_query, CurrentDB &current_db,
 
   std::unique_ptr<FineGrainedAuthChecker> auth_checker;
 #ifdef MG_ENTERPRISE
-  if (license::global_license_checker.IsEnterpriseValidFast() && interpreter_context->auth_checker && user_or_role &&
-      *user_or_role) {
+  if (interpreter_context->auth_checker && user_or_role && *user_or_role) {
     auth_checker = interpreter_context->auth_checker->GetFineGrainedAuthChecker(*user_or_role, dba);
     DMG_ASSERT(auth_checker, "Auth checker should not be null");
     if (!auth_checker->NeedsFineGrainedAuthChecker()) {
@@ -9637,8 +9636,7 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
       // Apply fine-grained access control filtering if auth_checker is available
       std::unique_ptr<FineGrainedAuthChecker> auth_checker = nullptr;
       const bool has_user_or_role = user_or_role != nullptr && *user_or_role;
-      if (license::global_license_checker.IsEnterpriseValidFast() && interpreter_context &&
-          interpreter_context->auth_checker && has_user_or_role && db_acc) {
+      if (interpreter_context && interpreter_context->auth_checker && has_user_or_role && db_acc) {
         auth_checker = interpreter_context->auth_checker->GetFineGrainedAuthChecker(*user_or_role, &*db_acc);
         DMG_ASSERT(auth_checker, "Auth checker should not be null");
         if (!auth_checker->NeedsFineGrainedAuthChecker()) {

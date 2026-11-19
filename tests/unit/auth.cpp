@@ -1438,28 +1438,6 @@ TEST(AuthWithoutStorage, FineGrainedAccessPermissions) {
   }
 }
 
-namespace {
-// Drops the license for the duration of a scope and puts back what was there. Other tests in this
-// binary assume an active license, so leaving it off would make them fail depending on run order.
-struct UnlicensedScope {
-  UnlicensedScope() : was_valid_{memgraph::license::global_license_checker.IsEnterpriseValidFast()} {
-    memgraph::license::global_license_checker.DisableTesting();
-  }
-
-  ~UnlicensedScope() {
-    if (was_valid_) memgraph::license::global_license_checker.EnableTesting();
-  }
-
-  UnlicensedScope(const UnlicensedScope &) = delete;
-  UnlicensedScope &operator=(const UnlicensedScope &) = delete;
-  UnlicensedScope(UnlicensedScope &&) = delete;
-  UnlicensedScope &operator=(UnlicensedScope &&) = delete;
-
- private:
-  bool was_valid_;
-};
-}  // namespace
-
 // Losing the license must never widen access: a label a rule denies stays denied.
 TEST(AuthWithoutStorage, ConfiguredFineGrainedRulesAreEnforcedWithoutLicense) {
   const UnlicensedScope unlicensed;

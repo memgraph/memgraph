@@ -56,17 +56,11 @@ bool IsAuthorizedLabels(memgraph::auth::FineGrainedAccessPermissions const &perm
 
 bool IsAuthorizedGloballyLabels(memgraph::auth::FineGrainedAccessPermissions const &permissions,
                                 const memgraph::auth::FineGrainedPermission fine_grained_permission) {
-  if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-    return true;
-  }
   return permissions.HasGlobal(fine_grained_permission) == memgraph::auth::PermissionLevel::GRANT;
 }
 
 bool IsAuthorizedGloballyEdges(memgraph::auth::FineGrainedAccessPermissions const &permissions,
                                const memgraph::auth::FineGrainedPermission fine_grained_permission) {
-  if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-    return true;
-  }
   return permissions.HasGlobal(fine_grained_permission) == memgraph::auth::PermissionLevel::GRANT;
 }
 
@@ -257,9 +251,6 @@ bool FineGrainedAuthChecker::Has(const memgraph::storage::EdgeTypeId &edge_type,
 
 bool FineGrainedAuthChecker::HasGlobalPrivilegeOnVertices(
     const memgraph::query::AuthQuery::FineGrainedPrivilege fine_grained_privilege) const {
-  if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-    return true;
-  }
   return IsAuthorizedGloballyLabels(
       GetCachedLabelPermissions(),
       FineGrainedPrivilegeToFineGrainedPermission(fine_grained_privilege, FineGrainedPermissionType::LABEL));
@@ -267,9 +258,6 @@ bool FineGrainedAuthChecker::HasGlobalPrivilegeOnVertices(
 
 bool FineGrainedAuthChecker::HasGlobalPrivilegeOnEdges(
     const memgraph::query::AuthQuery::FineGrainedPrivilege fine_grained_privilege) const {
-  if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-    return true;
-  }
   return IsAuthorizedGloballyEdges(
       GetCachedEdgePermissions(),
       FineGrainedPrivilegeToFineGrainedPermission(fine_grained_privilege, FineGrainedPermissionType::EDGE_TYPE));
@@ -326,11 +314,8 @@ bool FineGrainedAuthChecker::HasUnrestrictedAccessToEdgeTypeProperties() const {
 }
 
 bool FineGrainedAuthChecker::NeedsFineGrainedAuthChecker() const {
-  auto const is_unconfigured = [](auth::PropertyAccessPermissions const &perms) {
-    return perms.GetRules().empty() && perms.GetGlobalRules().empty();
-  };
-  auto const vertex_props_unconfigured = is_unconfigured(GetCachedPropertyLabelPermissions());
-  auto const edge_props_unconfigured = is_unconfigured(GetCachedPropertyEdgeTypePermissions());
+  auto const vertex_props_unconfigured = GetCachedPropertyLabelPermissions().IsUnconfigured();
+  auto const edge_props_unconfigured = GetCachedPropertyEdgeTypePermissions().IsUnconfigured();
 
   // A principal with nothing configured is unrestricted while unlicensed, so there is nothing for the
   // checker to answer and every per-row question can be skipped. Licensed, the same principal is denied
@@ -370,12 +355,12 @@ bool FineGrainedAuthChecker::HasPropertyPermission(std::span<storage::LabelId co
                                                    storage::PropertyId property,
                                                    query::AuthQuery::PropertyPermissionType type) const {
   if (HasUnrestrictedAccessToVertexProperties()) return true;
-  if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-    return true;
-  }
   auto const perm_type = type == query::AuthQuery::PropertyPermissionType::WRITE ? auth::PropertyPermissionType::WRITE
                                                                                  : auth::PropertyPermissionType::READ;
   auto const &permissions = GetCachedPropertyLabelPermissions();
+  if (permissions.IsUnconfigured() && !memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
+    return true;
+  }
   auto const &prop_name = dba_->PropertyToName(property);
   if (labels.empty()) {
     return permissions.HasGlobal(prop_name, perm_type) == auth::PermissionLevel::GRANT;
@@ -392,12 +377,12 @@ bool FineGrainedAuthChecker::HasPropertyPermission(std::span<storage::LabelId co
 bool FineGrainedAuthChecker::HasPropertyPermission(storage::EdgeTypeId const &edge_type, storage::PropertyId property,
                                                    query::AuthQuery::PropertyPermissionType type) const {
   if (HasUnrestrictedAccessToEdgeTypeProperties()) return true;
-  if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-    return true;
-  }
   auto const perm_type = type == query::AuthQuery::PropertyPermissionType::WRITE ? auth::PropertyPermissionType::WRITE
                                                                                  : auth::PropertyPermissionType::READ;
   auto const &permissions = GetCachedPropertyEdgeTypePermissions();
+  if (permissions.IsUnconfigured() && !memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
+    return true;
+  }
   auto const &edge_type_name = dba_->EdgeTypeToName(edge_type);
   auto const &prop_name = dba_->PropertyToName(property);
   auto level = permissions.Has(std::span{&edge_type_name, 1}, prop_name, perm_type);

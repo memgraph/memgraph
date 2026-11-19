@@ -513,6 +513,10 @@ class PropertyAccessPermissions final {
 
   auto const &GetGlobalRules() const { return global_; }
 
+  /// True when nothing has ever been granted or denied here. Checks require a GRANT, so an
+  /// unconfigured set denies everything; such a principal is unrestricted while unlicensed.
+  bool IsUnconfigured() const { return rules_.empty() && global_.empty(); }
+
   bool HasUnrestrictedAccess() const;
 
  private:
