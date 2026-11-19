@@ -1595,9 +1595,8 @@ DbmsHandler::ResumeResult DbmsHandler::Resume_(std::string_view name, system::Tr
         if (txn) txn->AddAction<ResumeDatabase>(salient.uuid, acc);
         spdlog::info("hot/cold: database '{}' resumed (COLD -> HOT)", name);
       });
-      best_effort("post-publish resume arm", [&] {
+      best_effort("applying the TTL user check", [&] {
         if (ttl_user_check_) acc->storage()->ttl_.SetUserCheck(ttl_user_check_);
-        if (on_published_) on_published_(acc);
       });
       // Winner's own successful publish: a real COLD -> HOT rebuild, so already_hot is false.
       if (already_hot) *already_hot = false;
