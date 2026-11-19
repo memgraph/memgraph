@@ -9,8 +9,8 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
+import multiprocessing
 import sys
-import threading
 import time
 
 import mgclient
@@ -21,13 +21,15 @@ from show_metrics_aborted_queries import aborted_queries
 LONG_QUERY = "UNWIND range(1, 100000) AS x UNWIND range(1, 100000) AS y RETURN count(*)"
 
 
-def run_until_terminated(errors):
+def run_until_terminated():
+    """Exits 0 if the query fails with a database error, as a terminated query does."""
     connection = mgclient.connect(host="localhost", port=7687)
     connection.autocommit = True
     try:
         execute_and_fetch_all(connection.cursor(), LONG_QUERY)
-    except mgclient.DatabaseError as e:
-        errors.append(e)
+    except mgclient.DatabaseError:
+        sys.exit(0)
+    sys.exit(1)
 
 
 def wait_for_transaction_id(cursor, query, timeout_s=10):
@@ -45,14 +47,13 @@ def test_terminated_query_is_counted(connect):
     before = aborted_queries("terminated")
     assert before is not None
 
-    errors = []
-    victim = threading.Thread(target=run_until_terminated, args=(errors,))
+    # A separate process, because mgclient holds the GIL while it waits for a result
+    victim = multiprocessing.Process(target=run_until_terminated)
     victim.start()
     execute_and_fetch_all(cursor, f"TERMINATE TRANSACTIONS '{wait_for_transaction_id(cursor, LONG_QUERY)}'")
     victim.join(timeout=10)
 
-    assert not victim.is_alive()
-    assert len(errors) == 1
+    assert victim.exitcode == 0
     assert aborted_queries("terminated") == before + 1
 
 
