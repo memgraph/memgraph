@@ -70,14 +70,14 @@ class ReadWriteCollector final : public HierarchicalTreeVisitor {
     if (ReadsGraph(lookup.expression_)) {
       result.reads.NoteProperty(lookup.property_path_.front().name, KeySymbolOf(lookup.expression_));
       // A node's property permission depends on its labels.
-      if (!IsEdge(lookup.expression_)) ReadLabelsForAccessCheck(KeySymbolOf(lookup.expression_));
+      ReadNodeLabelsForAccessCheck(lookup.expression_);
     }
     return true;
   }
 
   bool PreVisit(AllPropertiesLookup &lookup) override {
     if (ReadsGraph(lookup.expression_)) {
-      if (!IsEdge(lookup.expression_)) ReadLabelsForAccessCheck(KeySymbolOf(lookup.expression_));
+      ReadNodeLabelsForAccessCheck(lookup.expression_);
       result.reads.NoteAnyProperty(KeySymbolOf(lookup.expression_));
     }
     return true;
@@ -86,7 +86,7 @@ class ReadWriteCollector final : public HierarchicalTreeVisitor {
   bool PreVisit(SubscriptOperator &op) override {
     if (!ReadsGraph(op.expression1_) || utils::Downcast<ListLiteral>(op.expression1_)) return true;
     // A subscript on a node is a property read, whose permission depends on the node's labels.
-    if (!IsEdge(op.expression1_)) ReadLabelsForAccessCheck(KeySymbolOf(op.expression1_));
+    ReadNodeLabelsForAccessCheck(op.expression1_);
     if (auto *key = utils::Downcast<PrimitiveLiteral>(op.expression2_)) {
       if (key->value_.IsString()) {
         std::string name{key->value_.ValueString()};
@@ -203,64 +203,63 @@ class ReadWriteCollector final : public HierarchicalTreeVisitor {
   }
 
   bool PreVisit(SetProperty &set) override {
-    result.writes.NoteProperty(set.property_lookup_->property_path_.front().name,
-                               KeySymbolOf(set.property_lookup_->expression_));
-    // A node's property permission depends on its labels.
-    if (!IsEdge(set.property_lookup_->expression_))
-      ReadLabelsForAccessCheck(KeySymbolOf(set.property_lookup_->expression_));
-    // The target is an expression too: `SET (CASE WHEN a.f THEN b ELSE a END).x` reads a.f.
-    set.property_lookup_->expression_->Accept(*this);
+    WriteProperty(*set.property_lookup_);
     set.expression_->Accept(*this);
     return false;
   }
 
   bool PreVisit(SetProperties &set) override {
     result.writes.NoteAnyProperty(KeySymbolOf(set.identifier_));
-    if (!IsEdge(set.identifier_)) ReadLabelsForAccessCheck(KeySymbolOf(set.identifier_));
+    ReadNodeLabelsForAccessCheck(set.identifier_);
     // `SET n = m` copies every property of an entity; any value but a map literal or a parameter may be one.
     if (!utils::Downcast<MapLiteral>(set.expression_) && !utils::Downcast<ParameterLookup>(set.expression_) &&
         ReadsGraph(set.expression_)) {
       result.reads.NoteAnyProperty(std::nullopt);
       // Its properties are masked by its labels.
-      if (!IsEdge(set.expression_)) ReadLabelsForAccessCheck(KeySymbolOf(set.expression_));
+      ReadNodeLabelsForAccessCheck(set.expression_);
     }
     set.expression_->Accept(*this);
     return false;
   }
 
   bool PreVisit(SetLabels &set) override {
-    WriteLabels(set.labels_);
-    result.writes.relabel.Note(KeySymbolOf(set.identifier_));
-    ReadLabelsForAccessCheck(KeySymbolOf(set.identifier_));
+    Relabel(set.identifier_, set.labels_);
     return false;
   }
 
   bool PreVisit(RemoveProperty &remove) override {
-    result.writes.NoteProperty(remove.property_lookup_->property_path_.front().name,
-                               KeySymbolOf(remove.property_lookup_->expression_));
-    if (!IsEdge(remove.property_lookup_->expression_)) {
-      ReadLabelsForAccessCheck(KeySymbolOf(remove.property_lookup_->expression_));
-    }
-    remove.property_lookup_->expression_->Accept(*this);
+    WriteProperty(*remove.property_lookup_);
     return false;
   }
 
   bool PreVisit(RemoveLabels &remove) override {
-    WriteLabels(remove.labels_);
-    result.writes.relabel.Note(KeySymbolOf(remove.identifier_));
-    ReadLabelsForAccessCheck(KeySymbolOf(remove.identifier_));
+    Relabel(remove.identifier_, remove.labels_);
     return false;
   }
 
   ReadsAndWrites result;
 
+ private:
   /// Whether a value may be, or hold, a node, an edge or a path. `ReadsGraph` asks the narrower question of a lookup's
   /// object: whether the object itself may be a node or an edge.
   bool MayHoldEntity(Expression *value) const {
     return memgraph::query::plan::MayHoldEntity(value, symbol_table_, non_graph_);
   }
 
- private:
+  /// A SET or REMOVE of a property: the target is an expression too (`SET (CASE WHEN a.f THEN b ELSE a END).x`).
+  void WriteProperty(PropertyLookup &target) {
+    result.writes.NoteProperty(target.property_path_.front().name, KeySymbolOf(target.expression_));
+    // A node's property permission depends on its labels.
+    ReadNodeLabelsForAccessCheck(target.expression_);
+    target.expression_->Accept(*this);
+  }
+
+  void Relabel(Identifier *node, const std::vector<QueryLabelType> &labels) {
+    WriteLabels(labels);
+    result.writes.relabel.Note(KeySymbolOf(node));
+    ReadLabelsForAccessCheck(KeySymbolOf(node));
+  }
+
   /// Whether a lookup on @p object reads the graph: it may be a node or an edge, not a map value.
   bool ReadsGraph(Expression *object) const {
     if (utils::Downcast<MapLiteral>(object) || !MayHoldEntity(object)) return false;
@@ -359,13 +358,17 @@ class ReadWriteCollector final : public HierarchicalTreeVisitor {
     }
   }
 
-  /// A fine-grained access check reads the labels a node already has: of SET and REMOVE label, and of a node read.
   /// A fine-grained access check reads the labels of the node @p through holds; nullopt: of nodes no one variable
   /// holds.
   void ReadLabelsForAccessCheck(const std::optional<Symbol> &through) {
 #ifdef MG_ENTERPRISE
     result.reads.access_check.Note(through);
 #endif
+  }
+
+  /// The same for the node @p object may be; an edge's check reads its type, not labels.
+  void ReadNodeLabelsForAccessCheck(Expression *object) {
+    if (!IsEdge(object)) ReadLabelsForAccessCheck(KeySymbolOf(object));
   }
 
   void WritePattern(Pattern &pattern) {
@@ -621,13 +624,12 @@ bool CallResultMayBeFresh(CallSubquery &call, const Symbol &result, const Symbol
                           const std::unordered_set<Symbol> &non_graph) {
   std::vector<Return *> returns;
   CollectReturns(*call.cypher_query_, returns);
-  ReadWriteCollector collector(symbol_table, outer_bound, non_graph);
   bool named = false;
   for (auto *ret : returns) {
     for (auto *named_expression : ret->body_.named_expressions) {
       if (symbol_table.at(*named_expression) != result) continue;
       named = true;
-      if (!collector.MayHoldEntity(named_expression->expression_)) continue;
+      if (!MayHoldEntity(named_expression->expression_, symbol_table, non_graph)) continue;
       UsedSymbolsCollector used(symbol_table);
       named_expression->expression_->Accept(used);
       if (std::ranges::any_of(used.symbols_, [&](const Symbol &symbol) {
