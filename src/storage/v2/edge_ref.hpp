@@ -11,6 +11,8 @@
 
 #pragma once
 
+#include <cstddef>
+#include <functional>
 #include <utility>
 
 #include "storage/v2/id_types.hpp"
@@ -39,6 +41,9 @@ struct EdgeRef {
   friend H AbslHashValue(H h, EdgeRef const &edge_ref) {
     return H::combine(std::move(h), edge_ref.gid);
   }
+
+  // Found by boost::hash through ADL. Hashes the raw value, matching operator== for every edge storage mode.
+  friend std::size_t hash_value(EdgeRef const &edge_ref) noexcept { return std::hash<Gid>{}(edge_ref.gid); }
 };
 
 }  // namespace memgraph::storage
