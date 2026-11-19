@@ -85,18 +85,10 @@ utils::ResourceLockGuard AcquireGuardOrThrow(Storage *storage, StorageAccessType
 Storage::Storage(Config config, StorageMode storage_mode, PlanInvalidatorPtr invalidator,
                  metrics::DatabaseMetricHandles metric_handles, memory::ArenaPool *db_arena_pool,
                  utils::MemoryTracker *db_embedding_memory_tracker,
-                 std::function<std::unique_ptr<DatabaseProtector>()> database_protector_factory
-#ifdef MG_ENTERPRISE
-                 ,
-                 std::shared_ptr<NameIdMapper> shared_name_id_mapper
-#endif
-                 )
-#ifdef MG_ENTERPRISE
+                 std::function<std::unique_ptr<DatabaseProtector>()> database_protector_factory,
+                 std::shared_ptr<NameIdMapper> shared_name_id_mapper)
     : name_id_mapper_(shared_name_id_mapper ? std::move(shared_name_id_mapper)
                                             : std::shared_ptr<NameIdMapper>(MakeOwnNameIdMapper(config, storage_mode))),
-#else
-    : name_id_mapper_(MakeOwnNameIdMapper(config, storage_mode)),
-#endif
       config_(config),
       isolation_level_(config.transaction.isolation_level),
       storage_mode_(storage_mode),

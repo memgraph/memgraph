@@ -87,6 +87,7 @@ struct Recovered {
                 nullptr,
                 nullptr,
                 nullptr,
+                nullptr,
                 ms::durability::HistoryBounds{.floor = bound.value_or(ms::Storage::kNoRetentionFloor),
                                               .recover_only_to_floor = bound.has_value()}},
         tail{storage.TakeRecoveryTail()} {}

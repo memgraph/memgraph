@@ -1216,6 +1216,7 @@ TEST_F(LockFreeReadSnapshotRecovery, BranchForkPinInsideCommitWindow_FloorIsTheW
       nullptr,
       nullptr,
       nullptr,
+      nullptr,
       memgraph::storage::durability::HistoryBounds{.floor = floor, .recover_only_to_floor = true});
   auto acc = store->Access(memgraph::storage::READ);
   EXPECT_EQ(ReadProp(*acc, gid), 1);
