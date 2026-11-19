@@ -15,7 +15,6 @@
 #include <algorithm>
 #include <chrono>
 #include <cstdint>
-#include <expected>
 #include <filesystem>
 #include <memory>
 #include <string>
@@ -35,11 +34,8 @@
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 #include "tests/test_commit_args_helper.hpp"
-#include "tests/unit/versioning_overlay_codec.hpp"
-#include "utils/exceptions.hpp"
 #include "utils/uuid.hpp"
 #include "versioning/branch_engine.hpp"
-#include "versioning/overlay_state.hpp"
 
 namespace ms = memgraph::storage;
 namespace mv = memgraph::versioning;
@@ -81,7 +77,9 @@ class VersioningBranchCoreTest : public testing::Test {
     }
     BeforeFork();
     fork_ts_ = storage_->RegisterForkPin();
-    auto built = mv::BranchCore::Build(*storage_, fork_ts_);
+    fork_.vertex_gid_floor = storage_->vertex_id_.load(std::memory_order_acquire);
+    fork_.edge_gid_floor = storage_->edge_id_.load(std::memory_order_acquire);
+    auto built = mv::BranchCore::Build(*storage_, fork_, fork_ts_);
     ASSERT_TRUE(built.has_value());
     core_ = std::move(*built);
   }
@@ -102,6 +100,7 @@ class VersioningBranchCoreTest : public testing::Test {
   std::unique_ptr<memgraph::memory::DbArenaScope> scope_;
   std::unique_ptr<ms::InMemoryStorage> storage_;
   std::shared_ptr<mv::BranchCore> core_;
+  mv::ForkPoint fork_;
   uint64_t fork_ts_{};
 };
 
@@ -168,15 +167,6 @@ class VersioningBranchCoreNoEdgePropertiesTest : public VersioningBranchCoreTest
   }
 };
 
-class VersioningBranchCoreSchemaMetadataTest : public VersioningBranchCoreTest {
- protected:
-  ms::Config MainConfig() const override {
-    auto config = VersioningBranchCoreTest::MainConfig();
-    config.salient.items.enable_schema_metadata = true;
-    return config;
-  }
-};
-
 // Main holds one of every definition a branch must not mirror into its diff engine.
 class VersioningBranchCoreDefinitionsTest : public VersioningBranchCoreTest {
  protected:
@@ -211,6 +201,7 @@ TEST(VersioningDiffEngineConfig, OverridesOnlyDurabilityAutoCreationAndPerCommit
   ms::Config main;
   main.gc = {.type = ms::Config::Gc::Type::PERIODIC, .interval = std::chrono::milliseconds(77)};
   main.experimental_commit_lock_narrowing = true;
+  main.track_label_counts = true;
   main.salient.storage_mode = ms::StorageMode::IN_MEMORY_ANALYTICAL;
   main.salient.items.enable_label_index_auto_creation = true;
   main.salient.items.enable_edge_type_index_auto_creation = true;
@@ -234,6 +225,7 @@ TEST(VersioningDiffEngineConfig, OverridesOnlyDurabilityAutoCreationAndPerCommit
   EXPECT_TRUE(cfg.salient.items.properties_on_edges);
   EXPECT_FALSE(cfg.salient.items.storage_light_edge);
   EXPECT_FALSE(cfg.experimental_commit_lock_narrowing);
+  EXPECT_FALSE(cfg.track_label_counts);
   EXPECT_EQ(cfg.durability.snapshot_wal_mode, ms::Config::Durability::SnapshotWalMode::DISABLED);
   EXPECT_FALSE(cfg.durability.recover_on_startup);
   EXPECT_FALSE(cfg.durability.snapshot_on_exit);
@@ -259,8 +251,6 @@ TEST_F(VersioningBranchCoreConfigTest, DiffEngineNeverAutoCreatesIndexes) {
     auto from = acc->CreateVertex();
     auto to = acc->CreateVertex();
     ASSERT_TRUE(from.AddLabel(core_->NameToLabel("Fresh")).has_value());
-    // A marker label is exactly what the auto-index tracker must never be handed.
-    ASSERT_TRUE(from.AddLabel(mv::overlay::Mark(core_->NameToLabel("Fresh"))).has_value());
     ASSERT_TRUE(acc->CreateEdge(&from, &to, core_->NameToEdgeType("FRESH_EDGE")).has_value());
     ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
@@ -268,7 +258,6 @@ TEST_F(VersioningBranchCoreConfigTest, DiffEngineNeverAutoCreatesIndexes) {
   const auto indices = Diff().Access(ms::READ)->ListAllIndices();
   const auto fresh = core_->NameToLabel("Fresh");
   EXPECT_FALSE(std::ranges::contains(indices.label, fresh));
-  EXPECT_FALSE(std::ranges::contains(indices.label, mv::overlay::Mark(fresh)));
   EXPECT_FALSE(std::ranges::contains(indices.edge_type, core_->NameToEdgeType("FRESH_EDGE")));
 }
 
@@ -287,40 +276,6 @@ TEST_F(VersioningBranchCoreTest, DiffEngineSharesMainsNameIdMapperAndReportsMain
   EXPECT_EQ(Diff().name(), "renamed") << "a rename of main must be visible through the diff engine";
   EXPECT_EQ(*Diff().name_view(), "renamed");
   EXPECT_EQ(Diff().config_.salient.name.str(), before) << "the copied config goes stale; name() must not read it";
-}
-
-// What a user types on a branch resolves on main's mapper (BranchCore::NameTo*); a name that spells a marker is just
-// the user's own label.
-TEST_F(VersioningBranchCoreTest, UserNamesSpellingMarkersStayUserNamesWhenResolvedThroughTheCore) {
-  for (const char *name : {"__mg_removed_x", "__mg_deleted", "__mg_lit_x", "__mg_"}) {
-    SCOPED_TRACE(name);
-    const auto label = core_->NameToLabel(name);
-    EXPECT_FALSE(ms::IsReservedId(label));
-    EXPECT_EQ(label, storage_->NameToLabel(name));
-    EXPECT_EQ(storage_->LabelToName(label), name) << "main knows the text as written";
-    EXPECT_EQ(core_->NameToProperty(name), storage_->NameToProperty(name));
-    EXPECT_FALSE(ms::IsReservedId(core_->NameToProperty(name)));
-    EXPECT_FALSE(ms::IsReservedId(core_->NameToEdgeType(name).AsUint()));
-  }
-  const auto removed_x = core_->NameToLabel("__mg_removed_x");
-  const auto x = core_->NameToLabel("x");
-  EXPECT_NE(removed_x, x);
-  EXPECT_NE(removed_x, mv::overlay::Mark(x));
-  EXPECT_EQ(Diff().NameToLabel("__mg_removed_x"), removed_x) << "the diff engine reads the text as the user's label";
-  EXPECT_EQ(Diff().LabelToName(removed_x), "__mg_removed_x") << "and writes it to the branch WAL as written";
-
-  auto acc = Diff().Access(ms::WRITE);
-  auto v = acc->CreateVertex();
-  ASSERT_TRUE(v.AddLabel(removed_x).has_value());
-  auto labels = v.Labels(ms::View::NEW);
-  ASSERT_TRUE(labels.has_value());
-  ASSERT_EQ(labels->size(), 1U);
-  EXPECT_EQ((*labels)[0], removed_x);
-  auto const state = mv::overlay::Decode(v, ms::View::NEW);
-  ASSERT_TRUE(state.has_value());
-  EXPECT_EQ(state->added_labels, std::vector<ms::LabelId>{removed_x});
-  EXPECT_TRUE(state->removed_labels.empty());
-  acc->Abort();
 }
 
 TEST_F(VersioningBranchCoreSwitchedModeTest, DiffEngineRunsInMainsCurrentStorageModeNotItsStartupConfig) {
@@ -361,23 +316,6 @@ TEST_F(VersioningBranchCoreDefinitionsTest, DiffEngineMirrorsNoConstraintVectorO
   EXPECT_TRUE(constraints.type.empty());
 }
 
-TEST_F(VersioningBranchCoreSchemaMetadataTest, DiffEngineHoldsReservedIdsInTheLabelList) {
-  const auto label = core_->NameToLabel("Native");
-  {
-    auto acc = Diff().Access(ms::WRITE);
-    auto v = acc->CreateVertex();
-    ASSERT_TRUE(v.AddLabel(label).has_value());
-    ASSERT_TRUE(v.AddLabel(mv::overlay::Mark(label)).has_value());
-    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
-  }
-  auto labels = Diff().ListAllPossiblyPresentVertexLabels();
-  EXPECT_TRUE(std::ranges::count(labels, label) == 1) << "branch-native labels are listed";
-  EXPECT_TRUE(std::ranges::count(labels, mv::overlay::Mark(label)) == 1)
-      << "a marker reaches the list: the single SHOW consumer must filter ms::IsReservedId";
-  std::erase_if(labels, [](ms::LabelId l) { return ms::IsReservedId(l); });
-  EXPECT_EQ(labels, std::vector<ms::LabelId>{label});
-}
-
 TEST_F(VersioningBranchCoreNoEdgePropertiesTest, DiffEngineForcesPropertiesOnEdgesWhenMainHasNone) {
   ASSERT_FALSE(storage_->config_.salient.items.properties_on_edges);
   EXPECT_TRUE(Diff().config_.salient.items.properties_on_edges);
@@ -385,9 +323,9 @@ TEST_F(VersioningBranchCoreNoEdgePropertiesTest, DiffEngineForcesPropertiesOnEdg
       << "EdgeRef interpretation of main's edges must read main's config";
 
   auto acc = Diff().Access(ms::WRITE);
-  auto *from = core_->overlay_index().GetOrCreateOverlay(0, nullptr);
-  auto *to = core_->overlay_index().GetOrCreateOverlay(1, nullptr);
-  auto *edge = core_->edge_overlay_index().GetOrCreate(0);
+  auto *from = core_->overlay_index().GetOrCreateOverlay(ms::Gid::FromUint(0), nullptr, {});
+  auto *to = core_->overlay_index().GetOrCreateOverlay(ms::Gid::FromUint(1), nullptr, {});
+  auto *edge = core_->edge_overlay_index().GetOrCreate(ms::Gid::FromUint(0));
   auto accessor = ms::EdgeAccessor::Create(
       ms::EdgeRef{edge}, core_->NameToEdgeType("E"), from, to, &Diff(), acc->GetTransaction(), ms::View::NEW);
   ASSERT_TRUE(accessor.has_value());
@@ -409,14 +347,16 @@ TEST_F(VersioningBranchCoreTest, BuildMirrorsMainsEnumsWithTheSameIds) {
 }
 
 // An overlay keeps its base gid, and the diff engine's index scans skip entries at or above the engine's own counter,
-// so the counters start at the floors.
-TEST_F(VersioningBranchCoreTest, GidFloorsAreMainsCountersAtBuildOrTheRecordedOnesAndSeedTheDiffEngine) {
+// so the counters start at the fork's floors, which also bound what the engine's GC never retires.
+TEST_F(VersioningBranchCoreTest, GidFloorsComeFromTheForkPointAndSeedTheDiffEngine) {
   EXPECT_EQ(core_->fork_ts(), fork_ts_);
   EXPECT_EQ(&core_->main(), storage_.get());
   EXPECT_EQ(core_->vertex_gid_floor(), 2U);
   EXPECT_EQ(core_->edge_gid_floor(), 1U);
   EXPECT_EQ(Diff().vertex_id_.load(), core_->vertex_gid_floor());
   EXPECT_EQ(Diff().edge_id_.load(), core_->edge_gid_floor());
+  EXPECT_EQ(Diff().retained_gid_floors().vertex, 2U);
+  EXPECT_EQ(Diff().retained_gid_floors().edge, 1U);
   {
     auto acc = storage_->Access(ms::WRITE);
     (void)acc->CreateVertex();
@@ -424,60 +364,12 @@ TEST_F(VersioningBranchCoreTest, GidFloorsAreMainsCountersAtBuildOrTheRecordedOn
   }
   EXPECT_EQ(core_->vertex_gid_floor(), 2U) << "main's later creates must not move the floor";
 
-  auto later = mv::BranchCore::Build(*storage_, fork_ts_);
-  ASSERT_TRUE(later.has_value());
-  EXPECT_EQ((*later)->vertex_gid_floor(), 3U) << "an unrecorded build reads main's counter at build time";
-
-  auto recorded = mv::BranchCore::Build(
-      *storage_, fork_ts_, mv::BranchCore::RecordedFloors{.vertex_gid_floor = 7, .edge_gid_floor = 5});
-  ASSERT_TRUE(recorded.has_value());
-  EXPECT_EQ((*recorded)->vertex_gid_floor(), 7U);
-  EXPECT_EQ((*recorded)->edge_gid_floor(), 5U);
-  EXPECT_EQ((*recorded)->diff_engine().vertex_id_.load(), 7U);
-  EXPECT_EQ((*recorded)->diff_engine().edge_id_.load(), 5U);
-}
-
-TEST_F(VersioningBranchCoreTest, ReserveNativeGidAsksTheReserverOnlyAtOrAboveTheKnownCeilingAndThrowsOnFailure) {
-  using mv::GidKind;
-  using Call = std::pair<GidKind, uint64_t>;
-  const auto v_floor = core_->vertex_gid_floor();
-  const auto e_floor = core_->edge_gid_floor();
-
-  EXPECT_NO_THROW(core_->ReserveNativeGid(GidKind::kVertex, v_floor)) << "no reserver: nothing to make durable";
-
-  std::vector<Call> calls;
-  core_->SetGidReserver([&calls](GidKind kind, uint64_t through) -> std::expected<uint64_t, std::string> {
-    calls.emplace_back(kind, through);
-    return through + 9;
-  });
-  core_->ReserveNativeGid(GidKind::kVertex, v_floor);
-  core_->ReserveNativeGid(GidKind::kVertex, v_floor + 1);
-  core_->ReserveNativeGid(GidKind::kVertex, v_floor + 9);
-  EXPECT_EQ(calls, (std::vector<Call>{{GidKind::kVertex, v_floor + 1}}))
-      << "below the returned ceiling: not asked again";
-  core_->ReserveNativeGid(GidKind::kVertex, v_floor + 10);
-  core_->ReserveNativeGid(GidKind::kEdge, e_floor);
-  EXPECT_EQ(calls,
-            (std::vector<Call>{
-                {GidKind::kVertex, v_floor + 1}, {GidKind::kVertex, v_floor + 11}, {GidKind::kEdge, e_floor + 1}}))
-      << "a gid at the ceiling asks again; the edge ceiling is separate";
-
-  const auto above = v_floor + 100;
-  calls.clear();
-  core_->SetGidReserver([&calls](GidKind kind, uint64_t through) -> std::expected<uint64_t, std::string> {
-    calls.emplace_back(kind, through);
-    return std::unexpected("ledger down");
-  });
-  for (int attempt = 0; attempt < 2; ++attempt) {
-    try {
-      core_->ReserveNativeGid(GidKind::kVertex, above);
-      ADD_FAILURE() << "a failed reservation must throw";
-    } catch (const memgraph::utils::BasicException &e) {
-      EXPECT_NE(std::string{e.what()}.find("ledger down"), std::string::npos) << e.what();
-    }
-  }
-  EXPECT_EQ(calls, (std::vector<Call>{{GidKind::kVertex, above + 1}, {GidKind::kVertex, above + 1}}))
-      << "the ceiling did not move";
+  auto other = mv::BranchCore::Build(*storage_, {.vertex_gid_floor = 7, .edge_gid_floor = 5}, fork_ts_);
+  ASSERT_TRUE(other.has_value());
+  EXPECT_EQ((*other)->vertex_gid_floor(), 7U);
+  EXPECT_EQ((*other)->edge_gid_floor(), 5U);
+  EXPECT_EQ((*other)->diff_engine().vertex_id_.load(), 7U);
+  EXPECT_EQ((*other)->diff_engine().edge_id_.load(), 5U);
 }
 
 TEST_F(VersioningBranchCoreDurableMainTest, DiffEngineWritesNothingToDiskWhenMainIsDurable) {
@@ -502,7 +394,6 @@ TEST_F(VersioningBranchCoreTest, ChangeFilterForwardersReachTheCoresFilters) {
 
   EXPECT_FALSE(core_->MayHaveLabelChange(gid));
   EXPECT_FALSE(core_->MayHaveLabelTouched(label));
-  EXPECT_FALSE(core_->MayHaveLabelMarked(label));
   EXPECT_FALSE(core_->MayHavePropertyTouched(pid));
   EXPECT_FALSE(core_->MayHavePropertyFieldChange(gid, pid));
   EXPECT_FALSE(core_->MayHaveVertexDeleted(gid));
@@ -521,7 +412,7 @@ TEST_F(VersioningBranchCoreTest, ChangeFilterForwardersReachTheCoresFilters) {
 
 TEST_F(VersioningBranchCoreTest, BuildRejectsAnUnpinnedForkTimestamp) {
   const uint64_t never_pinned_ts = fork_ts_ + 1000;
-  auto result = mv::BranchCore::Build(*storage_, never_pinned_ts);
+  auto result = mv::BranchCore::Build(*storage_, fork_, never_pinned_ts);
   ASSERT_FALSE(result.has_value());
   EXPECT_NE(result.error().message.find(std::to_string(never_pinned_ts)), std::string::npos) << result.error().message;
   EXPECT_EQ(storage_->OldestForkPin(), std::optional<uint64_t>{fork_ts_}) << "a failed build must leak no pin";
@@ -532,13 +423,12 @@ void WriteThroughOverlays(mv::BranchCore &core, ms::InMemoryStorage &diff) {
   auto acc = diff.Access(ms::WRITE);
   const auto label = core.NameToLabel("L");
   const auto pid = core.NameToProperty("p");
-  auto *vertex_overlay = core.overlay_index().GetOrCreateOverlay(0, nullptr);
-  auto *other_overlay = core.overlay_index().GetOrCreateOverlay(1, nullptr);
+  auto *vertex_overlay = core.overlay_index().GetOrCreateOverlay(ms::Gid::FromUint(0), nullptr, {});
+  auto *other_overlay = core.overlay_index().GetOrCreateOverlay(ms::Gid::FromUint(1), nullptr, {});
   ms::VertexAccessor va{vertex_overlay, &diff, acc->GetTransaction()};
   ASSERT_TRUE(va.AddLabel(label).has_value());
-  ASSERT_TRUE(va.AddLabel(mv::overlay::Mark(label)).has_value());
   ASSERT_TRUE(va.SetProperty(pid, ms::PropertyValue{1}).has_value());
-  auto accessor = ms::EdgeAccessor::Create(ms::EdgeRef{core.edge_overlay_index().GetOrCreate(0)},
+  auto accessor = ms::EdgeAccessor::Create(ms::EdgeRef{core.edge_overlay_index().GetOrCreate(ms::Gid::FromUint(0))},
                                            core.NameToEdgeType("E"),
                                            vertex_overlay,
                                            other_overlay,
@@ -561,7 +451,7 @@ TEST_P(VersioningBranchCoreTeardownTest, FreesOverlaysWhoseDeltasAreStillLinked)
   if (abort_mid_txn) {
     // Aborts mid-way, leaving its deltas linked to the overlays at teardown time.
     auto acc = Diff().Access(ms::WRITE);
-    ms::VertexAccessor va{core_->overlay_index().FindOverlay(0), &Diff(), acc->GetTransaction()};
+    ms::VertexAccessor va{core_->overlay_index().FindOverlay(ms::Gid::FromUint(0)), &Diff(), acc->GetTransaction()};
     ASSERT_TRUE(va.SetProperty(core_->NameToProperty("q"), ms::PropertyValue{3}).has_value());
     acc->Abort();
   }

@@ -61,6 +61,7 @@ struct Db {
               nullptr,
               nullptr,
               nullptr,
+              nullptr,
               bounds} {}
 
   ms::InMemoryStorage *storage() { return &store; }
