@@ -16,7 +16,6 @@
 #include <optional>
 #include <string>
 #include <string_view>
-#include <unordered_map>
 
 #include <mgp.hpp>
 #include <nlohmann/json.hpp>
@@ -35,36 +34,8 @@ struct WriteConfig {
   bool write_relationship_properties{true};
 };
 
-// What mgp::Node::Properties() / mgp::Relationship::Properties() hand back. Passed around by pointer so callers can
-// fetch once and share the result between the counter and the serializer; the fetch deep-copies every value.
-using Properties = std::unordered_map<std::string, mgp::Value>;
-
-// Scalar/container property value -> JSON. Temporals become ISO-8601 strings, points become {crs, coords}.
-Json ValueToJson(const mgp::Value &value);
-
-// {"type":"node","id":"<id>","labels":[...sorted...],"properties":{...}}. `labels` and `properties` are each omitted
-// when empty; a null `properties` suppresses the key entirely, and a non-null one is consumed.
-Json NodeToJson(const mgp::Node &node, Properties *properties);
-
-// {"type":"relationship","id":"<id>","label":"T","properties":{...},"start":{...},"end":{...}}. Endpoints are always
-// inlined in full, whether or not they appear in the exported node set, and carry {id, labels, properties} only.
-// `properties` is the relationship's own; null suppresses it, non-null is consumed.
-Json RelationshipToJson(const mgp::Relationship &relationship, Properties *properties, const WriteConfig &config);
-
-std::string_view SridToCrs(std::uint16_t srid);
-
-std::string DateToString(const mgp::Date &date);
-std::string LocalTimeToString(const mgp::LocalTime &local_time);
-std::string LocalDateTimeToString(const mgp::LocalDateTime &local_date_time);
-std::string ZonedDateTimeToString(const mgp::ZonedDateTime &zoned_date_time);
-std::string DurationToString(const mgp::Duration &duration);
-
-// Serializes elements straight to their sink as they arrive, so peak memory is one element rather than the whole
-// export — the accumulated document this replaced measured about 5x the rendered payload.
-//
-// The two object shapes wrap their elements in "nodes"/"rels" groups, which streaming can only produce because every
-// caller adds all of its nodes before any of its relationships. AddRelationship closes the node group, so adding a
-// node afterwards is rejected rather than silently producing malformed JSON.
+// Serializes elements to their sink as they arrive, so peak memory is one element. The object shapes group nodes
+// then relationships, so a node added after a relationship is rejected rather than producing malformed JSON.
 class JsonWriter {
  public:
   // With `file`, a new or server-owned single-link file without an ACL goes via a temporary renamed into place, so a
@@ -81,9 +52,8 @@ class JsonWriter {
   void CountNode(const mgp::Node &node);
   void AddRelationship(const mgp::Relationship &relationship);
 
-  // Closes the open groups, commits the file if there is one, and returns the retained payload: "" when nothing was
-  // retained or when nothing was added under JSON_LINES, an empty wrapper under the two object shapes. Rvalue-
-  // qualified because it finishes the sink; the counters stay valid afterwards.
+  // Closes the open groups, commits the file, and returns the retained payload ("" under JSON_LINES when empty, an
+  // empty wrapper otherwise). The counters stay valid afterwards.
   std::string Finish() &&;
 
   std::uint64_t NodeCount() const { return node_count_; }

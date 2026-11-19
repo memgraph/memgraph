@@ -20,8 +20,10 @@
 #include <atomic>
 #include <cerrno>
 #include <cmath>
+#include <cstddef>
 #include <cstdlib>
 #include <filesystem>
+#include <iterator>
 #include <optional>
 #include <string>
 #include <system_error>
@@ -56,26 +58,26 @@ constexpr int64_t kMicrosPerMinute = 60 * kMicrosPerSecond;
 constexpr int64_t kMicrosPerHour = 60 * kMicrosPerMinute;
 constexpr int64_t kMicrosPerDay = 24 * kMicrosPerHour;
 
-// Property key order is not reproducible across implementations, so sort: `mgp` only exposes properties as an
-// unordered_map, and hash order would reshuffle as the map grows.
-std::vector<std::pair<std::string, mgp::Value>> SortedProperties(Properties &&props) {
+// What Properties() hands back: a deep copy of every value, so callers fetch once and share it.
+using Properties = std::unordered_map<std::string, mgp::Value>;
+
+Json ValueToJson(const mgp::Value &value);
+std::string_view SridToCrs(std::uint16_t srid);
+
+// Keys sorted: `mgp` exposes properties only as an unordered_map, whose order would reshuffle as it grows.
+Json PropertiesToJson(Properties &&props) {
   std::vector<std::pair<std::string, mgp::Value>> sorted(std::make_move_iterator(props.begin()),
                                                          std::make_move_iterator(props.end()));
   std::ranges::sort(sorted, {}, &std::pair<std::string, mgp::Value>::first);
-  return sorted;
-}
-
-Json PropertiesToJson(Properties &&props) {
   Json object = Json::object();
-  for (auto &[key, value] : SortedProperties(std::move(props))) {
+  for (auto &[key, value] : sorted) {
     object[key] = ValueToJson(value);
   }
   return object;
 }
 
-// Returns owned strings, not views: mgp::Labels holds its own copy of the vertex and frees it on the way out, so a
-// string_view into it would dangle for a virtual node (whose label text lives in that copy rather than in the
-// long-lived name mapper).
+// Owned strings: mgp::Labels frees its vertex copy on the way out, and a virtual node's label text lives in that
+// copy, so a string_view would dangle.
 std::vector<std::string> SortedLabels(const mgp::Node &node) {
   const auto labels = node.Labels();
   const auto size = labels.Size();
@@ -152,8 +154,6 @@ Json PointToJson(double x, double y, Json z, std::uint16_t srid) {
   }
   return object;
 }
-
-}  // namespace
 
 std::string_view SridToCrs(std::uint16_t srid) {
   switch (srid) {
@@ -296,9 +296,8 @@ Json ValueToJson(const mgp::Value &value) {
       return PointToJson(point.X(), point.Y(), point.Z(), point.Srid());
     }
     case mgp::Type::Enum: {
-      // The property path hands enums over with empty type and value names — resolving them needs a database
-      // accessor the C API does not carry there — so the only thing this could serialize is "::". Refuse rather
-      // than write that into an export file.
+      // The property path hands enums over with empty type and value names, so the only thing this could write is
+      // "::"; refuse rather than write that.
       auto enum_value = value.ValueEnum();
       if (enum_value.TypeName().empty() || enum_value.ValueName().empty()) {
         throw mgp::ValueException("Cannot export an enum property: its type and value names are not available here");
@@ -310,11 +309,8 @@ Json ValueToJson(const mgp::Value &value) {
   }
 }
 
-namespace {
-
-// Appends {id, labels, properties} — the shape shared by a top-level node and an inlined relationship endpoint. Takes
-// the object by reference so a top-level node can put its "type" key first without a merge. `properties` is null when
-// property output is suppressed; otherwise it is consumed.
+// Appends {id, labels, properties}, shared by a top-level node and an inlined endpoint, so a node's "type" key
+// stays first. A null `properties` suppresses the key; otherwise it is consumed.
 void AppendNodeBody(Json &object, const mgp::Node &node, Properties *properties) {
   object[kKeyId] = std::to_string(node.Id().AsInt());
   // `labels` and `properties` are both omitted entirely when empty rather than emitted as [] / {}.
@@ -329,11 +325,7 @@ void AppendNodeBody(Json &object, const mgp::Node &node, Properties *properties)
 // Names the element a failed serialization came from. The library reports "invalid UTF-8 byte" with no idea which of
 // a whole database's elements carried it, which is unactionable on anything but a toy graph.
 std::string Describe(const Json &element) {
-  const auto text = [&element](const char *key) {
-    const auto it = element.find(key);
-    return it != element.end() && it->is_string() ? it->get<std::string>() : std::string{"?"};
-  };
-  return fmt::format("{} with id {}", text(kKeyType), text(kKeyId));
+  return fmt::format("{} with id {}", element.at(kKeyType).get<std::string>(), element.at(kKeyId).get<std::string>());
 }
 
 std::string DumpElement(const Json &element) {
@@ -346,17 +338,12 @@ std::string DumpElement(const Json &element) {
 
 Json NodeBody(const mgp::Node &node, bool write_properties) {
   Json object = Json::object();
-  if (!write_properties) {
-    AppendNodeBody(object, node, nullptr);
-    return object;
-  }
-  auto properties = node.Properties();
+  auto properties = write_properties ? node.Properties() : Properties{};
   AppendNodeBody(object, node, &properties);
   return object;
 }
 
-}  // namespace
-
+// {"type":"node","id":"<id>","labels":[...],"properties":{...}}; a null `properties` suppresses the key.
 Json NodeToJson(const mgp::Node &node, Properties *properties) {
   Json object = Json::object();
   object[kKeyType] = kTypeNode;
@@ -364,7 +351,8 @@ Json NodeToJson(const mgp::Node &node, Properties *properties) {
   return object;
 }
 
-Json RelationshipToJson(const mgp::Relationship &relationship, Properties *properties, const WriteConfig &config) {
+// {"type":"relationship","id","label","properties","start","end"}; `properties` is the relationship's own.
+Json RelationshipToJson(const mgp::Relationship &relationship, Properties *properties, bool write_endpoint_properties) {
   Json object = Json::object();
   object[kKeyType] = kTypeRelationship;
   object[kKeyId] = std::to_string(relationship.Id().AsInt());
@@ -374,10 +362,12 @@ Json RelationshipToJson(const mgp::Relationship &relationship, Properties *prope
   }
   // Endpoints are inlined in full even when they are absent from the exported node set. `writeNodeProperties` governs
   // them; `writeRelationshipProperties` does not.
-  object[kKeyStart] = NodeBody(relationship.From(), config.write_node_properties);
-  object[kKeyEnd] = NodeBody(relationship.To(), config.write_node_properties);
+  object[kKeyStart] = NodeBody(relationship.From(), write_endpoint_properties);
+  object[kKeyEnd] = NodeBody(relationship.To(), write_endpoint_properties);
   return object;
 }
+
+}  // namespace
 
 JsonWriter::JsonWriter(WriteConfig config, std::optional<std::string> file, bool retain)
     : config_(config), file_(std::move(file)), retain_(retain) {
@@ -474,9 +464,8 @@ void JsonWriter::EmitElement(const Json &element) {
 }
 
 void JsonWriter::AddNode(const mgp::Node &node) {
-  // Fetched once and reused: mgp hands properties over as a deep copy of every value, so counting them separately
-  // would materialize the whole property store a second time. The counter is inert to the write flags, so the fetch
-  // happens even when the properties are not written.
+  // Fetched once for the counter and the serializer: the fetch deep-copies every value, and the counter needs it
+  // even when properties are not written.
   auto properties = node.Properties();
   property_count_ += properties.size();
   ++node_count_;
@@ -497,7 +486,8 @@ void JsonWriter::AddRelationship(const mgp::Relationship &relationship) {
   property_count_ += properties.size();
   ++relationship_count_;
   EnterGroup(Group::kRelationships);
-  EmitElement(RelationshipToJson(relationship, config_.write_relationship_properties ? &properties : nullptr, config_));
+  EmitElement(RelationshipToJson(
+      relationship, config_.write_relationship_properties ? &properties : nullptr, config_.write_node_properties));
 }
 
 std::string JsonWriter::Finish() && {

@@ -44,9 +44,8 @@ constexpr const char *kSourcePrefixDatabase = "database";
 constexpr const char *kSourcePrefixGraph = "graph";
 
 struct Options {
-  // `file` is written verbatim: Memgraph has no import-directory concept to resolve a relative path against. It is
-  // unset for an empty path, which means "no file" — but `echoed_file` still reports the argument as given, because
-  // the `file` result column echoes it rather than reporting the sink.
+  // `file` is the sink path, used verbatim and unset for an empty path; `echoed_file` keeps the argument as given
+  // for the `file` result column.
   std::optional<std::string> file;
   std::optional<std::string> echoed_file;
   bool stream{false};
@@ -69,10 +68,8 @@ JsonFormat ParseJsonFormat(std::string_view name) {
       fmt::format("Unknown jsonFormat '{}'; expected one of JSON_LINES, JSON, JSON_ID_AS_KEYS", name));
 }
 
-// Accepts the unambiguous spellings the reference coerces ('true'/'yes'/'1'/1, 'false'/'no'/'0'/0/'') so ported
-// queries keep working, but throws on anything else. The reference instead coerces every unrecognized value to
-// *true* — so `{stream: 'ture'}` there quietly turns streaming on rather than off — and a typo should be reported,
-// not guessed at in either direction.
+// Accepts the spellings the reference coerces (true/false/yes/no/1/0, as booleans, integers or strings, and '' for
+// false) and throws on anything else, where the reference reads any unknown value as true.
 bool ConfigBool(const mgp::Map &config, const char *key, bool fallback) {
   const auto value = config.At(key);
   if (value.IsNull()) return fallback;
@@ -91,8 +88,7 @@ bool ConfigBool(const mgp::Map &config, const char *key, bool fallback) {
 // Unrecognized keys are ignored, matching the reference's leniency — `useTypes` in particular is measured to be a
 // no-op for these procedures, so rejecting it would break otherwise-portable queries.
 Options ParseOptions(const mgp::Value &file_arg, const mgp::Value &config_arg) {
-  // An explicit null config means "no config", as it does on the reference; the registered type allows it.
-  if (!config_arg.IsNull() && !config_arg.IsMap()) throw mgp::ValueException("Argument 'config' must be a map or null");
+  // An explicit null config means "no config", as it does on the reference.
   const auto config = config_arg.IsNull() ? mgp::Map{} : config_arg.ValueMap();
 
   for (const auto *unsupported : {kConfigCompression, kConfigCharset}) {
@@ -104,7 +100,6 @@ Options ParseOptions(const mgp::Value &file_arg, const mgp::Value &config_arg) {
 
   Options options;
   if (!file_arg.IsNull()) {
-    if (!file_arg.IsString()) throw mgp::ValueException("Argument 'file' must be a string or null");
     const auto file = std::string{file_arg.ValueString()};
     options.echoed_file = file;
     // An empty path means "no file", matching the reference and the procedures this one supersedes, whose `path`
@@ -130,9 +125,8 @@ Options ParseOptions(const mgp::Value &file_arg, const mgp::Value &config_arg) {
 // `stream` (measured). This also decides whether the writer needs to retain anything at all.
 bool Streaming(const Options &options) { return !options.file && options.stream; }
 
-// Non-owning view of one argument. `mgp::List(args)` would deep-copy the entire argument list — every node and
-// relationship in it included — before a byte is serialized, and `Value::ValueList()` would copy the element list a
-// second time. Both are pure waste here: the arguments outlive the call.
+// Non-owning view of one argument: `mgp::List(args)` and `ValueList()` would each deep-copy every node and
+// relationship in it, and the arguments outlive the call.
 mgp::Value Argument(mgp_list *args, size_t index) { return mgp::Value(mgp::ref_type, mgp::list_at(args, index)); }
 
 // Reads a nodes/relationships argument, tolerating null (the reference coerces it to an empty list). Returns the
@@ -189,41 +183,26 @@ mgp::Value GraphKey(mgp_map *graph_map, const char *key) {
   return value != nullptr ? mgp::Value(mgp::ref_type, value) : mgp::Value();
 }
 
-bool IsEmptyList(const mgp::Value &value) {
-  return value.IsList() && mgp::list_size(mgp::value_get_list(value.ptr())) == 0;
+bool IsPopulated(const mgp::Value &value) {
+  return !value.IsNull() && !(value.IsList() && mgp::list_size(mgp::value_get_list(value.ptr())) == 0);
 }
 
-// The relationship half of a graph map. `relationships` is the documented key; `edges` is what Memgraph's own
-// project() produces, and reading only the former turned that into a silent, complete loss of the relationships.
-// An empty list counts as absent when choosing between them, so a stray `relationships: []` cannot shadow a populated
-// `edges`; two populated keys are refused rather than silently resolved one way.
+// The relationship half of a graph map: `relationships`, or `edges` as project() produces. An empty list does not
+// shadow the other key, and two populated keys are refused.
 mgp::Value GraphRelationships(mgp_map *graph_map, const char *&name) {
   auto relationships = GraphKey(graph_map, kGraphKeyRelationships);
   auto edges = GraphKey(graph_map, kGraphKeyEdges);
-  const bool has_relationships = !relationships.IsNull() && !IsEmptyList(relationships);
-  const bool has_edges = !edges.IsNull() && !IsEmptyList(edges);
-  if (has_relationships && has_edges) {
+  if (relationships.IsNull() && edges.IsNull()) {
+    throw mgp::ValueException(fmt::format("Argument 'graph' has no '{}' key", kGraphKeyRelationships));
+  }
+  const bool has_edges = IsPopulated(edges);
+  if (IsPopulated(relationships) && has_edges) {
     throw mgp::ValueException(fmt::format(
         "Argument 'graph' has both '{}' and '{}'; provide only one", kGraphKeyRelationships, kGraphKeyEdges));
   }
-  if (has_edges) {
-    name = kGraphKeyEdges;
-    return edges;
-  }
-  name = relationships.IsNull() && !edges.IsNull() ? kGraphKeyEdges : kGraphKeyRelationships;
-  return relationships.IsNull() ? std::move(edges) : std::move(relationships);
-}
-
-// The reference throws when either half is missing, and silence here means exporting half a graph — or none of it —
-// under `done: true`, which is exactly what a mistyped key produces.
-void RequireGraphKeys(mgp_map *graph_map) {
-  const auto present = [graph_map](const char *key) { return !GraphKey(graph_map, key).IsNull(); };
-  if (!present(kGraphKeyNodes)) {
-    throw mgp::ValueException(fmt::format("Argument 'graph' has no '{}' key", kGraphKeyNodes));
-  }
-  if (!present(kGraphKeyRelationships) && !present(kGraphKeyEdges)) {
-    throw mgp::ValueException(fmt::format("Argument 'graph' has no '{}' key", kGraphKeyRelationships));
-  }
+  const bool use_edges = has_edges || relationships.IsNull();
+  name = use_edges ? kGraphKeyEdges : kGraphKeyRelationships;
+  return use_edges ? std::move(edges) : std::move(relationships);
 }
 
 // mgp::Record::Insert has no Type::Null case, and `file`/`data` are both nullable columns, so those two go in through
@@ -291,7 +270,6 @@ void JsonAll(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_
     const auto options = ParseOptions(Argument(args, 0), Argument(args, 1));
     const mgp::Graph graph{memgraph_graph};
     JsonWriter writer(options.write, options.file, Streaming(options));
-    // Unlike json_data/json_graph the input here is unbounded, so honour cancellation and the query timeout.
     for (const auto node : graph.Nodes()) {
       graph.CheckMustAbort();
       writer.AddNode(node);
@@ -313,16 +291,15 @@ void JsonGraph(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mg
 
   try {
     const auto options = ParseOptions(Argument(args, 1), Argument(args, 2));
-    const auto graph_arg = Argument(args, 0);
-    if (!graph_arg.IsMap()) throw mgp::ValueException("Argument 'graph' must be a map");
-    auto *graph_map = mgp::value_get_map(graph_arg.ptr());
-    RequireGraphKeys(graph_map);
+    auto *graph_map = mgp::value_get_map(Argument(args, 0).ptr());
+    // A missing half would export part of the graph, or none of it, under `done: true`, so both are required.
+    const auto nodes_value = GraphKey(graph_map, kGraphKeyNodes);
+    if (nodes_value.IsNull())
+      throw mgp::ValueException(fmt::format("Argument 'graph' has no '{}' key", kGraphKeyNodes));
     const char *relationships_key = nullptr;
     const auto relationships = GraphRelationships(graph_map, relationships_key);
-    auto *nodes_value = mgp::map_at(graph_map, kGraphKeyNodes);
-    // Named for the map keys, not the json_data argument names: the offending thing here is graph['relationships'].
-    auto *nodes =
-        OptionalList(nodes_value != nullptr ? mgp::Value(mgp::ref_type, nodes_value) : mgp::Value(), kGraphKeyNodes);
+    // Errors name the map keys, not the json_data argument names.
+    auto *nodes = OptionalList(nodes_value, kGraphKeyNodes);
     auto *relationship_list = OptionalList(relationships, relationships_key);
     RequireElements(nodes, mgp::Type::Node, kGraphKeyNodes, "nodes");
     RequireElements(relationship_list, mgp::Type::Relationship, relationships_key, "relationships");
