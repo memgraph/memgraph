@@ -632,10 +632,14 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
 
           // A writing clause is marked before its own comprehensions are planned, so they see earlier rows' writes.
           clause_reads_new = ClauseReadsNew(*clause, branch_sees_write());
+          // A RETURN ends its leg, so no later write reaches its subqueries: after a write they read View::NEW, as on
+          // master, and need no advance (analytical mode skips the drain's).
+          bool const subqueries_read_new =
+              clause_reads_new || (utils::Downcast<Return>(clause) != nullptr && branch_sees_write());
           SubqueryContext subquery_ctx{.pending_comprehensions = pending_comprehensions,
                                        .pending_subqueries = pending_subqueries,
                                        .planner = this,
-                                       .write_occurred = clause_reads_new};
+                                       .write_occurred = subqueries_read_new};
 
           // With and Return drain in their own Accumulate.
           auto const is_projection = utils::Downcast<Return>(clause) || utils::Downcast<query::With>(clause);

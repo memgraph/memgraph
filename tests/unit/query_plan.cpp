@@ -8598,8 +8598,8 @@ TYPED_TEST(TestPlanner, PatternComprehensionInReturnStaysAboveSameClauseCreate) 
   ASSERT_NE(accumulate, nullptr);
   EXPECT_NE(FindOpOfType<CreateExpand>(accumulate->input_.get()), nullptr) << "the CREATE belongs below";
 
-  // The root RETURN drain advances the command, so View::OLD above it sees the new rows.
-  ExpectUncorrelatedBranchReadsView(rollup, memgraph::storage::View::OLD);
+  // A RETURN's subqueries after a write read View::NEW, as on master: they see the new rows without an advance.
+  ExpectUncorrelatedBranchReadsView(rollup, memgraph::storage::View::NEW);
 }
 
 TYPED_TEST(TestPlanner, MergeBranchComprehensionOverOuterSymbolStaysInBranch) {

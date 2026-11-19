@@ -2213,7 +2213,8 @@ TEST_F(WriteVisibilityPlan, ExplainPrintsTheViewOfEachReaderOnRequest) {
 
 // The view rule, computed from an operator's ancestors rather than from the
 // planner's scope state: OLD at the root and in a read-only CALL body; NEW in a writing CALL body tree, a MERGE,
-// a FOREACH body, and a fold branch whose consumer reads NEW. A query under batching keeps master's views: no check.
+// a FOREACH body, a fold branch whose consumer reads NEW, and a root RETURN's fold after a write in its part. A query
+// under batching keeps master's views: no check.
 class ViewOracle {
  public:
   struct Mismatch {
@@ -2226,7 +2227,7 @@ class ViewOracle {
     mismatches_.clear();
     set_values_.clear();
     CollectSetValues(root);
-    if (!ContainsBatching(root)) Walk(root, false);
+    if (!ContainsBatching(root)) Walk(root, false, false, false, Tail::kTop);
     return mismatches_;
   }
 
@@ -2323,10 +2324,44 @@ class ViewOracle {
     return std::ranges::any_of(Children(op), [](auto const &child) { return ContainsBatching(*child.first); });
   }
 
+  /// Where an operator sits relative to its root leg's RETURN: above its projection, between the projection and the
+  /// part's first clause (its folds), or elsewhere.
+  enum class Tail : uint8_t { kTop, kBody, kNone };
+
+  static Tail InputTail(LogicalOperator const &op, Tail tail) {
+    if (tail == Tail::kTop) {
+      if (Is<plan::Union>(op) || Is<plan::OrderBy>(op) || Is<plan::Skip>(op) || Is<plan::Limit>(op) ||
+          Is<plan::Distinct>(op)) {
+        return Tail::kTop;
+      }
+      return Is<plan::Produce>(op) ? Tail::kBody : Tail::kNone;
+    }
+    if (tail == Tail::kBody && (Is<plan::Aggregate>(op) || Is<plan::RollUpApply>(op) || Is<plan::Accumulate>(op))) {
+      return Tail::kBody;
+    }
+    return Tail::kNone;
+  }
+
+  /// Whether a write lies on the main input of @p op in its query part, which starts at a WITH or a MATCH.
+  static bool PartWrote(LogicalOperator &op) {
+    for (LogicalOperator *below = op.input().get(); below;) {
+      if (IsWrite(*below)) return true;
+      if (Is<plan::Produce>(*below) || Is<plan::ScanAll>(*below) || Is<plan::Expand>(*below) ||
+          Is<plan::ExpandVariable>(*below) || Is<plan::Optional>(*below)) {
+        return false;
+      }
+      auto children = Children(*below);
+      auto main = std::ranges::find_if(children, [](auto const &child) { return child.second == Edge::kInput; });
+      below = main == children.end() ? nullptr : main->first;
+    }
+    return false;
+  }
+
   /// `reads_new`: the operator is in a scope whose every read is a NEW reader. `consumer_reads_new`: the operator
   /// that uses this one's rows is a clause that reads NEW; it decides a comprehension branch, whose list RollUpApply
   /// passes up to the operator above it (a SET right-hand side, a FOREACH list).
-  void Walk(LogicalOperator &op, bool reads_new, bool consumer_reads_new = false, bool under_set_values = false) {
+  void Walk(LogicalOperator &op, bool reads_new, bool consumer_reads_new = false, bool under_set_values = false,
+            Tail tail = Tail::kNone) {
     auto const create_reads = CreateReads(op);
     auto const expected = reads_new || IsSetGroupProduce(op) || (Is<plan::CacheProperties>(op) && under_set_values) ||
                                   create_reads == CreateRead::kOnlyCreated
@@ -2352,7 +2387,8 @@ class ViewOracle {
                // A property cache passes its consumer on, as a comprehension's list does.
                is_rollup || Is<plan::CacheProperties>(op) ? consumer_reads_new
                                                           : ReadsNewClause(op) || IsSetGroupProduce(op) || switched,
-               IsSetGroupProduce(op));
+               IsSetGroupProduce(op),
+               InputTail(op, tail));
           break;
         case Edge::kBody:
           // A read-only IN TRANSACTIONS body keeps master's views.
@@ -2366,7 +2402,8 @@ class ViewOracle {
           break;
         case Edge::kFold:
           // A Filter or Conditional evaluates its own folds; a RollUpApply's list goes to the operator above it.
-          Walk(*child, reads_new || (is_rollup && consumer_reads_new));
+          Walk(*child,
+               reads_new || (is_rollup && consumer_reads_new) || (is_rollup && tail == Tail::kBody && PartWrote(op)));
           break;
       }
     }
