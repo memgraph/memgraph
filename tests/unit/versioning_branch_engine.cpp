@@ -13,6 +13,7 @@
 // not link mg-query). The diff engine shares main's mapper, so one label/property id is valid on both sides.
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <cstdint>
@@ -34,6 +35,7 @@
 
 #include "memory/db_arena.hpp"
 #include "metrics/metric_handles.hpp"
+#include "storage/v2/delta.hpp"
 #include "storage/v2/edge.hpp"
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/id_types.hpp"
@@ -43,6 +45,7 @@
 #include "storage/v2/vertex.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 #include "tests/test_commit_args_helper.hpp"
+#include "utils/bound.hpp"
 #include "utils/uuid.hpp"
 #include "versioning/branch_engine.hpp"
 #include "versioning/overlay_mark_deleted.hpp"
@@ -1898,6 +1901,674 @@ TEST_F(VersioningBranchEngineTest, PostForkPreBuildMainObjectsAreBaseCandidatesB
   Begin(diff2.get());
   check_invisible(true);
   Ctx().EndTransaction();
+}
+
+// ---- Vertex writes: a base vertex is written through its overlay (labels copied from the base, stock label writes,
+// overlay::WriteProperty, stock DeleteVertex); a native vertex is a stock vertex in the diff engine.
+
+class VersioningBranchWriteTest : public VersioningBranchEngineTest {
+ protected:
+  using Props = std::map<ms::PropertyId, ms::PropertyValue>;
+
+  static constexpr auto kSnapshotIsolation = ms::IsolationLevel::SNAPSHOT_ISOLATION;
+
+  std::unique_ptr<ms::Storage::Accessor> Writer() { return Diff().Access(ms::WRITE, kSnapshotIsolation, std::nullopt); }
+
+  // Runs `body` in a committed branch write transaction.
+  template <typename Body>
+  void Write(Body &&body) {
+    auto acc = Writer();
+    Begin(acc.get());
+    body();
+    Ctx().EndTransaction();
+    Commit(*acc);
+  }
+
+  // Runs `body` in a branch write transaction that is then aborted.
+  template <typename Body>
+  void WriteAndAbort(Body &&body) {
+    auto acc = Writer();
+    Begin(acc.get());
+    body();
+    Ctx().EndTransaction();
+    acc->Abort();
+  }
+
+  template <typename Body>
+  void Read(Body &&body) {
+    auto acc = Diff().Access(ms::READ, kSnapshotIsolation, std::nullopt);
+    Begin(acc.get());
+    body();
+    Ctx().EndTransaction();
+  }
+
+  ms::VertexAccessor BaseOf(ms::Gid gid) {
+    auto base_vertex = Ctx().FindBaseVertex(gid);
+    EXPECT_TRUE(base_vertex.has_value());
+    return *base_vertex;
+  }
+
+  std::set<ms::LabelId> LabelsOf(ms::Gid gid, ms::View view = ms::View::NEW) {
+    auto const vertex = Ctx().ResolveVertex(gid, view);
+    EXPECT_TRUE(vertex.has_value());
+    return vertex ? LabelSet(Ctx().Labels(*vertex, view)) : std::set<ms::LabelId>{};
+  }
+
+  Props PropsOf(ms::Gid gid, ms::View view = ms::View::NEW) {
+    auto const vertex = Ctx().ResolveVertex(gid, view);
+    EXPECT_TRUE(vertex.has_value());
+    return vertex ? *Ctx().Properties(*vertex, view) : Props{};
+  }
+
+  // main's live state, which the branch never changes.
+  template <typename Read>
+  auto OnMain(ms::Gid gid, Read &&read) {
+    auto acc = storage_->Access(ms::READ);
+    auto vertex = acc->FindVertex(gid, ms::View::NEW);
+    EXPECT_TRUE(vertex.has_value());
+    return read(*vertex);
+  }
+};
+
+TEST_F(VersioningBranchWriteTest, ANativeVertexTakesItsGidFromMainsCounterAndRaisesTheDiffCounter) {
+  CreateMainVertex({}, {});
+  Fork();
+  auto const after_fork = CreateMainVertex({}, {});
+  auto first = ms::Gid::FromUint(0), second = ms::Gid::FromUint(0);
+  Write([&] {
+    first = Ctx().CreateNativeVertex().Gid();
+    second = Ctx().CreateNativeVertex().Gid();
+  });
+  EXPECT_GT(first.AsUint(), after_fork.AsUint()) << "main's counter is shared, no range of its own";
+  EXPECT_EQ(second.AsUint(), first.AsUint() + 1);
+  EXPECT_FALSE(Ctx().IsBaseCandidateVertex(first));
+  EXPECT_EQ(storage_->vertex_id_.load(), second.AsUint() + 1) << "a plain fetch_add, nothing reserved";
+  EXPECT_GE(Diff().vertex_id_.load(), second.AsUint() + 1) << "else the diff engine's index iterators skip it";
+  EXPECT_GT(CreateMainVertex({}, {}).AsUint(), second.AsUint()) << "main never hands the gid out again";
+  Read([&] {
+    std::set<uint64_t> natives;
+    for (auto v : Ctx().Vertices(ms::View::NEW)) {
+      if (!Ctx().IsBaseCandidateVertex(v.Gid())) natives.insert(v.Gid().AsUint());
+    }
+    EXPECT_EQ(natives, (std::set<uint64_t>{first.AsUint(), second.AsUint()}));
+  });
+}
+
+TEST_F(VersioningBranchWriteTest, ALabelWriteCreatesAnOverlayLabelledWithTheBaseLabelsNotMainsLiveOnes) {
+  auto const l1 = Label("L1"), l2 = Label("L2"), l3 = Label("L3"), l4 = Label("L4");
+  auto const a = CreateMainVertex({l1, l2}, {});
+  auto const untouched = CreateMainVertex({l1}, {});
+  Fork();
+  {
+    auto acc = storage_->Access(ms::WRITE);
+    auto v = *acc->FindVertex(a, ms::View::NEW);
+    ASSERT_TRUE(v.RemoveLabel(l1).has_value());
+    ASSERT_TRUE(v.AddLabel(l3).has_value());
+    Commit(*acc);
+  }
+  EXPECT_FALSE(HasOverlay(a));
+  Write([&] {
+    auto base_vertex = BaseOf(a);
+    EXPECT_FALSE(base_vertex.vertex_->branched());
+    EXPECT_TRUE(*Ctx().AddLabel(base_vertex, l4));
+    EXPECT_TRUE(base_vertex.vertex_->branched()) << "set before the overlay is written";
+    EXPECT_EQ(LabelsOf(a), (std::set<ms::LabelId>{l1, l2, l4})) << "the base's labels, not main's {L2, L3}";
+  });
+  EXPECT_TRUE(HasOverlay(a));
+  EXPECT_FALSE(HasOverlay(untouched));
+  Read([&] {
+    EXPECT_EQ(LabelsOf(a), (std::set<ms::LabelId>{l1, l2, l4}));
+    EXPECT_EQ(LabelsOf(untouched), (std::set<ms::LabelId>{l1}));
+    EXPECT_TRUE(*Ctx().HasLabel(*Ctx().ResolveVertex(a, ms::View::NEW), l4, ms::View::NEW));
+    EXPECT_FALSE(*Ctx().HasLabel(*Ctx().ResolveVertex(a, ms::View::NEW), l3, ms::View::NEW));
+  });
+  EXPECT_EQ(OnMain(a, [&](auto &v) { return LabelSet(v.Labels(ms::View::NEW)); }), (std::set<ms::LabelId>{l2, l3}));
+}
+
+TEST_F(VersioningBranchWriteTest, LabelsAddAndRemoveAsStockOnTheOverlayAndAbortRestoresThem) {
+  auto const l1 = Label("L1"), l2 = Label("L2"), l3 = Label("L3");
+  auto const a = CreateMainVertex({l1, l2}, {});
+  Fork();
+  Write([&] {
+    auto base_vertex = BaseOf(a);
+    EXPECT_FALSE(*Ctx().AddLabel(base_vertex, l2)) << "already there, as on main";
+    EXPECT_TRUE(*Ctx().RemoveLabel(base_vertex, l1));
+    EXPECT_FALSE(*Ctx().RemoveLabel(base_vertex, l1)) << "already removed";
+    EXPECT_FALSE(*Ctx().RemoveLabel(base_vertex, l3)) << "never there";
+    EXPECT_EQ(LabelsOf(a), (std::set<ms::LabelId>{l2}));
+  });
+  Read([&] { EXPECT_EQ(LabelsOf(a), (std::set<ms::LabelId>{l2})); });
+  WriteAndAbort([&] {
+    auto base_vertex = BaseOf(a);
+    EXPECT_TRUE(*Ctx().AddLabel(base_vertex, l1));
+    EXPECT_TRUE(*Ctx().AddLabel(base_vertex, l3));
+    EXPECT_TRUE(*Ctx().RemoveLabel(base_vertex, l2));
+    EXPECT_EQ(LabelsOf(a), (std::set<ms::LabelId>{l1, l3}));
+  });
+  Read([&] { EXPECT_EQ(LabelsOf(a), (std::set<ms::LabelId>{l2})) << "the aborted write left no trace"; });
+}
+
+TEST_F(VersioningBranchWriteTest, PropertySetAndRemoveGoThroughTheOverlayAndReadBackAcrossSnapshots) {
+  auto const x = Prop("x"), y = Prop("y"), z = Prop("z"), w = Prop("w");
+  auto const a = CreateMainVertex({}, {{x, Int(1)}, {y, Int(2)}, {z, Int(3)}});
+  Fork();
+  auto const before = OpenSnapshotReader(Ctx());
+  Write([&] {
+    auto base_vertex = BaseOf(a);
+    EXPECT_EQ(*Ctx().SetProperty(base_vertex, x, Int(10)), Int(1)) << "the old value is the base's";
+    EXPECT_EQ(*Ctx().SetProperty(base_vertex, y, ms::PropertyValue{}), Int(2)) << "a null removes";
+    EXPECT_TRUE(Ctx().SetProperty(base_vertex, y, ms::PropertyValue{})->IsNull()) << "removing a removed key";
+    EXPECT_TRUE(Ctx().SetProperty(base_vertex, w, Int(4))->IsNull());
+    EXPECT_EQ(PropsOf(a), (Props{{x, Int(10)}, {z, Int(3)}, {w, Int(4)}}));
+  });
+  Read([&] {
+    auto const vertex = *Ctx().ResolveVertex(a, ms::View::NEW);
+    EXPECT_EQ(*Ctx().GetProperty(vertex, x, ms::View::NEW), Int(10));
+    EXPECT_TRUE(Ctx().GetProperty(vertex, y, ms::View::NEW)->IsNull()) << "the base's value stays hidden";
+    EXPECT_EQ(*Ctx().GetProperty(vertex, z, ms::View::NEW), Int(3));
+    EXPECT_EQ(PropsOf(a), (Props{{x, Int(10)}, {z, Int(3)}, {w, Int(4)}}));
+    auto *const overlay = Core().overlay_index().FindOverlay(a);
+    ASSERT_NE(overlay, nullptr);
+    auto const removed = overlay->properties.FindProperty(y);
+    ASSERT_TRUE(removed.has_value()) << "the removal is an entry, not an absent key";
+    EXPECT_TRUE(removed->IsNull());
+    EXPECT_FALSE(overlay->properties.FindProperty(z).has_value()) << "an untouched key is not copied";
+  });
+  auto const old = *before.ctx->ResolveVertex(a, ms::View::NEW);
+  EXPECT_EQ(*before.ctx->GetProperty(old, x, ms::View::NEW), Int(1)) << "a snapshot older than the commit";
+  EXPECT_EQ(*before.ctx->GetProperty(old, y, ms::View::NEW), Int(2));
+  EXPECT_EQ(OnMain(a, [&](auto &v) { return *v.GetProperty(x, ms::View::NEW); }), Int(1));
+
+  WriteAndAbort([&] {
+    auto base_vertex = BaseOf(a);
+    ASSERT_TRUE(Ctx().SetProperty(base_vertex, y, Int(9)).has_value());
+  });
+  Read([&] {
+    // Aborting a write over an explicit null restores the null, not the base's value.
+    EXPECT_TRUE(Ctx().GetProperty(*Ctx().ResolveVertex(a, ms::View::NEW), y, ms::View::NEW)->IsNull());
+  });
+}
+
+TEST_F(VersioningBranchWriteTest, WholeSetWritesDecomposePerKeyOverTheBaseState) {
+  auto const x = Prop("x"), y = Prop("y"), z = Prop("z");
+  auto const a = CreateMainVertex({}, {{x, Int(1)}, {y, Int(2)}});
+  auto const empty = CreateMainVertex({}, {});
+  Fork();
+  Write([&] {
+    auto base_vertex = BaseOf(a);
+    Props with_properties{{x, Int(5)}};
+    EXPECT_FALSE(*Ctx().InitProperties(base_vertex, with_properties)) << "the vertex has properties";
+    Props update{{x, Int(5)}, {z, Int(7)}};
+    auto const changes = Ctx().UpdateProperties(base_vertex, update);
+    ASSERT_TRUE(changes.has_value());
+    EXPECT_EQ(*changes,
+              (std::vector<std::tuple<ms::PropertyId, ms::PropertyValue, ms::PropertyValue>>{
+                  {x, Int(1), Int(5)}, {z, ms::PropertyValue{}, Int(7)}}));
+    EXPECT_EQ(update, (Props{{x, Int(5)}, {y, Int(2)}, {z, Int(7)}})) << "untouched properties come back merged";
+    EXPECT_EQ(*Ctx().ClearProperties(base_vertex), (Props{{x, Int(5)}, {y, Int(2)}, {z, Int(7)}}));
+    EXPECT_TRUE(PropsOf(a).empty());
+
+    auto base_empty = BaseOf(empty);
+    Props init{{x, Int(1)}};
+    EXPECT_TRUE(*Ctx().InitProperties(base_empty, init));
+    EXPECT_EQ(PropsOf(empty), (Props{{x, Int(1)}}));
+  });
+  Read([&] {
+    EXPECT_TRUE(PropsOf(a).empty()) << "the base's x and y stay hidden by explicit nulls";
+    EXPECT_EQ(PropsOf(empty), (Props{{x, Int(1)}}));
+  });
+  EXPECT_EQ(OnMain(a, [&](auto &v) { return v.Properties(ms::View::NEW)->size(); }), 2U);
+}
+
+// An overlay is in its diff engine's indexes: a write of an indexed key must make a branch index scan find the base
+// vertex.
+TEST_F(VersioningBranchWriteTest, AnIndexedPropertyWriteEntersTheOverlayInTheDiffEnginesLabelPropertyIndex) {
+  auto const l = Label("L"), other = Label("Other");
+  auto const x = Prop("x");
+  auto const a = CreateMainVertex({l}, {{x, Int(1)}});
+  auto const unlabelled = CreateMainVertex({other}, {{x, Int(1)}});
+  Fork();
+  {
+    auto acc = Diff().ReadOnlyAccess();
+    ASSERT_TRUE(acc->CreateIndex(l, ms::PropertiesPaths{ms::PropertyPath{x}}).has_value());
+    Commit(*acc);
+  }
+  auto const hits = [&](int64_t value) {
+    auto acc = Diff().Access(ms::READ, kSnapshotIsolation, std::nullopt);
+    auto const point = ms::PropertyValue{value};
+    auto const paths = std::array{ms::PropertyPath{x}};
+    auto const ranges = std::array{ms::PropertyValueRange::Bounded(memgraph::utils::MakeBoundInclusive(point),
+                                                                   memgraph::utils::MakeBoundInclusive(point))};
+    std::set<uint64_t> found;
+    for (auto const &v : acc->Vertices(l, paths, ranges, ms::View::NEW)) found.insert(v.Gid().AsUint());
+    return found;
+  };
+  EXPECT_TRUE(hits(5).empty());
+  Write([&] {
+    auto base_a = BaseOf(a);
+    auto base_unlabelled = BaseOf(unlabelled);
+    ASSERT_TRUE(Ctx().SetProperty(base_a, x, Int(5)).has_value());
+    ASSERT_TRUE(Ctx().SetProperty(base_unlabelled, x, Int(5)).has_value());
+  });
+  EXPECT_EQ(hits(5), (std::set<uint64_t>{a.AsUint()}))
+      << "the copied label puts the overlay in the index; Other is not";
+  Write([&] {
+    auto base_vertex = BaseOf(a);
+    ASSERT_TRUE(Ctx().SetProperty(base_vertex, x, ms::PropertyValue{}).has_value());
+  });
+  EXPECT_TRUE(hits(5).empty()) << "an explicit null is not indexed";
+}
+
+TEST_F(VersioningBranchWriteTest, WritesConflictOnTheOverlayAsOnMain) {
+  auto const x = Prop("x");
+  auto const a = CreateMainVertex({}, {{x, Int(1)}});
+  Fork();
+  auto first = Writer();
+  Begin(first.get());
+  auto base_first = BaseOf(a);
+  ASSERT_TRUE(Ctx().SetProperty(base_first, x, Int(2)).has_value());
+
+  auto second = Writer();
+  mv::BranchContext other{Ctx().core()};
+  ASSERT_TRUE(other.BeginTransaction(second.get()).has_value());
+  auto base_vertex = *other.FindBaseVertex(a);
+  EXPECT_EQ(other.SetProperty(base_vertex, x, Int(3)).error(), ms::Error::SERIALIZATION_ERROR);
+  EXPECT_EQ(other.DeleteBaseVertex(a, true).error(), ms::Error::SERIALIZATION_ERROR);
+  other.EndTransaction();
+  second->Abort();
+  Ctx().EndTransaction();
+  Commit(*first);
+}
+
+TEST_F(VersioningBranchWriteTest, DeletingABaseVertexHidesItAndItsBaseEdgesAndAbortRestoresThem) {
+  auto const x = Prop("x");
+  auto const a = CreateMainVertex({}, {{x, Int(1)}});
+  auto const b = CreateMainVertex({}, {});
+  auto const c = CreateMainVertex({}, {});
+  auto const out = CreateMainEdge(a, b, "E", {{x, Int(1)}});
+  auto const in = CreateMainEdge(c, a, "E");
+  auto const loop = CreateMainEdge(a, a, "E");
+  auto const other = CreateMainEdge(b, c, "E");
+  Fork();
+  auto const before = OpenSnapshotReader(Ctx());
+
+  auto const edges_of = [&](ms::Gid vertex, ms::EdgeDirection direction) {
+    std::set<uint64_t> gids;
+    for (auto const &e : Ctx().ResolveEdges(vertex, direction, ms::View::NEW)) gids.insert(e.Gid().AsUint());
+    return gids;
+  };
+  WriteAndAbort([&] {
+    EXPECT_TRUE(*Ctx().DeleteBaseVertex(a, true));
+    EXPECT_FALSE(Ctx().ResolveVertex(a, ms::View::NEW).has_value());
+  });
+  Read([&] {
+    EXPECT_TRUE(Ctx().ResolveVertex(a, ms::View::NEW).has_value()) << "aborted";
+    EXPECT_EQ(edges_of(b, ms::EdgeDirection::IN), (std::set<uint64_t>{out.gid.AsUint()}));
+  });
+
+  Write([&] {
+    EXPECT_TRUE(*Ctx().DeleteBaseVertex(a, true));
+    EXPECT_FALSE(*Ctx().DeleteBaseVertex(a, true)) << "already deleted";
+    EXPECT_FALSE(Ctx().ResolveVertex(a, ms::View::NEW).has_value());
+  });
+  Read([&] {
+    EXPECT_FALSE(Ctx().ResolveVertex(a, ms::View::NEW).has_value());
+    EXPECT_TRUE(Ctx().ResolveVertex(b, ms::View::NEW).has_value());
+    EXPECT_TRUE(edges_of(b, ms::EdgeDirection::IN).empty()) << "the edge into b went with a";
+    EXPECT_TRUE(edges_of(c, ms::EdgeDirection::OUT).empty());
+    EXPECT_EQ(edges_of(b, ms::EdgeDirection::OUT), (std::set<uint64_t>{other.gid.AsUint()})) << "other edges stay";
+    auto *const txn = Ctx().current_diff_txn()->GetTransaction();
+    for (auto const &edge : {out, in, loop}) {
+      auto *const edge_overlay = Core().edge_overlay_index().Find(edge.gid);
+      ASSERT_NE(edge_overlay, nullptr) << edge.gid.AsUint();
+      EXPECT_TRUE(mv::overlay::IsDeleted(txn, edge_overlay, ms::View::NEW));
+    }
+    auto base_vertex = BaseOf(a);
+    EXPECT_EQ(Ctx().AddLabel(base_vertex, Label("L")).error(), ms::Error::DELETED_OBJECT);
+    EXPECT_EQ(Ctx().SetProperty(base_vertex, x, Int(2)).error(), ms::Error::DELETED_OBJECT);
+  });
+  auto const old = before.ctx->ResolveVertex(a, ms::View::NEW);
+  ASSERT_TRUE(old.has_value()) << "a snapshot older than the delete";
+  EXPECT_EQ(before.ctx->ResolveEdges(b, ms::EdgeDirection::IN, ms::View::NEW).size(), 1U);
+  EXPECT_EQ(OnMain(a, [](auto &v) { return v.Properties(ms::View::NEW)->size(); }), 1U) << "main keeps the vertex";
+}
+
+// A base-edge delete writes only the edge overlay, so deletes of different edges at one vertex do not conflict.
+TEST_F(VersioningBranchWriteTest, DeletingDifferentBaseEdgesAtOneVertexConcurrentlyBothCommit) {
+  auto const a = CreateMainVertex({}, {});
+  auto const b = CreateMainVertex({}, {});
+  auto const c = CreateMainVertex({}, {});
+  auto const ab = CreateMainEdge(a, b, "E");
+  auto const ac = CreateMainEdge(a, c, "E");
+  Fork();
+  auto first = Writer();
+  Begin(first.get());
+  ASSERT_TRUE(*Ctx().DeleteBaseVertex(b, true));
+
+  auto second = Writer();
+  mv::BranchContext other{Ctx().core()};
+  ASSERT_TRUE(other.BeginTransaction(second.get()).has_value());
+  EXPECT_TRUE(*other.DeleteBaseVertex(c, true)) << "no conflict with the other delete at a";
+  other.EndTransaction();
+  Ctx().EndTransaction();
+  Commit(*first);
+  Commit(*second);
+
+  Read([&] {
+    EXPECT_FALSE(Ctx().ResolveVertex(b, ms::View::NEW).has_value());
+    EXPECT_FALSE(Ctx().ResolveVertex(c, ms::View::NEW).has_value());
+    EXPECT_TRUE(Ctx().ResolveEdges(a, ms::EdgeDirection::OUT, ms::View::NEW).empty()) << "both edges are hidden";
+    auto *const txn = Ctx().current_diff_txn()->GetTransaction();
+    for (auto const &edge : {ab, ac}) {
+      auto *const edge_overlay = Core().edge_overlay_index().Find(edge.gid);
+      ASSERT_NE(edge_overlay, nullptr) << edge.gid.AsUint();
+      EXPECT_TRUE(mv::overlay::IsDeleted(txn, edge_overlay, ms::View::NEW));
+    }
+  });
+}
+
+// Deleting the same base edge conflicts on its edge overlay.
+TEST_F(VersioningBranchWriteTest, DeletingTheSameBaseEdgeConcurrentlyConflictsOnTheEdgeOverlay) {
+  auto const a = CreateMainVertex({}, {});
+  auto const b = CreateMainVertex({}, {});
+  CreateMainEdge(a, b, "E");
+  Fork();
+  auto first = Writer();
+  Begin(first.get());
+  ASSERT_TRUE(*Ctx().DeleteBaseVertex(b, true));
+
+  auto second = Writer();
+  mv::BranchContext other{Ctx().core()};
+  ASSERT_TRUE(other.BeginTransaction(second.get()).has_value());
+  EXPECT_EQ(other.DeleteBaseVertex(a, true).error(), ms::Error::SERIALIZATION_ERROR);
+  other.EndTransaction();
+  second->Abort();
+  Ctx().EndTransaction();
+  Commit(*first);
+}
+
+// A vertex that only holds a candidate-list entry (the far side of a base-edge delete) later gets a full overlay: it
+// keeps the entry, so the deleted edge stays hidden, and the write is visible.
+TEST_F(VersioningBranchWriteTest, AnOverlayCreatedAfterADeletesOnlyEntryKeepsHidingTheEdgeAndHoldsTheWrite) {
+  auto const x = Prop("x");
+  auto const a = CreateMainVertex({}, {{x, Int(1)}});
+  auto const b = CreateMainVertex({}, {});
+  CreateMainEdge(a, b, "E");
+  Fork();
+  Write([&] {
+    ASSERT_TRUE(*Ctx().DeleteBaseVertex(b, true));
+    EXPECT_TRUE(HasEntry(a));
+    EXPECT_FALSE(HasOverlay(a)) << "the far side is listed only";
+    auto base_a = BaseOf(a);
+    ASSERT_TRUE(Ctx().SetProperty(base_a, x, Int(7)).has_value());
+    EXPECT_TRUE(HasOverlay(a));
+    EXPECT_TRUE(HasEntry(a)) << "the deletes entry survives the overlay";
+  });
+  Read([&] {
+    auto const resolved = Ctx().ResolveVertex(a, ms::View::NEW);
+    ASSERT_TRUE(resolved.has_value());
+    EXPECT_EQ(*Ctx().GetProperty(*resolved, x, ms::View::NEW), Int(7));
+    EXPECT_TRUE(Ctx().ResolveEdges(a, ms::EdgeDirection::OUT, ms::View::NEW).empty()) << "the edge went with b";
+  });
+}
+
+TEST_F(VersioningBranchWriteTest, DeletingABaseVertexRefusesWhileANativeEdgeIsAttached) {
+  auto const a = CreateMainVertex({}, {});
+  Fork();
+  WriteAndAbort([&] {
+    auto native = Ctx().CreateNativeVertex();
+    auto anchor = Ctx().EnsureDiffVertex(a);
+    ASSERT_TRUE(anchor.has_value());
+    ASSERT_TRUE(Ctx().current_diff_txn()->CreateEdge(&*anchor, &native, Core().NameToEdgeType("N")).has_value());
+    EXPECT_EQ(Ctx().DeleteBaseVertex(a, false).error(), ms::Error::VERTEX_HAS_EDGES);
+  });
+}
+
+TEST_F(VersioningBranchWriteTest, DetachDeletingABaseVertexDeletesAttachedNativeEdges) {
+  auto const a = CreateMainVertex({}, {});
+  Fork();
+  WriteAndAbort([&] {
+    auto native = Ctx().CreateNativeVertex();
+    auto anchor = Ctx().EnsureDiffVertex(a);
+    ASSERT_TRUE(anchor.has_value());
+    ASSERT_TRUE(Ctx().current_diff_txn()->CreateEdge(&*anchor, &native, Core().NameToEdgeType("N")).has_value());
+    EXPECT_TRUE(*Ctx().DeleteBaseVertex(a, true));
+    EXPECT_FALSE(Ctx().ResolveVertex(a, ms::View::NEW).has_value());
+  });
+}
+
+TEST_F(VersioningBranchWriteTest, NonDetachDeleteOfABaseVertexWithABaseEdgeRefusesAndChangesNothing) {
+  auto const a = CreateMainVertex({}, {});
+  auto const b = CreateMainVertex({}, {});
+  auto const edge = CreateMainEdge(a, b, "E");
+  Fork();
+  Write([&] {
+    EXPECT_EQ(Ctx().DeleteBaseVertex(a, false).error(), ms::Error::VERTEX_HAS_EDGES);
+    EXPECT_EQ(Ctx().DeleteBaseVertex(b, false).error(), ms::Error::VERTEX_HAS_EDGES) << "the in-edge counts too";
+    EXPECT_EQ(Core().overlay_index().FindOverlay(a), nullptr) << "refused before an overlay is made";
+    EXPECT_EQ(Core().overlay_index().FindOverlay(b), nullptr);
+    EXPECT_EQ(Core().edge_overlay_index().Find(edge.gid), nullptr);
+    EXPECT_TRUE(Ctx().ResolveVertex(a, ms::View::NEW).has_value());
+    EXPECT_EQ(Ctx().ResolveEdges(a, ms::EdgeDirection::OUT, ms::View::NEW).size(), 1U);
+  });
+  Read([&] {
+    EXPECT_TRUE(Ctx().ResolveVertex(a, ms::View::NEW).has_value());
+    EXPECT_TRUE(Ctx().ResolveVertex(b, ms::View::NEW).has_value());
+    EXPECT_EQ(Ctx().ResolveEdges(a, ms::EdgeDirection::OUT, ms::View::NEW).size(), 1U);
+  });
+}
+
+TEST_F(VersioningBranchWriteTest, NonDetachDeleteOfAnIsolatedBaseVertexSucceeds) {
+  auto const a = CreateMainVertex({}, {});
+  auto const b = CreateMainVertex({}, {});
+  CreateMainEdge(a, a, "E");
+  Fork();
+  Write([&] {
+    EXPECT_EQ(Ctx().DeleteBaseVertex(a, false).error(), ms::Error::VERTEX_HAS_EDGES) << "a self-loop is an edge";
+    EXPECT_TRUE(*Ctx().DeleteBaseVertex(b, false));
+    EXPECT_FALSE(Ctx().ResolveVertex(b, ms::View::NEW).has_value());
+  });
+  Read([&] {
+    EXPECT_FALSE(Ctx().ResolveVertex(b, ms::View::NEW).has_value());
+    EXPECT_TRUE(Ctx().ResolveVertex(a, ms::View::NEW).has_value());
+  });
+}
+
+// A DETACH lists a deleted edge at its far endpoint only: the neighbours get a candidate-list entry and no overlay, and
+// the deleted vertex keeps its own side unlisted because its delete mark covers it.
+TEST_F(VersioningBranchWriteTest, DetachDeleteListsOnlyTheFarEndpointsAndLeavesTheNeighboursWithoutAnOverlay) {
+  auto const l1 = Label("L1"), l2 = Label("L2");
+  auto const a = CreateMainVertex({}, {});
+  auto const b = CreateMainVertex({l1}, {});
+  auto const c = CreateMainVertex({}, {});
+  auto const ab = CreateMainEdge(a, b, "E");
+  auto const ca = CreateMainEdge(c, a, "E");
+  auto const loop = CreateMainEdge(a, a, "E");
+  Fork();
+  {
+    auto acc = storage_->Access(ms::WRITE);
+    ASSERT_TRUE(acc->FindVertex(b, ms::View::NEW)->AddLabel(l2).has_value());
+    Commit(*acc);
+  }
+  auto const before = OpenSnapshotReader(Ctx());
+  auto const edge_gids = [&](ms::Gid vertex, ms::EdgeDirection direction, ms::View view) {
+    std::set<uint64_t> gids;
+    for (auto const &e : Ctx().ResolveEdges(vertex, direction, view)) gids.insert(e.Gid().AsUint());
+    return gids;
+  };
+  auto const listed = [&](ms::Gid vertex, ms::EdgeDirection direction) {
+    std::set<ms::Edge *> edges;
+    for (auto *e : Candidates(vertex, direction)) edges.insert(e);
+    return edges;
+  };
+  Write([&] {
+    EXPECT_TRUE(*Ctx().DeleteBaseVertex(a, true));
+    EXPECT_EQ(edge_gids(b, ms::EdgeDirection::IN, ms::View::OLD), (std::set<uint64_t>{ab.gid.AsUint()}))
+        << "OLD in the same command still sees the edge";
+    EXPECT_EQ(edge_gids(c, ms::EdgeDirection::OUT, ms::View::OLD), (std::set<uint64_t>{ca.gid.AsUint()}));
+    bool deleted = false;
+    EXPECT_EQ(Ctx().ResolveEdges(a, ms::EdgeDirection::OUT, ms::View::OLD, &deleted).size(), 2U);
+    EXPECT_FALSE(deleted);
+    EXPECT_TRUE(edge_gids(b, ms::EdgeDirection::IN, ms::View::NEW).empty());
+    EXPECT_TRUE(edge_gids(c, ms::EdgeDirection::OUT, ms::View::NEW).empty());
+  });
+  EXPECT_TRUE(HasOverlay(a)) << "it carries the delete mark";
+  EXPECT_TRUE(Candidates(a, ms::EdgeDirection::OUT).empty()) << "its own side is not listed, a self-loop included";
+  EXPECT_TRUE(Candidates(a, ms::EdgeDirection::IN).empty());
+  EXPECT_EQ(listed(b, ms::EdgeDirection::IN), (std::set<ms::Edge *>{Core().edge_overlay_index().Find(ab.gid)}));
+  EXPECT_EQ(listed(c, ms::EdgeDirection::OUT), (std::set<ms::Edge *>{Core().edge_overlay_index().Find(ca.gid)}));
+  EXPECT_TRUE(Candidates(b, ms::EdgeDirection::OUT).empty());
+  EXPECT_TRUE(Candidates(c, ms::EdgeDirection::IN).empty());
+  for (auto const gid : {b, c}) {
+    EXPECT_TRUE(HasEntry(gid));
+    EXPECT_FALSE(HasOverlay(gid)) << "a neighbour gets a candidate-list entry, not an overlay";
+  }
+  Read([&] {
+    EXPECT_TRUE(edge_gids(b, ms::EdgeDirection::IN, ms::View::NEW).empty());
+    EXPECT_TRUE(edge_gids(c, ms::EdgeDirection::OUT, ms::View::NEW).empty());
+    bool deleted = false;
+    EXPECT_TRUE(Ctx().ResolveEdges(a, ms::EdgeDirection::OUT, ms::View::NEW, &deleted).empty());
+    EXPECT_TRUE(deleted);
+    auto *const txn = Ctx().current_diff_txn()->GetTransaction();
+    EXPECT_TRUE(mv::overlay::IsDeleted(txn, Core().edge_overlay_index().Find(loop.gid), ms::View::NEW));
+    EXPECT_EQ(LabelsOf(b), (std::set<ms::LabelId>{l1})) << "a deletes-only vertex reads the base's labels, not main's";
+  });
+  EXPECT_EQ(before.ctx->ResolveEdges(a, ms::EdgeDirection::OUT, ms::View::NEW).size(), 2U);
+  EXPECT_EQ(before.ctx->ResolveEdges(a, ms::EdgeDirection::IN, ms::View::NEW).size(), 2U) << "the in-edge and the loop";
+  EXPECT_EQ(before.ctx->ResolveEdges(b, ms::EdgeDirection::IN, ms::View::NEW).size(), 1U);
+  EXPECT_EQ(before.ctx->ResolveEdges(c, ms::EdgeDirection::OUT, ms::View::NEW).size(), 1U);
+}
+
+// The vertex mark fails (another transaction holds a write of the overlay): the edges already deleted are then listed
+// at the vertex's own side too, so the vertex does not show them.
+TEST_F(VersioningBranchWriteTest, AFailedDetachMarkListsTheVertexsOwnSideSoItHidesTheEdges) {
+  auto const l = Label("L");
+  auto const a = CreateMainVertex({}, {});
+  auto const b = CreateMainVertex({}, {});
+  auto const c = CreateMainVertex({}, {});
+  auto const ab = CreateMainEdge(a, b, "E");
+  auto const ca = CreateMainEdge(c, a, "E");
+  auto const loop = CreateMainEdge(a, a, "E");
+  Fork();
+  auto first = Writer();
+  Begin(first.get());
+  auto base_a = BaseOf(a);
+  ASSERT_TRUE(Ctx().AddLabel(base_a, l).has_value());
+
+  auto second = Writer();
+  mv::BranchContext other{Ctx().core()};
+  ASSERT_TRUE(other.BeginTransaction(second.get()).has_value());
+  EXPECT_EQ(other.DeleteBaseVertex(a, true).error(), ms::Error::SERIALIZATION_ERROR);
+  auto const out = other.ResolveEdges(a, ms::EdgeDirection::OUT, ms::View::NEW);
+  auto const in = other.ResolveEdges(a, ms::EdgeDirection::IN, ms::View::NEW);
+  EXPECT_TRUE(out.empty()) << "the edges deleted before the failed mark are hidden from a";
+  EXPECT_TRUE(in.empty());
+  EXPECT_EQ(Candidates(a, ms::EdgeDirection::OUT).size(), 2U) << "A->B and the loop";
+  EXPECT_EQ(Candidates(a, ms::EdgeDirection::IN).size(), 2U) << "C->A and the loop";
+  EXPECT_EQ(Candidates(b, ms::EdgeDirection::IN).size(), 1U);
+  EXPECT_EQ(Candidates(c, ms::EdgeDirection::OUT).size(), 1U);
+  auto *const ab_overlay =
+      static_cast<mv::EdgeOverlayIndex::BaseEdgeOverlay *>(Core().edge_overlay_index().Find(ab.gid));
+  auto *const ca_overlay =
+      static_cast<mv::EdgeOverlayIndex::BaseEdgeOverlay *>(Core().edge_overlay_index().Find(ca.gid));
+  auto *const loop_overlay =
+      static_cast<mv::EdgeOverlayIndex::BaseEdgeOverlay *>(Core().edge_overlay_index().Find(loop.gid));
+  EXPECT_EQ(ab_overlay->listed_sides.load(), mv::kBothSides);
+  EXPECT_EQ(ca_overlay->listed_sides.load(), mv::kBothSides);
+  EXPECT_EQ(loop_overlay->listed_sides.load(), mv::kBothSides);
+  other.EndTransaction();
+  second->Abort();
+  Ctx().EndTransaction();
+  Commit(*first);
+}
+
+// An aborted DETACH leaves only the far side's bit, so deleting the same edge from the other endpoint lists the rest.
+TEST_F(VersioningBranchWriteTest, AnAbortedDetachLeavesOnlyTheFarSideListedAndTheOtherEndpointsDeleteAddsTheRest) {
+  auto const a = CreateMainVertex({}, {});
+  auto const b = CreateMainVertex({}, {});
+  auto const ab = CreateMainEdge(a, b, "E");
+  Fork();
+  auto const listed_sides = [&] {
+    auto *const edge = static_cast<mv::EdgeOverlayIndex::BaseEdgeOverlay *>(Core().edge_overlay_index().Find(ab.gid));
+    return edge == nullptr ? uint8_t{255} : edge->listed_sides.load();
+  };
+  WriteAndAbort([&] { EXPECT_TRUE(*Ctx().DeleteBaseVertex(a, true)); });
+  EXPECT_EQ(listed_sides(), mv::kToSide);
+  EXPECT_TRUE(Candidates(a, ms::EdgeDirection::OUT).empty());
+  EXPECT_EQ(Candidates(b, ms::EdgeDirection::IN).size(), 1U);
+  Read([&] { EXPECT_EQ(Ctx().ResolveEdges(a, ms::EdgeDirection::OUT, ms::View::NEW).size(), 1U) << "aborted"; });
+
+  Write([&] { EXPECT_TRUE(*Ctx().DeleteBaseVertex(b, true)); });
+  EXPECT_EQ(listed_sides(), mv::kBothSides);
+  EXPECT_EQ(Candidates(a, ms::EdgeDirection::OUT).size(), 1U) << "b's detach lists a's side";
+  EXPECT_EQ(Candidates(b, ms::EdgeDirection::IN).size(), 1U) << "b's side is not appended twice";
+  Read([&] {
+    EXPECT_TRUE(Ctx().ResolveEdges(a, ms::EdgeDirection::OUT, ms::View::NEW).empty());
+    EXPECT_FALSE(Ctx().ResolveVertex(b, ms::View::NEW).has_value());
+  });
+}
+
+// Both endpoints of a base edge deleted by DETACH in one transaction: the first lists the edge at the second, and the
+// second then sees it as already deleted.
+TEST_F(VersioningBranchWriteTest, DetachDeletingBothEndpointsOfAnEdgeInOneTransactionHidesEveryEdge) {
+  auto const u = CreateMainVertex({}, {});
+  auto const v = CreateMainVertex({}, {});
+  auto const w = CreateMainVertex({}, {});
+  auto const uv = CreateMainEdge(u, v, "E");
+  CreateMainEdge(u, w, "E");
+  CreateMainEdge(w, v, "E");
+  Fork();
+  Write([&] {
+    EXPECT_TRUE(*Ctx().DeleteBaseVertex(u, true));
+    EXPECT_TRUE(*Ctx().DeleteBaseVertex(v, true));
+  });
+  EXPECT_EQ(Candidates(v, ms::EdgeDirection::IN).size(), 1U) << "only U-V, listed by U's call";
+  EXPECT_TRUE(Candidates(v, ms::EdgeDirection::OUT).empty());
+  EXPECT_EQ(Candidates(w, ms::EdgeDirection::IN).size(), 1U);
+  EXPECT_EQ(Candidates(w, ms::EdgeDirection::OUT).size(), 1U);
+  Read([&] {
+    EXPECT_FALSE(Ctx().ResolveVertex(u, ms::View::NEW).has_value());
+    EXPECT_FALSE(Ctx().ResolveVertex(v, ms::View::NEW).has_value());
+    EXPECT_TRUE(Ctx().ResolveEdges(w, ms::EdgeDirection::OUT, ms::View::NEW).empty());
+    EXPECT_TRUE(Ctx().ResolveEdges(w, ms::EdgeDirection::IN, ms::View::NEW).empty());
+    auto *const txn = Ctx().current_diff_txn()->GetTransaction();
+    EXPECT_TRUE(mv::overlay::IsDeleted(txn, Core().edge_overlay_index().Find(uv.gid), ms::View::NEW));
+  });
+}
+
+TEST_F(VersioningBranchWriteTest, ADeletesOnlyVertexDeletesNonDetachOnlyOnceItsVisibleEdgesAreGone) {
+  auto const a = CreateMainVertex({}, {});
+  auto const c = CreateMainVertex({}, {});
+  auto const b1 = CreateMainVertex({}, {});
+  auto const b2 = CreateMainVertex({}, {});
+  CreateMainEdge(a, b1, "E");
+  CreateMainEdge(a, b2, "E");
+  CreateMainEdge(c, b2, "E");
+  Fork();
+  Write([&] { EXPECT_TRUE(*Ctx().DeleteBaseVertex(a, true)); });
+  ASSERT_TRUE(HasEntry(b1));
+  ASSERT_FALSE(HasOverlay(b1));
+  Write([&] {
+    EXPECT_EQ(Ctx().DeleteBaseVertex(b2, false).error(), ms::Error::VERTEX_HAS_EDGES) << "C->B2 is still visible";
+    EXPECT_FALSE(HasOverlay(b2)) << "refused before an overlay is made";
+    EXPECT_TRUE(*Ctx().DeleteBaseVertex(b1, false)) << "its only edge is deleted";
+  });
+  Read([&] {
+    EXPECT_FALSE(Ctx().ResolveVertex(b1, ms::View::NEW).has_value());
+    EXPECT_TRUE(Ctx().ResolveVertex(b2, ms::View::NEW).has_value());
+  });
+}
+
+TEST_F(VersioningBranchWriteTest, NonDetachDeleteOfAnOverlayWithANativeInEdgeRefuses) {
+  auto const a = CreateMainVertex({}, {});
+  Fork();
+  WriteAndAbort([&] {
+    auto native = Ctx().CreateNativeVertex();
+    auto anchor = Ctx().EnsureDiffVertex(a);
+    ASSERT_TRUE(anchor.has_value());
+    ASSERT_TRUE(Ctx().current_diff_txn()->CreateEdge(&native, &*anchor, Core().NameToEdgeType("N")).has_value());
+    EXPECT_EQ(Ctx().DeleteBaseVertex(a, false).error(), ms::Error::VERTEX_HAS_EDGES);
+  });
 }
 
 }  // namespace
