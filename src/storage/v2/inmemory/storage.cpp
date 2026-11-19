@@ -1669,7 +1669,14 @@ void InMemoryStorage::InMemoryAccessor::Abort(ProgressCallback const &on_progres
                 index_abort_processor.CollectOnEdgePropertyChange(
                     prop_id, *current->property.value, from_vertex, edge, transaction_.deltas);
 
-                edge->properties.SetProperty(prop_id, *current->property.value);
+#ifdef MG_ENTERPRISE
+                if (IsExplicitNullBeforeImage(current->property.value)) {
+                  edge->properties.SetExplicitNull(prop_id);
+                } else
+#endif
+                {
+                  edge->properties.SetProperty(prop_id, *current->property.value);
+                }
 
                 break;
               }
@@ -1754,7 +1761,14 @@ void InMemoryStorage::InMemoryAccessor::Abort(ProgressCallback const &on_progres
             //  value
             index_abort_processor.CollectOnPropertyChange(current->property.key, *current->property.value, vertex);
             // Setting the correct value
-            vertex->properties.SetProperty(current->property.key, *current->property.value);
+#ifdef MG_ENTERPRISE
+            if (IsExplicitNullBeforeImage(current->property.value)) {
+              vertex->properties.SetExplicitNull(current->property.key);
+            } else
+#endif
+            {
+              vertex->properties.SetProperty(current->property.key, *current->property.value);
+            }
             break;
           }
           case Delta::Action::ADD_IN_EDGE: {
