@@ -32,11 +32,8 @@ import pytest
 MEMGRAPH_HOST = os.environ.get("MEMGRAPH_HOST", "127.0.0.1")
 MEMGRAPH_PORT = int(os.environ.get("MEMGRAPH_PORT", "7687"))
 
-# Written by the *server*, so it must be a path the server can reach — pytest's tmp_path is a path on the machine
-# running the tests, which in CI is the host while Memgraph runs in a container. CI binds MAGE_E2E_SHARED_DIR into
-# that container at the same path on both sides so these tests can read what the server wrote; without it we fall
-# back to /tmp, which works when the server is local. The pid keeps a native run from leaving a file behind that a
-# later containerised run on the same host would compare against.
+# Written by the server, so the path must exist on its side; tests that read the file back need the server local, or
+# MAGE_E2E_SHARED_DIR shared with it at the same path. The `server_files` fixture skips them otherwise.
 SERVER_SHARED_DIR = os.environ.get("MAGE_E2E_SHARED_DIR", "/tmp")
 SERVER_EXPORT_FILE = os.path.join(SERVER_SHARED_DIR, f"mage_export_json_e2e_{os.getpid()}.json")
 
@@ -153,6 +150,16 @@ def without_ids(element):
     return element
 
 
+@pytest.fixture(scope="module")
+def server_files(conn):
+    """Skips a test that inspects export files when the server writes them where this process cannot see."""
+    probe = os.path.join(SERVER_SHARED_DIR, f"mage_export_json_probe_{os.getpid()}.json")
+    execute(conn, f"CALL export.json_data([], [], '{probe}', {{}}) YIELD done RETURN done")
+    if not os.path.exists(probe):
+        pytest.skip("the server's export files are not reachable from the test process")
+    os.remove(probe)
+
+
 def read_server_file(path):
     """Returns the server-written file's text, or None when the server is on a different filesystem."""
     try:
@@ -163,16 +170,10 @@ def read_server_file(path):
 
 
 def require_server_file(path):
-    """Returns the server-written file's text, skipping only where CI has not bound a shared directory.
-
-    When MAGE_E2E_SHARED_DIR is set the server's files are reachable by construction, so an unreadable one is a
-    real failure. Skipping there is what let the file-sink tests report green while covering nothing.
-    """
+    """Returns the server-written file's text; callers use `server_files`, so an unreadable file is a failure."""
     text = read_server_file(path)
     if text is None:
-        if "MAGE_E2E_SHARED_DIR" in os.environ:
-            pytest.fail(f"{path} is unreadable even though MAGE_E2E_SHARED_DIR is bound")
-        pytest.skip(f"{path} is not reachable from the test process (server on another filesystem)")
+        pytest.fail(f"{path} is unreadable although the server's files are reachable")
     return text
 
 
@@ -544,7 +545,7 @@ def test_file_argument_wins_over_stream(conn):
     assert row["nodes"] == 3
 
 
-def test_file_contents_match_the_stream(conn):
+def test_file_contents_match_the_stream(conn, server_files):
     execute(conn, SEED_MIXED)
     export(conn, call=f"export.json_data(ns, rs, '{SERVER_EXPORT_FILE}', {{}})")
     written = require_server_file(SERVER_EXPORT_FILE)
@@ -615,7 +616,7 @@ def test_write_failure_after_open_is_reported(conn):
         export(conn, call=f"export.json_data(ns, rs, '{UNWRITABLE_DEVICE}', {{}})")
 
 
-def test_failed_export_leaves_the_previous_file_intact(conn):
+def test_failed_export_leaves_the_previous_file_intact(conn, server_files):
     # The elements are serialized as they are written, so a failure part-way through must not be able to leave a
     # truncated file behind: the export goes to a temporary that is renamed into place only on success.
     # Removed first: a file another test left behind may belong to the test user, and that one is written in place.
@@ -687,7 +688,7 @@ def test_sinkless_export_still_reports_its_counters(conn):
     assert row["data"] is None, "nothing was retained, so there is no payload to return"
 
 
-def test_successful_export_leaves_no_temporary_behind(conn):
+def test_successful_export_leaves_no_temporary_behind(conn, server_files):
     execute(conn, SEED_MIXED)
     export(conn, call=f"export.json_data(ns, rs, '{SERVER_EXPORT_FILE}', {{}})")
     require_server_file(SERVER_EXPORT_FILE)
@@ -712,7 +713,7 @@ def make_target(path, mode, content="stale"):
     return content
 
 
-def test_export_preserves_the_target_file_mode(conn):
+def test_export_preserves_the_target_file_mode(conn, server_files):
     # The payload goes to a temporary that is renamed over the target, which replaces the target's inode. Without
     # carrying the mode across, an export the operator had restricted would silently widen on every rewrite.
     execute(conn, SEED_MIXED)
@@ -724,7 +725,7 @@ def test_export_preserves_the_target_file_mode(conn):
     assert mode == 0o606, f"the rewrite changed the mode to {oct(mode)}"
 
 
-def test_export_refuses_a_read_only_target(conn):
+def test_export_refuses_a_read_only_target(conn, server_files):
     # Renaming a temporary into place needs write permission on the directory, not on the target, so a read-only
     # target would otherwise be replaced without an error.
     execute(conn, SEED_MIXED)
@@ -736,7 +737,7 @@ def test_export_refuses_a_read_only_target(conn):
     os.remove(SERVER_EXPORT_FILE)
 
 
-def test_export_writes_through_a_symlink(conn):
+def test_export_writes_through_a_symlink(conn, server_files):
     # `latest.json -> dumps/<date>.json` is an ordinary layout; renaming over the link would replace it with a
     # regular file and leave what it pointed at stale.
     real = SERVER_EXPORT_FILE + ".real"
@@ -754,7 +755,7 @@ def test_export_writes_through_a_symlink(conn):
                 os.remove(path)
 
 
-def test_export_creates_the_target_of_a_dangling_symlink(conn):
+def test_export_creates_the_target_of_a_dangling_symlink(conn, server_files):
     # A link to the export that does not exist yet is the first run of the `latest.json` layout.
     real = SERVER_EXPORT_FILE + ".new"
     link = SERVER_EXPORT_FILE + ".link"
@@ -770,7 +771,7 @@ def test_export_creates_the_target_of_a_dangling_symlink(conn):
                 os.remove(path)
 
 
-def test_export_keeps_the_target_owner_and_group(conn):
+def test_export_keeps_the_target_owner_and_group(conn, server_files):
     # Owner and group decide who the mode bits apply to; replacing the file would hand both to the server.
     execute(conn, SEED_MIXED)
     make_target(SERVER_EXPORT_FILE, 0o666)
@@ -784,7 +785,7 @@ def test_export_keeps_the_target_owner_and_group(conn):
     assert (after.st_uid, after.st_gid) == (before.st_uid, before.st_gid)
 
 
-def test_export_into_a_sticky_directory_owned_by_the_target_owner(conn):
+def test_export_into_a_sticky_directory_owned_by_the_target_owner(conn, server_files):
     # Exercises a rename refused by the sticky bit only when the server runs as another user, as it does in CI.
     directory = SERVER_EXPORT_FILE + ".sticky"
     target = os.path.join(directory, "export.json")
@@ -801,7 +802,7 @@ def test_export_into_a_sticky_directory_owned_by_the_target_owner(conn):
         os.rmdir(directory)
 
 
-def test_json_graph_argument_error_leaves_a_hard_linked_target_intact(conn):
+def test_json_graph_argument_error_leaves_a_hard_linked_target_intact(conn, server_files):
     # A hard-linked target is written in place, so nothing may open it before the arguments are known to be valid.
     alias = SERVER_EXPORT_FILE + ".alias"
     execute(conn, SEED_MIXED)
@@ -843,7 +844,7 @@ def has_acl(path):
 
 
 @pytest.mark.skipif(shutil.which("setfacl") is None, reason="needs setfacl")
-def test_export_keeps_the_target_acl(conn):
+def test_export_keeps_the_target_acl(conn, server_files):
     # An ACL lives on the inode, and with one the mode's group bits are its mask, so a replaced file would widen.
     execute(conn, SEED_MIXED)
     make_target(SERVER_EXPORT_FILE, 0o606)
@@ -856,7 +857,7 @@ def test_export_keeps_the_target_acl(conn):
 
 
 @pytest.mark.skipif(shutil.which("setfacl") is None, reason="needs setfacl")
-def test_export_does_not_add_the_directory_default_acl_to_an_existing_target(conn):
+def test_export_does_not_add_the_directory_default_acl_to_an_existing_target(conn, server_files):
     # A new file inherits the directory's default ACL; an existing one without an ACL must not acquire it.
     directory = SERVER_EXPORT_FILE + ".acl"
     target = os.path.join(directory, "export.json")
