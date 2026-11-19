@@ -15,16 +15,27 @@
 
 #include <algorithm>
 #include <iterator>
+#include <map>
+#include <mutex>
+#include <shared_mutex>
 #include <string_view>
+#include <tuple>
 #include <utility>
+#include <vector>
 
 #include "memory/db_arena.hpp"
 #include "storage/v2/edge_ref.hpp"
+#include "storage/v2/mvcc.hpp"
+#include "storage/v2/property_value.hpp"
+#include "storage/v2/transaction.hpp"
 #include "utils/atomic_utils.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
+#include "utils/memory_tracker.hpp"
+#include "utils/on_scope_exit.hpp"
 #include "utils/scheduler.hpp"
 #include "utils/uuid.hpp"
+#include "versioning/overlay_mark_deleted.hpp"
 #include "versioning/overlay_merge.hpp"
 #include "versioning/overlay_state.hpp"
 
@@ -448,6 +459,372 @@ storage::Result<uint64_t> BranchContext::GetPropertySize(const storage::EdgeAcce
   if (read.kind == EdgeRead::Kind::kDirect) return edge.GetPropertySize(key, view);
   return overlay::MergeGetPropertySize(
       overlay::ReadProperty(read.overlay->transaction_, *read.overlay->edge_.ptr, key, view), edge, key);
+}
+
+// ---- Vertex writes
+
+namespace {
+
+using PropertyMap = std::map<storage::PropertyId, storage::PropertyValue>;
+using PropertyChange = std::tuple<storage::PropertyId, storage::PropertyValue, storage::PropertyValue>;
+
+// Main's `branched()` bit is a monotonic hint, so marking an object the branch then does not change is safe.
+template <typename MainObject>
+void MarkBranched(MainObject *main_object) {
+  if (main_object->branched()) return;
+  auto guard = std::unique_lock{main_object->lock};
+  main_object->SetBranched();
+}
+
+// A write of several overlay keys is not atomic. Unless Done() is reached, whether by an error return or an exception,
+// the overlay may be half-written inside the diff transaction, so the transaction is poisoned and must be aborted.
+class PartialWriteGuard {
+ public:
+  explicit PartialWriteGuard(storage::Transaction *txn) : txn_(txn) {}
+
+  PartialWriteGuard(const PartialWriteGuard &) = delete;
+  PartialWriteGuard &operator=(const PartialWriteGuard &) = delete;
+
+  ~PartialWriteGuard() {
+    if (!done_) txn_->has_serialization_error = true;
+  }
+
+  void Done() { done_ = true; }
+
+ private:
+  storage::Transaction *txn_;
+  bool done_{false};
+};
+
+std::string DeletedMessage(storage::Gid gid) {
+  return fmt::format("Cannot modify vertex {}: it was deleted on this branch.", gid.AsUint());
+}
+
+}  // namespace
+
+storage::Result<storage::VertexAccessor> BranchContext::MaterializeOverlay(const storage::VertexAccessor &base_vertex) {
+  // Before the overlay exists, and so before any write of it (reads gate on this bit).
+  MarkBranched(base_vertex.vertex_);
+  auto const gid = base_vertex.Gid();
+  if (auto *existing = overlays().Find(gid).overlay) return OverlayAccessor(existing);
+  // The base's labels, not main's live ones: main may have changed them since fork_ts.
+  auto labels = base_vertex.Labels(storage::View::OLD);
+  if (!labels) return std::unexpected(labels.error());
+  // The overlay index keeps main's Vertex* for the base vertex. It stays valid because main's GC horizon is clamped to
+  // the oldest fork pin (oldest_fork_pin_), so a vertex visible at fork_ts is never freed while the branch lives.
+  return OverlayAccessor(overlays().GetOrCreateOverlay(gid, base_vertex.vertex_, *labels));
+}
+
+storage::Result<storage::VertexAccessor> BranchContext::OverlayForWrite(const storage::VertexAccessor &base_vertex) {
+  DMG_ASSERT(!IsNative(base_vertex), "a native vertex has no overlay.");
+  auto overlay = MaterializeOverlay(base_vertex);
+  if (overlay && Deleted(overlay->vertex_, storage::View::NEW)) return std::unexpected(storage::Error::DELETED_OBJECT);
+  return overlay;
+}
+
+std::expected<storage::VertexAccessor, BranchContext::BranchWriteError> BranchContext::EnsureDiffVertex(
+    storage::Gid gid) {
+  if (!IsBaseCandidateVertex(gid)) {
+    // A native vertex the caller resolved and that is not visible now was deleted on the branch.
+    if (auto native = txn().diff->FindVertex(gid, storage::View::NEW)) return *native;
+    return std::unexpected(BranchWriteError{DeletedMessage(gid)});
+  }
+  auto base_vertex = FindBaseVertex(gid);
+  if (!base_vertex) {
+    return std::unexpected(
+        BranchWriteError{fmt::format("Cannot modify vertex {}: it is not in the branch's base state -- this should be "
+                                     "unreachable (callers resolve a vertex before mutating it).",
+                                     gid.AsUint())});
+  }
+  auto overlay = OverlayForWrite(*base_vertex);
+  if (!overlay) return std::unexpected(BranchWriteError{DeletedMessage(gid)});
+  return *std::move(overlay);
+}
+
+storage::VertexAccessor BranchContext::CreateNativeVertex() {
+  // Plain fetch_add on main's counter, no reservation; CreateVertexEx raises the diff engine's own counter past the gid
+  // before inserting, so the diff engine's index iterators see the new vertex.
+  auto const gid = storage::Gid::FromUint(main().vertex_id_.fetch_add(1, std::memory_order_acq_rel));
+  auto created = static_cast<storage::ReplicationAccessor &>(diff()).CreateVertexEx(gid);
+  MG_ASSERT(created.has_value(),
+            "BranchContext::CreateNativeVertex: gid {} already exists in the diff engine.",
+            gid.AsUint());
+  return *created;
+}
+
+bool BranchContext::PrepareOverlayForWrite(const storage::VertexAccessor &overlay) {
+  auto guard = std::shared_lock{overlay.vertex_->lock};
+  return storage::PrepareForWrite(txn().diff->GetTransaction(), overlay.vertex_);
+}
+
+storage::Result<bool> BranchContext::AddLabel(storage::VertexAccessor &vertex, storage::LabelId label) {
+  if (IsNative(vertex)) return vertex.AddLabel(label);
+  auto overlay = OverlayForWrite(vertex);
+  if (!overlay) return std::unexpected(overlay.error());
+  core_->RecordLabelChange(vertex.Gid());
+  core_->RecordLabelTouched(label);
+  return overlay->AddLabel(label);
+}
+
+storage::Result<bool> BranchContext::RemoveLabel(storage::VertexAccessor &vertex, storage::LabelId label) {
+  if (IsNative(vertex)) return vertex.RemoveLabel(label);
+  auto overlay = OverlayForWrite(vertex);
+  if (!overlay) return std::unexpected(overlay.error());
+  core_->RecordLabelChange(vertex.Gid());
+  core_->RecordLabelTouched(label);
+  return overlay->RemoveLabel(label);
+}
+
+storage::Result<storage::PropertyValue> BranchContext::WriteOverlayProperty(const storage::VertexAccessor &base_vertex,
+                                                                            storage::VertexAccessor &overlay,
+                                                                            storage::PropertyId key,
+                                                                            const storage::PropertyValue &value) {
+  auto *const transaction = txn().diff->GetTransaction();
+  auto old = overlay::ReadProperty(transaction, *overlay.vertex_, key, storage::View::NEW);
+  if (!old) {
+    // Reading the base walks all of main's history of the object after the fork; only a key the overlay holds no entry
+    // for needs it.
+    auto read = base_vertex.GetProperty(key, storage::View::OLD);
+    if (!read) return std::unexpected(read.error());
+    old = std::move(*read);
+  }
+  if (auto written = overlay::WriteProperty(transaction, diff_engine(), overlay.vertex_, key, value); !written) {
+    return std::unexpected(written.error());
+  }
+  return *std::move(old);
+}
+
+template <typename Object>
+storage::Result<storage::PropertyValue> BranchContext::SetPropertyAt(Object &object, storage::PropertyId key,
+                                                                     const storage::PropertyValue &value) {
+  if (IsNative(object)) return object.SetProperty(key, value);
+  auto overlay = OverlayForWrite(object);
+  if (!overlay) return std::unexpected(overlay.error());
+  RecordPropertiesWrite(object);
+  RecordPropertyWrite(object, key);
+  return WriteOverlayProperty(object, *overlay, key, value);
+}
+
+template <typename Object>
+storage::Result<bool> BranchContext::InitPropertiesAt(Object &object, PropertyMap &properties) {
+  if (IsNative(object)) return object.InitProperties(properties);
+  auto overlay = OverlayForWrite(object);
+  if (!overlay) return std::unexpected(overlay.error());
+  auto existing = Properties(object, storage::View::NEW);
+  if (!existing) return std::unexpected(existing.error());
+  if (!existing->empty()) {
+    if (!PrepareOverlayForWrite(*overlay)) return std::unexpected(storage::Error::SERIALIZATION_ERROR);
+    return false;
+  }
+  if (properties.empty()) {
+    if (!PrepareOverlayForWrite(*overlay)) return std::unexpected(storage::Error::SERIALIZATION_ERROR);
+    return true;
+  }
+  RecordPropertiesWrite(object);
+  for (auto const &entry : properties) RecordPropertyWrite(object, entry.first);
+  PartialWriteGuard guard{txn().diff->GetTransaction()};
+  for (auto const &[key, value] : properties) {
+    if (auto written = WriteOverlayProperty(object, *overlay, key, value); !written)
+      return std::unexpected(written.error());
+  }
+  guard.Done();
+  return true;
+}
+
+template <typename Object>
+storage::Result<std::vector<PropertyChange>> BranchContext::UpdatePropertiesAt(Object &object,
+                                                                               PropertyMap &properties) {
+  if (IsNative(object)) return object.UpdateProperties(properties);
+  auto overlay = OverlayForWrite(object);
+  if (!overlay) return std::unexpected(overlay.error());
+  auto existing = Properties(object, storage::View::NEW);
+  if (!existing) return std::unexpected(existing.error());
+  if (properties.empty()) {
+    if (!PrepareOverlayForWrite(*overlay)) return std::unexpected(storage::Error::SERIALIZATION_ERROR);
+    properties = std::move(*existing);
+    return std::vector<PropertyChange>{};
+  }
+  std::vector<PropertyChange> changes;
+  changes.reserve(properties.size());
+  for (auto const &[key, value] : properties) {
+    auto const old = existing->find(key);
+    changes.emplace_back(key, old != existing->end() ? old->second : storage::PropertyValue{}, value);
+  }
+  RecordPropertiesWrite(object);
+  for (auto const &entry : properties) RecordPropertyWrite(object, entry.first);
+  PartialWriteGuard guard{txn().diff->GetTransaction()};
+  for (auto const &[key, value] : properties) {
+    if (auto written = WriteOverlayProperty(object, *overlay, key, value); !written)
+      return std::unexpected(written.error());
+  }
+  guard.Done();
+  // As storage's UpdateProperties: the properties the update left alone come back in the caller's map.
+  for (auto &[key, old_value] : *existing) properties.emplace(key, std::move(old_value));
+  return changes;
+}
+
+template <typename Object>
+storage::Result<PropertyMap> BranchContext::ClearPropertiesAt(Object &object) {
+  if (IsNative(object)) return object.ClearProperties();
+  auto overlay = OverlayForWrite(object);
+  if (!overlay) return std::unexpected(overlay.error());
+  auto existing = Properties(object, storage::View::NEW);
+  if (!existing) return std::unexpected(existing.error());
+  if (existing->empty()) {
+    if (!PrepareOverlayForWrite(*overlay)) return std::unexpected(storage::Error::SERIALIZATION_ERROR);
+    return existing;
+  }
+  RecordPropertiesWrite(object);
+  for (auto const &entry : *existing) RecordPropertyWrite(object, entry.first);
+  PartialWriteGuard guard{txn().diff->GetTransaction()};
+  for (auto const &entry : *existing) {
+    if (auto removed = WriteOverlayProperty(object, *overlay, entry.first, storage::PropertyValue{}); !removed) {
+      return std::unexpected(removed.error());
+    }
+  }
+  guard.Done();
+  return existing;
+}
+
+storage::Result<storage::PropertyValue> BranchContext::SetProperty(storage::VertexAccessor &vertex,
+                                                                   storage::PropertyId key,
+                                                                   const storage::PropertyValue &value) {
+  return SetPropertyAt(vertex, key, value);
+}
+
+storage::Result<bool> BranchContext::InitProperties(storage::VertexAccessor &vertex, PropertyMap &properties) {
+  return InitPropertiesAt(vertex, properties);
+}
+
+storage::Result<std::vector<PropertyChange>> BranchContext::UpdateProperties(storage::VertexAccessor &vertex,
+                                                                             PropertyMap &properties) {
+  return UpdatePropertiesAt(vertex, properties);
+}
+
+storage::Result<PropertyMap> BranchContext::ClearProperties(storage::VertexAccessor &vertex) {
+  return ClearPropertiesAt(vertex);
+}
+
+storage::Result<void> BranchContext::DeleteBaseEdgeOnBranch(const storage::EdgeAccessor &base_edge, ListSide sides) {
+  auto const from = base_edge.FromVertex();
+  auto const to = base_edge.ToVertex();
+  core_->RecordEdgeChange(from.Gid(), storage::EdgeDirection::OUT);
+  core_->RecordEdgeChange(to.Gid(), storage::EdgeDirection::IN);
+  core_->RecordBaseEdgeDeleted(base_edge.Gid());
+  // Without properties_on_edges main's base edge is a bare gid with no object to mark.
+  if (main().config_.salient.items.properties_on_edges) MarkBranched(base_edge.edge_.ptr);
+  // An endpoint gets only a candidate-list entry: no overlay, no label read, no write. The branched bit of each listed
+  // side comes first (an entry implies a branched main vertex).
+  if (sides & kFromSide) MarkBranched(from.vertex_);
+  if (sides & kToSide) MarkBranched(to.vertex_);
+  auto *const edge_overlay = edge_overlays().GetOrCreate(base_edge.Gid(), base_edge.edge_);
+  // Listed before the delete mark, so a visible delete mark is always found from the listed endpoints. The edge overlay
+  // is the only write: no endpoint overlay is touched, so deletes of different edges at one vertex never conflict.
+  ListBaseEdgeDelete(overlays(), from.Gid(), to.Gid(), edge_overlay, sides);
+  // The edge may already be deleted by a transaction committed after this one began: not a broken precondition but a
+  // conflict, which the edge overlay's PrepareForWrite reports. Already deleted by this transaction is a no-op.
+  auto const deleted = overlay::MarkEdgeDeleted(txn().diff->GetTransaction(), edge_overlay);
+  if (!deleted) return std::unexpected(deleted.error());
+  return {};
+}
+
+std::vector<storage::EdgeAccessor> BranchContext::VisibleBaseEdges(const storage::VertexAccessor &base_vertex) {
+  auto const gid = base_vertex.Gid();
+  std::vector<storage::EdgeAccessor> visible;
+  for (auto const direction : {storage::EdgeDirection::OUT, storage::EdgeDirection::IN}) {
+    auto const hidden =
+        ReadHiddenBaseEdges(overlays().FindForExpansion(gid, direction, true).candidates, storage::View::NEW);
+    auto expanded = direction == storage::EdgeDirection::OUT ? base_vertex.OutEdges(storage::View::OLD)
+                                                             : base_vertex.InEdges(storage::View::OLD);
+    // The accessor is a resolved base vertex, so it is visible and not deleted at the fork.
+    DMG_ASSERT(expanded.has_value(), "expanding a base vertex failed.");
+    if (!expanded) continue;
+    for (auto const &edge : expanded->edges) {
+      // A self-loop is in both lists; it was taken as an out-edge.
+      if (direction == storage::EdgeDirection::IN && edge.IsCycle()) continue;
+      if (!hidden.Contains(edge.edge_)) visible.push_back(edge);
+    }
+  }
+  return visible;
+}
+
+storage::Result<bool> BranchContext::DeleteBaseVertex(storage::Gid gid, bool detach) {
+  auto base_vertex = FindBaseVertex(gid);
+  if (!base_vertex) return std::unexpected(storage::Error::NONEXISTENT_OBJECT);
+  if (IsBaseVertexDeleted(*base_vertex, storage::View::NEW)) return false;
+  // The edges the delete marks as deleted, taken before any is.
+  auto const edges = VisibleBaseEdges(*base_vertex);
+  if (!detach) {
+    // As stock DeleteVertex: refuse before anything is materialized or written.
+    if (!edges.empty()) return std::unexpected(storage::Error::VERTEX_HAS_EDGES);
+    if (auto existing = ReadOverlay(gid)) {
+      for (auto const direction : {storage::EdgeDirection::OUT, storage::EdgeDirection::IN}) {
+        if (!ReadOverlayNatives(existing->vertex_, direction, storage::View::NEW).empty()) {
+          return std::unexpected(storage::Error::VERTEX_HAS_EDGES);
+        }
+      }
+    }
+  }
+  // MaterializeOverlay sets the branched bit before RecordVertexDeleted publishes the any-deleted flag, and the delete
+  // mark comes last: every read that can see it is gated on the filter.
+  auto overlay = MaterializeOverlay(*base_vertex);
+  if (!overlay) return std::unexpected(overlay.error());
+  // The side of `e` that is not this vertex's. A self-loop is this vertex's on both sides, so neither is listed.
+  auto const other_side = [gid](const storage::EdgeAccessor &e) -> ListSide {
+    bool const from_me = e.FromVertex().Gid() == gid;
+    bool const to_me = e.ToVertex().Gid() == gid;
+    if (from_me && to_me) return kNoSide;
+    return from_me ? kToSide : kFromSide;
+  };
+  size_t done = 0;
+  bool vertex_marked = false;
+  // The vertex's own side is left unlisted: once its delete mark lands, every reader that expands it sees it deleted
+  // first. Until then the edges deleted so far must also be found from it, so a failure before the mark lists them.
+  // Deviation from listing both sides: a READ UNCOMMITTED reader sees these edges hidden from the far side but visible
+  // from this vertex until the mark lands, and a READ COMMITTED reader can do the same within one statement if this
+  // transaction commits between its delete-mark check of the vertex and its expansion of it.
+  // Runs with no overlay lock held (the shard lock is taken unique), and cannot throw: an out-of-memory refusal would
+  // leave the own side unlisted for the rest of a transaction that may continue.
+  utils::OnScopeExit const own_side_fallback{[&]() noexcept {
+    if (vertex_marked || done == 0) return;
+    utils::MemoryTracker::OutOfMemoryExceptionBlocker const oom_blocker;
+    for (size_t i = 0; i < done; ++i) {
+      // Absent only if the delete ran out of memory creating it, before anything was written for the edge. An edge
+      // listed but not marked is harmless: readers check the delete mark.
+      auto *const edge_overlay = edge_overlays().Find(edges[i].Gid());
+      if (edge_overlay == nullptr) continue;
+      ListBaseEdgeDelete(overlays(),
+                         edges[i].FromVertex().Gid(),
+                         edges[i].ToVertex().Gid(),
+                         edge_overlay,
+                         ListSide(kBothSides & ~other_side(edges[i])));
+    }
+  }};
+  for (size_t i = 0; i < edges.size(); ++i) {
+    // Counted before the call: the delete mark can land and then throw out of memory, and the fallback must still list
+    // that edge's own side.
+    done = i + 1;
+    if (auto deleted = DeleteBaseEdgeOnBranch(edges[i], detach ? other_side(edges[i]) : kBothSides); !deleted) {
+      return std::unexpected(deleted.error());
+    }
+  }
+  // The only path that deletes a base vertex overlay. Expansion relies on base edges being marked deleted, not on the
+  // endpoint being deleted, so none may remain visible.
+  DMG_ASSERT(std::ranges::all_of(
+                 edges, [&](const storage::EdgeAccessor &e) { return IsBaseEdgeDeleted(e, storage::View::NEW); }),
+             "a base vertex is deleted with a visible base edge.");
+  core_->RecordVertexDeleted(gid);
+  // The overlay's adjacency holds only native edges, which a detach deletes with it.
+  if (detach) {
+    auto deleted = txn().diff->DetachDeleteVertex(&*overlay);
+    if (!deleted) return std::unexpected(deleted.error());
+    vertex_marked = deleted->has_value();
+    return vertex_marked;
+  }
+  auto deleted = txn().diff->DeleteVertex(&*overlay);
+  if (!deleted) return std::unexpected(deleted.error());
+  vertex_marked = deleted->has_value();
+  return vertex_marked;
 }
 
 // ---- Adjacency
