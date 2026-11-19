@@ -20,20 +20,20 @@
 
 namespace memgraph::versioning {
 
-enum class GateError : uint8_t { kDisabled, kNoLicense, kUnsupportedStorageMode, kNotDurable };
+enum class GateError : uint8_t { kDisabled, kNoLicense, kUnsupportedStorageMode };
 
-// Only kCreate needs the license and durable branches; kObserve needs neither.
+// kCreate and kObserve differ only by the license: only kCreate needs it.
 enum class GateOperation : uint8_t { kObserve, kCreate };
 
 struct GateState {
   bool flag_enabled;
   bool enterprise_valid;
   bool is_in_memory_transactional;
-  bool durable;
 };
 
-// Ok when `op` is allowed. First failure wins: flag, license (kCreate only), storage mode,
-// durability (kCreate only). The caller refuses replicas afterwards. Takes primitives to stay free of Storage/license.
+// Ok when `op` is allowed. First failure wins: flag, license (kCreate only), storage mode.
+// Durability is not checked here: startup refuses non-durable settings (ValidateStartupConfig) and they are immutable
+// afterwards. The caller refuses replicas afterwards. Takes primitives to stay free of Storage/license.
 std::expected<void, GateError> CheckVersioningGate(GateOperation op, GateState const &state);
 
 std::string_view GateErrorMessage(GateError err);
@@ -42,8 +42,8 @@ std::string_view GateErrorMessage(GateError err);
 bool BranchesDurable(const storage::Config &config);
 
 // With versioning on, why the startup settings cannot host branches (storage mode, then WAL and recovery on startup),
-// naming the setting; ok when they can. Uses the CREATE BRANCH gate's reasons. Checked once at startup, before any
-// database is built: nothing is read from disk, so it is the same with or without branch files.
+// naming the setting; ok when they can. Storage mode uses the CREATE BRANCH gate's reason. Checked once at startup,
+// before any database is built: nothing is read from disk, so it is the same with or without branch files.
 std::expected<void, std::string> ValidateStartupConfig(storage::StorageMode mode, const storage::Config &config);
 
 }  // namespace memgraph::versioning

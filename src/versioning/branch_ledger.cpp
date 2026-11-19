@@ -47,23 +47,18 @@ uint64_t Unsigned(const nlohmann::json &value, const char *key) {
   return value.get<uint64_t>();
 }
 
-std::optional<uint64_t> OptionalUnsigned(const nlohmann::json &object, const char *key) {
-  const auto it = object.find(key);
-  if (it == object.end()) return std::nullopt;
-  return Unsigned(*it, key);
-}
-
 std::string Serialize(const LedgerContents &contents) {
   nlohmann::json branches = nlohmann::json::array();
   for (const auto &[name, info] : contents.branches) {
-    nlohmann::json b{{"name", name},
-                     {"id", info.id},
-                     // Persist the recorded boundary, not the runtime pin: they differ after startup restore.
-                     {"durable_fork_ts", info.durable_fork_ts},
-                     {"vertex_gid_floor", info.vertex_gid_floor},
-                     {"edge_gid_floor", info.edge_gid_floor}};
-    if (info.created_at_us) b["created_at_us"] = *info.created_at_us;
-    branches.push_back(std::move(b));
+    branches.push_back(nlohmann::json{{"name", name},
+                                      {"id", info.id},
+                                      {"durable_fork_ts", info.fork.durable_fork_ts},
+                                      {"main_durable_ts", info.fork.main_durable_ts},
+                                      {"vertex_gid_floor", info.fork.vertex_gid_floor},
+                                      {"edge_gid_floor", info.fork.edge_gid_floor},
+                                      {"fork_vertex_count", info.fork.counts.vertices},
+                                      {"fork_edge_count", info.fork.counts.edges},
+                                      {"created_at_us", info.created_at_us}});
   }
   const nlohmann::json root{{"version", BranchLedger::kVersion},
                             {"next_branch_id", contents.next_branch_id},
@@ -81,15 +76,16 @@ std::expected<LedgerContents, std::string> Deserialize(std::string_view payload)
     const auto &branches = root.at("branches");
     if (!branches.is_array()) throw std::invalid_argument("'branches' is not an array");
     for (const auto &b : branches) {
-      // fork_ts only holds the durable value until the pin is taken after startup replay.
-      const auto durable_fork_ts = Unsigned(b.at("durable_fork_ts"), "durable_fork_ts");
-      out.branches.push_back({.name = b.at("name").get<std::string>(),
-                              .info = {.id = Unsigned(b.at("id"), "id"),
-                                       .fork_ts = durable_fork_ts,
-                                       .durable_fork_ts = durable_fork_ts,
-                                       .vertex_gid_floor = Unsigned(b.at("vertex_gid_floor"), "vertex_gid_floor"),
-                                       .edge_gid_floor = Unsigned(b.at("edge_gid_floor"), "edge_gid_floor"),
-                                       .created_at_us = OptionalUnsigned(b, "created_at_us")}});
+      out.branches.push_back(
+          {.name = b.at("name").get<std::string>(),
+           .info = {.id = Unsigned(b.at("id"), "id"),
+                    .fork = {.durable_fork_ts = Unsigned(b.at("durable_fork_ts"), "durable_fork_ts"),
+                             .main_durable_ts = Unsigned(b.at("main_durable_ts"), "main_durable_ts"),
+                             .vertex_gid_floor = Unsigned(b.at("vertex_gid_floor"), "vertex_gid_floor"),
+                             .edge_gid_floor = Unsigned(b.at("edge_gid_floor"), "edge_gid_floor"),
+                             .counts = {.vertices = Unsigned(b.at("fork_vertex_count"), "fork_vertex_count"),
+                                        .edges = Unsigned(b.at("fork_edge_count"), "fork_edge_count")}},
+                    .created_at_us = Unsigned(b.at("created_at_us"), "created_at_us")}});
     }
   } catch (const nlohmann::json::exception &e) {
     return std::unexpected(fmt::format("malformed payload: {}", e.what()));
