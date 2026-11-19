@@ -151,7 +151,7 @@ std::vector<std::vector<memgraph::query::TypedValue>> ShowRolePrivileges(
 #ifdef MG_ENTERPRISE
 std::vector<std::vector<memgraph::query::TypedValue>> ShowDatabasePrivileges(
     const std::optional<memgraph::auth::User> &user, const std::optional<memgraph::auth::Roles> &roles) {
-  if (!memgraph::license::global_license_checker.IsEnterpriseValidFast() || (!user && !roles)) {
+  if (!user && !roles) {
     return {};
   }
 

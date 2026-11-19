@@ -2998,6 +2998,44 @@ TYPED_TEST(InterpreterTest, ShowPrivilegesReadsFineGrainedRulesWithoutLicense) {
   EXPECT_TRUE(mentions("Secret"));
 }
 
+// Which role a user holds is part of the same configuration, and reading it is subject to the same
+// rule: readable while unlicensed, not changeable.
+TYPED_TEST(InterpreterTest, ShowRoleForUserReadsTheAssignmentWithoutLicense) {
+  memgraph::license::global_license_checker.EnableTesting();
+  AuthQueryHandlerFixture auth{this->data_directory / "auth"};
+  this->interpreter_context.auth = &auth.handler;
+
+  this->default_interpreter.Interpret("CREATE ROLE analyst");
+  this->default_interpreter.Interpret("CREATE USER alice");
+  this->default_interpreter.Interpret("SET ROLE FOR alice TO analyst");
+
+  const UnlicensedScope unlicensed;
+
+  auto [stream, qid] = this->Prepare("SHOW ROLE FOR alice");
+  this->Pull(&stream);
+
+  EXPECT_TRUE(std::ranges::any_of(stream.GetResults(), [](auto const &row) {
+    return std::ranges::any_of(row,
+                               [](auto const &value) { return value.IsString() && value.ValueString() == "analyst"; });
+  }));
+}
+
+TYPED_TEST(InterpreterTest, ShowDatabasePrivilegesReadsTheGrantsWithoutLicense) {
+  memgraph::license::global_license_checker.EnableTesting();
+  AuthQueryHandlerFixture auth{this->data_directory / "auth"};
+  this->interpreter_context.auth = &auth.handler;
+
+  // The first user is granted access to every database, so there is something to report.
+  this->default_interpreter.Interpret("CREATE USER alice");
+
+  const UnlicensedScope unlicensed;
+
+  auto [stream, qid] = this->Prepare("SHOW DATABASE PRIVILEGES FOR alice");
+  this->Pull(&stream);
+
+  EXPECT_FALSE(stream.GetResults().empty());
+}
+
 TYPED_TEST(InterpreterTest, DenyDatabaseFromWarnsItIsDeprecated) {
   memgraph::license::global_license_checker.EnableTesting();
   AuthQueryHandlerFixture auth{this->data_directory / "auth"};

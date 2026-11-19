@@ -1437,12 +1437,9 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
                                                           AuthQuery::Action::GRANT_PRIVILEGE,
                                                           AuthQuery::Action::DENY_PRIVILEGE,
                                                           AuthQuery::Action::REVOKE_PRIVILEGE,
-                                                          AuthQuery::Action::SHOW_USERS_FOR_ROLE,
-                                                          AuthQuery::Action::SHOW_ROLE_FOR_USER,
                                                           AuthQuery::Action::GRANT_DATABASE_TO_USER,
                                                           AuthQuery::Action::DENY_DATABASE_FROM_USER,
                                                           AuthQuery::Action::REVOKE_DATABASE_FROM_USER,
-                                                          AuthQuery::Action::SHOW_DATABASE_PRIVILEGES,
                                                           AuthQuery::Action::SET_MAIN_DATABASE};
 
   if (!license_check_result && enterprise_only_methods.contains(auth_query->action_)) {
