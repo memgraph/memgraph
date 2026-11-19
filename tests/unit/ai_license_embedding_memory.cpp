@@ -14,13 +14,15 @@
 
 #include <gtest/gtest.h>
 
+#include <fmt/format.h>
+
 #include <algorithm>
 #include <atomic>
 #include <cstdint>
 #include <filesystem>
-#include <functional>
 #include <latch>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <utility>
 #include <vector>
@@ -63,6 +65,18 @@ constexpr int kNumVerticesBig = 6000;
 constexpr int64_t kOneMiB = 1 << 20;
 #endif
 constexpr auto kNoHandler = nullptr;
+
+/// Puts the pass flag back, so an arm that throws cannot decide how every test after it is planned.
+struct FlagScope {
+  FlagScope() = default;
+  FlagScope(FlagScope const &) = delete;
+  FlagScope &operator=(FlagScope const &) = delete;
+
+  ~FlagScope() { FLAGS_query_cache_properties = held_; }
+
+ private:
+  bool held_{FLAGS_query_cache_properties};
+};
 
 memgraph::storage::Config MakeConfig(
     const std::filesystem::path &dir,
@@ -310,23 +324,42 @@ TEST_F(AiLicenseEmbeddingTest, Variant1Lazy_OnePassAnswersWhatTheLookupsDid) {
   constexpr int kDim = 8;
   QueryEnv env{data_dir_, "t13", 14, kDim};
 
-  // Two properties are what earn the pass for a value a projection keeps.
-  const std::string query = "MATCH (n) WITH n.emb AS e, n.rank AS r RETURN e ORDER BY e";
+  // Two properties are what earn the pass for a value a projection keeps. The alias differs per
+  // arm because one interpreter caches a plan under the query's text, so arms spelled the same way
+  // would both run whichever plan was planned first.
+  const auto query = [](std::string_view alias) {
+    return fmt::format("MATCH (n) WITH n.emb AS {0}, n.rank AS r RETURN {0} AS e ORDER BY e", alias);
+  };
 
-  const auto with_pass = std::invoke([&] {
-    FLAGS_query_cache_properties = true;
-    return EmbeddingRows(env.faker.Interpret(query));
-  });
-  const auto without_pass = std::invoke([&] {
-    FLAGS_query_cache_properties = false;
-    auto rows = EmbeddingRows(env.faker.Interpret(query));
-    FLAGS_query_cache_properties = true;
-    return rows;
-  });
+  struct Arm {
+    bool pass;
+    std::vector<std::vector<double>> rows;
+    bool planned_a_pass;
+  };
 
-  ASSERT_EQ(with_pass.size(), 14u);
-  for (const auto &row : with_pass) ASSERT_EQ(row.size(), static_cast<size_t>(kDim));
-  EXPECT_EQ(with_pass, without_pass);
+  auto run = [&](bool pass, std::string_view alias) {
+    const auto restore = FlagScope{};
+    FLAGS_query_cache_properties = pass;
+    const auto plan = env.faker.Interpret("EXPLAIN " + query(alias));
+    bool planned_a_pass = false;
+    for (const auto &row : plan.GetResults()) {
+      if (std::string_view{row[0].ValueString()}.find("CacheProperties") != std::string_view::npos) {
+        planned_a_pass = true;
+      }
+    }
+    return Arm{pass, EmbeddingRows(env.faker.Interpret(query(alias))), planned_a_pass};
+  };
+
+  const auto with_pass = run(true, "a");
+  const auto without_pass = run(false, "b");
+
+  // Without this the two arms could run one plan and agree about nothing.
+  ASSERT_TRUE(with_pass.planned_a_pass) << "the arm that should read the properties in one pass did not";
+  ASSERT_FALSE(without_pass.planned_a_pass) << "the arm that should read them one at a time did not";
+
+  ASSERT_EQ(with_pass.rows.size(), 14u);
+  for (const auto &row : with_pass.rows) ASSERT_EQ(row.size(), static_cast<size_t>(kDim));
+  EXPECT_EQ(with_pass.rows, without_pass.rows);
 }
 
 // An UNCOMMITTED SET already updated usearch; a reader (both views, and the writer's own OLD view) must still get
