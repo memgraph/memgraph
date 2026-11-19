@@ -16,6 +16,7 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <array>
 #include <memory>
 #include <vector>
@@ -378,6 +379,8 @@ TEST_F(OwnBatchWrite, AnEdgeTypeIndexScanHidesAnElementOfItsOwnCommand) {
     ASSERT_TRUE(acc->PeriodicCommit(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   acc->Abort();
+  // The edge-type index orders by record address, not by gid.
+  std::ranges::sort(seen);
   EXPECT_EQ(seen, gids);
 }
 
