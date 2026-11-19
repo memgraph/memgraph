@@ -1099,19 +1099,15 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
            utils::IsSubtype(clause, query::Foreach::kType);
   }
 
-  /// Whether a clause's reads and fold branches read View::NEW: one that must see its own earlier rows, every clause
-  /// of a writing CALL body or of an EXISTS branch spliced after a write, and below the root one after a write. At the
-  /// root a read sees earlier clauses through a barrier and View::OLD. Under batching and in a read-only body no
-  /// barrier is planned, so only the folds use it. In a writing body and in such a branch ReadNewThroughout decides
-  /// the views afterwards; the terms here keep the folds planned on the way consistent with it.
+  /// Whether a clause's reads and folds read View::NEW: one that sees its own earlier rows, every clause of a writing
+  /// CALL body or of an EXISTS branch after a write, and below the root one after a write (the root uses a barrier).
   bool ClauseReadsNew(const Clause &clause, bool after_write) const {
     return ReadsNewView(clause) || read_scope_ == ReadScope::kWritingTree || subquery_branch_after_write_ ||
            (read_scope_ != ReadScope::kRoot && after_write);
   }
 
   /// The view of a projection, a CREATE map or a WHEN predicate: View::OLD at the root and in a read-only CALL body,
-  /// unless an EXISTS branch spliced after a write is being planned, which reads View::NEW as its MATCH does
-  /// (ReadNewThroughout sets the same view on the whole branch afterwards).
+  /// except in an EXISTS branch spliced after a write, which reads View::NEW as its MATCH does.
   storage::View ScopeView() const {
     if (subquery_branch_after_write_) return storage::View::NEW;
     return read_scope_ == ReadScope::kRoot || read_scope_ == ReadScope::kReadOnlyTree ? storage::View::OLD
@@ -1399,11 +1395,9 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
     return last;
   }
 
-  /// Consecutive SET items on one variable read it as of the run's start (`SET a.x = a.y, a.y = a.x` swaps): if one
-  /// reads a key an earlier one wrote, a Produce evaluates the run's values first. Its comprehensions are planned
-  /// below the Produce by the caller.
+  /// A SET run reads its variable as of its start (`SET a.x = a.y, a.y = a.x` swaps): a Produce evaluates its values
+  /// first. @p last is `SetRunEnd(clauses, first)`; the caller plans the run's comprehensions below the Produce.
   // TODO: EXISTS and COUNT in a run's value must be planned below the Produce too, once a SET value accepts them.
-  /// @p last is `SetRunEnd(clauses, first)`.
   std::unique_ptr<LogicalOperator> PreEvaluateSetRun(const std::vector<Clause *> &clauses, size_t first,
                                                      std::optional<size_t> last,
                                                      std::unique_ptr<LogicalOperator> input_op) {

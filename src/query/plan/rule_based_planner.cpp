@@ -1222,9 +1222,8 @@ std::unordered_set<Symbol> CollectPatternComprehensionSymbols(const std::vector<
 
 namespace {
 
-/// Sets View::NEW on every read in a plan: a writing CALL body tree, and an EXISTS branch planned after a write, read
-/// the writes of earlier rows. It runs
-/// before the rewriters, so it lists only what the planner builds; a rewriter copies the view of what it replaces.
+/// Sets View::NEW on every read of a writing CALL body tree or an EXISTS branch planned after a write. It runs before
+/// the rewriters, so it lists only what the planner builds; a rewriter copies the view of what it replaces.
 class ReadNewViewSetter final : public HierarchicalLogicalOperatorVisitor {
  public:
   using HierarchicalLogicalOperatorVisitor::PostVisit;

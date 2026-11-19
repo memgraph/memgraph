@@ -19,9 +19,8 @@
 
 namespace memgraph::query::plan {
 
-/// A filter above a write or a command barrier reads the graph after that write. A scan or join below it reads the
-/// graph before. So a rewriter must not move such a filter below the fence: it hides the collected filters while it
-/// walks the fenced operator's input and restores them afterwards.
+/// A filter above a write or a command barrier reads the graph after it, so a rewriter must not move it below: this
+/// hides the collected filters while the rewriter walks the fenced operator's input, and restores them afterwards.
 class FilterFence {
  public:
   explicit FilterFence(Filters &filters) : filters_(filters) {}
