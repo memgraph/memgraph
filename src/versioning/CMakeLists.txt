@@ -9,6 +9,7 @@ target_sources(mg-versioning
         branch_ledger.hpp
         gate.hpp
         overlay_state.hpp
+        overlay_mark_deleted.hpp
         version_store.hpp
 
         PRIVATE
