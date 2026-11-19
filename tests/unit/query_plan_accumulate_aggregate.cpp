@@ -1706,7 +1706,7 @@ TYPED_TEST(QueryPlanTest, CachePropertiesWholeGroupDeniedIsNull) {
   EXPECT_TRUE(results[0][1].IsNull());
 }
 
-TYPED_TEST(QueryPlanTest, CachePropertiesWholeGroupDeniedNeverReadsTheRecord) {
+TYPED_TEST(QueryPlanTest, CachePropertiesWholeGroupDeniedOnADeletedVertexRaises) {
   auto storage_dba = this->db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());
   auto label = dba.NameToLabel("Person");
@@ -1730,15 +1730,93 @@ TYPED_TEST(QueryPlanTest, CachePropertiesWholeGroupDeniedNeverReadsTheRecord) {
       NEXPR("ssn", IDENT("cached_ssn")->MapTo(cached_ssn_sym))->MapTo(symbol_table.CreateSymbol("ssn_ne", true));
   auto produce = MakeProduce(cache, ssn_ne);
 
-  // The row's record is already deleted. A read the caller was never allowed to make must not be
-  // what reports that, so a wholly denied group answers Null without reaching the record.
+  // The row's record is already deleted, and a property rule must not hide that: the group raises
+  // as it does for a caller without property rules.
   memgraph::tests::StubPropertyFGAChecker<memgraph::query::DbAccessor> checker(&dba, {{"Person", "ssn"}});
   auto context = MakeContext(this->storage, symbol_table, &dba);
   context.auth_checker = &checker;
-  auto results = CollectProduce(*produce, &context);
-  ASSERT_EQ(results.size(), 1);
-  ASSERT_EQ(results[0].size(), 1);
-  EXPECT_TRUE(results[0][0].IsNull());
+  EXPECT_THROW(CollectProduce(*produce, &context), QueryRuntimeException);
+}
+
+// A single lookup of a denied property on a vertex deleted in this command raises, as an allowed one does.
+TYPED_TEST(QueryPlanTest, DeniedPropertyLookupOnADeletedVertexRaises) {
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
+  memgraph::query::DbAccessor dba(storage_dba.get());
+  auto label = dba.NameToLabel("Person");
+  auto prop_name = dba.NameToProperty("name");
+  auto prop_ssn = dba.NameToProperty("ssn");
+
+  auto v = dba.InsertVertex();
+  ASSERT_TRUE(v.AddLabel(label).has_value());
+  ASSERT_TRUE(v.SetProperty(prop_name, memgraph::storage::PropertyValue("Alice")).has_value());
+  ASSERT_TRUE(v.SetProperty(prop_ssn, memgraph::storage::PropertyValue("secret")).has_value());
+  dba.AdvanceCommand();
+  ASSERT_TRUE(dba.RemoveVertex(&v).has_value());
+
+  memgraph::tests::StubPropertyFGAChecker<memgraph::query::DbAccessor> checker(&dba, {{"Person", "ssn"}});
+  auto lookup = [&](memgraph::storage::PropertyId prop) {
+    SymbolTable symbol_table;
+    auto n = MakeScanAll(this->storage, symbol_table, "n");
+    auto output =
+        NEXPR("p", PROPERTY_LOOKUP(dba, IDENT("n")->MapTo(n.sym_), prop))->MapTo(symbol_table.CreateSymbol("p", true));
+    auto context = MakeContext(this->storage, symbol_table, &dba);
+    context.auth_checker = &checker;
+    return CollectProduce(*MakeProduce(n.op_, output), &context);
+  };
+  EXPECT_THROW(lookup(prop_name), QueryRuntimeException);
+  EXPECT_THROW(lookup(prop_ssn), QueryRuntimeException);
+}
+
+// At View::OLD a vertex deleted in this command is still there: a group and a lookup mask the denied property.
+TYPED_TEST(QueryPlanTest, PropertyReadsAtOldOnAVertexDeletedThisCommandMaskTheDeniedOne) {
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
+  memgraph::query::DbAccessor dba(storage_dba.get());
+  auto label = dba.NameToLabel("Person");
+  auto prop_name = dba.NameToProperty("name");
+  auto prop_ssn = dba.NameToProperty("ssn");
+
+  auto v = dba.InsertVertex();
+  ASSERT_TRUE(v.AddLabel(label).has_value());
+  ASSERT_TRUE(v.SetProperty(prop_name, memgraph::storage::PropertyValue("Alice")).has_value());
+  ASSERT_TRUE(v.SetProperty(prop_ssn, memgraph::storage::PropertyValue("secret")).has_value());
+  dba.AdvanceCommand();
+  ASSERT_TRUE(dba.RemoveVertex(&v).has_value());
+
+  memgraph::tests::StubPropertyFGAChecker<memgraph::query::DbAccessor> checker(&dba, {{"Person", "ssn"}});
+  {
+    SymbolTable symbol_table;
+    auto n = MakeScanAll(this->storage, symbol_table, "n");
+    auto cached_name_sym = symbol_table.CreateSymbol("cached_name", true);
+    auto cached_ssn_sym = symbol_table.CreateSymbol("cached_ssn", true);
+    auto cache = std::make_shared<CacheProperties>(
+        n.op_, n.sym_, std::vector<CachedProperty>{{prop_name, cached_name_sym}, {prop_ssn, cached_ssn_sym}});
+    cache->view_ = memgraph::storage::View::OLD;
+    auto name_ne =
+        NEXPR("name", IDENT("cached_name")->MapTo(cached_name_sym))->MapTo(symbol_table.CreateSymbol("name_ne", true));
+    auto ssn_ne =
+        NEXPR("ssn", IDENT("cached_ssn")->MapTo(cached_ssn_sym))->MapTo(symbol_table.CreateSymbol("ssn_ne", true));
+    auto produce = MakeProduce(cache, name_ne, ssn_ne);
+    produce->view_ = memgraph::storage::View::OLD;
+    auto context = MakeContext(this->storage, symbol_table, &dba);
+    context.auth_checker = &checker;
+    auto results = CollectProduce(*produce, &context);
+    ASSERT_EQ(results.size(), 1);
+    EXPECT_EQ(results[0][0].ValueString(), "Alice");
+    EXPECT_TRUE(results[0][1].IsNull());
+  }
+  for (auto [prop, expected] : {std::pair{prop_name, true}, std::pair{prop_ssn, false}}) {
+    SymbolTable symbol_table;
+    auto n = MakeScanAll(this->storage, symbol_table, "n");
+    auto output =
+        NEXPR("p", PROPERTY_LOOKUP(dba, IDENT("n")->MapTo(n.sym_), prop))->MapTo(symbol_table.CreateSymbol("p", true));
+    auto produce = MakeProduce(n.op_, output);
+    produce->view_ = memgraph::storage::View::OLD;
+    auto context = MakeContext(this->storage, symbol_table, &dba);
+    context.auth_checker = &checker;
+    auto results = CollectProduce(*produce, &context);
+    ASSERT_EQ(results.size(), 1);
+    EXPECT_EQ(results[0][0].IsNull(), !expected);
+  }
 }
 
 // A relationship's permissions come from its type, which a deleted relationship still answers, so
