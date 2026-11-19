@@ -246,6 +246,23 @@ void WaitForShutdownSignal(const std::function<void()> &shutdown_fun) {
   shutdown_fun();
 }
 
+// Points users at Memgraph Agent: how to run it when it is installed (the Docker images ship it), otherwise where to
+// get it. Matches the hint mgconsole shows on startup.
+std::string MgAgentStartupMessage() {
+  constexpr std::string_view kDescription = "Memgraph Agent (mgagent), an AI-powered terminal assistant for Memgraph";
+  auto const *path = std::getenv("PATH");
+  if (!memgraph::utils::FindExecutableInPath("mgagent", path ? path : "")) {
+    return fmt::format("Try {}: https://memgraph.com/download#memgraph-agent", kDescription);
+  }
+  // The images set this for telemetry; there mgagent runs inside the container, next to this server.
+  auto const *telemetry_id = std::getenv("MEMGRAPH_TELEMETRY_ID");
+  if (telemetry_id && std::string_view{telemetry_id} == "DOCKER") {
+    return fmt::format("{}, is installed in this image. Try it with: docker exec -it <container> mgagent",
+                       kDescription);
+  }
+  return fmt::format("{}, is installed. Try it by running: mgagent", kDescription);
+}
+
 // Cleans all folders and files that aren't necessary anymore
 void CleanDataDir(std::filesystem::path const &data_directory) {
   // Clean tmp folders from the data directory
@@ -471,6 +488,7 @@ int main(int argc, char **argv) {
   }
   std::cout << "You are running Memgraph v" << gflags::VersionString() << std::endl;
   std::cout << "To get started with Memgraph, visit https://memgr.ph/start" << std::endl;
+  std::cout << MgAgentStartupMessage() << std::endl;
 
   // Logged as an error as well as printed: once the process reaches the limit, the allocator can no longer return
   // memory to the OS and resident memory only grows, and the log is what reaches log collectors.

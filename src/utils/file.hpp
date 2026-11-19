@@ -128,6 +128,13 @@ bool RenamePath(const std::filesystem::path &src, const std::filesystem::path &d
 /// Checks if process has read access to the file.
 bool HasReadAccess(const std::filesystem::path &path);
 
+/// Looks for the program `name` in each directory of `search_path`, a colon-separated list such as $PATH, and returns
+/// the first regular file this process may execute. Empty entries are skipped rather than taken to mean the current
+/// directory, and a `name` containing '/' is never found.
+///
+/// @throw std::bad_alloc
+std::optional<std::filesystem::path> FindExecutableInPath(std::string_view name, std::string_view search_path);
+
 /// Buffer size used for `InputFile` and `OutputFile` implementations. Using
 /// system calls is very expensive and we can't afford to call either `read` or
 /// `write` for each of our (very small) logical reads/writes. Because of that,

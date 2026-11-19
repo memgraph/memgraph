@@ -1465,6 +1465,75 @@ TYPED_TEST(OutputFileNoSpaceTest, HandleIsReusableAfterFailure) {
   EXPECT_EQ(content, "kept");
 }
 
+class FindExecutableInPathTest : public ::testing::Test {
+ protected:
+  void SetUp() override {
+    test_dir_ = fs::temp_directory_path() / "MG_test_find_executable_in_path";
+    fs::remove_all(test_dir_);
+    fs::create_directories(first_ / "subdir");
+    fs::create_directories(second_);
+  }
+
+  void TearDown() override { fs::remove_all(test_dir_); }
+
+  static void MakeFile(fs::path const &path, fs::perms perms) {
+    std::ofstream{path} << "#!/bin/sh\n";
+    fs::permissions(path, perms);
+  }
+
+  std::string SearchPath(std::initializer_list<fs::path> dirs) const {
+    std::string result;
+    for (auto const &dir : dirs) {
+      if (!result.empty()) result += ':';
+      result += dir.string();
+    }
+    return result;
+  }
+
+  fs::path test_dir_;
+  fs::path first_ = fs::temp_directory_path() / "MG_test_find_executable_in_path" / "first";
+  fs::path second_ = fs::temp_directory_path() / "MG_test_find_executable_in_path" / "second";
+};
+
+TEST_F(FindExecutableInPathTest, FindsExecutable) {
+  MakeFile(second_ / "tool", fs::perms::owner_all);
+  EXPECT_EQ(memgraph::utils::FindExecutableInPath("tool", SearchPath({first_, second_})), second_ / "tool");
+}
+
+TEST_F(FindExecutableInPathTest, FirstMatchWins) {
+  MakeFile(first_ / "tool", fs::perms::owner_all);
+  MakeFile(second_ / "tool", fs::perms::owner_all);
+  EXPECT_EQ(memgraph::utils::FindExecutableInPath("tool", SearchPath({first_, second_})), first_ / "tool");
+}
+
+TEST_F(FindExecutableInPathTest, SkipsNonExecutableFile) {
+  MakeFile(first_ / "tool", fs::perms::owner_read | fs::perms::owner_write);
+  MakeFile(second_ / "tool", fs::perms::owner_all);
+  EXPECT_EQ(memgraph::utils::FindExecutableInPath("tool", SearchPath({first_, second_})), second_ / "tool");
+}
+
+TEST_F(FindExecutableInPathTest, SkipsDirectory) {
+  // A directory has the execute bit, but isn't a program.
+  EXPECT_EQ(memgraph::utils::FindExecutableInPath("subdir", SearchPath({first_})), std::nullopt);
+}
+
+TEST_F(FindExecutableInPathTest, NotFound) {
+  EXPECT_EQ(memgraph::utils::FindExecutableInPath("tool", SearchPath({first_, second_})), std::nullopt);
+  EXPECT_EQ(memgraph::utils::FindExecutableInPath("tool", ""), std::nullopt);
+  EXPECT_EQ(memgraph::utils::FindExecutableInPath("tool", test_dir_.string() + "/missing"), std::nullopt);
+}
+
+TEST_F(FindExecutableInPathTest, IgnoresEmptyEntries) {
+  MakeFile(second_ / "tool", fs::perms::owner_all);
+  EXPECT_EQ(memgraph::utils::FindExecutableInPath("tool", "::" + second_.string() + ":"), second_ / "tool");
+}
+
+TEST_F(FindExecutableInPathTest, RejectsNamesWithSlash) {
+  MakeFile(first_ / "subdir" / "tool", fs::perms::owner_all);
+  EXPECT_EQ(memgraph::utils::FindExecutableInPath("subdir/tool", SearchPath({first_})), std::nullopt);
+  EXPECT_EQ(memgraph::utils::FindExecutableInPath("", SearchPath({first_})), std::nullopt);
+}
+
 TYPED_TEST(OutputFileNoSpaceTest, WriteCrashesByDefault) {
   ASSERT_DEATH(
       {
