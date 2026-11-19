@@ -385,12 +385,33 @@ GRANT_SALARY = "GRANT READ {salary} ON NODES CONTAINING LABELS :Employee TO ROLE
 WEAK_DENY_SALARY = "WEAK DENY READ {salary} ON NODES CONTAINING LABELS :Employee TO ROLE "
 
 
-def test_role_merge_grant_overrides_weak_deny():
-    result = run_with_roles(
-        [("worker", [WEAK_DENY_SALARY + "worker;"]), ("ceo", [GRANT_SALARY + "ceo;"])],
-        SALARY,
-    )
+@pytest.mark.parametrize("reverse", [False, True])
+def test_role_merge_grant_overrides_weak_deny(reverse):
+    roles = [("worker", [WEAK_DENY_SALARY + "worker;"]), ("ceo", [GRANT_SALARY + "ceo;"])]
+    result = run_with_roles(roles[::-1] if reverse else roles, SALARY)
     assert result == [(50000,)]
+
+
+@pytest.mark.parametrize(
+    "deny, grant, query, expected",
+    [
+        (
+            "WEAK DENY READ ON NODES CONTAINING LABELS :Employee TO ROLE worker;",
+            "GRANT READ ON NODES CONTAINING LABELS :Employee TO ROLE ceo;",
+            "MATCH (n:Employee) RETURN n.name;",
+            [("Alice",)],
+        ),
+        (
+            "WEAK DENY READ ON EDGES OF TYPE :WORKS_AT TO ROLE worker;",
+            "GRANT READ ON EDGES OF TYPE :WORKS_AT TO ROLE ceo;",
+            "MATCH ()-[r:WORKS_AT]->() RETURN r.start_date;",
+            [("2020-01-01",)],
+        ),
+    ],
+)
+def test_role_merge_grant_overrides_weak_deny_on_entities(deny, grant, query, expected):
+    assert run_with_roles([("worker", [deny])], query) == []
+    assert run_with_roles([("worker", [deny]), ("ceo", [grant])], query) == expected
 
 
 def test_role_merge_strong_deny_beats_grant_over_weak_deny():
