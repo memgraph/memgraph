@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <span>
 
+#include "storage/v2/indices/batch_timestamps.hpp"
 #include "storage/v2/vertex.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 
@@ -79,7 +80,7 @@ struct LabelIndexActiveIndices {
 
   virtual uint64_t ApproximateVertexCount(LabelId label) const = 0;
 
-  virtual void AbortEntries(LabelIndexAbortableInfo const &, uint64_t start_timestamp) = 0;
+  virtual void AbortEntries(LabelIndexAbortableInfo const &, BatchTimestamps const &batch) = 0;
 
   virtual auto GetAbortProcessor() const -> LabelIndexAbortProcessor = 0;
 };

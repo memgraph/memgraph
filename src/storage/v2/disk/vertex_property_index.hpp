@@ -34,7 +34,7 @@ class DiskVertexPropertyIndex : public VertexPropertyIndex {
     std::vector<PropertyId> ListIndices(uint64_t start_timestamp) const override;
 
     auto GetAbortProcessor() const -> AbortProcessor override;
-    void AbortEntries(AbortableInfo const &info, uint64_t start_timestamp) override;
+    void AbortEntries(AbortableInfo const &info, BatchTimestamps const &batch) override;
   };
 
   void DropGraphClearIndices() override;

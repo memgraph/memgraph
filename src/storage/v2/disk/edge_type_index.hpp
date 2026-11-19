@@ -31,7 +31,7 @@ class DiskEdgeTypeIndex : public EdgeTypeIndex {
     void UpdateOnEdgeCreation(Vertex *from, Vertex *to, EdgeRef edge_ref, EdgeTypeId edge_type,
                               const Transaction &tx) override;
 
-    void AbortEntries(AbortableInfo const &info, uint64_t exact_start_timestamp) override {}
+    void AbortEntries(AbortableInfo const &info, BatchTimestamps const &batch) override {}
 
     auto GetAbortProcessor() const -> AbortProcessor override;
   };

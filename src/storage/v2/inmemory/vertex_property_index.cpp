@@ -473,14 +473,16 @@ VertexPropertyIndex::AbortProcessor InMemoryVertexPropertyIndex::ActiveIndices::
 }
 
 void InMemoryVertexPropertyIndex::ActiveIndices::AbortEntries(VertexPropertyIndex::AbortableInfo const &info,
-                                                              uint64_t start_timestamp) {
+                                                              BatchTimestamps const &batch) {
   for (auto const &[property, vertices] : info) {
     auto const it = index_container_->indices_.find(property);
     DMG_ASSERT(it != index_container_->indices_.end());
 
     auto acc = it->second->skip_list_.access();
     for (auto const &[value, vertex] : vertices) {
-      acc.remove(Entry{.value = value, .vertex = vertex, .timestamp = start_timestamp});
+      RemoveBatchEntries(acc, batch, [&](uint64_t timestamp) {
+        return Entry{.value = value, .vertex = vertex, .timestamp = timestamp};
+      });
     }
   }
 }

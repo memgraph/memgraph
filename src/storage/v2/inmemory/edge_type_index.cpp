@@ -305,7 +305,7 @@ uint64_t InMemoryEdgeTypeIndex::ActiveIndices::ApproximateEdgeCount(EdgeTypeId e
 }
 
 void InMemoryEdgeTypeIndex::ActiveIndices::AbortEntries(EdgeTypeIndex::AbortableInfo const &info,
-                                                        uint64_t exact_start_timestamp) {
+                                                        BatchTimestamps const &batch) {
   for (auto const &[edge_type, edges] : info) {
     auto const it = index_container_->indices_.find(edge_type);
     DMG_ASSERT(it != index_container_->indices_.end());
@@ -313,8 +313,9 @@ void InMemoryEdgeTypeIndex::ActiveIndices::AbortEntries(EdgeTypeIndex::Abortable
     auto &index_storage = it->second;
     auto acc = index_storage->skip_list_.access();
     for (const auto &[from_vertex, to_vertex, edge] : edges) {
-      acc.remove(Entry{
-          .from_vertex = from_vertex, .to_vertex = to_vertex, .edge = edge.ptr, .timestamp = exact_start_timestamp});
+      RemoveBatchEntries(acc, batch, [&](uint64_t timestamp) {
+        return Entry{.from_vertex = from_vertex, .to_vertex = to_vertex, .edge = edge.ptr, .timestamp = timestamp};
+      });
     }
   }
 }

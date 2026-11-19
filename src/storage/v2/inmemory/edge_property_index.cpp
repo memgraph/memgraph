@@ -584,7 +584,7 @@ EdgePropertyIndex::AbortProcessor InMemoryEdgePropertyIndex::ActiveIndices::GetA
 }
 
 void InMemoryEdgePropertyIndex::ActiveIndices::AbortEntries(EdgePropertyIndex::AbortableInfo const &info,
-                                                            uint64_t start_timestamp) {
+                                                            BatchTimestamps const &batch) {
   for (auto const &[property, edges] : info) {
     auto const it = index_container_->indices_.find(property);
     DMG_ASSERT(it != index_container_->indices_.end());
@@ -592,7 +592,8 @@ void InMemoryEdgePropertyIndex::ActiveIndices::AbortEntries(EdgePropertyIndex::A
     auto &index_storage = it->second;
     auto acc = index_storage->skip_list_.access();
     for (const auto &[value, from_vertex, to_vertex, edge, type] : edges) {
-      acc.remove(Entry{value, from_vertex, to_vertex, edge, type, start_timestamp});
+      RemoveBatchEntries(
+          acc, batch, [&](uint64_t timestamp) { return Entry{value, from_vertex, to_vertex, edge, type, timestamp}; });
     }
   }
 }

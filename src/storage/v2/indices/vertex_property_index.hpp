@@ -16,6 +16,7 @@
 #include <vector>
 
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/indices/batch_timestamps.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/bound.hpp"
 
@@ -83,7 +84,7 @@ struct VertexPropertyIndexActiveIndices {
 
   virtual auto GetAbortProcessor() const -> VertexPropertyIndexAbortProcessor = 0;
 
-  virtual void AbortEntries(VertexPropertyIndexAbortableInfo const &info, uint64_t start_timestamp) = 0;
+  virtual void AbortEntries(VertexPropertyIndexAbortableInfo const &info, BatchTimestamps const &batch) = 0;
 };
 
 }  // namespace memgraph::storage

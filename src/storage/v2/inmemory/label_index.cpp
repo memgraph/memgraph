@@ -304,13 +304,13 @@ uint64_t InMemoryLabelIndex::RemoveObsoleteEntries(Storage *storage, uint64_t ol
 }
 
 void InMemoryLabelIndex::ActiveIndices::AbortEntries(LabelIndex::AbortableInfo const &info,
-                                                     uint64_t exact_start_timestamp) {
+                                                     BatchTimestamps const &batch) {
   for (auto const &[label, to_remove] : info) {
     auto it = index_container_->find(label);
     DMG_ASSERT(it != index_container_->end());
     auto acc = it->second->skiplist.access();
     for (auto vertex : to_remove) {
-      acc.remove(Entry{vertex, exact_start_timestamp});
+      RemoveBatchEntries(acc, batch, [&](uint64_t timestamp) { return Entry{vertex, timestamp}; });
     }
   }
 }

@@ -44,7 +44,7 @@ class DiskLabelIndex : public storage::LabelIndex {
 
     uint64_t ApproximateVertexCount(LabelId label) const override;
 
-    void AbortEntries(AbortableInfo const &, uint64_t start_timestamp) override;
+    void AbortEntries(AbortableInfo const &, BatchTimestamps const &batch) override;
 
     auto GetAbortProcessor() const -> AbortProcessor override;
 

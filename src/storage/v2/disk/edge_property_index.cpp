@@ -65,7 +65,7 @@ EdgePropertyIndex::AbortProcessor DiskEdgePropertyIndex::ActiveIndices::GetAbort
 }
 
 void DiskEdgePropertyIndex::ActiveIndices::AbortEntries(EdgePropertyIndex::AbortableInfo const &info,
-                                                        uint64_t start_timestamp) {
+                                                        BatchTimestamps const & /*batch*/) {
 
 };
 

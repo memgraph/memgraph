@@ -628,7 +628,7 @@ EdgeTypePropertyIndex::AbortProcessor InMemoryEdgeTypePropertyIndex::ActiveIndic
 }
 
 void InMemoryEdgeTypePropertyIndex::ActiveIndices::AbortEntries(EdgeTypePropertyIndex::AbortableInfo const &info,
-                                                                uint64_t start_timestamp) {
+                                                                BatchTimestamps const &batch) {
   for (auto const &[key, edges] : info) {
     auto it = index_container_->find(key);
     if (it == index_container_->end()) [[unlikely]] {
@@ -637,7 +637,8 @@ void InMemoryEdgeTypePropertyIndex::ActiveIndices::AbortEntries(EdgeTypeProperty
 
     auto acc = it->second->skiplist.access();
     for (const auto &[from_vertex, to_vertex, edge, value] : edges) {
-      acc.remove(Entry{std::move(value), from_vertex, to_vertex, edge, start_timestamp});
+      RemoveBatchEntries(
+          acc, batch, [&](uint64_t timestamp) { return Entry{value, from_vertex, to_vertex, edge, timestamp}; });
     }
   }
 }

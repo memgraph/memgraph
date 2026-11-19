@@ -36,7 +36,7 @@ class DiskEdgeTypePropertyIndex : public EdgeTypePropertyIndex {
     auto ListIndices(uint64_t start_timestamp) const -> std::vector<std::pair<EdgeTypeId, PropertyId>> override;
 
     auto GetAbortProcessor() const -> AbortProcessor override;
-    void AbortEntries(AbortableInfo const &info, uint64_t start_timestamp) override;
+    void AbortEntries(AbortableInfo const &info, BatchTimestamps const &batch) override;
   };
 
   bool DropIndex(EdgeTypeId edge_type, PropertyId property, ActiveIndicesUpdater const &updater);

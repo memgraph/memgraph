@@ -317,16 +317,13 @@ bool Indices::AbortProcessor::IsInterestingEdgeProperty(PropertyId property) con
 
 void Indices::AbortProcessor::Process(Indices &indices, ActiveIndices const &active_indices, uint64_t start_timestamp,
                                       std::span<uint64_t const> stamps, NameIdMapper *name_id_mapper) {
-  auto const abort_at = [&](uint64_t timestamp) {
-    active_indices.label_->AbortEntries(label_.cleanup_collection_, timestamp);
-    active_indices.label_properties_->AbortEntries(label_properties_.cleanup_collection, timestamp);
-    active_indices.edge_type_->AbortEntries(edge_type_.cleanup_collection_, timestamp);
-    active_indices.edge_type_properties_->AbortEntries(edge_type_property_.cleanup_collection_, timestamp);
-    active_indices.edge_property_->AbortEntries(edge_property_.cleanup_collection_, timestamp);
-    active_indices.vertex_property_->AbortEntries(vertex_property_.cleanup_collection_, timestamp);
-  };
-  abort_at(start_timestamp);
-  for (auto const stamp : stamps) abort_at(stamp);
+  auto const batch = BatchTimestamps{.start = start_timestamp, .stamps = stamps};
+  active_indices.label_->AbortEntries(label_.cleanup_collection_, batch);
+  active_indices.label_properties_->AbortEntries(label_properties_.cleanup_collection, batch);
+  active_indices.edge_type_->AbortEntries(edge_type_.cleanup_collection_, batch);
+  active_indices.edge_type_properties_->AbortEntries(edge_type_property_.cleanup_collection_, batch);
+  active_indices.edge_property_->AbortEntries(edge_property_.cleanup_collection_, batch);
+  active_indices.vertex_property_->AbortEntries(vertex_property_.cleanup_collection_, batch);
   indices.vector_index_.AbortEntries(&indices, name_id_mapper, vector_.cleanup_collection);
   indices.vector_edge_index_.AbortEntries(vector_edge_.cleanup_collection);
 }

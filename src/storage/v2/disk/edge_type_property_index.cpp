@@ -70,7 +70,7 @@ EdgeTypePropertyIndex::AbortProcessor DiskEdgeTypePropertyIndex::ActiveIndices::
 }
 
 void DiskEdgeTypePropertyIndex::ActiveIndices::AbortEntries(EdgeTypePropertyIndex::AbortableInfo const &info,
-                                                            uint64_t start_timestamp) {
+                                                            BatchTimestamps const & /*batch*/) {
   spdlog::warn("Edge-type index related operations are not yet supported using on-disk storage mode.");
 };
 

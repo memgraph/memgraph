@@ -246,7 +246,7 @@ class InMemoryVertexPropertyIndex : public VertexPropertyIndex {
                                     Transaction *transaction, size_t num_chunks);
 
     auto GetAbortProcessor() const -> AbortProcessor override;
-    void AbortEntries(AbortableInfo const &info, uint64_t start_timestamp) override;
+    void AbortEntries(AbortableInfo const &info, BatchTimestamps const &batch) override;
 
    private:
     std::shared_ptr<IndicesContainer const> index_container_;

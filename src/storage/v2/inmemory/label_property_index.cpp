@@ -1510,7 +1510,7 @@ auto InMemoryLabelPropertyIndex::GetActiveIndices() const -> std::shared_ptr<Lab
   return std::make_shared<ActiveIndices>(index_.ReadCopy());
 }
 
-void InMemoryLabelPropertyIndex::ActiveIndices::AbortEntries(AbortableInfo const &info, uint64_t start_timestamp) {
+void InMemoryLabelPropertyIndex::ActiveIndices::AbortEntries(AbortableInfo const &info, BatchTimestamps const &batch) {
   // AbortableInfo is keyed by label+properties and spans both index orders.
   // An entry to abort may only exist in ASC, DESC, or both — soft lookup is intentional.
   // `info` is const, so entries are always copied into EntryT.
@@ -1526,7 +1526,7 @@ void InMemoryLabelPropertyIndex::ActiveIndices::AbortEntries(AbortableInfo const
           auto acc = index.skiplist.access();
           // NOLINTNEXTLINE(clang-analyzer-core.uninitialized.Assign): to_remove holds fully-constructed pairs.
           for (auto const &[values, vertex] : to_remove) {
-            acc.remove(EntryT{values, vertex, start_timestamp});
+            RemoveBatchEntries(acc, batch, [&](uint64_t timestamp) { return EntryT{values, vertex, timestamp}; });
           }
         });
       }

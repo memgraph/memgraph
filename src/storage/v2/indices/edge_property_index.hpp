@@ -16,6 +16,7 @@
 
 #include "storage/v2/edge_ref.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/indices/batch_timestamps.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/bound.hpp"
 
@@ -91,7 +92,7 @@ struct EdgePropertyIndexActiveIndices {
 
   virtual auto GetAbortProcessor() const -> EdgePropertyIndexAbortProcessor = 0;
 
-  virtual void AbortEntries(EdgePropertyIndexAbortableInfo const &info, uint64_t start_timestamp) = 0;
+  virtual void AbortEntries(EdgePropertyIndexAbortableInfo const &info, BatchTimestamps const &batch) = 0;
 };
 
 }  // namespace memgraph::storage

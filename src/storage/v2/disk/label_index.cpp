@@ -61,7 +61,7 @@ auto DiskLabelIndex::GetActiveIndices() const -> std::shared_ptr<LabelIndex::Act
   return std::make_shared<DiskLabelIndex::ActiveIndices>(index_);
 }
 
-void DiskLabelIndex::ActiveIndices::AbortEntries(AbortableInfo const &, uint64_t start_timestamp) {}
+void DiskLabelIndex::ActiveIndices::AbortEntries(AbortableInfo const &, BatchTimestamps const & /*batch*/) {}
 
 LabelIndex::AbortProcessor DiskLabelIndex::ActiveIndices::GetAbortProcessor() const { return AbortProcessor{}; }
 
