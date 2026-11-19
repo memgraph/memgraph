@@ -12,6 +12,7 @@
 #pragma once
 
 #include <algorithm>
+#include <array>
 #include <cstdint>
 #include <map>
 #include <memory>
@@ -51,8 +52,33 @@ class CachedPropertySlots {
     return Pool{&slots_[expressions]};
   }
 
+  /// Which slot holds which property of which symbol, as the positions alone, so that two plans
+  /// can be asked whether they would rewrite an expression the same way.
+  using SlotSignature = std::vector<std::array<int64_t, 3>>;
+
+  /// The rewrite of `original` a plan has already made under `signature`, if one has.
+  ///
+  /// Candidate plans share the expressions they were planned from, and all but one are thrown away,
+  /// so a rewrite per plan leaves a copy per plan in a tree that outlives them all. Two plans
+  /// reading the same properties into the same slots rewrite an expression identically, which is
+  /// what lets them hold one rewrite between them.
+  template <class TExpression>
+  [[nodiscard]] auto RewrittenFor(TExpression *original, SlotSignature const &signature) const -> TExpression * {
+    auto const found = rewritten_.find(Rewrite{original, signature});
+    if (found == rewritten_.end()) return nullptr;
+    // A key names one expression rewritten one way, so what it holds came from a slot of this type.
+    return static_cast<TExpression *>(found->second);
+  }
+
+  void Remember(Tree const *original, SlotSignature signature, Tree *rewritten) {
+    rewritten_.emplace(Rewrite{original, std::move(signature)}, rewritten);
+  }
+
  private:
+  using Rewrite = std::pair<Tree const *, SlotSignature>;
+
   std::map<std::vector<Tree const *>, std::vector<Symbol>> slots_;
+  std::map<Rewrite, Tree *> rewritten_;
 };
 
 namespace impl {
@@ -107,6 +133,18 @@ class PropertyLookupCacher final : public ExpressionVisitor<void> {
 
     /// Whether the pass reads anything of this symbol, which is all that looking for a lookup to
     /// replace asks: it decides only whether an expression needs a copy of its own.
+    [[nodiscard]] auto Signature() const -> CachedPropertySlots::SlotSignature {
+      auto signature = CachedPropertySlots::SlotSignature{};
+      for (auto const &group : by_symbol_) {
+        for (auto const &[property, slot] : group.slots) {
+          signature.push_back({static_cast<int64_t>(group.symbol.position()),
+                               static_cast<int64_t>(property.Position()),
+                               static_cast<int64_t>(slot.position())});
+        }
+      }
+      return signature;
+    }
+
     [[nodiscard]] auto Holds(Symbol const &symbol) const -> bool {
       return std::ranges::find(by_symbol_, symbol, &SymbolSlots::symbol) != by_symbol_.end();
     }
@@ -187,6 +225,9 @@ class PropertyLookupCacher final : public ExpressionVisitor<void> {
   }
 
   void SetCachedSlots(CachedSlots cached) { cached_ = std::move(cached); }
+
+  /// What two plans must agree on before one can read the other's rewrite of an expression.
+  [[nodiscard]] auto SlotSignature() const -> CachedPropertySlots::SlotSignature { return cached_.Signature(); }
 
   /// Whether this expression holds a lookup replacing would swap, asked before it writes. Only an
   /// expression it would change needs a copy of its own.
@@ -433,13 +474,21 @@ class CachePropertiesRewriter final : public HierarchicalLogicalOperatorVisitor 
     auto groups = MakeGroups(cacher, worthwhile, *input, pool);
     if (groups.empty()) return;
 
-    // Candidate plans share the expressions they were planned from, so a phase below writes to this
-    // plan's own copy. One left alone stays shared, since copying it would duplicate all it holds,
-    // down to a whole subquery, for every candidate.
-    for_each_expression([this, &cacher](auto &expression) {
-      if (cacher.HasALookupToReplace(expression)) expression = expression->Clone(ast_storage_);
+    // Candidate plans share the expressions they were planned from, so replacing writes to a copy.
+    // One expression nothing would change stays shared, since copying it would duplicate all it
+    // holds, down to a whole subquery, for every candidate.
+    auto const signature = cacher.SlotSignature();
+    for_each_expression([this, &cacher, &signature](auto &expression) {
+      if (!cacher.HasALookupToReplace(expression)) return;
+      if (auto *rewritten = slots_->RewrittenFor(expression, signature)) {
+        expression = rewritten;
+        return;
+      }
+      auto *original = expression;
+      expression = original->Clone(ast_storage_);
+      cacher.Replace(expression);
+      slots_->Remember(original, signature, expression);
     });
-    for_each_expression([&cacher](auto &expression) { cacher.Replace(expression); });
 
     op.set_input(std::make_shared<CacheProperties>(input, std::move(groups)));
   }

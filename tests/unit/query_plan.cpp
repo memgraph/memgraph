@@ -9196,6 +9196,44 @@ TYPED_TEST(TestPlanner, CachePropertiesCopiesOnlyWhatItRewrites) {
 // Every candidate plan the variable-start planner considers is rewritten, and they all share the
 // one symbol table that sizes a frame. The slots a pass writes belong to whichever plan is chosen,
 // so weighing more candidates must not widen the frame.
+// Candidate plans for one query are weighed and all but one thrown away, and the expressions they
+// were planned from are shared. Two that rewrite one expression the same way hold one rewrite of
+// it, so weighing more candidates does not copy the expression again.
+TYPED_TEST(TestPlanner, CachePropertiesRewritesAnExpressionOncePerQuery) {
+  CachePropertiesFlagGuard guard{true};
+  FakeDbAccessor dba;
+  auto prop = PROPERTY_PAIR(dba, "a");
+  auto *query =
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"), EDGE("s"), NODE("o"))),
+                         RETURN(ADD(PROPERTY_LOOKUP(dba, "n", prop), PROPERTY_LOOKUP(dba, "n", prop)), AS("x"))));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto context = MakePlanningContext(&this->storage, &symbol_table, query, &dba);
+  auto query_parts = CollectQueryParts(symbol_table, this->storage, query, false);
+  memgraph::query::Parameters parameters;
+  PostProcessor post_processor{parameters, std::vector<memgraph::query::IndexHint>{}, &dba};
+
+  auto rewritten = std::vector<std::unique_ptr<memgraph::query::plan::LogicalOperator>>{};
+  for (auto plan : MakeLogicalPlanForSingleQuery<VariableStartPlanner>(query_parts, &context)) {
+    if (!plan) continue;
+    rewritten.push_back(post_processor.Rewrite(std::move(plan), &context));
+  }
+
+  ASSERT_GT(rewritten.size(), 1U) << "the pattern must offer the planner a choice for this to prove anything";
+
+  auto projected = std::vector<memgraph::query::NamedExpression *>{};
+  for (auto const &plan : rewritten) {
+    auto *produce = dynamic_cast<Produce *>(plan.get());
+    ASSERT_NE(produce, nullptr) << "expected the projection at the root of every candidate";
+    ASSERT_EQ(produce->named_expressions_.size(), 1U);
+    projected.push_back(produce->named_expressions_[0]);
+  }
+
+  for (auto *named_expression : projected) {
+    EXPECT_EQ(named_expression, projected.front()) << "a candidate rewrote the expression again";
+  }
+}
+
 TYPED_TEST(TestPlanner, CachePropertiesSlotsAreNotPaidForPerCandidatePlan) {
   CachePropertiesFlagGuard guard{true};
   FakeDbAccessor dba;
