@@ -583,8 +583,7 @@ Result<std::optional<std::vector<EdgeAccessor>>> Storage::Accessor::DetachRemain
     // Process edges one-by-one to ensure MVCC checks happen with locks held. Each edge leaves the vector in the
     // same step that creates its delta, so failing part-way (e.g. on a serialization error) leaves the vector and
     // the delta chain consistent: abort restores exactly the edges that were removed.
-    auto const kept_edges = static_cast<std::ptrdiff_t>(erase_begin);
-    while (std::ssize(*edges_attached_to_vertex) > kept_edges) {
+    while (edges_attached_to_vertex->size() > erase_begin) {
       auto const &[edge_type, opposing_vertex, edge_ref] = edges_attached_to_vertex->back();
 
       std::unique_lock<utils::RWSpinLock> guard;
