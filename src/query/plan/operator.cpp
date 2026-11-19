@@ -5943,7 +5943,7 @@ auto CacheProperties::CachePropertiesCursor::AnyPropertyReadable(CachedPropertyG
   // A vertex's permissions are decided from its labels, and reading those takes the record's lock,
   // so the whole group is decided from one read of them.
   auto const labels = PermissionLabels(input.ValueVertex(), self_.view_);
-  // Deleted in an earlier command: the read itself raises, as it does for a user without property rules.
+  // Deleted at this view: the read itself raises, as it does for a user without property rules.
   if (!labels) return labels.error() == storage::Error::DELETED_OBJECT;
   return mark([&](storage::PropertyId property) { return PropertyReadAllowed(checker, *labels, property); });
 }
@@ -5995,9 +5995,8 @@ bool CacheProperties::CachePropertiesCursor::Pull(Frame &frame, ExecutionContext
     }
 
 #ifdef MG_ENTERPRISE
-    // A lookup answers Null for a property the caller may not read without ever reaching the record,
-    // so a group of nothing but denied properties must not read one either: doing so would report a
-    // deleted or missing record for a read the query was never allowed to make.
+    // A group of nothing but denied properties answers Null without reading the record. Only a record live at this
+    // view gets here: one deleted at it has no labels to deny with, and its read raises for every caller.
     if (!AnyPropertyReadable(group, input_value, context.auth_checker)) {
       answer_with_null(group);
       continue;
