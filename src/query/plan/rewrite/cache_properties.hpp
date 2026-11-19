@@ -35,14 +35,14 @@ class CachedPropertySlots {
    public:
     explicit Pool(std::vector<Symbol> *slots) : slots_{slots} {}
 
-    [[nodiscard]] auto Next(SymbolTable &symbol_table) -> Symbol {
-      if (drawn_ == slots_->size()) slots_->push_back(symbol_table.CreateAnonymousSymbol());
-      return (*slots_)[drawn_++];
+    [[nodiscard]] auto NextSlot(SymbolTable &symbol_table) -> Symbol {
+      if (assigned_ == slots_->size()) slots_->push_back(symbol_table.CreateAnonymousSymbol());
+      return (*slots_)[assigned_++];
     }
 
    private:
     std::vector<Symbol> *slots_;
-    size_t drawn_{0};
+    size_t assigned_{0};
   };
 
   /// Keyed on the expressions because a plan holds its own copy of the pointers, so two plans for
@@ -63,24 +63,20 @@ namespace impl {
 /// The phases share one traversal, so a lookup it does not reach is neither counted nor replaced.
 class PropertyLookupCacher final : public ExpressionVisitor<void> {
  public:
-  enum class Phase : uint8_t { GATHER, PROBE, REPLACE };
-
   PropertyLookupCacher(SymbolTable *symbol_table, AstStorage *ast_storage)
       : symbol_table_(symbol_table), ast_storage_(ast_storage) {}
 
   using ExpressionVisitor<void>::Visit;
 
-  void Run(Phase phase, NamedExpression *named_expression) {
-    phase_ = phase;
-    named_expression->Accept(*this);
-  }
+  /// Counts every lookup this expression evaluates for a row.
+  void Gather(NamedExpression *named_expression) { Walk(Phase::GATHER, named_expression); }
 
-  /// As above, for an expression the operator owns outright. By reference because replacing may
-  /// swap the whole of it for an identifier.
-  void Run(Phase phase, Expression *&expression) {
-    phase_ = phase;
-    AcceptExpression(expression);
-  }
+  void Gather(Expression *&expression) { Walk(Phase::GATHER, expression); }
+
+  /// Swaps each lookup a pass reads for an identifier on the slot holding it.
+  void Replace(NamedExpression *named_expression) { Walk(Phase::REPLACE, named_expression); }
+
+  void Replace(Expression *&expression) { Walk(Phase::REPLACE, expression); }
 
   /// The frame slots a pass reads into, by the symbol and the property each holds.
   class CachedSlots {
@@ -182,7 +178,7 @@ class PropertyLookupCacher final : public ExpressionVisitor<void> {
 
   /// The symbols worth a pass of their own, by the standard the reading operator sets. A symbol
   /// whose lookups fall short is left out and keeps reading as it did.
-  [[nodiscard]] auto Candidates(Threshold threshold) const -> std::vector<Gathered> {
+  [[nodiscard]] auto SymbolsWorthOnePass(Threshold threshold) const -> std::vector<Gathered> {
     auto worthwhile = std::vector<Gathered>{};
     for (auto const &gathered : gathered_) {
       if (auto properties = gathered.PropertiesWorthOnePass(threshold)) worthwhile.push_back(*std::move(properties));
@@ -192,22 +188,35 @@ class PropertyLookupCacher final : public ExpressionVisitor<void> {
 
   void SetCachedSlots(CachedSlots cached) { cached_ = std::move(cached); }
 
-  /// Whether the later phases would change anything in this expression, asked before either of
-  /// them writes to it. Only one they would change needs a copy of its own.
-  [[nodiscard]] auto WouldRewrite(NamedExpression *named_expression) -> bool {
-    probe_found_ = false;
-    Run(Phase::PROBE, named_expression);
-    return probe_found_;
+  /// Whether this expression holds a lookup replacing would swap, asked before it writes. Only an
+  /// expression it would change needs a copy of its own.
+  [[nodiscard]] auto HasALookupToReplace(NamedExpression *named_expression) -> bool {
+    found_one_to_replace_ = false;
+    Walk(Phase::FIND, named_expression);
+    return found_one_to_replace_;
   }
 
-  /// As above. By value because probing only reads.
-  [[nodiscard]] auto WouldRewrite(Expression *expression) -> bool {
-    probe_found_ = false;
-    Run(Phase::PROBE, expression);
-    return probe_found_;
+  /// As above. By value because looking does not write.
+  [[nodiscard]] auto HasALookupToReplace(Expression *expression) -> bool {
+    found_one_to_replace_ = false;
+    Walk(Phase::FIND, expression);
+    return found_one_to_replace_;
   }
 
  private:
+  enum class Phase : uint8_t { GATHER, FIND, REPLACE };
+
+  void Walk(Phase phase, NamedExpression *named_expression) {
+    phase_ = phase;
+    named_expression->Accept(*this);
+  }
+
+  /// By reference because replacing may swap the whole of the expression for an identifier.
+  void Walk(Phase phase, Expression *&expression) {
+    phase_ = phase;
+    AcceptExpression(expression);
+  }
+
   void Visit(PropertyLookup &op) override {
     // Only a lookup straight off a symbol qualifies: a nested path such as `n.a.b` reads a map, not the record.
     if (op.expression_->GetTypeInfo() != Identifier::kType) return;
@@ -223,8 +232,8 @@ class PropertyLookupCacher final : public ExpressionVisitor<void> {
         GatheredFor(symbol).Note(op.property_);
         return;
       }
-      case Phase::PROBE: {
-        if (cached_.Holds(symbol_table_->at(*identifier))) probe_found_ = true;
+      case Phase::FIND: {
+        if (cached_.Holds(symbol_table_->at(*identifier))) found_one_to_replace_ = true;
         return;
       }
       case Phase::REPLACE: {
@@ -341,7 +350,7 @@ class PropertyLookupCacher final : public ExpressionVisitor<void> {
   NOT_ENTERED(OrOperator)
 
   // Always evaluated, so entering these would be safe. An entry or an element consumes the value
-  // rather than handing it back, though, so a slot drawn for one adds a write and removes no read.
+  // rather than handing it back, though, so a slot taken for one adds a write and removes no read.
   NOT_ENTERED(ListLiteral)
   NOT_ENTERED(MapLiteral)
 
@@ -353,7 +362,7 @@ class PropertyLookupCacher final : public ExpressionVisitor<void> {
   std::vector<Expression *> prev_expressions_;
   std::vector<Gathered> gathered_;
   CachedSlots cached_;
-  bool probe_found_{false};
+  bool found_one_to_replace_{false};
 };
 
 template <class TDbAccessor>
@@ -399,11 +408,11 @@ class CachePropertiesRewriter final : public HierarchicalLogicalOperatorVisitor 
   }
 
  private:
-  /// Hangs a one-pass read below `op` for the symbols whose lookups clear `threshold`.
+  /// Puts a one-pass read below `op` for each symbol whose lookups clear `threshold`.
   ///
   /// `for_each_expression` reaches each expression the operator evaluates for every row, which a
   /// projection and an aggregation name differently. `pool_key` is asked only once a pass is going
-  /// to be hung, since every operator reaching here would otherwise build one to discard.
+  /// to be put there, since every operator reaching here would otherwise build one to discard.
   template <class TPoolKey, class TForEachExpression>
   void CacheBelow(LogicalOperator &op, TPoolKey pool_key, PropertyLookupCacher::Threshold threshold,
                   TForEachExpression for_each_expression) {
@@ -411,24 +420,24 @@ class CachePropertiesRewriter final : public HierarchicalLogicalOperatorVisitor 
     if (!input) return;
 
     auto cacher = PropertyLookupCacher{symbol_table_, ast_storage_};
-    for_each_expression([&cacher](auto &expression) { cacher.Run(PropertyLookupCacher::Phase::GATHER, expression); });
+    for_each_expression([&cacher](auto &expression) { cacher.Gather(expression); });
 
-    // Before a slot is drawn or the input is walked, because most operators read nothing worth a
+    // Before a slot is taken or the input is walked, because most operators read nothing worth a
     // pass and should pay only for the gathering that says so.
-    auto const candidates = cacher.Candidates(threshold);
-    if (candidates.empty()) return;
+    auto const worthwhile = cacher.SymbolsWorthOnePass(threshold);
+    if (worthwhile.empty()) return;
 
     auto pool = slots_->PoolFor(pool_key());
-    auto groups = DrawGroups(cacher, candidates, *input, pool);
+    auto groups = MakeGroups(cacher, worthwhile, *input, pool);
     if (groups.empty()) return;
 
     // Candidate plans share the expressions they were planned from, so a phase below writes to this
     // plan's own copy. One left alone stays shared, since copying it would duplicate all it holds,
     // down to a whole subquery, for every candidate.
     for_each_expression([this, &cacher](auto &expression) {
-      if (cacher.WouldRewrite(expression)) expression = expression->Clone(ast_storage_);
+      if (cacher.HasALookupToReplace(expression)) expression = expression->Clone(ast_storage_);
     });
-    for_each_expression([&cacher](auto &expression) { cacher.Run(PropertyLookupCacher::Phase::REPLACE, expression); });
+    for_each_expression([&cacher](auto &expression) { cacher.Replace(expression); });
 
     op.set_input(std::make_shared<CacheProperties>(input, std::move(groups)));
   }
@@ -459,23 +468,23 @@ class CachePropertiesRewriter final : public HierarchicalLogicalOperatorVisitor 
     return key;
   }
 
-  /// Takes a frame slot for each property of each of `candidates` the input binds a record for,
+  /// Takes a frame slot for each property of each of `worthwhile` the input binds a record for,
   /// telling the cacher which slot each property was given, and answering with the groups the pass
   /// reads into them.
-  auto DrawGroups(PropertyLookupCacher &cacher, std::vector<PropertyLookupCacher::Gathered> const &candidates,
+  auto MakeGroups(PropertyLookupCacher &cacher, std::vector<PropertyLookupCacher::Gathered> const &worthwhile,
                   LogicalOperator const &input, CachedPropertySlots::Pool &pool) -> std::vector<CachedPropertyGroup> {
     auto const modified = input.ModifiedSymbols(*symbol_table_);
     auto slots = PropertyLookupCacher::CachedSlots{};
     auto groups = std::vector<CachedPropertyGroup>{};
 
-    for (auto const &pass : candidates) {
+    for (auto const &pass : worthwhile) {
       // A symbol the input does not bind is read by something else, so there is no record here to read it from.
       if (std::ranges::find(modified, pass.symbol) == modified.end()) continue;
 
       auto cached_properties = std::vector<CachedProperty>{};
       cached_properties.reserve(pass.properties.size());
       for (auto const &gathered : pass.properties) {
-        auto const output_symbol = pool.Next(*symbol_table_);
+        auto const output_symbol = pool.NextSlot(*symbol_table_);
         slots.Add(pass.symbol, gathered.property, output_symbol);
         cached_properties.push_back(CachedProperty{db_->NameToProperty(gathered.property.name), output_symbol});
       }
