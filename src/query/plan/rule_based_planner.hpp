@@ -693,9 +693,6 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
           if (!patterns && (reads_fresh || !access.writes.symbols.empty())) bound_before = context.bound_symbols;
           // Set by an arm that drains and advances after its own writes.
           bool advanced_after = false;
-          // Set by a CREATE that reads View::NEW because it reads only created entities, unless every one is a node
-          // it creates itself: that node is new on every row, so no later write of another row reaches it.
-          bool create_reads_new = false;
           auto const record_writes = utils::OnScopeExit{[&] {
             if (advanced_after) return;
             pending_writes.Merge(access.writes);
@@ -717,7 +714,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
                 pending_writes.symbols.insert(symbol);
               }
             }
-            if (clause_reads_new || reads_fresh || create_reads_new) pending_new_reads.Merge(access.reads);
+            if (clause_reads_new || reads_fresh) pending_new_reads.Merge(access.reads);
           }};
 
           if (auto *ret = utils::Downcast<Return>(clause)) {
@@ -792,9 +789,13 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
                                             !reads.referenced.empty() && !reads.everything && !reads.nodes &&
                                             reads.symbols.empty() && reads.edge_types.empty() && !reads.any_edge_type &&
                                             std::ranges::all_of(reads.referenced, created);
-            create_reads_new = reads_only_created && !std::ranges::all_of(reads.referenced, [&](const Symbol &symbol) {
-                                 return symbol.type() == Symbol::Type::VERTEX && created_here.contains(symbol);
-                               });
+            // It reads View::NEW, unless every entity it reads is a node it creates itself: that node is new on every
+            // row, so no later write of another row reaches it.
+            if (reads_only_created && !std::ranges::all_of(reads.referenced, [&](const Symbol &symbol) {
+                  return symbol.type() == Symbol::Type::VERTEX && created_here.contains(symbol);
+                })) {
+              pending_new_reads.Merge(access.reads);
+            }
             auto const view = (reads_only_created || clause_reads_new) ? storage::View::NEW : ScopeView();
             auto op = HandleWriteClause(clause, input_op, *context.symbol_table, context.bound_symbols, view);
             MG_ASSERT(op, "Expected write clause to be handled");
