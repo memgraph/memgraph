@@ -78,16 +78,31 @@ class PropertyLookupCacher final : public ExpressionVisitor<void> {
 
   void Replace(Expression *&expression) { Walk(Phase::REPLACE, expression); }
 
+  /// Where the frontend interned a property's name. The AST carries this rather than a name, and
+  /// both the names an `AstStorage` holds and the ids an `EvaluationContext` resolves them to are
+  /// indexed by it, so nothing that has one needs to carry the name as well.
+  class AstPropertyIndex {
+   public:
+    explicit AstPropertyIndex(PropertyIx const &property) : value_{property.ix} {}
+
+    [[nodiscard]] auto Position() const -> size_t { return static_cast<size_t>(value_); }
+
+    friend bool operator==(AstPropertyIndex const &, AstPropertyIndex const &) = default;
+
+   private:
+    int64_t value_;
+  };
+
   /// The frame slots a pass reads into, by the symbol and the property each holds.
   class CachedSlots {
    public:
-    void Add(Symbol const &symbol, PropertyIx const &property, Symbol const &slot) {
+    void Add(Symbol const &symbol, AstPropertyIndex property, Symbol const &slot) {
       auto found = std::ranges::find(by_symbol_, symbol, &SymbolSlots::symbol);
       if (found == by_symbol_.end()) {
         by_symbol_.push_back(SymbolSlots{.symbol = symbol});
         found = std::prev(by_symbol_.end());
       }
-      found->slots.emplace_back(PropertyIndex{property}, slot);
+      found->slots.emplace_back(property, slot);
     }
 
     /// Whether the pass reads anything of this symbol, which is all that looking for a lookup to
@@ -96,28 +111,16 @@ class PropertyLookupCacher final : public ExpressionVisitor<void> {
       return std::ranges::find(by_symbol_, symbol, &SymbolSlots::symbol) != by_symbol_.end();
     }
 
-    [[nodiscard]] auto SlotFor(Symbol const &symbol, PropertyIx const &property) const -> std::optional<Symbol> {
+    [[nodiscard]] auto SlotFor(Symbol const &symbol, AstPropertyIndex property) const -> std::optional<Symbol> {
       auto const found = std::ranges::find(by_symbol_, symbol, &SymbolSlots::symbol);
       if (found == by_symbol_.end()) return std::nullopt;
-      auto const slot = std::ranges::find(found->slots, PropertyIndex{property}, &PropertySlot::first);
+      auto const slot = std::ranges::find(found->slots, property, &PropertySlot::first);
       if (slot == found->slots.end()) return std::nullopt;
       return slot->second;
     }
 
    private:
-    /// A property as the frontend indexes it, and no more. A slot is never found by the name a
-    /// `PropertyIx` also carries, and this mapping is built afresh for every candidate plan.
-    class PropertyIndex {
-     public:
-      explicit PropertyIndex(PropertyIx const &property) : value_{property.ix} {}
-
-      friend bool operator==(PropertyIndex const &, PropertyIndex const &) = default;
-
-     private:
-      int64_t value_;
-    };
-
-    using PropertySlot = std::pair<PropertyIndex, Symbol>;
+    using PropertySlot = std::pair<AstPropertyIndex, Symbol>;
 
     struct SymbolSlots {
       Symbol symbol;
@@ -143,7 +146,7 @@ class PropertyLookupCacher final : public ExpressionVisitor<void> {
   /// A property gathered for a symbol, with how many lookups named it. A pass reads it once
   /// however many asked, so the count says how many reads the pass saves.
   struct GatheredProperty {
-    PropertyIx property;
+    AstPropertyIndex property;
     size_t lookups{0};
 
     void Note() { ++lookups; }
@@ -155,7 +158,7 @@ class PropertyLookupCacher final : public ExpressionVisitor<void> {
     Symbol symbol;
     std::vector<GatheredProperty> properties;
 
-    void Note(PropertyIx const &property) {
+    void Note(AstPropertyIndex property) {
       auto found = std::ranges::find(properties, property, &GatheredProperty::property);
       if (found == properties.end()) {
         properties.push_back(GatheredProperty{.property = property});
@@ -226,7 +229,7 @@ class PropertyLookupCacher final : public ExpressionVisitor<void> {
         // The cursor fills a slot with Null for anything that is not a record, so an untyped symbol
         // would silently lose its properties.
         if (!symbol.BindsOneRecord()) return;
-        GatheredFor(symbol).Note(op.property_);
+        GatheredFor(symbol).Note(AstPropertyIndex{op.property_});
         return;
       }
       case Phase::FIND: {
@@ -234,7 +237,7 @@ class PropertyLookupCacher final : public ExpressionVisitor<void> {
         return;
       }
       case Phase::REPLACE: {
-        auto const slot = cached_.SlotFor(symbol_table_->at(*identifier), op.property_);
+        auto const slot = cached_.SlotFor(symbol_table_->at(*identifier), AstPropertyIndex{op.property_});
         if (!slot) return;
         auto *replacement = ast_storage_->Create<Identifier>(slot->name(), false);
         replacement->MapTo(*slot);
@@ -378,29 +381,25 @@ class CachePropertiesRewriter final : public HierarchicalLogicalOperatorVisitor 
   bool Visit(Once &) override { return true; }
 
   bool PostVisit(Produce &op) override {
-    CacheBelow(
-        op,
-        [&op] { return std::vector<Tree const *>{op.named_expressions_.begin(), op.named_expressions_.end()}; },
-        PropertyLookupCacher::ValueUse::kKept,
-        [&op](auto &&each) {
-          for (auto *&named_expression : op.named_expressions_) each(named_expression);
-        });
+    CacheBelow(op, PropertyLookupCacher::ValueUse::kKept, [&op](auto &&each) {
+      for (auto *&named_expression : op.named_expressions_) each(named_expression);
+    });
     return true;
   }
 
   /// Below the aggregation, which is where the record still is: above it only the grouping keys
   /// and the aggregated values are defined.
   bool PostVisit(Aggregate &op) override {
-    auto const owned = ExpressionsOf(op);
-    if (owned.empty()) return true;
-
-    CacheBelow(
-        op,
-        [&owned] { return PoolKeyOf(owned); },
-        PropertyLookupCacher::ValueUse::kDiscarded,
-        [&owned](auto &&each) {
-          for (auto *expression : owned) each(*expression);
-        });
+    CacheBelow(op, PropertyLookupCacher::ValueUse::kDiscarded, [&op](auto &&each) {
+      // A secondary argument, which a map collection and the graph projections take, is left out
+      // however many lookups it holds. It is reached only once the row's first value is accepted,
+      // so a Null value, or a repeat a distinct aggregation ignores, never evaluates it, and
+      // reading ahead would reach a record such a row never asks about.
+      for (auto &aggregation : op.aggregations_) {
+        if (aggregation.arg1) each(aggregation.arg1);
+      }
+      for (auto *&group_by : op.group_by_) each(group_by);
+    });
     return true;
   }
 
@@ -408,11 +407,11 @@ class CachePropertiesRewriter final : public HierarchicalLogicalOperatorVisitor 
   /// Puts a one-pass read below `op` for each symbol whose lookups save it enough, which is what
   /// `value_use` decides.
   ///
-  /// `for_each_expression` reaches each expression the operator evaluates for every row, which a
-  /// projection and an aggregation name differently. `pool_key` is asked only once a pass is going
-  /// to be put there, since every operator reaching here would otherwise build one to discard.
-  template <class TPoolKey, class TForEachExpression>
-  void CacheBelow(LogicalOperator &op, TPoolKey pool_key, PropertyLookupCacher::ValueUse value_use,
+  /// `for_each_expression` hands each expression the operator evaluates for every row to a visitor,
+  /// which a projection and an aggregation hold differently. Each is passed by reference, since
+  /// both replacing a lookup and copying an expression write back to the operator.
+  template <class TForEachExpression>
+  void CacheBelow(LogicalOperator &op, PropertyLookupCacher::ValueUse value_use,
                   TForEachExpression for_each_expression) {
     auto input = op.input();
     if (!input) return;
@@ -425,7 +424,12 @@ class CachePropertiesRewriter final : public HierarchicalLogicalOperatorVisitor 
     auto const worthwhile = cacher.SymbolsWorthOnePass(value_use);
     if (worthwhile.empty()) return;
 
-    auto pool = slots_->PoolFor(pool_key());
+    // Taken from the expressions themselves, and before any is copied, which is what makes two
+    // plans for one query agree on the operator these slots belong to.
+    auto pool_key = std::vector<Tree const *>{};
+    for_each_expression([&pool_key](auto &expression) { pool_key.push_back(expression); });
+
+    auto pool = slots_->PoolFor(pool_key);
     auto groups = MakeGroups(cacher, worthwhile, *input, pool);
     if (groups.empty()) return;
 
@@ -438,32 +442,6 @@ class CachePropertiesRewriter final : public HierarchicalLogicalOperatorVisitor 
     for_each_expression([&cacher](auto &expression) { cacher.Replace(expression); });
 
     op.set_input(std::make_shared<CacheProperties>(input, std::move(groups)));
-  }
-
-  /// What an aggregation evaluates for every row: what it aggregates, and what it groups by.
-  ///
-  /// A secondary argument, which a map collection and the graph projections take, is left out
-  /// however many lookups it holds. It is reached only once the row's first value is accepted, so a
-  /// Null value, or a repeat a distinct aggregation ignores, never evaluates it, and reading ahead
-  /// would reach a record such a row never asks about.
-  [[nodiscard]] static auto ExpressionsOf(Aggregate &op) -> std::vector<Expression **> {
-    auto owned = std::vector<Expression **>{};
-    for (auto &element : op.aggregations_) {
-      if (element.arg1) owned.push_back(&element.arg1);
-    }
-    for (auto &group_by : op.group_by_) {
-      owned.push_back(&group_by);
-    }
-    return owned;
-  }
-
-  [[nodiscard]] static auto PoolKeyOf(std::vector<Expression **> const &owned) -> std::vector<Tree const *> {
-    auto key = std::vector<Tree const *>{};
-    key.reserve(owned.size());
-    for (auto const *expression : owned) {
-      key.push_back(*expression);
-    }
-    return key;
   }
 
   /// Takes a frame slot for each property of each of `worthwhile` the input binds a record for,
@@ -484,7 +462,8 @@ class CachePropertiesRewriter final : public HierarchicalLogicalOperatorVisitor 
       for (auto const &gathered : pass.properties) {
         auto const output_symbol = pool.NextSlot(*symbol_table_);
         slots.Add(pass.symbol, gathered.property, output_symbol);
-        cached_properties.push_back(CachedProperty{db_->NameToProperty(gathered.property.name), output_symbol});
+        auto const &name = ast_storage_->properties_[gathered.property.Position()];
+        cached_properties.push_back(CachedProperty{db_->NameToProperty(name), output_symbol});
       }
       groups.emplace_back(pass.symbol, std::move(cached_properties));
     }
