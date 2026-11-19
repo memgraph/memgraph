@@ -68,7 +68,8 @@ class PeriodicCommitException : public QueryException {
 };
 
 /**
- * @brief Base class of all query language related exceptions which can be retried.
+ * @brief The query layer's retryable exception type. Storage, requests and the JSONL reader throw
+ * utils::RetryableException (its base) directly.
  * All exceptions derived from this one will be interpreted as TransientError-s,
  * i.e. client will be encouraged to retry the queries.
  */

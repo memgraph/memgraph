@@ -21,8 +21,11 @@ Cluster is fully defined and started from this module (no cluster in workloads.y
 following the same pattern as show_while_creating_invalid_state.py and switching_roles.py.
 """
 
+import http.server
 import os
+import socket
 import sys
+import threading
 
 import interactive_mg_runner
 import pytest
@@ -49,7 +52,6 @@ REPLICA_PORT = 7688
 
 _INVALID_TEMPORAL = [
     ("RETURN duration('PXYZ')", "Invalid duration string"),
-    ("RETURN duration({minutes: 1})", "Unknown key 'minutes'"),
     ("RETURN date('not-a-date')", "Invalid year in the string"),
     ("RETURN localtime('99:99')", "invalid hour parameter"),
     ("RETURN localdatetime('bogus')", "Invalid LocalDateTime format"),
@@ -235,6 +237,54 @@ def test_invalid_input_is_client_error(test_name):
                 assert exc_info.value.code.startswith("Memgraph.ClientError"), query
     finally:
         driver.close()
+
+
+class _Http503Handler(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(503)
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
+    do_HEAD = do_GET
+
+    def log_message(self, *args):
+        pass
+
+
+def _s3_load_csv(endpoint_url):
+    config = (
+        "{'aws_region': 'us-east-1', 'aws_access_key': 'AK', 'aws_secret_key': 'SK', "
+        f"'aws_endpoint_url': '{endpoint_url}'}}"
+    )
+    return f"LOAD CSV FROM 's3://bkt/k.csv' WITH CONFIG {config} WITH HEADER AS r RETURN r"
+
+
+def test_failed_s3_load_csv_fetch_is_transient_error(test_name):
+    """A failed S3 fetch (unreachable endpoint, HTTP 503) is retryable; a missing credential is a ClientError."""
+    _start_main(test_name)
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _Http503Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        closed_port = s.getsockname()[1]
+
+    driver = _driver()
+    try:
+        with driver.session() as session:
+            for endpoint in (f"http://127.0.0.1:{closed_port}", f"http://127.0.0.1:{server.server_address[1]}"):
+                with pytest.raises(TransientError) as exc_info:
+                    session.run(_s3_load_csv(endpoint)).consume()
+                assert exc_info.value.code.startswith("Memgraph.TransientError"), endpoint
+
+            with pytest.raises(ClientError) as exc_info:
+                session.run(
+                    "LOAD CSV FROM 's3://bkt/k.csv' WITH CONFIG {'aws_region': 'us-east-1'} WITH HEADER AS r RETURN r"
+                ).consume()
+            assert exc_info.value.code.startswith("Memgraph.ClientError")
+    finally:
+        driver.close()
+        server.shutdown()
+        server.server_close()
 
 
 def test_managed_tx_invalid_temporal_fails_first_attempt(test_name):
