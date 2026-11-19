@@ -213,7 +213,7 @@ class PrometheusMetrics {
 
   [[nodiscard]] Registration AddDatabase(utils::UUID const &uuid, std::string_view name);
 
-  /// Owns one registration of an instance's metrics and releases it on destruction. Move-only, so
+  /// Owns one registration of one key's metrics and releases it on destruction. Move-only, so
   /// exactly one object releases each registration.
   template <typename Key, typename Handles>
   class HandleRegistration {
@@ -353,8 +353,21 @@ class PrometheusMetrics {
   std::vector<prometheus::ClientMetric::Histogram> ReplicaHistograms(
       HistogramHandle ReplicaMetricHandles::*member) const;
   std::vector<prometheus::ClientMetric::Histogram> StateCheckHistograms() const;
+
+  struct RecoveryTotals {
+    int64_t success{0};
+    int64_t fail{0};
+    int64_t skip{0};
+
+    void Add(ReplicaDatabaseMetricHandles const &h) {
+      success += static_cast<int64_t>(h.replica_recovery_success.Value());
+      fail += static_cast<int64_t>(h.replica_recovery_fail.Value());
+      skip += static_cast<int64_t>(h.replica_recovery_skip.Value());
+    }
+  };
+
   // Live replicas' counts plus those of replicas already released.
-  int64_t ReplicaRecoveries(CounterHandle ReplicaDatabaseMetricHandles::*member) const;
+  RecoveryTotals ReplicaRecoveries() const;
 
   prometheus::Registry registry_;
 
@@ -378,7 +391,7 @@ class PrometheusMetrics {
     std::map<std::pair<uint64_t, std::string>, ReplicaEntry<ReplicaDatabaseMetricHandles>> databases;
     std::unordered_map<std::string, ReplicaEntry<InstanceMetricHandles>> instances;
     // Recovery counts of released registrations, so the totals reported without labels never decrease.
-    std::vector<std::pair<CounterHandle ReplicaDatabaseMetricHandles::*, int64_t>> released_recoveries;
+    RecoveryTotals released_recoveries;
   } replicas_;
 
   std::unordered_map<std::string, int64_t> legacy_json_prev_ha_counter_values_;
