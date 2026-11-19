@@ -44,13 +44,14 @@ TEST(PropertyStoreExplicitNull, TriStateLookup) {
   EXPECT_EQ(store.FindProperty(kQ)->ValueInt(), 7);
 }
 
-TEST(PropertyStoreExplicitNull, PropertiesSkipsExplicitNull) {
+TEST(PropertyStoreExplicitNull, PropertiesReportsExplicitNullAsNull) {
   PropertyStore store;
   store.SetProperty(kQ, PropertyValue{7});
   store.SetExplicitNull(kP);
   auto props = store.Properties();
-  EXPECT_EQ(props.size(), 1);
-  EXPECT_TRUE(props.contains(kQ));
+  ASSERT_EQ(props.size(), 2);
+  EXPECT_TRUE(props.at(kP).IsNull());
+  EXPECT_EQ(props.at(kQ).ValueInt(), 7);
 }
 
 TEST(PropertyStoreExplicitNull, OverwriteNullValueNull) {

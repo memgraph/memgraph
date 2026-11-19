@@ -989,6 +989,11 @@ add_unit_test(storage_v2_index_arming
 )
 
 if (MG_ENTERPRISE)
+add_unit_test(storage_v2_property_store_explicit_null
+    SOURCES storage_v2_property_store_explicit_null.cpp
+    LINK_TARGETS mg::storage
+)
+
 add_unit_test(versioning_historical_access
     SOURCES versioning_historical_access.cpp
     LINK_TARGETS mg::storage storage_test_utils
@@ -1102,11 +1107,6 @@ add_unit_test(storage_v2_property_store
     SOURCES storage_v2_property_store.cpp
     LINK_TARGETS mg::storage value_shapes
     CUSTOM_MAIN
-)
-
-add_unit_test(storage_v2_property_store_explicit_null
-    SOURCES storage_v2_property_store_explicit_null.cpp
-    LINK_TARGETS mg::storage
 )
 
 add_unit_test(storage_v2_value_field
