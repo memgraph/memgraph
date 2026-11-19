@@ -61,17 +61,28 @@ constexpr const std::string_view kProcedureCloneSubgraph = "clone_subgraph";
 constexpr const std::string_view kArgumentsNodes = "nodes";
 constexpr const std::string_view kArgumentsRels = "rels";
 
+/* from/to shared config key */
+constexpr const std::string_view kConfigFailOnErrors = "failOnErrors";
+
 /* from constants */
 constexpr const std::string_view kProcedureFrom = "from";
 constexpr const std::string_view kFromArg1 = "relationship";
 constexpr const std::string_view kFromArg2 = "new_from";
+constexpr const std::string_view kFromArg3 = "config";
 constexpr const std::string_view kFromResult = "relationship";
+constexpr const std::string_view kFromResultInput = "input";
+constexpr const std::string_view kFromResultOutput = "output";
+constexpr const std::string_view kFromResultError = "error";
 
 /* to constants */
 constexpr const std::string_view kProcedureTo = "to";
 constexpr const std::string_view kToArg1 = "relationship";
 constexpr const std::string_view kToArg2 = "new_to";
+constexpr const std::string_view kToArg3 = "config";
 constexpr const std::string_view kToResult = "relationship";
+constexpr const std::string_view kToResultInput = "input";
+constexpr const std::string_view kToResultOutput = "output";
+constexpr const std::string_view kToResultError = "error";
 
 /* rename_label constants */
 constexpr std::string_view kProcedureRenameLabel = "rename_label";
@@ -79,6 +90,7 @@ constexpr std::string_view kRenameLabelArg1 = "old_label";
 constexpr std::string_view kRenameLabelArg2 = "new_label";
 constexpr std::string_view kRenameLabelArg3 = "nodes";
 constexpr std::string_view kRenameLabelResult = "nodes_changed";
+constexpr std::string_view kRenameLabelBatches = "batches";
 
 /* rename_node_property constants */
 constexpr std::string_view kProcedureRenameNodeProperty = "rename_node_property";
@@ -86,6 +98,7 @@ constexpr std::string_view kRenameNodePropertyArg1 = "old_property";
 constexpr std::string_view kRenameNodePropertyArg2 = "new_property";
 constexpr std::string_view kRenameNodePropertyArg3 = "nodes";
 constexpr std::string_view kRenameNodePropertyResult = "nodes_changed";
+constexpr std::string_view kRenameNodePropertyBatches = "batches";
 
 /*collapse constants*/
 constexpr std::string_view kProcedureCollapseNode = "collapse_node";
@@ -93,6 +106,9 @@ constexpr std::string_view kArgumentNodesCollapseNode = "nodes";
 constexpr std::string_view kArgumentTypeCollapseNode = "type";
 constexpr std::string_view kReturnIdCollapseNode = "id_collapsed";
 constexpr std::string_view kReturnRelationshipCollapseNode = "new_relationship";
+constexpr std::string_view kReturnInputCollapseNode = "input";
+constexpr std::string_view kReturnOutputCollapseNode = "output";
+constexpr std::string_view kReturnErrorCollapseNode = "error";
 
 /*invert constants*/
 constexpr std::string_view kProcedureInvert = "invert";
@@ -132,6 +148,7 @@ constexpr std::string_view kRenameTypeArg1 = "oldType";
 constexpr std::string_view kRenameTypeArg2 = "newType";
 constexpr std::string_view kRenameTypeArg3 = "rels";
 constexpr std::string_view kResultRenameType = "relationships_changed";
+constexpr std::string_view kRenameTypeTotal = "total";
 
 /* rename_node_property constants */
 constexpr std::string_view kProcedureRenameTypeProperty = "rename_type_property";
@@ -139,6 +156,7 @@ constexpr std::string_view kRenameTypePropertyArg1 = "old_property";
 constexpr std::string_view kRenameTypePropertyArg2 = "new_property";
 constexpr std::string_view kRenameTypePropertyArg3 = "rels";
 constexpr std::string_view kRenameTypePropertyResult = "relationships_changed";
+constexpr std::string_view kRenameTypePropertyTotal = "total";
 
 /* merge_nodes constants */
 constexpr std::string_view kProcedureMergeNodes = "merge_nodes";

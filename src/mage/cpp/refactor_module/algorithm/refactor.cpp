@@ -12,6 +12,8 @@
 #include "refactor.hpp"
 
 #include <compare>
+#include <cstdint>
+#include <optional>
 #include <string_view>
 #include <unordered_set>
 
@@ -35,13 +37,29 @@ void CopyRelProperties(mgp::Relationship &to, mgp::Relationship const &from) {
 }
 }  // namespace
 
+namespace {
+// The optional trailing config map of from/to. Only a literal boolean true asks
+// for the call to fail; an omitted map, a missing key or any non-boolean value
+// leaves the failure on the produced row.
+bool FailOnErrorsRequested(const mgp::List &arguments) {
+  if (arguments.Size() <= 2) return false;
+  const mgp::Value config = arguments[2];
+  if (!config.IsMap()) return false;
+  const mgp::Value fail_on_errors = config.ValueMap().At(Refactor::kConfigFailOnErrors);
+  return fail_on_errors.IsBool() && fail_on_errors.ValueBool();
+}
+}  // namespace
+
 void Refactor::From(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
   const mgp::MemoryDispatcherGuard guard{memory};
   auto arguments = mgp::List(args);
   const auto record_factory = mgp::RecordFactory(result);
+  const bool fail_on_errors = FailOnErrorsRequested(arguments);
+  std::optional<int64_t> original_id;
   try {
     auto relationship{arguments[0].ValueRelationship()};
     auto const new_from{arguments[1].ValueNode()};
+    original_id = relationship.Id().AsInt();
 
     mgp::Graph graph{memgraph_graph};
     auto new_relationship = graph.CreateRelationship(new_from, relationship.To(), relationship.Type());
@@ -50,10 +68,19 @@ void Refactor::From(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *resul
 
     auto record = record_factory.NewRecord();
     record.Insert(std::string(kFromResult).c_str(), new_relationship);
+    record.Insert(std::string(kFromResultInput).c_str(), *original_id);
+    record.Insert(std::string(kFromResultOutput).c_str(), new_relationship);
 
   } catch (const std::exception &e) {
-    record_factory.SetErrorMessage(e.what());
-    return;
+    if (fail_on_errors) {
+      record_factory.SetErrorMessage(e.what());
+      return;
+    }
+    auto record = record_factory.NewRecord();
+    if (original_id.has_value()) {
+      record.Insert(std::string(kFromResultInput).c_str(), *original_id);
+    }
+    record.Insert(std::string(kFromResultError).c_str(), std::string_view(e.what()));
   }
 }
 
@@ -61,9 +88,12 @@ void Refactor::To(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result,
   const mgp::MemoryDispatcherGuard guard{memory};
   auto arguments = mgp::List(args);
   const auto record_factory = mgp::RecordFactory(result);
+  const bool fail_on_errors = FailOnErrorsRequested(arguments);
+  std::optional<int64_t> original_id;
   try {
     auto relationship{arguments[0].ValueRelationship()};
     auto const new_to{arguments[1].ValueNode()};
+    original_id = relationship.Id().AsInt();
 
     mgp::Graph graph{memgraph_graph};
     auto new_relationship = graph.CreateRelationship(relationship.From(), new_to, relationship.Type());
@@ -72,10 +102,19 @@ void Refactor::To(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result,
 
     auto record = record_factory.NewRecord();
     record.Insert(std::string(kToResult).c_str(), new_relationship);
+    record.Insert(std::string(kToResultInput).c_str(), *original_id);
+    record.Insert(std::string(kToResultOutput).c_str(), new_relationship);
 
   } catch (const std::exception &e) {
-    record_factory.SetErrorMessage(e.what());
-    return;
+    if (fail_on_errors) {
+      record_factory.SetErrorMessage(e.what());
+      return;
+    }
+    auto record = record_factory.NewRecord();
+    if (original_id.has_value()) {
+      record.Insert(std::string(kToResultInput).c_str(), *original_id);
+    }
+    record.Insert(std::string(kToResultError).c_str(), std::string_view(e.what()));
   }
 }
 
@@ -101,6 +140,7 @@ void Refactor::RenameLabel(mgp_list *args, mgp_graph * /*memgraph_graph*/, mgp_r
     }
     auto record = record_factory.NewRecord();
     record.Insert(std::string(kRenameLabelResult).c_str(), nodes_changed);
+    record.Insert(std::string(kRenameLabelBatches).c_str(), nodes_changed);
 
   } catch (const std::exception &e) {
     record_factory.SetErrorMessage(e.what());
@@ -133,6 +173,7 @@ void Refactor::RenameNodeProperty(mgp_list *args, mgp_graph * /*memgraph_graph*/
 
     auto record = record_factory.NewRecord();
     record.Insert(std::string(kRenameLabelResult).c_str(), nodes_changed);
+    record.Insert(std::string(kRenameNodePropertyBatches).c_str(), nodes_changed);
 
   } catch (const std::exception &e) {
     record_factory.SetErrorMessage(e.what());
@@ -496,6 +537,8 @@ void Refactor::Collapse(mgp::Graph &graph, const mgp::Node &node, const std::str
   auto record = record_factory.NewRecord();
   record.Insert(std::string(kReturnIdCollapseNode).c_str(), node.Id().AsInt());
   record.Insert(std::string(kReturnRelationshipCollapseNode).c_str(), new_rel);
+  record.Insert(std::string(kReturnInputCollapseNode).c_str(), node.Id().AsInt());
+  record.Insert(std::string(kReturnOutputCollapseNode).c_str(), new_rel);
   graph.DetachDeleteNode(node);
 }
 
@@ -607,6 +650,7 @@ void Refactor::RenameTypeProperty(mgp_list *args, mgp_graph * /*memgraph_graph*/
 
     auto record = record_factory.NewRecord();
     record.Insert(std::string(kRenameTypePropertyResult).c_str(), rels_changed);
+    record.Insert(std::string(kRenameTypePropertyTotal).c_str(), rels_changed);
 
   } catch (const std::exception &e) {
     record_factory.SetErrorMessage(e.what());
@@ -891,6 +935,7 @@ void Refactor::RenameType(mgp_list *args, mgp_graph *memgraph_graph, mgp_result 
 
     auto record = record_factory.NewRecord();
     record.Insert(std::string(kResultRenameType).c_str(), rels_changed);
+    record.Insert(std::string(kRenameTypeTotal).c_str(), rels_changed);
 
   } catch (const std::exception &e) {
     record_factory.SetErrorMessage(e.what());
