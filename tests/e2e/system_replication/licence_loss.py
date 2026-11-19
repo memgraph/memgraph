@@ -1,0 +1,273 @@
+# Copyright 2026 Memgraph Ltd.
+#
+# Use of this software is governed by the Business Source License
+# included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+# License, and you may not use this file except in compliance with the Business Source License.
+#
+# As of the Change Date specified in that file, in accordance with
+# the Business Source License, use of this software will be governed
+# by the Apache License, Version 2.0, included in the file
+# licenses/APL.txt.
+
+# What a replicated cluster keeps, and what it enforces, when MAIN goes from licensed to unlicensed and back.
+# MAIN is licensed through settings only, so a mismatched organization name makes it unlicensed; replicas keep the
+# licence from the environment.
+
+import os
+import sys
+from pathlib import Path
+from unittest.mock import patch
+from uuid import uuid4
+
+import interactive_mg_runner
+import mgclient
+import pytest
+from common import connect, execute_and_fetch_all, get_data_path, get_logs_path
+from mg_utils import mg_sleep_and_assert
+
+interactive_mg_runner.SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
+interactive_mg_runner.PROJECT_DIR = os.path.normpath(
+    os.path.join(interactive_mg_runner.SCRIPT_DIR, "..", "..", "..", "..")
+)
+interactive_mg_runner.BUILD_DIR = os.path.normpath(os.path.join(interactive_mg_runner.PROJECT_DIR, "build"))
+interactive_mg_runner.MEMGRAPH_BINARY = os.path.normpath(os.path.join(interactive_mg_runner.BUILD_DIR, "memgraph"))
+
+BOLT_PORTS = {"main": 7687, "replica_1": 7688}
+REPLICATION_PORTS = {"replica_1": 10001}
+file = "licence_loss"
+
+LICENSE_KEY = os.environ.get("MEMGRAPH_ENTERPRISE_LICENSE", "")
+ORGANIZATION_NAME = os.environ.get("MEMGRAPH_ORGANIZATION_NAME", "")
+USER = "tester"
+
+pytestmark = pytest.mark.skipif(
+    not (LICENSE_KEY and ORGANIZATION_NAME),
+    reason="needs an enterprise license (MEMGRAPH_ENTERPRISE_LICENSE + MEMGRAPH_ORGANIZATION_NAME)",
+)
+
+
+@pytest.fixture
+def test_name(request):
+    return request.node.name
+
+
+@pytest.fixture(autouse=True)
+def cleanup_after_test():
+    yield
+    interactive_mg_runner.kill_all(keep_directories=False)
+
+
+def instances(test_name: str, main_args=()):
+    return {
+        "replica_1": {
+            "args": [f"--bolt-port={BOLT_PORTS['replica_1']}", "--log-level=TRACE", "--data-recovery-on-startup"],
+            "log_file": f"{get_logs_path(file, test_name)}/replica1.log",
+            "data_directory": f"{get_data_path(file, test_name)}/replica1",
+        },
+        "main": {
+            "args": [
+                f"--bolt-port={BOLT_PORTS['main']}",
+                "--data-recovery-on-startup",
+                "--replication-restore-state-on-startup",
+                *main_args,
+            ],
+            "log_file": f"{get_logs_path(file, test_name)}/main.log",
+            "data_directory": f"{get_data_path(file, test_name)}/main",
+        },
+    }
+
+
+def start_unlicensed(description, name):
+    with patch.dict(os.environ):
+        del os.environ["MEMGRAPH_ENTERPRISE_LICENSE"]
+        del os.environ["MEMGRAPH_ORGANIZATION_NAME"]
+        interactive_mg_runner.start(description, name)
+
+
+def cursor(name, authenticated=True):
+    credentials = (USER, USER) if authenticated else ("", "")
+    return connect(host="localhost", port=BOLT_PORTS[name], username=credentials[0], password=credentials[1]).cursor()
+
+
+def set_organization_name(main_cursor, organization_name):
+    execute_and_fetch_all(main_cursor, f"SET DATABASE SETTING 'organization.name' TO '{organization_name}';")
+
+
+def break_licence(main_cursor):
+    set_organization_name(main_cursor, f"{ORGANIZATION_NAME}-invalid")
+    assert not dict(execute_and_fetch_all(main_cursor, "SHOW LICENSE INFO;"))["is_valid"]
+
+
+def recoveries(test_name):
+    log_dir = Path(interactive_mg_runner.BUILD_DIR, "e2e", "logs", get_logs_path(file, test_name))
+    return sum(log.read_text().count("SystemRecoveryHandler: SUCCESS") for log in log_dir.glob("replica1*.log"))
+
+
+def wait_for_recovery(test_name, before):
+    mg_sleep_and_assert(True, lambda: recoveries(test_name) > before)
+
+
+def node_count(db_cursor, db_name):
+    def func():
+        execute_and_fetch_all(db_cursor, f"USE DATABASE {db_name};")
+        return execute_and_fetch_all(db_cursor, "MATCH (n) RETURN count(n);")[0][0]
+
+    return func
+
+
+def setup_licensed_cluster(description):
+    """Start the replica licensed and MAIN licensed by settings; replicate a tenant with data and an authorized user."""
+    interactive_mg_runner.start(description, "replica_1")
+    start_unlicensed(description, "main")
+    main_cursor = cursor("main", authenticated=False)
+    set_organization_name(main_cursor, ORGANIZATION_NAME)
+    execute_and_fetch_all(main_cursor, f"SET DATABASE SETTING 'enterprise.license' TO '{LICENSE_KEY}';")
+
+    execute_and_fetch_all(
+        cursor("replica_1", authenticated=False),
+        f"SET REPLICATION ROLE TO REPLICA WITH PORT {REPLICATION_PORTS['replica_1']};",
+    )
+    for query in [
+        f"REGISTER REPLICA replica_1 SYNC TO '127.0.0.1:{REPLICATION_PORTS['replica_1']}';",
+        "CREATE DATABASE tenant;",
+        "USE DATABASE tenant;",
+        "UNWIND range(1, 10) AS i CREATE (:Node);",
+        "CREATE ROLE analyst;",
+        f"CREATE USER {USER} IDENTIFIED BY '{USER}';",
+        f"GRANT ALL PRIVILEGES TO {USER};",
+        f"GRANT DATABASE * TO {USER};",
+        f"GRANT READ ON NODES CONTAINING LABELS * TO {USER};",
+    ]:
+        execute_and_fetch_all(main_cursor, query)
+    mg_sleep_and_assert(10, node_count(cursor("replica_1"), "tenant"))
+
+
+def assert_replica_keeps_state():
+    replica_cursor = cursor("replica_1")
+    assert [row[0] for row in execute_and_fetch_all(replica_cursor, "SHOW USERS;")] == [USER]
+    assert [row[0] for row in execute_and_fetch_all(replica_cursor, "SHOW ROLES;")] == ["analyst"]
+    assert node_count(replica_cursor, "tenant")() == 10
+    with pytest.raises(mgclient.Error, match="Authentication failure"):
+        cursor("replica_1", authenticated=False)
+
+
+def test_replica_connecting_to_unlicensed_main_keeps_state(test_name):
+    description = instances(test_name)
+    setup_licensed_cluster(description)
+
+    before = recoveries(test_name)
+    interactive_mg_runner.stop(description, "replica_1")
+    break_licence(cursor("main"))
+    interactive_mg_runner.start(description, "replica_1")
+    wait_for_recovery(test_name, before)
+
+    assert_replica_keeps_state()
+
+
+def test_relicensed_main_replica_in_step_without_write(test_name):
+    description = instances(test_name)
+    setup_licensed_cluster(description)
+
+    before = recoveries(test_name)
+    break_licence(cursor("main"))
+    wait_for_recovery(test_name, before)
+    before = recoveries(test_name)
+    set_organization_name(cursor("main"), ORGANIZATION_NAME)
+    wait_for_recovery(test_name, before)
+
+    assert_replica_keeps_state()
+
+
+def test_fine_grained_rules_not_enforced_without_licence(test_name):
+    description = instances(test_name)
+    setup_licensed_cluster(description)
+    main_cursor = cursor("main")
+    for query in [
+        "USE DATABASE memgraph;",
+        "UNWIND range(1, 3) AS i CREATE (:Node);",
+        "UNWIND range(1, 2) AS i CREATE (:Visible);",
+        "CREATE USER restricted IDENTIFIED BY 'restricted';",
+        "GRANT ALL PRIVILEGES TO restricted;",
+        "GRANT READ ON NODES CONTAINING LABELS :Visible TO restricted;",
+    ]:
+        execute_and_fetch_all(main_cursor, query)
+    count_default_database = "MATCH (n) RETURN count(n);"
+
+    def visible_to_restricted():
+        restricted = connect(host="localhost", port=BOLT_PORTS["main"], username="restricted", password="restricted")
+        return execute_and_fetch_all(restricted.cursor(), count_default_database)[0][0]
+
+    assert visible_to_restricted() == 2
+
+    break_licence(main_cursor)
+
+    assert visible_to_restricted() == 5
+
+
+def test_user_profile_not_enforced_without_licence(test_name):
+    description = instances(test_name)
+    setup_licensed_cluster(description)
+    main_cursor = cursor("main")
+    for query in [
+        "CREATE PROFILE single_session LIMIT sessions 1;",
+        "CREATE USER limited IDENTIFIED BY 'limited';",
+        "SET PROFILE FOR limited TO single_session;",
+    ]:
+        execute_and_fetch_all(main_cursor, query)
+    first = connect(host="localhost", port=BOLT_PORTS["main"], username="limited", password="limited")
+    with pytest.raises(mgclient.Error, match="limit of"):
+        connect(host="localhost", port=BOLT_PORTS["main"], username="limited", password="limited")
+    first.close()
+
+    break_licence(main_cursor)
+
+    first = connect(host="localhost", port=BOLT_PORTS["main"], username="limited", password="limited")
+    second = connect(host="localhost", port=BOLT_PORTS["main"], username="limited", password="limited")
+    assert execute_and_fetch_all(second.cursor(), "RETURN 1;") == [(1,)]
+    second.close()
+    first.close()
+
+
+def test_password_not_masked_in_log_without_licence(test_name):
+    description = instances(test_name)
+    setup_licensed_cluster(description)
+    main_cursor = cursor("main")
+    execute_and_fetch_all(main_cursor, "SET DATABASE SETTING 'log.level' TO 'DEBUG';")
+    log_dir = Path(interactive_mg_runner.BUILD_DIR, "e2e", "logs", get_logs_path(file, test_name))
+
+    def logged(text):
+        return any(text in log.read_text() for log in log_dir.glob("main*.log"))
+
+    masked, unmasked = uuid4().hex, uuid4().hex
+    execute_and_fetch_all(main_cursor, f"CREATE USER masked IDENTIFIED BY '{masked}';")
+    assert not logged(masked)
+
+    break_licence(main_cursor)
+
+    execute_and_fetch_all(main_cursor, f"CREATE USER unmasked IDENTIFIED BY '{unmasked}';")
+    assert logged(unmasked)
+
+
+def test_audit_log_stops_without_licence(test_name):
+    description = instances(test_name, main_args=("--audit-enabled",))
+    setup_licensed_cluster(description)
+    main_cursor = cursor("main")
+    audit_dir = Path(interactive_mg_runner.BUILD_DIR, "e2e", "data", get_data_path(file, test_name), "main", "audit")
+
+    def audited(text):
+        return lambda: any(text in log.read_text() for log in audit_dir.glob("*") if log.is_file())
+
+    execute_and_fetch_all(main_cursor, "RETURN 'audited_licensed';")
+    mg_sleep_and_assert(True, audited("audited_licensed"))
+
+    break_licence(main_cursor)
+    execute_and_fetch_all(main_cursor, "RETURN 'not_audited_unlicensed';")
+    set_organization_name(main_cursor, ORGANIZATION_NAME)
+    execute_and_fetch_all(main_cursor, "RETURN 'audited_relicensed';")
+    mg_sleep_and_assert(True, audited("audited_relicensed"))
+
+    assert not audited("not_audited_unlicensed")()
+
+
+if __name__ == "__main__":
+    sys.exit(pytest.main([__file__, "-rA"]))
