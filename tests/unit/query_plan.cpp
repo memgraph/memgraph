@@ -9481,6 +9481,75 @@ TYPED_TEST(TestPlanner, CachePropertiesLeavesOutAPropertyBehindAShortCircuit) {
   CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectCacheProperties("n", 2), ExpectProduce());
 }
 
+// The filter's pass leaves the property in a slot that every row reaching the projection has
+// filled, so the projection reads that slot rather than the record a second time.
+TYPED_TEST(TestPlanner, CachePropertiesAProjectionReadsASlotAFilterAlreadyFilled) {
+  CachePropertiesFlagGuard guard{true};
+  FakeDbAccessor dba;
+  auto prop = PROPERTY_PAIR(dba, "a");
+  auto *query =
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                         WHERE(AND(GREATER(PROPERTY_LOOKUP(dba, "n", prop), LITERAL(0)),
+                                   LESS(PROPERTY_LOOKUP(dba, "n", prop), LITERAL(10)))),
+                         RETURN(ADD(PROPERTY_LOOKUP(dba, "n", prop), PROPERTY_LOOKUP(dba, "n", prop)), AS("x"))));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+  CheckPlan(
+      planner.plan(), symbol_table, ExpectScanAll(), ExpectCacheProperties("n", 1), ExpectFilter(), ExpectProduce());
+}
+
+// An aggregation keeps no value, so one lookup never earns it a pass. It still reads the slot the
+// filter's pass filled rather than the record.
+TYPED_TEST(TestPlanner, CachePropertiesAnAggregationReadsASlotAFilterAlreadyFilled) {
+  CachePropertiesFlagGuard guard{true};
+  FakeDbAccessor dba;
+  auto prop = PROPERTY_PAIR(dba, "a");
+  auto sum = SUM(PROPERTY_LOOKUP(dba, "n", prop), false);
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                                   WHERE(AND(GREATER(PROPERTY_LOOKUP(dba, "n", prop), LITERAL(0)),
+                                             LESS(PROPERTY_LOOKUP(dba, "n", prop), LITERAL(10)))),
+                                   RETURN(sum, AS("s"))));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto aggr = ExpectAggregate({sum}, {});
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+  CheckPlan(planner.plan(),
+            symbol_table,
+            ExpectScanAll(),
+            ExpectCacheProperties("n", 1),
+            ExpectFilter(),
+            aggr,
+            ExpectProduce());
+
+  // The plan holds its own copy of what it rewrites, so the aggregation to ask is the planned one.
+  auto *aggregate = FindOpOfType<Aggregate>(&planner.plan());
+  ASSERT_NE(aggregate, nullptr) << "expected an Aggregate";
+  ASSERT_EQ(aggregate->aggregations_.size(), 1U);
+  EXPECT_STREQ(aggregate->aggregations_[0].arg1->GetTypeInfo().name, memgraph::query::Identifier::kType.name)
+      << "the aggregation still reads the record";
+}
+
+// One lookup never earns a pass of its own, so the saving here is the read it does not make: the
+// projection returns the slot the filter's pass filled rather than asking the record again.
+TYPED_TEST(TestPlanner, CachePropertiesAProjectionReturnsASlotWithoutAPassOfItsOwn) {
+  CachePropertiesFlagGuard guard{true};
+  FakeDbAccessor dba;
+  auto prop = PROPERTY_PAIR(dba, "a");
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                                   WHERE(AND(GREATER(PROPERTY_LOOKUP(dba, "n", prop), LITERAL(0)),
+                                             LESS(PROPERTY_LOOKUP(dba, "n", prop), LITERAL(10)))),
+                                   RETURN(PROPERTY_LOOKUP(dba, "n", prop), AS("x"))));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+  CheckPlan(
+      planner.plan(), symbol_table, ExpectScanAll(), ExpectCacheProperties("n", 1), ExpectFilter(), ExpectProduce());
+
+  auto *produce = dynamic_cast<Produce *>(&planner.plan());
+  ASSERT_NE(produce, nullptr) << "expected the projection at the root";
+  ASSERT_EQ(produce->named_expressions_.size(), 1U);
+  EXPECT_STREQ(produce->named_expressions_[0]->expression_->GetTypeInfo().name, memgraph::query::Identifier::kType.name)
+      << "the projection still reads the record";
+}
+
 // Two properties earn a projection a pass, counting only the ones every row reads. The second
 // here sits behind a short circuit, leaving one for the pass to read and no read for it to remove.
 TYPED_TEST(TestPlanner, CachePropertiesAProjectionNeedsTwoPropertiesEveryRowReads) {
