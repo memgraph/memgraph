@@ -18,7 +18,6 @@ std::expected<void, GateError> CheckVersioningGate(GateOperation op, GateState c
   if (!state.flag_enabled) return std::unexpected(GateError::kDisabled);
   if (creating && !state.enterprise_valid) return std::unexpected(GateError::kNoLicense);
   if (!state.is_in_memory_transactional) return std::unexpected(GateError::kUnsupportedStorageMode);
-  if (creating && !state.durable) return std::unexpected(GateError::kNotDurable);
   return {};
 }
 
@@ -29,17 +28,21 @@ bool BranchesDurable(const storage::Config &config) {
 }
 
 std::expected<void, std::string> ValidateStartupConfig(storage::StorageMode mode, const storage::Config &config) {
+  constexpr std::string_view kSuffix =
+      " Memgraph does not start with --experimental-enabled=versioning and these settings: change them, or start "
+      "without the flag.";
   const auto error =
       CheckVersioningGate(GateOperation::kCreate,
                           {.flag_enabled = true,
                            .enterprise_valid = true,
-                           .is_in_memory_transactional = mode == storage::StorageMode::IN_MEMORY_TRANSACTIONAL,
-                           .durable = BranchesDurable(config)});
-  if (error) return {};
-  return std::unexpected(
-      std::string{GateErrorMessage(error.error())} +
-      " Memgraph does not start with --experimental-enabled=versioning and these settings: change them, or start "
-      "without the flag.");
+                           .is_in_memory_transactional = mode == storage::StorageMode::IN_MEMORY_TRANSACTIONAL});
+  if (!error) return std::unexpected(std::string{GateErrorMessage(error.error())} + std::string{kSuffix});
+  if (!BranchesDurable(config)) {
+    return std::unexpected(std::string{"Graph versioning requires the WAL (PERIODIC_SNAPSHOT_WITH_WAL) and "
+                                       "--data-recovery-on-startup=true."} +
+                           std::string{kSuffix});
+  }
+  return {};
 }
 
 std::string_view GateErrorMessage(GateError err) {
@@ -53,8 +56,6 @@ std::string_view GateErrorMessage(GateError err) {
     case kUnsupportedStorageMode:
       return "Graph versioning requires IN_MEMORY_TRANSACTIONAL storage mode. It is not available in "
              "IN_MEMORY_ANALYTICAL or ON_DISK_TRANSACTIONAL."sv;
-    case kNotDurable:
-      return "Graph versioning requires the WAL (PERIODIC_SNAPSHOT_WITH_WAL) and --data-recovery-on-startup=true."sv;
   }
   return "unknown"sv;
 }

@@ -12,10 +12,12 @@
 #include <gtest/gtest.h>
 
 #include <fmt/format.h>
+#include <array>
 #include <cstdint>
 #include <expected>
 #include <filesystem>
 #include <memory>
+#include <nlohmann/json.hpp>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -29,19 +31,56 @@
 #include "versioning/branch_ledger.hpp"
 
 namespace fs = std::filesystem;
+using memgraph::versioning::BranchInfo;
 using memgraph::versioning::BranchLedger;
+using memgraph::versioning::ForkPoint;
 using memgraph::versioning::kBranchLedgerKeyPrefix;
 using memgraph::versioning::LedgerContents;
+using memgraph::versioning::ObjectCounts;
+using nlohmann::json;
 
 namespace {
-std::string OneBranch(const std::string &branch, uint64_t next_branch_id = 3) {
-  return fmt::format(R"({{"next_branch_id":{},"branches":[{}]}})", next_branch_id, branch);
+// Every field distinct and derived from `seed`, so a mixed-up field shows.
+ForkPoint ForkAt(uint64_t seed) {
+  return {.durable_fork_ts = seed,
+          .main_durable_ts = seed + 1,
+          .vertex_gid_floor = seed + 2,
+          .edge_gid_floor = seed + 3,
+          .counts = {.vertices = seed + 4, .edges = seed + 5}};
 }
 
-// Prepends the current schema version to a JSON object body.
-std::string Versioned(const std::string &object, uint32_t version = BranchLedger::kVersion) {
-  return fmt::format(R"({{"version":{},{})", version, object.substr(1));
+BranchInfo InfoOf(uint64_t id, uint64_t seed) {
+  return {.id = id, .fork = ForkAt(seed), .created_at_us = 1'700'000'000'000'000 + seed};
 }
+
+// A complete ledger branch, as the ledger writes it.
+json BranchJson(std::string_view name, uint64_t id) {
+  return {{"name", name},
+          {"id", id},
+          {"durable_fork_ts", 10},
+          {"main_durable_ts", 11},
+          {"vertex_gid_floor", 12},
+          {"edge_gid_floor", 13},
+          {"fork_vertex_count", 14},
+          {"fork_edge_count", 15},
+          {"created_at_us", 16}};
+}
+
+constexpr std::array kBranchKeys{"name",
+                                 "id",
+                                 "durable_fork_ts",
+                                 "main_durable_ts",
+                                 "vertex_gid_floor",
+                                 "edge_gid_floor",
+                                 "fork_vertex_count",
+                                 "fork_edge_count",
+                                 "created_at_us"};
+
+std::string Payload(json branches, uint64_t next_branch_id = 3, uint32_t version = BranchLedger::kVersion) {
+  return json{{"version", version}, {"next_branch_id", next_branch_id}, {"branches", std::move(branches)}}.dump();
+}
+
+std::string OneBranch(const json &branch) { return Payload(json::array({branch})); }
 
 std::string KeyOf(const memgraph::utils::UUID &uuid) { return std::string{kBranchLedgerKeyPrefix} + std::string{uuid}; }
 }  // namespace
@@ -75,34 +114,21 @@ TEST_F(BranchLedgerTest, MissingKeyReadsAsNullopt) {
 }
 
 TEST_F(BranchLedgerTest, RoundTrip) {
-  LedgerContents in;
-  in.next_branch_id = 5;
-  in.branches.push_back({"a", {.id = 2, .fork_ts = 10}});
-  in.branches[0].info.vertex_gid_floor = 11;
-  in.branches[0].info.edge_gid_floor = 13;
-  in.branches[0].info.created_at_us = 1'700'000'000'123'456;
-  // The persisted durable_fork_ts is the durable recorded one, not the runtime pin.
-  in.branches.push_back(
-      {"b", {.id = 4, .fork_ts = 100, .durable_fork_ts = 20, .vertex_gid_floor = 1, .edge_gid_floor = 2}});
+  const LedgerContents in{.next_branch_id = 5, .branches = {{"a", InfoOf(2, 10)}, {"b", InfoOf(4, 20)}}};
 
   BranchLedger ledger{*store_, uuid_};
   ASSERT_TRUE(ledger.Write(in).has_value());
   auto res = ledger.Read();
-  ASSERT_TRUE(res.has_value());
-  ASSERT_TRUE(res->has_value());
+  ASSERT_TRUE(res.has_value() && res->has_value());
   const auto &out = **res;
   EXPECT_EQ(out.next_branch_id, 5);
   ASSERT_EQ(out.branches.size(), 2);
-  EXPECT_EQ(out.branches[0].name, "a");
-  EXPECT_EQ(out.branches[0].info.id, 2);
-  EXPECT_EQ(out.branches[0].info.fork_ts, 10);
-  EXPECT_EQ(out.branches[0].info.durable_fork_ts, 10);
-  EXPECT_EQ(out.branches[1].info.fork_ts, 20);
-  EXPECT_EQ(out.branches[1].info.durable_fork_ts, 20);
-  EXPECT_EQ(out.branches[0].info.vertex_gid_floor, 11);
-  EXPECT_EQ(out.branches[0].info.edge_gid_floor, 13);
-  EXPECT_EQ(out.branches[0].info.created_at_us, 1'700'000'000'123'456);
-  EXPECT_EQ(out.branches[1].info.created_at_us, std::nullopt);
+  for (size_t i = 0; i < 2; ++i) {
+    EXPECT_EQ(out.branches[i].name, in.branches[i].name);
+    EXPECT_EQ(out.branches[i].info.id, in.branches[i].info.id);
+    EXPECT_EQ(out.branches[i].info.fork, in.branches[i].info.fork);
+    EXPECT_EQ(out.branches[i].info.created_at_us, in.branches[i].info.created_at_us);
+  }
 }
 
 TEST_F(BranchLedgerTest, EmptyLedgerKeepsNextBranchId) {
@@ -114,22 +140,8 @@ TEST_F(BranchLedgerTest, EmptyLedgerKeepsNextBranchId) {
   EXPECT_TRUE((*res)->branches.empty());
 }
 
-TEST_F(BranchLedgerTest, ReadIgnoresUnknownKeys) {
-  Put(Versioned(OneBranch(
-      R"({"name":"a","id":2,"durable_fork_ts":10,"vertex_gid_floor":7,"edge_gid_floor":9,"description":"old"})")));
-  const auto res = Read();
-  ASSERT_TRUE(res.has_value() && res->has_value()) << (res ? "" : res.error());
-  ASSERT_EQ((*res)->branches.size(), 1);
-  EXPECT_EQ((*res)->branches[0].name, "a");
-  const auto &info = (*res)->branches[0].info;
-  EXPECT_EQ(info.fork_ts, 10);
-  EXPECT_EQ(info.vertex_gid_floor, 7);
-  EXPECT_EQ(info.edge_gid_floor, 9);
-}
-
 TEST_F(BranchLedgerTest, RejectsUnparsableValues) {
-  const auto good =
-      Versioned(OneBranch(R"({"name":"a","id":2,"durable_fork_ts":10,"vertex_gid_floor":7,"edge_gid_floor":9})"));
+  const auto good = OneBranch(BranchJson("a", 2));
   for (const auto &value : {good.substr(0, good.size() - 3),
                             std::string{},
                             std::string{"not json"},
@@ -143,11 +155,12 @@ TEST_F(BranchLedgerTest, RejectsUnparsableValues) {
 }
 
 TEST_F(BranchLedgerTest, RejectsAMissingOrUnsupportedVersion) {
-  const auto body = OneBranch(R"({"name":"a","id":2,"durable_fork_ts":10,"vertex_gid_floor":7,"edge_gid_floor":9})");
-  Put(body);
+  auto root = json::parse(OneBranch(BranchJson("a", 2)));
+  root.erase("version");
+  Put(root.dump());
   EXPECT_FALSE(Read().has_value()) << "missing version";
   for (const uint32_t version : {BranchLedger::kVersion + 1, uint32_t{0}}) {
-    Put(Versioned(body, version));
+    Put(Payload(json::array({BranchJson("a", 2)}), 3, version));
     const auto res = Read();
     ASSERT_FALSE(res.has_value()) << version;
     EXPECT_NE(res.error().find(fmt::format("unsupported version {}", version)), std::string::npos) << res.error();
@@ -155,74 +168,73 @@ TEST_F(BranchLedgerTest, RejectsAMissingOrUnsupportedVersion) {
 }
 
 TEST_F(BranchLedgerTest, RejectsAMalformedPayload) {
-  for (
-      const auto &payload : std::vector<std::string>{
-          R"({"next_branch_id":3)",
-          R"({"next_branch_id":3})",
-          R"({"next_branch_id":3,"branches":{}})",
-          R"({"next_branch_id":-3,"branches":[]})",
-          OneBranch(R"({"name":"a","id":-2,"durable_fork_ts":10,"vertex_gid_floor":7,"edge_gid_floor":9})"),
-          OneBranch(R"({"name":"a","id":2.5,"durable_fork_ts":10,"vertex_gid_floor":7,"edge_gid_floor":9})"),
-          OneBranch(R"({"name":"a","id":"2","durable_fork_ts":10,"vertex_gid_floor":7,"edge_gid_floor":9})"),
-          OneBranch(R"({"name":"a","id":2,"durable_fork_ts":-1,"vertex_gid_floor":7,"edge_gid_floor":9})"),
-          OneBranch(R"({"name":"a","id":2,"durable_fork_ts":10,"vertex_gid_floor":-1,"edge_gid_floor":9})"),
-          OneBranch(R"({"name":"a","id":2,"durable_fork_ts":10,"vertex_gid_floor":7})"),
-          OneBranch(R"({"name":"a","id":2,"durable_fork_ts":10,"edge_gid_floor":9})"),
-          OneBranch(
-              R"({"name":"a","id":2,"durable_fork_ts":10,"created_at_us":1.5,"vertex_gid_floor":7,"edge_gid_floor":9})"),
-          OneBranch(R"({"name":"a","durable_fork_ts":10,"vertex_gid_floor":7,"edge_gid_floor":9})"),
-          OneBranch(R"({"name":"a","id":2,"vertex_gid_floor":7,"edge_gid_floor":9})"),
-          OneBranch(R"({"name":"a","id":2,"fork_ts":10,"vertex_gid_floor":7,"edge_gid_floor":9})"),
-      }) {
-    Put(Versioned(payload));
-    EXPECT_FALSE(Read().has_value()) << payload;
+  const auto good = json::parse(OneBranch(BranchJson("a", 2)));
+  for (const char *key : {"version", "next_branch_id", "branches"}) {
+    auto root = good;
+    root.erase(key);
+    Put(root.dump());
+    EXPECT_FALSE(Read().has_value()) << "missing " << key;
+  }
+  for (const auto &bad : {json::object(), json(-3), json("3"), json(1.5)}) {
+    auto root = good;
+    root["next_branch_id"] = bad;
+    Put(root.dump());
+    EXPECT_FALSE(Read().has_value()) << root;
+  }
+  auto not_array = good;
+  not_array["branches"] = json::object();
+  Put(not_array.dump());
+  EXPECT_FALSE(Read().has_value()) << not_array;
+
+  // Every branch key is required and typed.
+  for (const char *key : kBranchKeys) {
+    auto branch = BranchJson("a", 2);
+    branch.erase(key);
+    Put(OneBranch(branch));
+    EXPECT_FALSE(Read().has_value()) << "missing " << key;
+
+    for (const auto &bad : {json(-1), json(1.5), json("2"), json(nullptr)}) {
+      // A string is the valid type for the name.
+      if (std::string_view{key} == "name" && bad.is_string()) continue;
+      branch = BranchJson("a", 2);
+      branch[key] = bad;
+      Put(OneBranch(branch));
+      EXPECT_FALSE(Read().has_value()) << key << " = " << bad;
+    }
   }
 }
 
 TEST_F(BranchLedgerTest, RejectsAnInvalidRegistry) {
-  const auto branch = [](std::string_view name, uint64_t branch_id) {
-    return fmt::format(
-        R"({{"name":"{}","id":{},"durable_fork_ts":10,"vertex_gid_floor":7,"edge_gid_floor":9}})", name, branch_id);
-  };
-  for (const auto &payload : std::vector<std::string>{
-           R"({"next_branch_id":1,"branches":[]})",
-           OneBranch(branch("a", 0)),
-           OneBranch(branch("a", 1)),
-           OneBranch(branch("a", 3)),
-           OneBranch(branch("main", 2)),
-           OneBranch(branch("a/b", 2)),
-           OneBranch(branch("-a", 2)),
-           fmt::format(R"({{"next_branch_id":5,"branches":[{},{}]}})", branch("a", 2), branch("a", 3)),
-           fmt::format(R"({{"next_branch_id":5,"branches":[{},{}]}})", branch("a", 2), branch("b", 2)),
+  for (const auto &payload : {
+           Payload(json::array(), 1),
+           OneBranch(BranchJson("a", 0)),
+           OneBranch(BranchJson("a", 1)),
+           OneBranch(BranchJson("a", 3)),
+           OneBranch(BranchJson("main", 2)),
+           OneBranch(BranchJson("a/b", 2)),
+           OneBranch(BranchJson("-a", 2)),
+           Payload(json::array({BranchJson("a", 2), BranchJson("a", 3)}), 5),
+           Payload(json::array({BranchJson("a", 2), BranchJson("b", 2)}), 5),
        }) {
-    Put(Versioned(payload));
+    Put(payload);
     EXPECT_FALSE(Read().has_value()) << payload;
   }
 }
 
 TEST_F(BranchLedgerTest, WriteRefusesWhatReadWouldReject) {
   BranchLedger ledger{*store_, uuid_};
-  LedgerContents v1;
-  v1.next_branch_id = 3;
-  v1.branches.push_back({"a", {.id = 2, .fork_ts = 1}});
-  ASSERT_TRUE(ledger.Write(v1).has_value());
+  ASSERT_TRUE(ledger.Write({.next_branch_id = 3, .branches = {{"a", InfoOf(2, 1)}}}).has_value());
 
   for (const auto &[name, branch_id] :
        {std::pair{"\xff", 2}, std::pair{"main", 2}, std::pair{"a", 1}, std::pair{"a", 3}}) {
-    LedgerContents bad;
-    bad.next_branch_id = 3;
-    bad.branches.push_back({name, {.id = static_cast<uint64_t>(branch_id), .fork_ts = 1}});
     std::expected<void, std::string> res;
-    ASSERT_NO_THROW(res = ledger.Write(bad));
+    ASSERT_NO_THROW(
+        res = ledger.Write({.next_branch_id = 3, .branches = {{name, InfoOf(static_cast<uint64_t>(branch_id), 1)}}}));
     ASSERT_FALSE(res.has_value());
     EXPECT_NE(res.error().find("refusing to write an invalid registry"), std::string::npos) << res.error();
   }
 
-  LedgerContents dup;
-  dup.next_branch_id = 4;
-  dup.branches.push_back({"a", {.id = 2, .fork_ts = 1}});
-  dup.branches.push_back({"a", {.id = 3, .fork_ts = 1}});
-  const auto dup_res = ledger.Write(dup);
+  const auto dup_res = ledger.Write({.next_branch_id = 4, .branches = {{"a", InfoOf(2, 1)}, {"a", InfoOf(3, 1)}}});
   ASSERT_FALSE(dup_res.has_value());
   EXPECT_NE(dup_res.error().find("refusing to write an invalid registry"), std::string::npos) << dup_res.error();
 
@@ -233,14 +245,10 @@ TEST_F(BranchLedgerTest, WriteRefusesWhatReadWouldReject) {
 
 TEST_F(BranchLedgerTest, DatabasesInOneStoreAreIndependent) {
   const memgraph::utils::UUID other;
-  LedgerContents a;
-  a.next_branch_id = 3;
-  a.branches.push_back({"a", {.id = 2, .fork_ts = 1}});
-  LedgerContents b;
-  b.next_branch_id = 4;
-  b.branches.push_back({"b", {.id = 3, .fork_ts = 2}});
-  ASSERT_TRUE((BranchLedger{*store_, uuid_}.Write(a).has_value()));
-  ASSERT_TRUE((BranchLedger{*store_, other}.Write(b).has_value()));
+  ASSERT_TRUE(
+      (BranchLedger{*store_, uuid_}.Write({.next_branch_id = 3, .branches = {{"a", InfoOf(2, 1)}}}).has_value()));
+  ASSERT_TRUE(
+      (BranchLedger{*store_, other}.Write({.next_branch_id = 4, .branches = {{"b", InfoOf(3, 2)}}}).has_value()));
 
   ASSERT_TRUE(store_->Put(KeyOf(uuid_), "garbage"));
   EXPECT_FALSE(Read().has_value());
