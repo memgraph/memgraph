@@ -585,8 +585,8 @@ TYPED_TEST(InterpreterTest, WriteBelowProcedureInsideSubqueryRunsForEveryInputRo
   this->Interpret("MATCH (n) DETACH DELETE n");
 }
 
-// A write, then a batched update over an index: each node is updated once. Rows as on master, where master is
-// right. Setup: index :L(p), p = 1, 2. `rows`: the final p values, ascending.
+// A write, then a batched update over an index: each node is updated once, as it was before write visibility.
+// Setup: index :L(p), p = 1, 2. `rows`: the final p values, ascending.
 TYPED_TEST(InterpreterTest, AWriteBeforeAnInTransactionsCallIsUpdatedOnce) {
   if constexpr (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
     GTEST_SKIP() << "On-disk storage has no periodic commit.";
@@ -612,7 +612,7 @@ TYPED_TEST(InterpreterTest, AWriteBeforeAnInTransactionsCallIsUpdatedOnce) {
         {"P8", "USING PERIODIC COMMIT 1 CREATE (:L {p: 5}) MERGE (m:L {p: 5}) ON MATCH SET m.p = 50", {1, 2, 50}},
         {"M12", "USING PERIODIC COMMIT 10 UNWIND [1, 1] AS i MERGE (n:L {p: 9})", {1, 2, 9}},
         // Known gap: a scan opened after a write and a WITH updates the first batch's node twice (rule 11, 12, 15;
-        // master 21, 22, 25). The deferred per-command index stamp fixes it.
+        // 21, 22, 25 before write visibility). The deferred per-command index stamp fixes it.
         {"F3",
          "CREATE (:L {p: 5}) WITH 1 AS x MATCH (n:L) WHERE n.p > 0 AND n.p < 20 CALL (n) { SET n.p = n.p + 10 } IN "
          "TRANSACTIONS OF 1 ROWS",
@@ -654,8 +654,8 @@ TYPED_TEST(InterpreterTest, AWriteBeforeAnInTransactionsCallIsUpdatedOnce) {
   }
 }
 
-// Analytical mode keeps no deltas, so after the PR's own advances an index scan meets its own writes again (the
-// unbounded forms loop). Bounded forms fail on a value. Master's advances still advance.
+// Analytical mode keeps no deltas: after a write-visibility advance an index scan meets its own writes again, so it
+// skips those advances (unbounded forms would loop, bounded ones fail on a value). Other advances still advance.
 TYPED_TEST(InterpreterTest, AnalyticalModeSkipsTheWriteVisibilityAdvances) {
   if constexpr (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
     GTEST_SKIP() << "On-disk storage has no analytical mode.";
@@ -700,15 +700,15 @@ TYPED_TEST(InterpreterTest, AnalyticalModeSkipsTheWriteVisibilityAdvances) {
          true,
          {5, 11, 12, 13, 14}},
         {"V1", kV1, true, {1, 2, 3, 4, 5}, {{0}, {4}}},
-        // Master gives (4, 5): its WITH advances. Here the barrier took over that advance and is skipped, so the
+        // (4, 5) before write visibility: its WITH advanced. Here the barrier took that advance and is skipped, so the
         // (m:L) scan misses the new node (stamp_deferral.md, analytical section).
         {"D2", kD2, true, {1, 2, 3, 4, 5}, {{4, 4}}},
-        // Master's WITH advance, unmarked: it still advances, so the scan meets its own writes as on master.
+        // A WITH advance, unmarked: it still advances, so the scan meets its own writes.
         {"WC",
          "CREATE (:Z) WITH 1 AS x MATCH (n:L) WHERE n.p > 0 AND n.p < 100 SET n.p = n.p + 10",
          true,
          {101, 102, 103, 104}},
-        // A root RETURN's subqueries read View::NEW after a write, as on master: they see the query's writes without
+        // A root RETURN's subqueries read View::NEW after a write: they see the query's writes without
         // the skipped advance. N2's writing leg still meets none of its own writes.
         {"C1", kC1, true, {1, 2, 3, 4, 5}, {{5}}},
         {"C2",
@@ -781,7 +781,7 @@ TYPED_TEST(InterpreterTest, AnalyticalModeSkipsTheWriteVisibilityAdvances) {
       EXPECT_EQ(values("MATCH (n:L) RETURN n.p AS p ORDER BY p"), c.values);
     }
 
-    // A point-index subquery after a write plans Filter + ScanAll at View::NEW, as on master, and sees the new point.
+    // A point-index subquery after a write plans Filter + ScanAll at View::NEW, and sees the new point.
     this->Interpret("CREATE POINT INDEX ON :P(loc)");
     setup(true);
     EXPECT_EQ(values("CREATE (:P {loc: point({x: 1, y: 1})}) RETURN COUNT { MATCH (n:P) WHERE "

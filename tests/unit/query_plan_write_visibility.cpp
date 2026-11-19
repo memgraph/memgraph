@@ -177,12 +177,12 @@ TEST_F(WriteVisibilityPlan, BodyReturnDrainDoesNotAdvance) {
   EXPECT_TRUE(accumulates[0]->advance_command_);
   EXPECT_TRUE(accumulates[1]->advance_command_);
   EXPECT_FALSE(accumulates[2]->advance_command_);
-  // Master advances after a writing CALL too, so analytical mode keeps that advance.
+  // The drain after a writing CALL advanced before write visibility too, so analytical mode keeps that advance.
   EXPECT_TRUE(accumulates[0]->write_visibility_advance_);
   EXPECT_FALSE(accumulates[1]->write_visibility_advance_);
 }
 
-// Master's WITH advance: analytical mode keeps it.
+// A WITH advance is no write-visibility advance: analytical mode keeps it.
 TEST_F(WriteVisibilityPlan, WithDrainIsNotSkippedInAnalyticalMode) {
   auto accumulates = Collect<Accumulate>(Plan("MATCH (n) SET n.x = 1 WITH n RETURN n.x AS x"));
   ASSERT_EQ(accumulates.size(), 1);
@@ -315,7 +315,7 @@ TEST_F(WriteVisibilityPlan, RootProjectionAndCreateReadOld) {
   EXPECT_EQ(Views<CreateExpand>(plan), (std::vector{View::OLD}));
 }
 
-// A RETURN ends its leg, so after a write its subqueries read View::NEW, as on master; without a write, View::OLD.
+// A RETURN ends its leg, so after a write its subqueries read View::NEW; without a write, View::OLD.
 TEST_F(WriteVisibilityPlan, RootReturnSubqueryReadsNewAfterWrite) {
   EXPECT_EQ(Views<ScanAll>(Plan("CREATE (:L) RETURN COUNT { MATCH (n:L) } AS c")), (std::vector{View::NEW}));
   EXPECT_EQ(Views<ScanAll>(Plan("MATCH (m:L) RETURN COUNT { MATCH (n:L) } AS c")), (std::vector{View::OLD, View::OLD}));
@@ -1751,8 +1751,8 @@ TEST_F(WriteVisibilityPlan, ASetRunSnapshotsReadsThroughAnotherExpression) {
   }
 }
 
-// No run item reads a key an earlier item writes: master's plan, with no Produce.
-TEST_F(WriteVisibilityPlan, ASetRunKeepsMastersPlanWhenNoItemReadsAWrittenKey) {
+// No run item reads a key an earlier item writes: no Produce.
+TEST_F(WriteVisibilityPlan, ASetRunWithoutACrossItemReadPlansNoProduce) {
   for (auto const *query : {
            "MATCH (a:U) SET a.x = 10, a.y = 20",
            "MATCH (a:U) SET a.x = a.y + 1, a.z = a.y",
@@ -1952,7 +1952,7 @@ TEST_F(WriteVisibilityPlan, AWritingCallBodySeeksNoPointIndex) {
 
 // ---------------------------------------------------------------- every reader of a writing CALL body reads View::NEW
 
-// A query that commits in batches plans its root as on master: no barrier, whichever leg or body holds the batching.
+// A batched query plans no barrier at its root, whichever leg or body holds the batching.
 TEST_F(WriteVisibilityPlan, ABatchedQueryPlansNoBarrier) {
   auto merge_input = [this](std::string_view query) {
     auto merges = Collect<memgraph::query::plan::Merge>(Plan(query));
@@ -1984,13 +1984,13 @@ TEST_F(WriteVisibilityPlan, ABatchedQueryPlansNoBarrier) {
 }
 
 // Pinned, known: under USING PERIODIC COMMIT no barrier is
-// planned and the views stay master's: projections read NEW, ORDER BY reads OLD. So ORDER BY n.x LIMIT 1 after a
+// planned and projections read NEW, ORDER BY reads OLD. So ORDER BY n.x LIMIT 1 after a
 // SET with a batch larger than the rows returns 9, where the clause rule gives 7.
-TEST_F(WriteVisibilityPlan, PeriodicCommitKeepsMastersViews) {
+TEST_F(WriteVisibilityPlan, PeriodicCommitReadsProjectionsNewAndOrderByOld) {
   auto &plan = Plan("USING PERIODIC COMMIT 100 MATCH (n:P) SET n.x = 10 - n.x RETURN n.x AS x ORDER BY n.x LIMIT 1");
   EXPECT_EQ(Views<Produce>(plan), (std::vector{View::NEW}));
   EXPECT_EQ(Views<OrderBy>(plan), (std::vector{View::OLD}));
-  // A read-only CALL body after a write keeps master's View::OLD scans too.
+  // A read-only CALL body after a write keeps View::OLD scans too.
   EXPECT_EQ(Views<ScanAll>(Plan("USING PERIODIC COMMIT 10 MATCH (a) SET a.x = 1 "
                                 "CALL (a) { MATCH (b) RETURN count(b.x) AS c } RETURN c")),
             (std::vector{View::OLD, View::OLD}));
@@ -2001,7 +2001,7 @@ TEST_F(WriteVisibilityPlan, PeriodicCommitKeepsMastersViews) {
 TEST_F(WriteVisibilityPlan, PeriodicCommitPlansNoBarriers) {
   EXPECT_TRUE(
       Collect<Accumulate>(Plan("USING PERIODIC COMMIT 100 MATCH (a:A), (b:A) SET a.y = b.x SET b.x = 0")).empty());
-  // The WITH after the SET keeps master's drain, and nothing fences the EXISTS from the later CREATE.
+  // The WITH after the SET keeps its drain, and nothing fences the EXISTS from the later CREATE.
   EXPECT_EQ(Chain(Plan("USING PERIODIC COMMIT 10 UNWIND [1, 2] AS i MATCH (a:BA) SET a.k = i WITH i, a, "
                        "EXISTS { MATCH (a)-[*]->() } AS e CREATE (a)-[:R]->(:BB) RETURN i, e ORDER BY i")),
             (Names{"OrderBy",
@@ -2018,7 +2018,7 @@ TEST_F(WriteVisibilityPlan, PeriodicCommitPlansNoBarriers) {
                    "Once"}));
 }
 
-// A query that commits in batches plans no RETURN drain advance, as on master; without batching the drain advances.
+// A batched query plans no write-visibility advance at its RETURN drain; without batching the drain advances.
 TEST_F(WriteVisibilityPlan, ARootReturnInABatchedQueryDoesNotAdvance) {
   for (auto const &[query, advances] : {
            std::pair{"MATCH (n:P) CALL (n) { SET n.x = 1 } RETURN n.x AS x ORDER BY x", true},
@@ -2250,7 +2250,7 @@ TEST_F(WriteVisibilityPlan, ExplainPrintsTheViewOfEachReaderOnRequest) {
 // The view rule, computed from an operator's ancestors rather than from the
 // planner's scope state: OLD at the root and in a read-only CALL body; NEW in a writing CALL body tree, a MERGE,
 // a FOREACH body, a fold branch whose consumer reads NEW, and a root RETURN's fold after a write in its part. A query
-// under batching keeps master's views: no check.
+// under batching keeps the views it had before write visibility: no check.
 class ViewOracle {
  public:
   struct Mismatch {
@@ -2354,7 +2354,7 @@ class ViewOracle {
     return std::ranges::any_of(Children(op), [](auto const &child) { return ContainsWrite(*child.first); });
   }
 
-  /// A query that commits in batches keeps master's views throughout.
+  /// A batched query keeps the views it had before write visibility throughout.
   static bool ContainsBatching(LogicalOperator &op) {
     if (Is<plan::PeriodicCommit>(op) || Is<plan::PeriodicSubquery>(op)) return true;
     return std::ranges::any_of(Children(op), [](auto const &child) { return ContainsBatching(*child.first); });
@@ -2378,8 +2378,8 @@ class ViewOracle {
     return Tail::kNone;
   }
 
-  /// Whether a write lies on the main input of @p op in its query part, which starts at a WITH or a MATCH. Above
-  /// the RETURN's projection (an ORDER BY fold), the walk passes that projection.
+  /// Whether a write lies on @p op's main input below the nearest projection, scan, expand or Optional. Above the
+  /// RETURN's projection (an ORDER BY fold), the walk passes that projection.
   static bool PartWrote(LogicalOperator &op, bool above_projection) {
     for (LogicalOperator *below = op.input().get(); below;) {
       if (IsWrite(*below)) return true;
@@ -2430,7 +2430,7 @@ class ViewOracle {
                InputTail(op, tail));
           break;
         case Edge::kBody:
-          // A read-only IN TRANSACTIONS body keeps master's views.
+          // A read-only IN TRANSACTIONS body keeps the views it had before write visibility.
           if (Is<plan::PeriodicSubquery>(op) && !ContainsWrite(*child)) break;
           Walk(*child,
                reads_new || ContainsWrite(*child) ||
