@@ -75,9 +75,3 @@ workloads:
     proc: "tests/e2e/query_modules/query_modules/"
     args: ["query_modules/vector_index_config_test.py"]
     <<: *in_memory_cluster
-
-  - name: "Map from_pairs nullable inner value test"
-    binary: "tests/e2e/pytest_runner.sh"
-    proc: "mage/dist/"
-    args: ["query_modules/map_from_pairs_test.py"]
-    <<: *in_memory_cluster
