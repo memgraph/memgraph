@@ -1049,6 +1049,11 @@ add_unit_test(versioning_edge_overlay_index
     LINK_TARGETS mg::versioning mg::storage
 )
 
+add_unit_test(versioning_hidden_base_edges
+    SOURCES versioning_hidden_base_edges.cpp
+    LINK_TARGETS mg::versioning mg::storage
+)
+
 add_unit_test(versioning_overlay_index
     SOURCES versioning_overlay_index.cpp
     LINK_TARGETS mg::versioning mg::storage
