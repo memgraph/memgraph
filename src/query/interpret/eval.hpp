@@ -1255,11 +1255,12 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   template <bool kCompact = false, class TRecordAccessor>
   storage::PropertyValue GetProperty(const TRecordAccessor &record_accessor, const PropertyIx &prop) {
     RequireAccessor("Reading a property");
-    if (!IsPropertyAllowed(record_accessor, ctx_->properties[prop.ix])) return storage::PropertyValue{};
+    // Read before the permission check: a deleted record raises whether or not the property is denied.
     auto maybe_prop = ReadSeeingCreated(view_, [&](storage::View at) {
       return ReadProperty<kCompact>(record_accessor, at, ctx_->properties[prop.ix]);
     });
     if (!maybe_prop) ThrowPropertyReadError(maybe_prop.error());
+    if (!IsPropertyAllowed(record_accessor, ctx_->properties[prop.ix])) return storage::PropertyValue{};
     return *std::move(maybe_prop);
   }
 
@@ -1267,10 +1268,10 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   storage::PropertyValue GetProperty(const TRecordAccessor &record_accessor, const std::string_view name) {
     RequireAccessor("Reading a property");
     auto prop_id = dba_->NameToProperty(name);
-    if (!IsPropertyAllowed(record_accessor, prop_id)) return storage::PropertyValue{};
     auto maybe_prop = ReadSeeingCreated(
         view_, [&](storage::View at) { return ReadProperty<kCompact>(record_accessor, at, prop_id); });
     if (!maybe_prop) ThrowPropertyReadError(maybe_prop.error());
+    if (!IsPropertyAllowed(record_accessor, prop_id)) return storage::PropertyValue{};
     return *maybe_prop;
   }
 

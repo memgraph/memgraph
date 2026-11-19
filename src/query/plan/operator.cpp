@@ -5936,8 +5936,9 @@ auto CacheProperties::CachePropertiesCursor::AnyPropertyReadable(CachedPropertyG
   };
 
   if (input.type() == TypedValue::Type::Edge) {
-    return mark(
-        [&](storage::PropertyId property) { return PropertyReadAllowed(checker, input.ValueEdge(), property); });
+    // An edge's permission comes from its type, which a deleted edge still has: only the read reports a deletion.
+    mark([&](storage::PropertyId property) { return PropertyReadAllowed(checker, input.ValueEdge(), property); });
+    return true;
   }
 
   // A vertex's permissions are decided from its labels, and reading those takes the record's lock,
@@ -5995,8 +5996,8 @@ bool CacheProperties::CachePropertiesCursor::Pull(Frame &frame, ExecutionContext
     }
 
 #ifdef MG_ENTERPRISE
-    // A group of nothing but denied properties answers Null without reading the record. A vertex gets here only if
-    // it is live at this view: one deleted at it has no labels to deny with, and its read raises for every caller.
+    // A vertex group of nothing but denied properties answers Null without reading the record; a vertex deleted at
+    // this view and every edge group read it, so a deletion raises for every caller.
     if (!AnyPropertyReadable(group, input_value, context.auth_checker)) {
       answer_with_null(group);
       continue;
