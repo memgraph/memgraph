@@ -116,6 +116,11 @@ TEST(PrometheusMetrics, ReplicationFailureSeriesExistAtZeroWhileTheReplicaIsAtta
 
   counters.RemoveReplica("replica_1");
   EXPECT_TRUE(replica_series().empty());
+
+  counters.Increment("replica_1",
+                     memgraph::metrics::ReplicationFailureOutcome::COMMITTED,
+                     memgraph::metrics::ReplicationFailureReason::NOT_IN_SYNC);
+  EXPECT_TRUE(replica_series().empty()) << "a failure counted after removal does not re-create the series";
 }
 
 TEST(PrometheusMetrics, ReplicationFailuresSumOnlyTheDatabasesOwnSeries) {
@@ -127,6 +132,9 @@ TEST(PrometheusMetrics, ReplicationFailuresSumOnlyTheDatabasesOwnSeries) {
   auto db1 = pm.AddDatabase(uuid1, "db1");
   auto db2 = pm.AddDatabase(uuid2, "db2");
 
+  for (auto *db : {&db1, &db2}) {
+    for (auto const *replica : {"replica_1", "replica_2"}) db->handles().replication_failures.AddReplica(replica);
+  }
   db1.handles().replication_failures.Increment("replica_1", COMMITTED, NOT_IN_SYNC);
   db1.handles().replication_failures.Increment("replica_2", COMMITTED, RPC_ERROR);
   db1.handles().replication_failures.Increment("replica_2", COMMITTED, RPC_ERROR);

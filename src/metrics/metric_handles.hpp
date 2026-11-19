@@ -13,6 +13,11 @@
 
 #include <array>
 #include <cstdint>
+#include <functional>
+#include <map>
+#include <memory>
+#include <mutex>
+#include <string>
 #include <string_view>
 
 #include <prometheus/counter.h>
@@ -70,16 +75,28 @@ inline constexpr std::array<std::string_view, 4> kReplicationFailureReasons{
 
 // Counts replication failures in one series per replica, outcome, and reason. Does nothing without a family.
 struct ReplicationFailureCounters {
+  // Indexed by ReplicationFailureOutcome, then ReplicationFailureReason.
+  using ReplicaSeries = std::array<std::array<prometheus::Counter *, kReplicationFailureReasons.size()>,
+                                   kReplicationFailureOutcomes.size()>;
+
+  // Every copy shares one State, so a series removed through one copy is never incremented through another.
+  struct State {
+    std::mutex mutex;
+    std::map<std::string, ReplicaSeries, std::less<>> by_replica;
+  };
+
   prometheus::Family<prometheus::Counter> *family{nullptr};
   // The database's entry label, or none for failures outside any database.
   prometheus::Labels labels;
+  std::shared_ptr<State> state{std::make_shared<State>()};
 
   // Creates the replica's series at 0, so that its first failure is an increase.
   void AddReplica(std::string_view replica) const;
   void RemoveReplica(std::string_view replica) const;
+  // Counts nothing for a replica that is not attached.
   void Increment(std::string_view replica, ReplicationFailureOutcome outcome, ReplicationFailureReason reason) const;
   // Sums the outcome's series across replicas and reasons.
-  auto Total(std::string_view outcome_label) const -> int64_t;
+  auto Total(ReplicationFailureOutcome outcome) const -> int64_t;
   void RemoveAll() const;
 };
 

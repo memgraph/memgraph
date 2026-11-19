@@ -92,32 +92,11 @@ auto ReplicationFailureSeries(prometheus::Labels series, std::string_view const 
   return series;
 }
 
-// Calls fn(labels, value) for each series in the family that carries the counters' entry label, or no entry label
-// when the counters have none.
-template <typename Fn>
-void ForEachOwnedSeries(ReplicationFailureCounters const &counters, Fn &&fn) {
-  if (!counters.family) return;
-  auto const entry = counters.labels.find(kEntryLabel);
-  for (auto const &family : counters.family->Collect()) {
-    for (auto const &metric : family.metric) {
-      prometheus::Labels labels;
-      for (auto const &[name, value] : metric.label) labels.emplace(name, value);
-      auto const series_entry = labels.find(kEntryLabel);
-      auto const owned = entry == counters.labels.end()
-                             ? series_entry == labels.end()
-                             : series_entry != labels.end() && series_entry->second == entry->second;
-      if (owned) fn(labels, metric.counter.value);
-    }
+void RemoveSeries(prometheus::Family<prometheus::Counter> &family,
+                  ReplicationFailureCounters::ReplicaSeries const &series) {
+  for (auto const &by_reason : series) {
+    for (auto *const counter : by_reason) family.Remove(counter);
   }
-}
-
-template <typename Pred>
-void RemoveOwnedSeries(ReplicationFailureCounters const &counters, Pred &&pred) {
-  std::vector<prometheus::Labels> removed;
-  ForEachOwnedSeries(counters, [&](prometheus::Labels const &series, double /*value*/) {
-    if (pred(series)) removed.push_back(series);
-  });
-  for (auto const &series : removed) counters.family->Remove(&counters.family->Add(series));
 }
 
 void RemoveDurabilityThroughput(std::string_view instance_name,
@@ -146,36 +125,49 @@ void ObserveDurabilityThroughput(std::string const &instance_name, double bytes_
 
 void ReplicationFailureCounters::AddReplica(std::string_view const replica) const {
   if (!family) return;
-  for (auto const outcome : {ReplicationFailureOutcome::COMMITTED, ReplicationFailureOutcome::ABORTED}) {
-    for (auto const reason : {ReplicationFailureReason::NOT_IN_SYNC,
-                              ReplicationFailureReason::RPC_ERROR,
-                              ReplicationFailureReason::DIVERGED,
-                              ReplicationFailureReason::TIMEOUT}) {
-      family->Add(ReplicationFailureSeries(labels, replica, outcome, reason));
+  std::lock_guard const lock{state->mutex};
+  if (state->by_replica.contains(replica)) return;
+  ReplicaSeries series{};
+  for (std::size_t outcome = 0; outcome < series.size(); ++outcome) {
+    for (std::size_t reason = 0; reason < series[outcome].size(); ++reason) {
+      series[outcome][reason] = &family->Add(ReplicationFailureSeries(labels,
+                                                                      replica,
+                                                                      static_cast<ReplicationFailureOutcome>(outcome),
+                                                                      static_cast<ReplicationFailureReason>(reason)));
     }
   }
+  state->by_replica.emplace(replica, series);
 }
 
 void ReplicationFailureCounters::RemoveReplica(std::string_view const replica) const {
-  RemoveOwnedSeries(*this, [&](prometheus::Labels const &series) { return series.at("mg_instance") == replica; });
+  std::lock_guard const lock{state->mutex};
+  auto const it = state->by_replica.find(replica);
+  if (it == state->by_replica.end()) return;
+  RemoveSeries(*family, it->second);
+  state->by_replica.erase(it);
 }
 
 void ReplicationFailureCounters::Increment(std::string_view const replica, ReplicationFailureOutcome const outcome,
                                            ReplicationFailureReason const reason) const {
-  if (!family) return;
-  family->Add(ReplicationFailureSeries(labels, replica, outcome, reason)).Increment();
+  std::lock_guard const lock{state->mutex};
+  if (auto const it = state->by_replica.find(replica); it != state->by_replica.end()) {
+    it->second[std::to_underlying(outcome)][std::to_underlying(reason)]->Increment();
+  }
 }
 
-auto ReplicationFailureCounters::Total(std::string_view const outcome_label) const -> int64_t {
+auto ReplicationFailureCounters::Total(ReplicationFailureOutcome const outcome) const -> int64_t {
+  std::lock_guard const lock{state->mutex};
   double total = 0;
-  ForEachOwnedSeries(*this, [&](prometheus::Labels const &series, double const value) {
-    if (series.at("outcome") == outcome_label) total += value;
-  });
+  for (auto const &series : state->by_replica | rv::values) {
+    for (auto const *const counter : series[std::to_underlying(outcome)]) total += counter->Value();
+  }
   return static_cast<int64_t>(total);
 }
 
 void ReplicationFailureCounters::RemoveAll() const {
-  RemoveOwnedSeries(*this, [](prometheus::Labels const & /*series*/) { return true; });
+  std::lock_guard const lock{state->mutex};
+  for (auto const &series : state->by_replica | rv::values) RemoveSeries(*family, series);
+  state->by_replica.clear();
 }
 
 PrometheusMetrics::PrometheusMetrics()
@@ -1772,9 +1764,11 @@ std::expected<std::vector<MetricInfo>, std::string> PrometheusMetrics::GetDbMetr
   out.push_back(
       {"WriteWriteConflicts", "Transaction", "Counter", static_cast<int64_t>(h.write_write_conflicts.Value())});
   out.push_back({"TransientErrors", "Transaction", "Counter", static_cast<int64_t>(h.transient_errors.Value())});
-  for (auto const &outcome : kReplicationFailureOutcomes) {
-    out.push_back(
-        {std::string{outcome.info_name}, "Transaction", "Counter", h.replication_failures.Total(outcome.label)});
+  for (auto const &[index, outcome] : kReplicationFailureOutcomes | rv::enumerate) {
+    out.push_back({std::string{outcome.info_name},
+                   "Transaction",
+                   "Counter",
+                   h.replication_failures.Total(static_cast<ReplicationFailureOutcome>(index))});
   }
 
   // QueryType
