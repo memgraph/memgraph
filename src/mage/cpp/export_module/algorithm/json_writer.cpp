@@ -382,8 +382,15 @@ JsonWriter::JsonWriter(WriteConfig config, std::optional<std::string> file, bool
                               ::lgetxattr(file_->c_str(), kAccessAcl, nullptr, 0) < 0);
 
   if (!in_place) {
-    // The temporary takes the target's mode, so a read-only target is refused when it is opened. Where no temporary
-    // is possible (read-only directory, over-long name, foreign group) the target is written in place.
+    if (exists) {
+      // The rename needs write permission on the directory, not on the target, so probe the target the way a direct
+      // write would; otherwise a file made read-only on purpose would be replaced.
+      const int probe = ::open(file_->c_str(), O_WRONLY | O_CLOEXEC);
+      if (probe < 0) throw mgp::ValueException(fmt::format("Cannot open '{}' for writing", *file_));
+      ::close(probe);
+    }
+    // No temporary may be possible — a read-only directory, a name too long once suffixed, a group the server cannot
+    // give it. Falling back to an in-place write keeps the export working and loses only its atomicity.
     in_place = !OpenTemporary(*file_, exists ? &existing : nullptr, temp_path_);
   }
 
