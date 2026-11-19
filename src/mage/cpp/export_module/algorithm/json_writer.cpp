@@ -483,7 +483,6 @@ void JsonWriter::AddNode(const mgp::Node &node) {
 }
 
 void JsonWriter::AddRelationship(const mgp::Relationship &relationship) {
-  if (!seen_relationships_.insert(relationship.Id().AsInt()).second) return;
   auto properties = relationship.Properties();
   // Only the relationship's own properties count; the inlined endpoints' do not.
   property_count_ += properties.size();

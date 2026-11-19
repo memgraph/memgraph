@@ -18,6 +18,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <unordered_set>
 #include <utility>
 
 #include <fmt/format.h>
@@ -163,12 +164,16 @@ void AddNodes(JsonWriter &writer, const mgp::Graph &graph, mgp_list *nodes) {
   }
 }
 
+// Relationships form a set in the interchange format, so a repeated one is neither counted nor written. Only a
+// caller's list can repeat one; the whole-database export walks each relationship once and keeps no such set.
 void AddRelationships(JsonWriter &writer, const mgp::Graph &graph, mgp_list *relationships) {
   if (relationships == nullptr) return;
   const auto size = mgp::list_size(relationships);
+  std::unordered_set<std::int64_t> seen;
   for (size_t i = 0; i < size; ++i) {
     graph.CheckMustAbort();
-    writer.AddRelationship(mgp::Value(mgp::ref_type, mgp::list_at(relationships, i)).ValueRelationship());
+    const auto relationship = mgp::Value(mgp::ref_type, mgp::list_at(relationships, i)).ValueRelationship();
+    if (seen.insert(relationship.Id().AsInt()).second) writer.AddRelationship(relationship);
   }
 }
 

@@ -116,8 +116,6 @@ class JsonWriter {
   // JSON_ID_AS_KEYS only: ids are object keys there, so a duplicated element can only be one entry. Holds ids, not
   // documents, and is cleared between groups because nodes and relationships have separate id spaces.
   std::unordered_set<std::string> emitted_ids_;
-  // Relationships form a set in the interchange format: a repeated one is neither counted nor written.
-  std::unordered_set<std::int64_t> seen_relationships_;
   std::uint64_t node_count_{0};
   std::uint64_t relationship_count_{0};
   std::uint64_t property_count_{0};
