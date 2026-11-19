@@ -324,9 +324,8 @@ TEST_F(AiLicenseEmbeddingTest, Variant1Lazy_OnePassAnswersWhatTheLookupsDid) {
   constexpr int kDim = 8;
   QueryEnv env{data_dir_, "t13", 14, kDim};
 
-  // Two properties are what earn the pass for a value a projection keeps. The alias differs per
-  // arm because one interpreter caches a plan under the query's text, so arms spelled the same way
-  // would both run whichever plan was planned first.
+  // The alias differs per arm because one interpreter caches a plan under the query's text, so
+  // arms spelled the same way would both run whichever plan was planned first.
   const auto query = [](std::string_view alias) {
     return fmt::format("MATCH (n) WITH n.emb AS {0}, n.rank AS r RETURN {0} AS e ORDER BY e", alias);
   };
