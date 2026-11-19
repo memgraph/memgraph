@@ -479,7 +479,7 @@ def dump_float_drop_vector_indexes(memgraph):
 
 def test_dump_float_roundtrip(memgraph):
     """Every float the dumper writes has to be a literal the parser accepts and
-    re-parses to the stored value and kind: max_digits10, an integral float
+    re-parses to the stored value and kind: shortest round-trip, an integral float
     keeps its `.0`, and a non-finite value is written as an expression that
     produces it. Index-backed floats are spelled at the index's precision."""
     for query in DUMP_FLOAT_SETUP:

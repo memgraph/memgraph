@@ -1252,7 +1252,16 @@ TEST(CypherLiteralSpelling, NumericLiteralExtremesRoundTripBitExact) {
   }
 }
 
-// Dumped floats re-parse to the same value and kind: max_digits10, integral floats keep `.0`,
+// Vector items are floats widened to double: their own shortest form would narrow one ULP off for this value.
+TEST(CypherLiteralSpelling, WidenedFloatRoundTripsBitExact) {
+  for (auto const bits : {0x15ae43fdU, 0x95ae43fdU}) {
+    auto const value = std::bit_cast<float>(bits);
+    auto const text = memgraph::query::CypherNumericLiteral(static_cast<double>(value));
+    EXPECT_EQ(std::bit_cast<uint32_t>(static_cast<float>(memgraph::utils::ParseDouble(text))), bits) << text;
+  }
+}
+
+// Dumped floats re-parse to the same value and kind: shortest round-trip, integral floats keep `.0`,
 // non-finite values are written as expressions (never bare `inf`/`nan`).
 TYPED_TEST(DumpTest, FloatSpelling) {
   {
@@ -1319,8 +1328,8 @@ TYPED_TEST(DumpTest, FloatSpelling) {
     VerifyQueries(stream.GetResults(),
                   kCreateInternalIndex,
                   "CREATE (:__mg_vertex__:`Finite` {__mg_id__: 0, `double`: 2.0, `exponent`: 1e20, "
-                  "`large`: 3.0000000000000001e38, `numeric_list`: [1, 1e20, 2.0], "
-                  "`double_list`: [1e20, 2.0, 3.0000000000000001e38]});",
+                  "`large`: 3e38, `numeric_list`: [1, 1e20, 2.0], "
+                  "`double_list`: [1e20, 2.0, 3e38]});",
                   "CREATE (:__mg_vertex__:`NonFinite` {__mg_id__: 1, "
                   "`numeric_list`: [(1.0/0.0), (-1.0/0.0), (0.0/0.0)], "
                   "`double_list`: [(1.0/0.0), (-1.0/0.0), (0.0/0.0)], "
@@ -1411,7 +1420,7 @@ TYPED_TEST(DumpTest, VectorIndexFloatSpelling) {
         R"(CREATE VECTOR INDEX `f32_index` ON :`Vec32`(`v`) WITH CONFIG { "dimension": 2, "metric": "l2sq", "capacity": 10, "resize_coefficient": 2, "scalar_kind": "f32" };)",
         R"(CREATE VECTOR INDEX `f16_index` ON :`Vec16`(`v`) WITH CONFIG { "dimension": 1, "metric": "l2sq", "capacity": 10, "resize_coefficient": 2, "scalar_kind": "f16" };)",
         kCreateInternalIndex,
-        "CREATE (:__mg_vertex__:`Vec32` {__mg_id__: 0, `v`: [123456.789, 0.100000001]});",
+        "CREATE (:__mg_vertex__:`Vec32` {__mg_id__: 0, `v`: [123456.7890625, 0.10000000149011612]});",
         "CREATE (:__mg_vertex__:`Vec16` {__mg_id__: 1, `v`: [(1.0/0.0)]});",
         "CREATE (:__mg_vertex__:`Points` {__mg_id__: 2, "
         "`big`: POINT({ x:1e20, y:2, srid: 7203 }), "

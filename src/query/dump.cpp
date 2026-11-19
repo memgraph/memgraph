@@ -236,8 +236,9 @@ void DumpPropertyValue(std::ostream *os, const storage::ExternalPropertyValue &v
     case storage::PropertyValue::Type::VectorIndexId: {
       const auto &vector = value.ValueVectorIndexList();
       *os << "[";
-      utils::PrintIterable(
-          *os, vector, ", ", [](auto &os, const auto &item) { os << query::CypherNumericLiteral(item); });
+      utils::PrintIterable(*os, vector, ", ", [](auto &os, const auto &item) {
+        os << query::CypherNumericLiteral(static_cast<double>(item));
+      });
       *os << "]";
       return;
     }

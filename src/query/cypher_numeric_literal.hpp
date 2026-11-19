@@ -13,11 +13,7 @@
 
 #include <cmath>
 #include <concepts>
-#include <iomanip>
-#include <limits>
-#include <locale>
 #include <optional>
-#include <sstream>
 #include <string>
 
 #include <fmt/format.h>
@@ -43,13 +39,10 @@ std::optional<std::string> NonFiniteLiteral(T value) {
 }  // namespace detail
 
 // Spell a floating-point value as a Cypher expression that re-parses to the same value and kind.
-template <std::floating_point T>
-std::string CypherNumericLiteral(T value) {
+// Doubles only: a float spelled in its own shortest form can narrow one ULP off, so callers widen it first.
+inline std::string CypherNumericLiteral(double value) {
   if (auto const non_finite = detail::NonFiniteLiteral(value)) return *non_finite;
-  std::ostringstream oss;
-  oss.imbue(std::locale::classic());
-  oss << std::setprecision(std::numeric_limits<T>::max_digits10) << value;
-  auto text = detail::StripExponentPlus(oss.str());
+  auto text = detail::StripExponentPlus(fmt::format("{}", value));
   if (text.find_first_of(".eE") == std::string::npos) text += ".0";
   return text;
 }
