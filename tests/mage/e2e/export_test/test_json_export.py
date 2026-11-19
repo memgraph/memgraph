@@ -312,8 +312,8 @@ def test_duplicate_node_collapses_under_id_as_keys(conn):
     )
     # Ids are object keys here, so a duplicate can only be one entry. The reference instead emits the
     # key twice, which is ambiguous JSON that parsers collapse the same way.
-    assert len(row["data"]["nodes"]) == 1
-    assert row["nodes"] == 2, "the counter still reports both"
+    assert row["raw_data"].count('"type":"node"') == 1, "a parser would hide a repeated key"
+    assert (row["nodes"], row["properties"]) == (2, 2), "the counters still report both"
 
 
 def test_labels_are_sorted_and_empty_properties_omitted(conn):
@@ -819,11 +819,16 @@ def test_json_graph_argument_error_leaves_a_hard_linked_target_intact(conn):
                 os.remove(path)
 
 
-def test_whole_database_export_keeps_no_per_relationship_state(conn):
-    # The graph yields each relationship once, so json_all needs no record of the ones it has written.
+@pytest.mark.parametrize("json_format", ["JSON_LINES", "JSON", "JSON_ID_AS_KEYS"])
+def test_whole_database_export_keeps_no_per_element_state(conn, json_format):
+    # The graph yields each element once, so json_all needs no record of the ones it has written.
     execute(conn, "UNWIND range(1, 100000) AS i CREATE (:M)-[:R]->(:M)")
-    rows = execute(conn, "CALL export.json_all(null, {}) PROCEDURE MEMORY LIMIT 1 MB YIELD relationships RETURN *")
-    assert rows == [{"relationships": 100000}]
+    rows = execute(
+        conn,
+        f"CALL export.json_all(null, {{jsonFormat: '{json_format}'}}) PROCEDURE MEMORY LIMIT 1 MB "
+        "YIELD nodes, relationships RETURN *",
+    )
+    assert rows == [{"nodes": 200000, "relationships": 100000}]
 
 
 ACL_ACCESS = "system.posix_acl_access"
