@@ -1475,7 +1475,7 @@ std::unique_ptr<LogicalOperator> GenReturn(Return &ret, std::unique_ptr<LogicalO
                                            SymbolTable &symbol_table, bool is_write,
                                            const std::unordered_set<Symbol> &bound_symbols, AstStorage &storage,
                                            SubqueryContext &subquery_ctx, Expression *commit_frequency,
-                                           bool may_advance, storage::View read_view) {
+                                           storage::View read_view, bool advance_command) {
   // Similar to WITH clause, but we want to accumulate when the query writes to
   // the database. This way we handle the case when we want to return
   // expressions with the latest updated results. For example, `MATCH (n) -- ()
@@ -1486,10 +1486,14 @@ std::unique_ptr<LogicalOperator> GenReturn(Return &ret, std::unique_ptr<LogicalO
   bool const accumulate = is_write && !has_periodic_commit;
   // At the root the drain also advances, so ORDER BY keys and a later UNION leg read every write through View::OLD
   // (subqueries, also in ORDER BY, read NEW). A body's RETURN runs once per outer row: an advance would move its scan.
-  bool const advance_command = may_advance;
   const ReturnBodyContext body(ret.body_, symbol_table, bound_symbols, storage, &subquery_ctx);
-  // Master's RETURN never advances, so this advance is the PR's: analytical mode skips it.
-  return GenReturnBody(std::move(input_op), advance_command, body, accumulate, commit_frequency, read_view, true);
+  return GenReturnBody(std::move(input_op),
+                       advance_command,
+                       body,
+                       accumulate,
+                       commit_frequency,
+                       read_view,
+                       /*write_visibility_advance=*/true);
 }
 
 std::unique_ptr<LogicalOperator> GenWith(With &with, std::unique_ptr<LogicalOperator> input_op,

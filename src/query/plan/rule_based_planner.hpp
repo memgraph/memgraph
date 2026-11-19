@@ -240,7 +240,7 @@ std::unique_ptr<LogicalOperator> GenReturn(Return &ret, std::unique_ptr<LogicalO
                                            SymbolTable &symbol_table, bool is_write,
                                            const std::unordered_set<Symbol> &bound_symbols, AstStorage &storage,
                                            SubqueryContext &subquery_ctx, Expression *commit_frequency,
-                                           bool may_advance, storage::View read_view);
+                                           storage::View read_view, bool advance_command);
 
 std::unique_ptr<LogicalOperator> GenWith(With &with, std::unique_ptr<LogicalOperator> input_op,
                                          SymbolTable &symbol_table, bool is_write,
@@ -729,8 +729,8 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
                                        *context.ast_storage,
                                        subquery_ctx,
                                        query_parts.commit_frequency,
-                                       root_advances,
-                                       ScopeView());
+                                       ScopeView(),
+                                       root_advances);
           } else if (auto *merge = utils::Downcast<query::Merge>(clause)) {
             // ON CREATE / ON MATCH comprehensions originate here too; GenMerge splices each onto the branch that
             // reads it, so this chain must not take them first.
