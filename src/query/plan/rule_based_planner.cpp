@@ -1486,8 +1486,8 @@ std::unique_ptr<LogicalOperator> GenReturn(Return &ret, std::unique_ptr<LogicalO
   // final result of 'k' increments.
   bool const has_periodic_commit = commit_frequency != nullptr;
   bool const accumulate = is_write && !has_periodic_commit;
-  // At the root the drain also advances, so ORDER BY and a later UNION leg read every write through View::OLD
-  // (subqueries read View::NEW). A body's RETURN runs once per outer row; an advance there changes the outer scan.
+  // At the root the drain also advances, so ORDER BY keys and a later UNION leg read every write through View::OLD
+  // (subqueries, also in ORDER BY, read NEW). A body's RETURN runs once per outer row: an advance would move its scan.
   bool const advance_command = may_advance;
   const ReturnBodyContext body(ret.body_, symbol_table, bound_symbols, storage, &subquery_ctx);
   // Master's RETURN never advances, so this advance is the PR's: analytical mode skips it.

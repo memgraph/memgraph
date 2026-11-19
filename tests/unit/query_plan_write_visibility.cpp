@@ -2331,7 +2331,7 @@ class ViewOracle {
   static Tail InputTail(LogicalOperator const &op, Tail tail) {
     if (tail == Tail::kTop) {
       if (Is<plan::Union>(op) || Is<plan::OrderBy>(op) || Is<plan::Skip>(op) || Is<plan::Limit>(op) ||
-          Is<plan::Distinct>(op)) {
+          Is<plan::Distinct>(op) || Is<plan::RollUpApply>(op)) {
         return Tail::kTop;
       }
       return Is<plan::Produce>(op) ? Tail::kBody : Tail::kNone;
@@ -2342,12 +2342,15 @@ class ViewOracle {
     return Tail::kNone;
   }
 
-  /// Whether a write lies on the main input of @p op in its query part, which starts at a WITH or a MATCH.
-  static bool PartWrote(LogicalOperator &op) {
+  /// Whether a write lies on the main input of @p op in its query part, which starts at a WITH or a MATCH. Above
+  /// the RETURN's projection (an ORDER BY fold), the walk passes that projection.
+  static bool PartWrote(LogicalOperator &op, bool above_projection) {
     for (LogicalOperator *below = op.input().get(); below;) {
       if (IsWrite(*below)) return true;
-      if (Is<plan::Produce>(*below) || Is<plan::ScanAll>(*below) || Is<plan::Expand>(*below) ||
-          Is<plan::ExpandVariable>(*below) || Is<plan::Optional>(*below)) {
+      if (above_projection && Is<plan::Produce>(*below)) {
+        above_projection = false;
+      } else if (Is<plan::Produce>(*below) || Is<plan::ScanAll>(*below) || Is<plan::Expand>(*below) ||
+                 Is<plan::ExpandVariable>(*below) || Is<plan::Optional>(*below)) {
         return false;
       }
       auto children = Children(*below);
@@ -2403,7 +2406,8 @@ class ViewOracle {
         case Edge::kFold:
           // A Filter or Conditional evaluates its own folds; a RollUpApply's list goes to the operator above it.
           Walk(*child,
-               reads_new || (is_rollup && consumer_reads_new) || (is_rollup && tail == Tail::kBody && PartWrote(op)));
+               reads_new || (is_rollup && consumer_reads_new) ||
+                   (is_rollup && tail != Tail::kNone && PartWrote(op, tail == Tail::kTop)));
           break;
       }
     }
@@ -2625,6 +2629,9 @@ TEST(WriteVisibilityOracle, EveryViewFollowsTheRule) {
            "MATCH (a:A), (b:B) CALL (a) { MATCH (a)-[*BFS]->(x) RETURN count(x) AS n } SET b.n = n",
            "MATCH (a:A) SET a.x = 1 CREATE ({v: a.x, n: size([(a)-[:T]->(z:Z) | z])})",
            "MATCH (a:U) SET a.x = 5, a.y = size([(a)-->(v) WHERE a.x = 5 | v])",
+           "MATCH (n:L) SET n.k = n.k + 10 RETURN n.k AS k ORDER BY COUNT { MATCH (m:L) WHERE m.k > n.k } DESC",
+           "CREATE (:Pt {loc: point({x: 1, y: 1})}) RETURN COUNT { MATCH (n:Pt) WHERE point.distance(n.loc, "
+           "point({x: 0, y: 0})) < 5 } AS c",
        }) {
     corpus.push_back({"extra", extra, {{"Pt", "loc"}, {"E", "w"}, {"L", "k"}, {"A", std::nullopt}}});
   }
