@@ -724,7 +724,9 @@ TEST_F(StorageV2GcMetricsTest, NonSequentialDeltasWithUncommittedContributorsAre
     ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   // A commit that overlaps a periodic GC pass leaves its deltas for the next pass; free them now.
-  storage->FreeMemory();
+  // Exclusive, so it waits out a running periodic pass instead of skipping it.
+  storage->FreeMemory(UniqueGuard(storage->main_lock_), false);
+  ASSERT_EQ(0, handles().unreleased_delta_objects.Value());
 
   {
     auto acc0 = storage->Access(memgraph::storage::WRITE);  // older accessor is just used to stop GC.
@@ -785,7 +787,9 @@ TEST_F(StorageV2GcMetricsTest, NonSequentialDeltasWithUncommittedContributorsAre
     ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   // A commit that overlaps a periodic GC pass leaves its deltas for the next pass; free them now.
-  storage->FreeMemory();
+  // Exclusive, so it waits out a running periodic pass instead of skipping it.
+  storage->FreeMemory(UniqueGuard(storage->main_lock_), false);
+  ASSERT_EQ(0, handles().unreleased_delta_objects.Value());
 
   {
     auto acc0 = storage->Access(memgraph::storage::WRITE);  // older accessor is just used to stop GC.
