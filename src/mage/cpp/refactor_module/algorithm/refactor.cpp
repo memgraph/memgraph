@@ -77,6 +77,7 @@ void Refactor::From(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *resul
       return;
     }
     auto record = record_factory.NewRecord();
+    // A field the row never inserts (here output and relationship) reads back as Null; Insert throws for a Null value.
     if (original_id.has_value()) {
       record.Insert(std::string(kFromResultInput).c_str(), *original_id);
     }
