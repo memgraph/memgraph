@@ -11,9 +11,10 @@
 # common memgraph install isn't redone — we only add the symbols and the
 # debugging tooling. Build the variant you want with `docker build --target`.
 
-# mgagent (Memgraph Agent) package, pulled from the release bucket.
-ARG MGAGENT_BASE_URL=https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/memgraph-agent/v0.1.0-rc1
-ARG MGAGENT_VERSION=v0.1.0
+# mgagent (Memgraph Agent) package, from Memgraph's download site. Bumping
+# MGAGENT_VERSION is all an upgrade needs.
+ARG MGAGENT_VERSION=v0.2.0
+ARG MGAGENT_BASE_URL=https://download.memgraph.com/memgraph-agent/${MGAGENT_VERSION}
 # Selects the per-arch stage below. Defaults to TARGETARCH, but package_docker
 # passes --build-arg TARGETARCH="" (so the package mount paths resolve), so it
 # sets MGAGENT_ARCH explicitly.
@@ -144,10 +145,11 @@ RUN --mount=type=secret,id=ubuntu_sources,target=/ubuntu.sources,required=false 
     /mirrors/pin_mirrors.sh restore; \
   fi
 
-# mgagent: single binary in /usr/bin, depends only on libc/libgcc. Installed
-# via dpkg (rather than copying the binary) so it shows up in the package db.
 RUN --mount=type=bind,from=mgagent,source=/memgraph-agent.deb,target=/memgraph-agent.deb,ro \
-  dpkg -i /memgraph-agent.deb
+  if [ -f /etc/dpkg/dpkg.cfg.d/excludes ]; then \
+    echo "path-include=/usr/share/doc/memgraph-agent/*" >> /etc/dpkg/dpkg.cfg.d/excludes; \
+  fi && \
+  DEBIAN_FRONTEND=noninteractive MGAGENT_ACCEPT_EULA=yes dpkg -i /memgraph-agent.deb
 
 # Memgraph listens for Bolt Protocol on this port by default.
 EXPOSE 7687

@@ -3,9 +3,10 @@ ARG CUDA_VERSION=13
 ARG CUDA_VERSION_MINOR=13.1.0
 ARG PY_VERSION_DEFAULT=3.12
 ARG MG_VERSION=3.7.2
-# mgagent (Memgraph Agent) package, pulled from the release bucket.
-ARG MGAGENT_BASE_URL=https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/memgraph-agent/v0.1.0-rc1
-ARG MGAGENT_VERSION=v0.1.0
+# mgagent (Memgraph Agent) package, from Memgraph's download site. Bumping
+# MGAGENT_VERSION is all an upgrade needs.
+ARG MGAGENT_VERSION=v0.2.0
+ARG MGAGENT_BASE_URL=https://download.memgraph.com/memgraph-agent/${MGAGENT_VERSION}
 
 # Per-arch stages because the artifacts are named x86_64/aarch64 rather than
 # Docker's amd64/arm64; BuildKit only builds the one TARGETARCH selects.
@@ -152,9 +153,11 @@ RUN mkdir -p /usr/lib/memgraph/query_modules/
 RUN --mount=type=bind,source="./memgraph-mage.deb",target=/memgraph-mage.deb,ro \
   MG_SKIP_PYTHON_DEPS=1 dpkg-deb -x /memgraph-mage.deb /
 
-# mgagent: single binary in /usr/bin, depends only on libc/libgcc.
 RUN --mount=type=bind,from=mgagent,source=/memgraph-agent.deb,target=/memgraph-agent.deb,ro \
-  dpkg -i /memgraph-agent.deb
+  if [ -f /etc/dpkg/dpkg.cfg.d/excludes ]; then \
+    echo "path-include=/usr/share/doc/memgraph-agent/*" >> /etc/dpkg/dpkg.cfg.d/excludes; \
+  fi && \
+  DEBIAN_FRONTEND=noninteractive MGAGENT_ACCEPT_EULA=yes dpkg -i /memgraph-agent.deb
 
 # copy script to convert to dev container
 COPY make-dev-container.sh /make-dev-container.sh
