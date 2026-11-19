@@ -5853,12 +5853,15 @@ void Produce::ProduceCursor::Shutdown() { input_cursor_->Shutdown(); }
 void Produce::ProduceCursor::Reset() { input_cursor_->Reset(); }
 
 CacheProperties::CacheProperties(const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol,
-                                 std::vector<CachedProperty> cached_properties)
-    : CacheProperties(input, std::vector<CachedPropertyGroup>{
-                                 CachedPropertyGroup{std::move(input_symbol), std::move(cached_properties)}}) {}
+                                 std::vector<CachedProperty> cached_properties, storage::View view)
+    : CacheProperties(
+          input,
+          std::vector<CachedPropertyGroup>{CachedPropertyGroup{std::move(input_symbol), std::move(cached_properties)}},
+          view) {}
 
-CacheProperties::CacheProperties(const std::shared_ptr<LogicalOperator> &input, std::vector<CachedPropertyGroup> groups)
-    : input_(input ? input : std::make_shared<Once>()), groups_(std::move(groups)) {}
+CacheProperties::CacheProperties(const std::shared_ptr<LogicalOperator> &input, std::vector<CachedPropertyGroup> groups,
+                                 storage::View view)
+    : input_(input ? input : std::make_shared<Once>()), groups_(std::move(groups)), view_(view) {}
 
 ACCEPT_WITH_INPUT(CacheProperties)
 
@@ -5886,6 +5889,7 @@ std::unique_ptr<LogicalOperator> CacheProperties::Clone(AstStorage *storage) con
   auto object = std::make_unique<CacheProperties>();
   object->input_ = input_ ? input_->Clone(storage) : nullptr;
   object->groups_ = groups_;
+  object->view_ = view_;
   return object;
 }
 
@@ -5999,17 +6003,17 @@ bool CacheProperties::CachePropertiesCursor::Pull(Frame &frame, ExecutionContext
     // once where a reference holds none.
     auto const lazy_refs = context.evaluation_context.lazy_vector_refs;
 
-    // NEW so that the row sees writes made earlier in this same transaction, as a
-    // property lookup evaluated at this point would.
+    // The view the operator this pass reads for evaluates at, so a slot holds what that operator's
+    // own lookup would have read of a record this command has written.
     auto const read = std::invoke([&] {
       if (reads_a_vertex) {
         auto const &accessor = input_value.ValueVertex().impl_;
-        return lazy_refs ? accessor.ReadPropertyValuesCompact(group.ordered(), slots, storage::View::NEW)
-                         : accessor.ReadPropertyValues(group.ordered(), slots, storage::View::NEW);
+        return lazy_refs ? accessor.ReadPropertyValuesCompact(group.ordered(), slots, self_.view_)
+                         : accessor.ReadPropertyValues(group.ordered(), slots, self_.view_);
       }
       auto const &accessor = input_value.ValueEdge().impl_;
-      return lazy_refs ? accessor.ReadPropertyValuesCompact(group.ordered(), slots, storage::View::NEW)
-                       : accessor.ReadPropertyValues(group.ordered(), slots, storage::View::NEW);
+      return lazy_refs ? accessor.ReadPropertyValuesCompact(group.ordered(), slots, self_.view_)
+                       : accessor.ReadPropertyValues(group.ordered(), slots, self_.view_);
     });
     if (!read) ThrowPropertyReadError(read.error());
 
@@ -6026,8 +6030,8 @@ bool CacheProperties::CachePropertiesCursor::Pull(Frame &frame, ExecutionContext
         frame_writer.Write(cached.output_symbol, TypedValue(context.evaluation_context.memory));
       } else if (lazy_refs && value.IsVectorIndexId()) {
         auto const ref = reads_a_vertex
-                             ? VectorRefValue{input_value.ValueVertex().impl_, cached.property_id, storage::View::NEW}
-                             : VectorRefValue{input_value.ValueEdge().impl_, cached.property_id, storage::View::NEW};
+                             ? VectorRefValue{input_value.ValueVertex().impl_, cached.property_id, self_.view_}
+                             : VectorRefValue{input_value.ValueEdge().impl_, cached.property_id, self_.view_};
         frame_writer.Write(cached.output_symbol, TypedValue(ref, context.evaluation_context.memory));
       } else {
         frame_writer.Write(cached.output_symbol,

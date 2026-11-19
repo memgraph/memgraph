@@ -72,12 +72,15 @@ TYPED_TEST(ReadWriteTypeCheckTest, NONEOps) {
 TYPED_TEST(ReadWriteTypeCheckTest, ReadingAlreadyProducedRecordsIsNoReadOfItsOwn) {
   std::shared_ptr<LogicalOperator> once = std::make_shared<Once>();
   std::shared_ptr<LogicalOperator> cache = std::make_shared<CacheProperties>(
-      once, this->GetSymbol("n"), std::vector<memgraph::query::plan::CachedProperty>{});
+      once, this->GetSymbol("n"), std::vector<memgraph::query::plan::CachedProperty>{}, memgraph::storage::View::NEW);
   this->CheckPlanType(cache.get(), RWType::NONE);
 
   std::shared_ptr<LogicalOperator> create_node = std::make_shared<CreateNode>(once, NodeCreationInfo());
-  std::shared_ptr<LogicalOperator> over_a_write = std::make_shared<CacheProperties>(
-      create_node, this->GetSymbol("n"), std::vector<memgraph::query::plan::CachedProperty>{});
+  std::shared_ptr<LogicalOperator> over_a_write =
+      std::make_shared<CacheProperties>(create_node,
+                                        this->GetSymbol("n"),
+                                        std::vector<memgraph::query::plan::CachedProperty>{},
+                                        memgraph::storage::View::NEW);
   this->CheckPlanType(over_a_write.get(), RWType::W);
 }
 
