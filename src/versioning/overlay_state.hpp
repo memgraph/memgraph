@@ -41,43 +41,40 @@
 #include "storage/v2/view.hpp"
 #include "utils/atomic_memory_block.hpp"
 #include "utils/logging.hpp"
+#include "utils/memory_tracker.hpp"
 
 // An overlay is a sparse stock Vertex or Edge in a branch's diff engine holding only a branch's difference to the base
-// object, so the diff engine's own MVCC versions, aborts and collects it. The encoding uses stock fields:
+// object, so the diff engine's own MVCC versions, aborts and collects it.
 //
-//   labels            the overlay's FULL label set, copied from the base at overlay creation (CopyBaseLabels);
-//   afterwards
-//                     stock AddLabel / RemoveLabel
-//   property set      stock value
-//   property removed  an explicit null entry (PropertyStore::SetExplicitNull), written by WriteProperty
-//   object deleted    the stock deleted flag (MarkVertexDeleted / MarkEdgeDeleted, overlay_mark_deleted.hpp), read by
-//   IsDeleted base edge deleted an entry of type Mark(T) in both endpoint overlays' adjacency (LinkEdgeMarker); the
-//   only reserved
-//                     id left: an edge type with the reserved bit set (id_types.hpp) never collides with a user type
+// Creation is delta-less: it changes nothing visible, the overlay is shared by every branch transaction and is never
+// removed. Labels are the FULL base label set copied at creation (CopyBaseLabels), so the STOCK AddLabel/RemoveLabel
+// apply. A vertex overlay is deleted by the STOCK non-detach DeleteVertex (overlay_mark_deleted.hpp); its has-edges
+// check skips Mark(T) entries. Never DetachDelete an overlay.
 //
-// A property key is absent (the base's value stands), an explicit null (the base's value is removed) or a value.
-// An MVCC reader reconstructing an older snapshot of a key through its SET_PROPERTY deltas must read a before-image
-// equal to &storage::kExplicitNullBeforeImage as an explicit null, not as absent; every other before-image Null is
-// absent. WriteProperty is the only writer that may put an explicit null on an overlay or write over one: a stock
-// SetProperty over an explicit null records a plain Null before-image, and its abort would erase the key.
+// OVERLAY-SPECIFIC operations, where stock cannot express the encoding:
+//   a) WriteProperty. A key is absent (the base's value stands), an explicit null (PropertyStore::SetExplicitNull; the
+//      base's value is removed) or a value. Stock erases a null, and its abort cannot restore an explicit null: a stock
+//      SetProperty over one records a plain Null before-image. WriteProperty records
+//      &storage::kExplicitNullBeforeImage instead; an MVCC reader reads that before-image as an explicit null, every
+//      other before-image Null as absent.
+//   b) Base-edge delete. The base edge is not in the overlay's adjacency, so deleting it adds Mark(T) entries to both
+//      endpoint overlays (LinkEdgeMarker) and leaves edge_count_ alone. Mark(T) sets the reserved bit of the edge type
+//      (id_types.hpp), so it never collides with a user type.
+//   c) LinkEdgeMarker itself, the only writer of Mark(T) entries.
 namespace memgraph::versioning::overlay {
 
 inline storage::EdgeTypeId Mark(storage::EdgeTypeId t) noexcept {
   return storage::EdgeTypeId::FromUint(t.AsUint() | storage::kReservedIdBit);
 }
 
-// Gives an unpublished overlay the base vertex's labels as the delta-less base copy, counted as stock AddLabel would so
-// MarkVertexDeleted's decrement balances. Must run before the overlay is published to any other thread or transaction:
-// it takes no lock and records no delta.
+// Gives an unpublished overlay the base vertex's labels as the delta-less base copy. The diff engine keeps no label
+// counts (Config::track_label_counts is off). Must run before the overlay is published to any other thread or
+// transaction: it takes no lock and records no delta.
 // @throw utils::OutOfMemoryException
-inline void CopyBaseLabels(storage::Storage &engine, storage::Vertex *overlay,
-                           std::span<const storage::LabelId> base_labels) {
+inline void CopyBaseLabels(storage::Vertex *overlay, std::span<const storage::LabelId> base_labels) {
   DMG_ASSERT(overlay->labels.empty() && overlay->delta() == nullptr, "labels are copied once, onto a fresh overlay");
   overlay->labels.reserve(base_labels.size());
-  for (auto const label : base_labels) {
-    overlay->labels.push_back(label);
-    engine.UpdateLabelCount(label, 1);
-  }
+  for (auto const label : base_labels) overlay->labels.push_back(label);
 }
 
 // Whether the overlay is deleted in `view`: the stock deleted flag with the overlay's deltas applied.
@@ -135,6 +132,11 @@ void StoreProperty(Overlay *overlay, storage::PropertyId key, const storage::Pro
   }
 }
 
+// The diff engine has no constraints; overlay writes do not run the stock constraint checks.
+inline bool NoConstraints(const storage::Transaction &transaction) {
+  return !transaction.active_constraints_ || transaction.active_constraints_->empty();
+}
+
 }  // namespace detail
 
 // Writes `value` to `key` on a vertex overlay; a null value removes the base's value by storing an explicit null. The
@@ -146,7 +148,10 @@ void StoreProperty(Overlay *overlay, storage::PropertyId key, const storage::Pro
 inline storage::Result<void> WriteProperty(storage::Transaction *transaction, storage::Storage &engine,
                                            storage::Vertex *overlay, storage::PropertyId key,
                                            const storage::PropertyValue &value) {
+  utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   DMG_ASSERT(transaction->storage_mode == storage::StorageMode::IN_MEMORY_TRANSACTIONAL, "overlays need MVCC deltas");
+  DMG_ASSERT(engine.indices_.vector_index_.Empty() && detail::NoConstraints(*transaction),
+             "overlay writes skip the vector conversion and constraint checks, which the diff engine must not have");
   auto guard = std::unique_lock{overlay->lock};
   if (!storage::PrepareForWrite(transaction, overlay)) return std::unexpected{storage::Error::SERIALIZATION_ERROR};
   if (overlay->deleted()) return std::unexpected{storage::Error::DELETED_OBJECT};
@@ -168,23 +173,19 @@ inline storage::Result<void> WriteProperty(storage::Transaction *transaction, st
                                            storage::Edge *overlay, storage::Vertex *from, storage::Vertex *to,
                                            storage::EdgeTypeId type, storage::PropertyId key,
                                            const storage::PropertyValue &value) {
+  utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   DMG_ASSERT(transaction->storage_mode == storage::StorageMode::IN_MEMORY_TRANSACTIONAL, "overlays need MVCC deltas");
+  DMG_ASSERT(engine.indices_.vector_edge_index_.Empty() && detail::NoConstraints(*transaction),
+             "overlay writes skip the vector conversion and constraint checks, which the diff engine must not have");
   DMG_ASSERT(from && to, "an edge overlay write needs its endpoints");
   auto guard = std::unique_lock{overlay->lock};
   if (!storage::PrepareForWrite(transaction, overlay)) return std::unexpected{storage::Error::SERIALIZATION_ERROR};
   if (overlay->deleted()) return std::unexpected{storage::Error::DELETED_OBJECT};
   auto const prior = detail::ReadPrior(overlay, key);
   utils::AtomicMemoryBlock([&] {
-    storage::CreateAndLinkDelta(transaction, overlay, storage::Delta::SetPropertyTag(), from, key, prior.value);
+    storage::CreateAndLinkDeltaForEdgeSetProperty(
+        transaction, engine.config_, overlay, from, to, type, key, prior.value);
     detail::StoreProperty(overlay, key, value, prior.explicit_null);
-    // Stock records the in-vertex so a replica finds the edge without a scan; not for an edge made by this transaction.
-    if (engine.config_.durability.snapshot_wal_mode ==
-            storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL &&
-        transaction->commit_info &&
-        !storage::EdgeWasCreatedThisTransaction(overlay,
-                                                transaction->commit_info->timestamp.load(std::memory_order_acquire))) {
-      transaction->RecordEdgeSetPropertyInfo(overlay->gid, to->gid, type);
-    }
   });
   engine.indices_.UpdateOnSetProperty(type, key, value, from, to, overlay, *transaction);
   return {};

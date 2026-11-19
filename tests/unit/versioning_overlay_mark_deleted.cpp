@@ -9,9 +9,9 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-// MarkVertexDeleted / MarkEdgeDeleted (overlay_mark_deleted.hpp) and the collection pass that keeps a deleted overlay
-// alive (Config::retained_gid_floors). Overlays are heap objects outside vertices_/edges_ with no delta, as a branch
-// creates them.
+// Stock DeleteVertex on an overlay, MarkEdgeDeleted (overlay_mark_deleted.hpp) and the collection pass that keeps a
+// deleted overlay alive (Config::retained_gid_floors). Overlays are heap objects outside vertices_/edges_ with no
+// delta, as a branch creates them.
 
 #include <algorithm>
 #include <memory>
@@ -73,6 +73,14 @@ class MarkDeletedTest : public testing::Test {
     return ms::VertexAccessor::Create(vertex.get(), storage.get(), acc.GetTransaction(), ms::View::NEW).has_value();
   }
 
+  // Stock non-detach DeleteVertex, as a branch deletes a vertex overlay.
+  ms::Result<bool> DeleteVertex(ms::Storage::Accessor &acc) {
+    auto overlay_vertex = ms::VertexAccessor{vertex.get(), storage.get(), acc.GetTransaction()};
+    auto deleted = acc.DeleteVertex(&overlay_vertex);
+    if (!deleted) return std::unexpected{deleted.error()};
+    return deleted->has_value();
+  }
+
   bool EdgeLive(ms::Storage::Accessor &acc) {
     return ms::EdgeAccessor::Create(ms::EdgeRef{edge.get()},
                                     type,
@@ -117,7 +125,7 @@ class MarkDeletedTest : public testing::Test {
 TEST_F(MarkDeletedTest, ACommittedVertexMarkDeletedSurvivesCollectionAndOlderSnapshotsStillSeeTheVertex) {
   auto old_reader = Reader();
   auto writer = Writer();
-  auto const marked_deleted = overlay::MarkVertexDeleted(writer->GetTransaction(), *storage, vertex.get());
+  auto const marked_deleted = DeleteVertex(*writer);
   ASSERT_TRUE(marked_deleted.has_value() && *marked_deleted);
   EXPECT_FALSE(VertexLive(*writer));
   Commit(*writer);
@@ -156,7 +164,7 @@ TEST_F(MarkDeletedTest, AnAbortedMarkDeletedRestoresTheOverlayAndTheEdgeCount) {
   auto const count = storage->edge_count_.load();
   {
     auto writer = Writer();
-    ASSERT_TRUE(overlay::MarkVertexDeleted(writer->GetTransaction(), *storage, vertex.get()).has_value());
+    ASSERT_TRUE(DeleteVertex(*writer).has_value());
     ASSERT_TRUE(overlay::MarkEdgeDeleted(writer->GetTransaction(), edge.get()).has_value());
     EXPECT_EQ(storage->edge_count_.load(), count);
     writer->Abort();
@@ -176,8 +184,8 @@ TEST_F(MarkDeletedTest, AMarkDeletedConflictsWithAConcurrentWriterOfTheSameOverl
   {
     auto first = Writer();
     auto second = Writer();
-    ASSERT_TRUE(overlay::MarkVertexDeleted(first->GetTransaction(), *storage, vertex.get()).has_value());
-    auto const lost = overlay::MarkVertexDeleted(second->GetTransaction(), *storage, vertex.get());
+    ASSERT_TRUE(DeleteVertex(*first).has_value());
+    auto const lost = DeleteVertex(*second);
     ASSERT_FALSE(lost.has_value());
     EXPECT_EQ(lost.error(), ms::Error::SERIALIZATION_ERROR);
     EXPECT_FALSE(
@@ -189,7 +197,7 @@ TEST_F(MarkDeletedTest, AMarkDeletedConflictsWithAConcurrentWriterOfTheSameOverl
     auto first = Writer();
     auto second = Writer();
     ASSERT_TRUE((ms::VertexAccessor{vertex.get(), storage.get(), first->GetTransaction()}.AddLabel(label).has_value()));
-    auto const lost = overlay::MarkVertexDeleted(second->GetTransaction(), *storage, vertex.get());
+    auto const lost = DeleteVertex(*second);
     ASSERT_FALSE(lost.has_value());
     EXPECT_EQ(lost.error(), ms::Error::SERIALIZATION_ERROR);
     second->Abort();
@@ -207,18 +215,18 @@ TEST_F(MarkDeletedTest, AMarkDeletedConflictsWithAConcurrentWriterOfTheSameOverl
   }
 }
 
-TEST_F(MarkDeletedTest, AVertexMarkDeletedRefusesARealEdgeButNotAMarkerEntry) {
+TEST_F(MarkDeletedTest, ADeleteRefusesARealEdgeButNotAMarkerEntry) {
   auto const marker = overlay::Mark(type);
   vertex->out_edges.emplace_back(marker, other.get(), ms::EdgeRef{edge.get()});
   {
     auto writer = Writer();
-    auto const marked_deleted = overlay::MarkVertexDeleted(writer->GetTransaction(), *storage, vertex.get());
+    auto const marked_deleted = DeleteVertex(*writer);
     ASSERT_TRUE(marked_deleted.has_value() && *marked_deleted) << "markers are the hidden-edge set, not edges";
     writer->Abort();
   }
   vertex->in_edges.emplace_back(type, other.get(), ms::EdgeRef{edge.get()});
   auto writer = Writer();
-  auto const refused = overlay::MarkVertexDeleted(writer->GetTransaction(), *storage, vertex.get());
+  auto const refused = DeleteVertex(*writer);
   ASSERT_FALSE(refused.has_value());
   EXPECT_EQ(refused.error(), ms::Error::VERTEX_HAS_EDGES);
   EXPECT_FALSE(vertex->deleted());
@@ -359,8 +367,10 @@ TEST(MarkDeletedCollection, ANativeObjectIsRetiredWithOrWithoutFloors) {
     ASSERT_EQ(storage->EdgeStoreSize(), 1U);
     {
       auto acc = storage->Access(ms::WRITE, kSnapshot, std::nullopt);
-      if (floors)
-        ASSERT_TRUE(overlay::MarkVertexDeleted(acc->GetTransaction(), *storage, overlay_vertex.get()).has_value());
+      if (floors) {
+        auto overlay_accessor = ms::VertexAccessor{overlay_vertex.get(), storage.get(), acc->GetTransaction()};
+        ASSERT_TRUE(acc->DeleteVertex(&overlay_accessor).has_value());
+      }
       auto natives = std::vector<ms::VertexAccessor>{};
       for (auto const &vertex : acc->Vertices(ms::View::OLD)) natives.push_back(vertex);
       for (auto &vertex : natives) ASSERT_TRUE(acc->DetachDeleteVertex(&vertex).has_value());

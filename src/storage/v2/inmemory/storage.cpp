@@ -3833,17 +3833,28 @@ void InMemoryStorage::CollectGarbage(utils::ResourceLockGuard main_guard, bool p
   // the actual objects need removing before the object is removed itself. Also moving from IN_MEMORY_ANALYTICAL to
   // IN_MEMORY_TRANSACTIONAL any object could have been deleted so also index cleanup is required for correctness.
 #ifdef MG_ENTERPRISE
-  // Overlays are never retired, so they must not reach index cleanup or retirement, which assume the object is in
-  // `vertices_`/`edges_`. An overlay is in no index of this storage, so there is nothing to sweep for it.
+  // Overlays are never retired, so they stay out of the deleted lists that drive retirement and vector-index removal,
+  // which assume the object is in `vertices_`/`edges_`. Their regular index entries are removed by the obsolete-entry
+  // sweep, which only reads the object, so a filtered overlay arms the all-index sweep below.
+  bool overlays_filtered_vertices = false;
+  bool overlays_filtered_edges = false;
   if (retained_vertex_floor_ != 0 || retained_edge_floor_ != 0) [[unlikely]] {
     BatchedList<Gid> kept_vertices;
     for (auto const gid : current_deleted_vertices.elements()) {
-      if (gid.AsUint() >= retained_vertex_floor_) kept_vertices.push_back(gid);
+      if (gid.AsUint() >= retained_vertex_floor_) {
+        kept_vertices.push_back(gid);
+      } else {
+        overlays_filtered_vertices = true;
+      }
     }
     current_deleted_vertices.swap(kept_vertices);
     BatchedList<Edge *> kept_edges;
     for (auto *const edge : current_deleted_edges.elements()) {
-      if (edge->gid.AsUint() >= retained_edge_floor_) kept_edges.push_back(edge);
+      if (edge->gid.AsUint() >= retained_edge_floor_) {
+        kept_edges.push_back(edge);
+      } else {
+        overlays_filtered_edges = true;
+      }
     }
     current_deleted_edges.swap(kept_edges);
   }
@@ -3861,6 +3872,10 @@ void InMemoryStorage::CollectGarbage(utils::ResourceLockGuard main_guard, bool p
   sweep_arming |= cycle_arming;
   if (index_cleanup_vertex_needed) sweep_arming.arm_all_vertex_indexes();
   if (index_cleanup_edge_needed) sweep_arming.arm_all_edge_indexes();
+#ifdef MG_ENTERPRISE
+  if (overlays_filtered_vertices) sweep_arming.arm_all_vertex_indexes();
+  if (overlays_filtered_edges) sweep_arming.arm_all_edge_indexes();
+#endif
 
   auto index_cleanup_vertex_performance = sweep_arming.arms_vertex_indexes();
   auto index_cleanup_edge_performance = sweep_arming.arms_edge_indexes();
