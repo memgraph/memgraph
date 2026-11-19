@@ -395,6 +395,17 @@ jobs:
             echo "BRANCH_NAME=$(echo ${GITHUB_REF#refs/heads/} | tr / -)" >> $GITHUB_ENV
           fi
 
+      - name: Run delete edges micro benchmark
+        # TEMPORARY: compare edge deletion between branches; revert before merge
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          test-memgraph micro-benchmark storage_v2_delete_edges
+
       - name: Run mgbench
         if: false  # TEMPORARY: run only the hub edge rewrite benchmark; revert before merge
         run: |
