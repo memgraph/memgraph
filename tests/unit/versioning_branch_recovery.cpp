@@ -311,28 +311,25 @@ std::unique_ptr<mv::BranchContext> Checkout(memgraph::dbms::Database &db, std::s
   return std::make_unique<mv::BranchContext>(*core);
 }
 
-// Builds and registers `name`'s core from its recorded fork with its WAL replayed, so a later Checkout attaches to it.
-// `floor_shift` moves the recorded gid floors, to feed the replay a misread log.
-std::expected<mv::NativeGidEnds, std::string> Recover(memgraph::dbms::Database &db, std::string_view name,
-                                                      int64_t floor_shift = 0) {
-  auto branch = db.version_store()->Checkout(name);
-  if (!branch) return std::unexpected(branch.error());
-  const auto &info = (*branch)->info();
-  const auto fork_ts = (*branch)->fork_ts();
-  mv::NativeGidEnds ends;
-  auto core = (*branch)->GetOrBuildCore([&]() -> std::expected<std::shared_ptr<mv::BranchCore>, std::string> {
-    auto fork = info.fork;
-    fork.vertex_gid_floor += floor_shift;
-    fork.edge_gid_floor += floor_shift;
-    auto built = mv::BranchCore::Build(*Mem(db), fork, fork_ts, info.id);
-    if (!built) return std::unexpected(built.error().message);
-    auto replayed = mv::ReplayBranchWal(*built, BranchWalDir(info.id));
-    if (!replayed) return std::unexpected(replayed.error());
-    ends = *replayed;
-    return std::move(*built);
-  });
-  if (!core) return std::unexpected(core.error());
-  return ends;
+// Why Database startup set `name` aside, nullopt when it recovered.
+std::optional<std::string> UnavailableReason(memgraph::dbms::Database &db, std::string_view name) {
+  const auto listing = db.version_store()->Get(name);
+  EXPECT_TRUE(listing.has_value());
+  return listing ? listing->unavailable_reason : std::nullopt;
+}
+
+// The branch's WAL replayed into a standalone core built from its recorded fork, whose gid floors are moved by
+// `floor_shift` to feed the replay a misread log.
+std::expected<mv::NativeGidEnds, std::string> Replay(memgraph::dbms::Database &db, std::string_view name,
+                                                     int64_t floor_shift) {
+  const auto listing = db.version_store()->Get(name);
+  if (!listing) return std::unexpected("no such branch");
+  auto fork = listing->info.fork;
+  fork.vertex_gid_floor += floor_shift;
+  fork.edge_gid_floor += floor_shift;
+  auto built = mv::BranchCore::Build(*Mem(db), fork, listing->fork_ts, listing->info.id);
+  if (!built) return std::unexpected(built.error().message);
+  return mv::ReplayBranchWal(*built, BranchWalDir(listing->info.id));
 }
 
 struct Env {
@@ -416,9 +413,7 @@ RoundTrip RunRoundTrip(const std::function<void(Env &)> &workload, Options optio
   }
   TestDatabase db{MakeConfig(/*recover_on_startup=*/true, options)};
   const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
-  const auto recovered = Recover(db, "b");
-  EXPECT_TRUE(recovered.has_value()) << recovered.error();
-  if (!recovered) return out;
+  EXPECT_EQ(UnavailableReason(db, "b"), std::nullopt);
   bool built = false;
   auto ctx = Checkout(db, "b", &built);
   EXPECT_NE(ctx, nullptr);
@@ -827,7 +822,6 @@ TEST_F(VersioningBranchRecoveryTest, WritesAcrossTwoRestartsReplayTheWholeChain)
   {
     TestDatabase db{MakeConfig(/*recover_on_startup=*/true)};
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
-    ASSERT_TRUE(Recover(db, "b").has_value());
     bool built = false;
     auto ctx = Checkout(db, "b", &built);
     ASSERT_NE(ctx, nullptr);
@@ -848,7 +842,6 @@ TEST_F(VersioningBranchRecoveryTest, WritesAcrossTwoRestartsReplayTheWholeChain)
 
   TestDatabase db{MakeConfig(/*recover_on_startup=*/true)};
   const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
-  ASSERT_TRUE(Recover(db, "b").has_value());
   auto ctx = Checkout(db, "b");
   ASSERT_NE(ctx, nullptr);
   EXPECT_EQ(Capture(db, *ctx, base).Render(), after_second.Render());
@@ -887,8 +880,6 @@ TEST_F(VersioningBranchRecoveryTest, TwoBranchesRecoverIndependently) {
   TestDatabase db{MakeConfig(/*recover_on_startup=*/true)};
   const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
   ASSERT_EQ(db.version_store()->List().size(), 2u);
-  ASSERT_TRUE(Recover(db, "b").has_value());
-  ASSERT_TRUE(Recover(db, "c").has_value());
   auto b = Checkout(db, "b");
   auto c = Checkout(db, "c");
   ASSERT_NE(b, nullptr);
@@ -980,7 +971,6 @@ TEST_F(VersioningBranchRecoveryTest, AMissingWalFileFailsTheReplayAndKeepsTheOth
   {
     TestDatabase db{MakeConfig(/*recover_on_startup=*/true)};
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
-    ASSERT_TRUE(Recover(db, "b").has_value());
     auto ctx = Checkout(db, "b");
     ASSERT_NE(ctx, nullptr);
     Env env{db, *ctx, base};
@@ -997,9 +987,9 @@ TEST_F(VersioningBranchRecoveryTest, AMissingWalFileFailsTheReplayAndKeepsTheOth
 
   TestDatabase db{MakeConfig(/*recover_on_startup=*/true)};
   const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
-  const auto recovered = Recover(db, "b");
-  ASSERT_FALSE(recovered.has_value());
-  EXPECT_THAT(recovered.error(), HasSubstr("missing prefix WAL files"));
+  const auto reason = UnavailableReason(db, "b");
+  ASSERT_TRUE(reason.has_value());
+  EXPECT_THAT(*reason, HasSubstr("missing prefix WAL files"));
   EXPECT_EQ(WalFiles(number), files) << "a failed replay leaves the branch's files as they are";
 }
 
@@ -1102,7 +1092,7 @@ TEST_F(VersioningBranchRecoveryTest, ACreateRecordBelowTheRecordedFloorIsRefused
     WriteBranch(workload);
     TestDatabase db{MakeConfig(/*recover_on_startup=*/true)};
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
-    const auto recovered = Recover(db, "b", /*floor_shift=*/1000);
+    const auto recovered = Replay(db, "b", /*floor_shift=*/1000);
     ASSERT_FALSE(recovered.has_value());
     EXPECT_THAT(recovered.error(), HasSubstr(std::string{expected} + " "));
     EXPECT_THAT(recovered.error(), HasSubstr("a gid of the base state"));
@@ -1188,9 +1178,9 @@ TEST_F(VersioningBranchRecoveryTest, ADamagedSummaryFailsTheReplayOfAFileNamedFi
   {
     TestDatabase db{MakeConfig(/*recover_on_startup=*/true)};
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
-    const auto recovered = Recover(db, "b");
-    ASSERT_FALSE(recovered.has_value());
-    EXPECT_THAT(recovered.error(), HasSubstr("summary"));
+    const auto reason = UnavailableReason(db, "b");
+    ASSERT_TRUE(reason.has_value());
+    EXPECT_THAT(*reason, HasSubstr("summary"));
   }
 
   const auto name = file.filename().string();
@@ -1198,8 +1188,7 @@ TEST_F(VersioningBranchRecoveryTest, ADamagedSummaryFailsTheReplayOfAFileNamedFi
   std::filesystem::rename(file, file.parent_path() / (name.substr(0, name.find("_from_")) + "_current"));
   TestDatabase db{MakeConfig(/*recover_on_startup=*/true)};
   const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
-  const auto recovered = Recover(db, "b");
-  EXPECT_TRUE(recovered.has_value()) << recovered.error();
+  EXPECT_EQ(UnavailableReason(db, "b"), std::nullopt);
 }
 
 // Any read failure of a file named as finalized is damage, not just a summary one: the file always held a transaction,
@@ -1220,7 +1209,7 @@ TEST_F(VersioningBranchRecoveryTest, AFinalizedFileThatCannotBeReadFailsTheRepla
     damage(file);
     TestDatabase db{MakeConfig(/*recover_on_startup=*/true)};
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
-    EXPECT_FALSE(Recover(db, "b").has_value());
+    EXPECT_TRUE(UnavailableReason(db, "b").has_value());
   }
 }
 
@@ -1233,8 +1222,7 @@ TEST_F(VersioningBranchRecoveryTest, AnUnreadableFileStillNamedAsBeingWrittenIsS
   std::filesystem::resize_file(current, 0);
   TestDatabase db{MakeConfig(/*recover_on_startup=*/true)};
   const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
-  const auto recovered = Recover(db, "b");
-  EXPECT_TRUE(recovered.has_value()) << recovered.error();
+  EXPECT_EQ(UnavailableReason(db, "b"), std::nullopt);
 }
 
 // A copy of a WAL file repeats its sequence number; replaying both would apply its transactions twice.
@@ -1247,9 +1235,9 @@ TEST_F(VersioningBranchRecoveryTest, TwoWalFilesWithOneSequenceNumberFailTheRepl
   }
   TestDatabase db{MakeConfig(/*recover_on_startup=*/true)};
   const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
-  const auto recovered = Recover(db, "b");
-  ASSERT_FALSE(recovered.has_value());
-  EXPECT_THAT(recovered.error(), HasSubstr("sequence numbers 0 and 0"));
+  const auto reason = UnavailableReason(db, "b");
+  ASSERT_TRUE(reason.has_value());
+  EXPECT_THAT(*reason, HasSubstr("sequence numbers 0 and 0"));
 }
 
 // Main verifies every transaction's CRC, an uncommitted one's too: a commit flag damaged to "not committed" would
@@ -1266,7 +1254,127 @@ TEST_F(VersioningBranchRecoveryTest, ACommitFlagThatFailsItsTransactionCrcFailsT
             static_cast<char>(dur::Marker::VALUE_TRUE));
   TestDatabase db{MakeConfig(/*recover_on_startup=*/true)};
   const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
-  const auto recovered = Recover(db, "b");
-  ASSERT_FALSE(recovered.has_value());
-  EXPECT_THAT(recovered.error(), HasSubstr("CRC"));
+  const auto reason = UnavailableReason(db, "b");
+  ASSERT_TRUE(reason.has_value());
+  EXPECT_THAT(*reason, HasSubstr("CRC"));
+}
+
+// ---- Startup recovery
+
+// Branch natives are gids main's counter handed out, which main's own recovery does not see: main must end above them.
+TEST_F(VersioningBranchRecoveryTest, MainsCountersEndAboveEveryNativeGidAfterARestart) {
+  uint64_t last_vertex = 0;
+  uint64_t last_edge = 0;
+  {
+    TestDatabase db{MakeConfig(/*recover_on_startup=*/false)};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+    const auto base = CreateBase(db);
+    ASSERT_TRUE(db.version_store()->CreateBranch("b").has_value());
+    auto ctx = Checkout(db, "b");
+    ASSERT_NE(ctx, nullptr);
+    Env env{db, *ctx, base};
+    env.Txn([&](mv::BranchContext &c, auto &) {
+      auto n1 = c.CreateNativeVertex();
+      auto n2 = c.CreateNativeVertex();
+      auto edge = c.CreateNativeEdge(n1, n2, env.EdgeType("T"));
+      ASSERT_TRUE(edge.has_value());
+      last_vertex = n2.Gid().AsUint();
+      last_edge = edge->Gid().AsUint();
+    });
+  }
+
+  TestDatabase db{MakeConfig(/*recover_on_startup=*/true)};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+  EXPECT_EQ(UnavailableReason(db, "b"), std::nullopt);
+  auto acc = db.Access(ms::WRITE);
+  auto v = acc->CreateVertex();
+  EXPECT_GT(v.Gid().AsUint(), last_vertex);
+  auto e = acc->CreateEdge(&v, &v, db.storage()->NameToEdgeType("T"));
+  ASSERT_TRUE(e.has_value());
+  EXPECT_GT(e->Gid().AsUint(), last_edge);
+}
+
+// Main recovers without the branches, so it may hold a gid a branch created: that branch is refused, never remapped,
+// and neither main nor the other branches notice.
+TEST_F(VersioningBranchRecoveryTest, ABranchWhoseNativeGidMainHoldsIsUnavailableAndNothingElseChanges) {
+  uint64_t last_vertex = 0;
+  {
+    TestDatabase db{MakeConfig(/*recover_on_startup=*/false)};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+    const auto base = CreateBase(db);
+    for (const auto *name : {"vertex_clash", "edge_clash", "fine"}) {
+      ASSERT_TRUE(db.version_store()->CreateBranch(name).has_value());
+    }
+    auto vertex_clash = Checkout(db, "vertex_clash");
+    auto edge_clash = Checkout(db, "edge_clash");
+    auto fine = Checkout(db, "fine");
+    ASSERT_NE(vertex_clash, nullptr);
+    ASSERT_NE(edge_clash, nullptr);
+    ASSERT_NE(fine, nullptr);
+
+    uint64_t clashing_vertex = 0;
+    uint64_t clashing_edge = 0;
+    Env{db, *vertex_clash, base}.Txn(
+        [&](mv::BranchContext &c, auto &) { clashing_vertex = c.CreateNativeVertex().Gid().AsUint(); });
+    Env env{db, *edge_clash, base};
+    env.Txn([&](mv::BranchContext &c, auto &) {
+      auto n1 = c.CreateNativeVertex();
+      auto n2 = c.CreateNativeVertex();
+      auto edge = c.CreateNativeEdge(n1, n2, env.EdgeType("T"));
+      ASSERT_TRUE(edge.has_value());
+      clashing_edge = edge->Gid().AsUint();
+    });
+    Env{db, *fine, base}.Txn(
+        [&](mv::BranchContext &c, auto &) { last_vertex = c.CreateNativeVertex().Gid().AsUint(); });
+
+    // Counters that lost the branches' allocations, as a main recovering a shorter history would have them.
+    Mem(db)->vertex_id_.store(clashing_vertex);
+    Mem(db)->edge_id_.store(clashing_edge);
+    auto acc = db.Access(ms::WRITE);
+    auto v1 = acc->FindVertex(base.v1, ms::View::OLD);
+    auto v2 = acc->FindVertex(base.v2, ms::View::OLD);
+    ASSERT_TRUE(v1 && v2);
+    ASSERT_EQ(acc->CreateVertex().Gid().AsUint(), clashing_vertex);
+    ASSERT_EQ(acc->CreateEdge(&*v1, &*v2, db.storage()->NameToEdgeType("T"))->Gid().AsUint(), clashing_edge);
+    Commit(*acc);
+  }
+
+  TestDatabase db{MakeConfig(/*recover_on_startup=*/true)};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+  for (const auto *name : {"vertex_clash", "edge_clash"}) {
+    const auto reason = UnavailableReason(db, name);
+    ASSERT_TRUE(reason.has_value()) << name;
+    EXPECT_THAT(*reason, HasSubstr("gid conflict with main")) << name;
+  }
+  EXPECT_EQ(UnavailableReason(db, "fine"), std::nullopt);
+  EXPECT_GT(Mem(db)->vertex_id_.load(), last_vertex) << "the available branch's gids are raised into main's counter";
+}
+
+// A damaged branch WAL costs only that branch.
+TEST_F(VersioningBranchRecoveryTest, ADamagedBranchWalMakesOnlyThatBranchUnavailable) {
+  Base base{};
+  uint64_t damaged_number = 0;
+  {
+    TestDatabase db{MakeConfig(/*recover_on_startup=*/false)};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+    base = CreateBase(db);
+    for (const auto *name : {"damaged", "intact"}) {
+      auto info = db.version_store()->CreateBranch(name);
+      ASSERT_TRUE(info.has_value());
+      if (std::string_view{name} == "damaged") damaged_number = info->id;
+      auto ctx = Checkout(db, name);
+      ASSERT_NE(ctx, nullptr);
+      Env{db, *ctx, base}.Txn([&](mv::BranchContext &c, auto &) { c.CreateNativeVertex(); });
+    }
+  }
+  const auto files = WalFiles(damaged_number);
+  ASSERT_EQ(files.size(), 1u);
+  std::filesystem::resize_file(files.front(), 0);
+
+  TestDatabase db{MakeConfig(/*recover_on_startup=*/true)};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+  EXPECT_TRUE(UnavailableReason(db, "damaged").has_value());
+  EXPECT_EQ(UnavailableReason(db, "intact"), std::nullopt);
+  EXPECT_NE(Checkout(db, "intact"), nullptr);
+  EXPECT_TRUE(db.Access(ms::READ)->FindVertex(base.v1, ms::View::OLD).has_value());
 }
