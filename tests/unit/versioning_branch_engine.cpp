@@ -2571,6 +2571,67 @@ TEST_F(VersioningBranchWriteTest, NonDetachDeleteOfAnOverlayWithANativeInEdgeRef
   });
 }
 
+// The caller of DeleteBaseVertex deletes the native edges first, as a stock DETACH DELETE deletes its edges before the
+// vertex: native edges to a native vertex and to another base vertex, and a base edge, all go with the vertex.
+TEST_F(VersioningBranchWriteTest, DetachDeletingABaseVertexDeletesItsNativeEdgesFirst) {
+  auto const a = CreateMainVertex({}, {});
+  auto const b = CreateMainVertex({}, {});
+  auto const c = CreateMainVertex({}, {});
+  CreateMainEdge(a, c, "E");
+  Fork();
+  ms::Gid native_vertex;
+  auto const native_edge_gids = [&](ms::Gid vertex, ms::EdgeDirection direction) {
+    std::set<uint64_t> gids;
+    for (auto const &e : Ctx().ResolveEdges(vertex, direction, ms::View::NEW)) gids.insert(e.Gid().AsUint());
+    return gids;
+  };
+  auto const detach = [&] {
+    auto *const diff = Ctx().current_diff_txn();
+    std::vector<ms::EdgeAccessor> natives;
+    for (auto const direction : {ms::EdgeDirection::OUT, ms::EdgeDirection::IN}) {
+      auto const edges = Ctx().ResolveEdges(a, direction, ms::View::NEW);
+      for (auto const &edge : edges) {
+        if (!Ctx().IsBaseCandidateEdge(edge.Gid())) natives.push_back(edge);
+      }
+    }
+    ASSERT_EQ(natives.size(), 2U);
+    for (auto &edge : natives) ASSERT_TRUE(diff->DeleteEdge(&edge).has_value());
+    EXPECT_TRUE(*Ctx().DeleteBaseVertex(a, true));
+  };
+
+  Write([&] {
+    auto native = Ctx().CreateNativeVertex();
+    native_vertex = native.Gid();
+    auto anchor = Ctx().EnsureDiffVertex(a);
+    auto other = Ctx().EnsureDiffVertex(b);
+    ASSERT_TRUE(anchor.has_value() && other.has_value());
+    ASSERT_TRUE(Ctx().current_diff_txn()->CreateEdge(&*anchor, &native, Core().NameToEdgeType("N")).has_value());
+    ASSERT_TRUE(Ctx().current_diff_txn()->CreateEdge(&*other, &*anchor, Core().NameToEdgeType("N")).has_value());
+  });
+  Read([&] {
+    EXPECT_EQ(native_edge_gids(a, ms::EdgeDirection::OUT).size(), 2U) << "the base edge and the native edge";
+    EXPECT_EQ(native_edge_gids(a, ms::EdgeDirection::IN).size(), 1U);
+  });
+
+  WriteAndAbort(detach);
+  Read([&] {
+    EXPECT_TRUE(Ctx().ResolveVertex(a, ms::View::NEW).has_value()) << "aborted";
+    EXPECT_EQ(native_edge_gids(a, ms::EdgeDirection::OUT).size(), 2U);
+    EXPECT_EQ(native_edge_gids(a, ms::EdgeDirection::IN).size(), 1U);
+    EXPECT_EQ(native_edge_gids(native_vertex, ms::EdgeDirection::IN).size(), 1U);
+  });
+
+  Write(detach);
+  Read([&] {
+    EXPECT_FALSE(Ctx().ResolveVertex(a, ms::View::NEW).has_value());
+    EXPECT_TRUE(Ctx().ResolveVertex(b, ms::View::NEW).has_value());
+    EXPECT_TRUE(Ctx().ResolveVertex(c, ms::View::NEW).has_value());
+    EXPECT_TRUE(native_edge_gids(native_vertex, ms::EdgeDirection::IN).empty());
+    EXPECT_TRUE(native_edge_gids(b, ms::EdgeDirection::OUT).empty());
+    EXPECT_TRUE(native_edge_gids(c, ms::EdgeDirection::IN).empty()) << "the base edge went with a";
+  });
+}
+
 // ---- Edge writes: a base edge is written through its overlay (an Edge in the EdgeOverlayIndex, with the overlays of
 // its endpoints); a native edge is a stock edge in the diff engine with its gid from main's counter.
 
