@@ -1447,21 +1447,21 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
         license::LicenseCheckErrorToString(license_check_result.error(), "advanced authentication features"));
   }
 
-  const auto forbid_on_replica = [has_license = !license_check_result.has_value(),
+  const auto forbid_on_replica = [licensed = license_check_result.has_value(),
                                   is_replica = interpreter_context->repl_state->ReadLock()->IsReplica()]() {
     if (is_replica) {
 #if MG_ENTERPRISE
-      if (has_license) {
+      // Auth replicates only with a valid license, so only then is MAIN the one place to change it.
+      if (licensed) {
         throw QueryException(
             "Query forbidden on the replica! Update on MAIN, as it is the only source of truth for authentication "
             "data. MAIN will then replicate the update to connected REPLICAs");
       }
-      throw QueryException(
-          "Query forbidden on the replica! Switch role to MAIN and update user data, then switch back to REPLICA.");
 #else
+      std::ignore = licensed;
+#endif
       throw QueryException(
           "Query forbidden on the replica! Switch role to MAIN and update user data, then switch back to REPLICA.");
-#endif
     }
   };
 
