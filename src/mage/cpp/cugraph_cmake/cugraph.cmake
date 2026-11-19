@@ -49,6 +49,7 @@ if (MG_ENABLE_CUGRAPH)
   # RAPIDS.cmake is here because rapids_cuda_init_architectures is required to
   # properly set both CMAKE_CUDA_ARCHITECTURES and CUDA_ARCHITECTURES target
   # property.
+  set(rapids-cmake-branch "${MG_CUGRAPH_TAG}")
   file(DOWNLOAD "https://raw.githubusercontent.com/rapidsai/rapids-cmake/${MG_CUGRAPH_TAG}a/RAPIDS.cmake"
                 ${CMAKE_CURRENT_BINARY_DIR}/RAPIDS.cmake)
   include(${CMAKE_CURRENT_BINARY_DIR}/RAPIDS.cmake)
