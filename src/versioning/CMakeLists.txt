@@ -14,6 +14,7 @@ target_sources(mg-versioning
         overlay_state.hpp
         overlay_mark_deleted.hpp
         overlay_index.hpp
+        overlay_merge.hpp
         version_store.hpp
 
         PRIVATE
