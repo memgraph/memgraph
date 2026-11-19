@@ -51,23 +51,15 @@ class BranchChangeFilters {
 
   void RecordPropertyChange(storage::Gid gid) noexcept { property_.Insert(gid); }
 
-  // Label gates (id mod 256, no gid): "touched" = the label was written on a base vertex, "marked" = Mark(label) was
-  // written on an overlay. A clear bit lets readers skip the per-gid work.
+  // Gate (id mod 256, no gid): the label was added to or removed from some base vertex. A clear bit lets label scans
+  // and HasLabel skip the per-gid work. A removal needs no gate of its own: an overlay carries the base's full label
+  // set.
   void RecordLabelTouched(storage::LabelId label) noexcept {
     label_touched_gate_[GateWord(label.AsUint())].fetch_or(GateBit(label.AsUint()), std::memory_order_release);
   }
 
-  void RecordLabelMarked(storage::LabelId label) noexcept {
-    label_marked_gate_[GateWord(label.AsUint())].fetch_or(GateBit(label.AsUint()), std::memory_order_release);
-  }
-
   [[nodiscard]] bool MayHaveLabelTouched(storage::LabelId label) const noexcept {
     return (label_touched_gate_[GateWord(label.AsUint())].load(std::memory_order_acquire) & GateBit(label.AsUint())) !=
-           0;
-  }
-
-  [[nodiscard]] bool MayHaveLabelMarked(storage::LabelId label) const noexcept {
-    return (label_marked_gate_[GateWord(label.AsUint())].load(std::memory_order_acquire) & GateBit(label.AsUint())) !=
            0;
   }
 
@@ -194,7 +186,6 @@ class BranchChangeFilters {
   std::array<std::atomic<uint64_t>, kPidGateBits / 64> pid_gate_{};
   std::array<std::atomic<uint64_t>, kPidGateBits / 64> edge_pid_gate_{};
   std::array<std::atomic<uint64_t>, kPidGateBits / 64> label_touched_gate_{};
-  std::array<std::atomic<uint64_t>, kPidGateBits / 64> label_marked_gate_{};
   std::atomic<bool> any_vertex_deleted_{false};
   MonotonicGidFilter property_;
   MonotonicGidFilter label_;
