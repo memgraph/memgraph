@@ -57,4 +57,9 @@ struct BranchInfo {
   uint64_t created_at_us{0};
 };
 
+// The durable timestamp the branch still needs recoverable: one below its recorded fork, clamped at 0.
+inline uint64_t RecoverableBelow(const BranchInfo &info) {
+  return info.fork.durable_fork_ts == 0 ? 0 : info.fork.durable_fork_ts - 1;
+}
+
 }  // namespace memgraph::versioning

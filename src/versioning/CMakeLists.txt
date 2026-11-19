@@ -8,11 +8,13 @@ target_sources(mg-versioning
         branch_info.hpp
         branch_ledger.hpp
         gate.hpp
+        version_store.hpp
 
         PRIVATE
         branch_info.cpp
         branch_ledger.cpp
         gate.cpp
+        version_store.cpp
 )
 
-target_link_libraries(mg-versioning PUBLIC mg-utils mg-kvstore mg-storage-v2)
+target_link_libraries(mg-versioning PUBLIC mg-utils mg-kvstore mg-storage-v2 mg-metrics)
