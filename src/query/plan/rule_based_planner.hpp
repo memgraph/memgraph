@@ -500,10 +500,8 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
             reads.Merge(CollectReads(optional, *context.symbol_table, context.bound_symbols, non_graph_symbols_));
           }
           if (read_scope_ == ReadScope::kWritingTree) {
-            // Every read of a writing CALL body is a View::NEW read, which sees what this command created.
-            auto new_reads = reads;
-            new_reads.symbols.clear();
-            barrier_before(new_reads, /*reads_new=*/true);
+            // Every read of a writing CALL body is a View::NEW read.
+            barrier_before(reads.AsNewReader(), /*reads_new=*/true);
             pending_new_reads.Merge(reads);
           } else {
             barrier_before(reads, /*reads_new=*/false);
@@ -655,15 +653,13 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
               group_access.writes.Merge(item.writes);
             }
             if (!is_projection) {
-              auto reads = group_access.reads;
               // View::NEW sees what this command created; only a View::OLD reader needs the advance for that.
-              if (clause_reads_new) {
-                reads.symbols.clear();
-              } else if (BarriersOn() && (utils::Downcast<Create>(clause) ||
-                                          IsReadOnlyCall(*clause, single_query_part.subqueries, subquery_id))) {
+              auto reads = clause_reads_new ? group_access.reads.AsNewReader() : group_access.reads;
+              if (!clause_reads_new && BarriersOn() &&
+                  (utils::Downcast<Create>(clause) ||
+                   IsReadOnlyCall(*clause, single_query_part.subqueries, subquery_id))) {
                 // A View::OLD reader that reads only its own row's earlier writes reads View::NEW instead of a barrier.
-                auto new_reads = reads;
-                new_reads.symbols.clear();
+                auto new_reads = reads.AsNewReader();
                 // At View::NEW it would also see its own earlier rows' writes, so it must not read what it writes.
                 if (!Conflicts(new_reads, group_access.writes) &&
                     row_local(new_reads, pending_writes, group_access.writes)) {
@@ -1392,9 +1388,9 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
     for (auto i = first; i < last; ++i) {
       auto &set = *utils::Downcast<query::SetProperty>(clauses[i]);
       // A value is read before any write of the row, at View::NEW: a pattern through a symbol does not matter.
-      auto reads =
-          CollectReadsAndWrites(*set.expression_, symbol_table, context_->bound_symbols, non_graph_symbols_).reads;
-      reads.symbols.clear();
+      auto const reads =
+          CollectReadsAndWrites(*set.expression_, symbol_table, context_->bound_symbols, non_graph_symbols_)
+              .reads.AsNewReader();
       reads_earlier_item = reads_earlier_item || Conflicts(reads, written);
       written.Merge(CollectReadsAndWrites(set, symbol_table, context_->bound_symbols, non_graph_symbols_).writes);
     }
@@ -1540,8 +1536,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
                                                               const std::unordered_set<Symbol> &matched_bound) {
     if (merge.on_match_.empty()) return on_match;
     auto const &symbol_table = *context_->symbol_table;
-    auto reads = CollectReads(matching, symbol_table, context_->bound_symbols, non_graph_symbols_);
-    reads.symbols.clear();  // the match reads View::NEW
+    auto const reads = CollectReads(matching, symbol_table, context_->bound_symbols, non_graph_symbols_).AsNewReader();
     ReadWriteSet writes;
     for (auto *clause : merge.on_match_) {
       writes.Merge(CollectReadsAndWrites(*clause, symbol_table, matched_bound, non_graph_symbols_).writes);

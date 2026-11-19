@@ -85,10 +85,17 @@ struct ReadWriteSet {
   void NoteAnyProperty(const std::optional<Symbol> &through);
 
   void Clear() { *this = ReadWriteSet{}; }
+
+  /// These reads at View::NEW, which sees what this command created: without `symbols`.
+  ReadWriteSet AsNewReader() const {
+    auto reads = *this;
+    reads.symbols.clear();
+    return reads;
+  }
 };
 
 /// Whether @p reads can observe any of @p writes. A pattern through a symbol @p writes binds conflicts too, which
-/// matters only to a View::OLD reader: clear `reads.symbols` for a View::NEW one.
+/// matters only to a View::OLD reader: pass `AsNewReader()` for a View::NEW one.
 bool Conflicts(const ReadWriteSet &reads, const ReadWriteSet &writes);
 
 /// Whether the reads conflict with the writes only through `access_check`: a barrier for that conflict is
