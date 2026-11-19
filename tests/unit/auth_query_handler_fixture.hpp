@@ -20,7 +20,7 @@
 // A real auth store and handler, so an interpreter test can run auth queries and auth transactions. Plug it in
 // with `interpreter_context.auth = &fixture.handler`.
 struct AuthQueryHandlerFixture {
-  explicit AuthQueryHandlerFixture(std::filesystem::path dir) : dir{std::move(dir)} {}
+  explicit AuthQueryHandlerFixture(std::filesystem::path dir) : dir{Fresh(std::move(dir))} {}
 
   ~AuthQueryHandlerFixture() { std::filesystem::remove_all(dir); }
 
@@ -30,4 +30,13 @@ struct AuthQueryHandlerFixture {
   std::filesystem::path dir;
   memgraph::auth::SynchedAuth auth{dir, memgraph::auth::Auth::Config{}};
   memgraph::glue::AuthQueryHandler handler{&auth};
+
+ private:
+  // The destructor cannot leave the directory gone: the store writes as it closes, which happens
+  // after the destructor body, so a run always leaves its users behind. Clear the directory before
+  // the store opens it, so each fixture starts with no users whatever the last run left.
+  static std::filesystem::path Fresh(std::filesystem::path dir) {
+    std::filesystem::remove_all(dir);
+    return dir;
+  }
 };
