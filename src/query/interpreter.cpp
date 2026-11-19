@@ -10683,6 +10683,7 @@ bool Interpreter::CountAbortedQuery(utils::BasicException const &e) {
       case AbortReason::EXCEPTION:
         return std::nullopt;
     }
+    std::unreachable();
   });
   if (!reason) return false;
 
