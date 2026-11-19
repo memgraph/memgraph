@@ -246,6 +246,17 @@ void WaitForShutdownSignal(const std::function<void()> &shutdown_fun) {
   shutdown_fun();
 }
 
+// The port the Bolt server listens on: MEMGRAPH_BOLT_PORT, when set, overrides --bolt-port.
+int BoltPort() {
+  if (auto const *env_bolt_port = std::getenv(kMgBoltPort); env_bolt_port) {
+    return std::stoi(env_bolt_port);
+  }
+  return FLAGS_bolt_port;
+}
+
+// Bolt uses TLS only when both the key and the certificate are given.
+bool BoltUsesTls() { return !FLAGS_bolt_key_file.empty() && !FLAGS_bolt_cert_file.empty(); }
+
 // The Bolt URI for reaching this server from the same machine (or container). A wildcard bind address is reached
 // through localhost; with TLS on, bolt+ssc accepts the server's certificate even when it is self-signed.
 std::string LocalBoltUri() {
@@ -254,8 +265,8 @@ std::string LocalBoltUri() {
   if (!address.empty() && address != "0.0.0.0" && address != "::") {
     host = address.contains(':') ? fmt::format("[{}]", address) : std::string{address};
   }
-  auto const *scheme = FLAGS_bolt_cert_file.empty() ? "bolt" : "bolt+ssc";
-  return fmt::format("{}://{}:{}", scheme, host, FLAGS_bolt_port);
+  auto const *scheme = BoltUsesTls() ? "bolt+ssc" : "bolt";
+  return fmt::format("{}://{}:{}", scheme, host, BoltPort());
 }
 
 // Points users at Memgraph Agent: how to run it when it is installed (the Docker images ship it), otherwise where to
@@ -934,12 +945,7 @@ int main(int argc, char **argv) {
 
   auto system = memgraph::system::System{db_config.durability.storage_directory, FLAGS_data_recovery_on_startup};
 
-  int const extracted_bolt_port = [&]() {
-    if (auto *maybe_env_bolt_port = std::getenv(kMgBoltPort); maybe_env_bolt_port) {
-      return std::stoi(maybe_env_bolt_port);
-    }
-    return FLAGS_bolt_port;
-  }();  // iile
+  int const extracted_bolt_port = BoltPort();
 
 // singleton coordinator state
 #ifdef MG_ENTERPRISE
@@ -1129,9 +1135,7 @@ int main(int argc, char **argv) {
 
   // Used by interpreter context
   std::string service_name = "Bolt";
-  auto bolt_server_context = !FLAGS_bolt_key_file.empty() && !FLAGS_bolt_cert_file.empty()
-                                 ? ServerContext(FLAGS_bolt_key_file, FLAGS_bolt_cert_file)
-                                 : ServerContext{};
+  auto bolt_server_context = BoltUsesTls() ? ServerContext(FLAGS_bolt_key_file, FLAGS_bolt_cert_file) : ServerContext{};
   if (bolt_server_context.use_ssl()) {
     service_name = "BoltS";
     spdlog::info("Using secure Bolt connection (with SSL)");
