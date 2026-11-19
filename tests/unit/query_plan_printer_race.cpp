@@ -19,6 +19,7 @@
 
 #include <gtest/gtest.h>
 
+#include "dbms/constants.hpp"
 #include "interpreter_faker.hpp"
 #include "query/interpreter_context.hpp"
 #include "storage/v2/config.hpp"
@@ -47,6 +48,7 @@ class PlanPrinterRaceTest : public ::testing::Test {
   memgraph::storage::Config config{
       [&]() {
         memgraph::storage::Config config{};
+        config.salient.name = memgraph::dbms::kDefaultDB;
         config.durability.storage_directory = data_directory;
         config.disk.main_storage_directory = config.durability.storage_directory / "disk";
         return config;

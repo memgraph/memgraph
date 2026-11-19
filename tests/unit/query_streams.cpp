@@ -18,6 +18,7 @@
 
 #include <gtest/gtest.h>
 
+#include "dbms/constants.hpp"
 #include "disk_test_utils.hpp"
 #include "integrations/constants.hpp"
 #include "integrations/kafka/exceptions.hpp"
@@ -119,6 +120,7 @@ class StreamsTestFixture : public ::testing::Test {
   memgraph::storage::Config config{
       [&]() {
         memgraph::storage::Config config{};
+        config.salient.name = memgraph::dbms::kDefaultDB;
         config.durability.storage_directory = data_directory_;
         config.disk.main_storage_directory = config.durability.storage_directory / "disk";
         if constexpr (std::is_same_v<StorageType, memgraph::storage::DiskStorage>) {
