@@ -292,6 +292,15 @@ def test_duplicate_node_is_not_deduplicated(conn):
     assert row["properties"] == 2, "the duplicate's properties are counted twice"
 
 
+def test_duplicate_relationship_is_exported_once_in_first_seen_order(conn):
+    # Nodes keep their duplicates, relationships do not: the reference holds them in a set.
+    execute(conn, SEED_MIXED)
+    row = export(conn, call="export.json_data(ns, [rs[1], rs[0], rs[1], rs[0]], null, {stream: true})")
+    assert without_ids(row["data"][3:]) == without_ids([BOUGHT, KNOWS])
+    assert (row["relationships"], row["rows"]) == (2, 5)
+    assert row["properties"] == 9, "a skipped duplicate's properties are not counted"
+
+
 def test_duplicate_node_collapses_under_id_as_keys(conn):
     execute(conn, "CREATE (:Product {sku: 'S1'})")
     row = export(
@@ -736,5 +745,70 @@ def test_export_writes_through_a_symlink(conn):
         assert require_server_file(real) != stale, "the export did not land on what the link pointed at"
     finally:
         for path in (link, real):
+            if os.path.lexists(path):
+                os.remove(path)
+
+
+def test_export_creates_the_target_of_a_dangling_symlink(conn):
+    # A link to the export that does not exist yet is the first run of the `latest.json` layout.
+    real = SERVER_EXPORT_FILE + ".new"
+    link = SERVER_EXPORT_FILE + ".link"
+    execute(conn, SEED_MIXED)
+    try:
+        os.symlink(real, link)
+        export(conn, call=f"export.json_data(ns, rs, '{link}', {{}})")
+        assert os.path.islink(link), "the symlink was replaced by a regular file"
+        assert parse(require_server_file(real)) == ALL_ELEMENTS
+    finally:
+        for path in (link, real):
+            if os.path.lexists(path):
+                os.remove(path)
+
+
+def test_export_keeps_the_target_owner_and_group(conn):
+    # Owner and group decide who the mode bits apply to; replacing the file would hand both to the server.
+    execute(conn, SEED_MIXED)
+    make_target(SERVER_EXPORT_FILE, 0o666)
+    other_groups = [gid for gid in os.getgroups() if gid != os.getegid()]
+    if other_groups:
+        os.chown(SERVER_EXPORT_FILE, -1, other_groups[0])
+    before = os.stat(SERVER_EXPORT_FILE)
+    export(conn, call=f"export.json_data(ns, rs, '{SERVER_EXPORT_FILE}', {{}})")
+    after = os.stat(SERVER_EXPORT_FILE)
+    assert parse(require_server_file(SERVER_EXPORT_FILE)) == ALL_ELEMENTS
+    assert (after.st_uid, after.st_gid) == (before.st_uid, before.st_gid)
+
+
+def test_export_into_a_sticky_directory_owned_by_the_target_owner(conn):
+    # Exercises a rename refused by the sticky bit only when the server runs as another user, as it does in CI.
+    directory = SERVER_EXPORT_FILE + ".sticky"
+    target = os.path.join(directory, "export.json")
+    execute(conn, SEED_MIXED)
+    os.makedirs(directory, exist_ok=True)
+    os.chmod(directory, 0o1777)
+    try:
+        make_target(target, 0o666)
+        export(conn, call=f"export.json_data(ns, rs, '{target}', {{}})")
+        assert parse(require_server_file(target)) == ALL_ELEMENTS
+    finally:
+        if os.path.lexists(target):
+            os.remove(target)
+        os.rmdir(directory)
+
+
+def test_json_graph_argument_error_leaves_a_hard_linked_target_intact(conn):
+    # A hard-linked target is written in place, so nothing may open it before the arguments are known to be valid.
+    alias = SERVER_EXPORT_FILE + ".alias"
+    execute(conn, SEED_MIXED)
+    try:
+        before = make_target(SERVER_EXPORT_FILE, 0o666)
+        os.link(SERVER_EXPORT_FILE, alias)
+        with pytest.raises(Exception, match="both 'relationships' and 'edges'"):
+            export(conn, call=f"export.json_graph({{nodes: ns, relationships: rs, edges: rs}}, '{alias}', {{}})")
+        with pytest.raises(Exception, match="must contain only nodes"):
+            export(conn, call=f"export.json_graph({{nodes: [1], relationships: rs}}, '{alias}', {{}})")
+        assert read_server_file(SERVER_EXPORT_FILE) == before
+    finally:
+        for path in (alias, SERVER_EXPORT_FILE):
             if os.path.lexists(path):
                 os.remove(path)
