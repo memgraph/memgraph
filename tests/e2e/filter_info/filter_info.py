@@ -162,9 +162,12 @@ def test_range_w_index(memgraph):
 
     # Range AND Range
 
+    # Two of the lookups outlive the scan here, where the compares above leave only one, so the
+    # predicate reads one property twice and is worth reading it ahead for.
     expected_explain = [
         " * Produce {n}",
         " * Filter {n.p}",
+        " * CacheProperties {n.p -> anon2}",
         " * ScanAllByLabelProperties (n :l {p})",
         " * Once",
     ]
