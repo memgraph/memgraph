@@ -9234,12 +9234,12 @@ TEST(CachePropertiesDecision, PaysExactlyWhenAReadIsRemovedOrAKeptValueIsBatched
   ASSERT_EQ(shapes.size(), 1U + 9U + 81U + 729U);
 
   for (auto const &shape : shapes) {
-    auto readable = size_t{0};
+    auto readable = std::vector<size_t>{};
     auto removed = size_t{0};
-    for (auto const &reads : shape) {
-      if (reads.on_every_row == 0) continue;
-      ++readable;
-      removed += reads.lookups - 1;
+    for (auto property = size_t{0}; property < shape.size(); ++property) {
+      if (shape[property].on_every_row == 0) continue;
+      readable.push_back(property);
+      removed += shape[property].lookups - 1;
     }
 
     auto const gathered = GatheredWith(shape);
@@ -9247,13 +9247,14 @@ TEST(CachePropertiesDecision, PaysExactlyWhenAReadIsRemovedOrAKeptValueIsBatched
     auto const kept = gathered.PropertiesWorthOnePass(Cacher::ValueUse::kKept);
 
     EXPECT_EQ(discarded.has_value(), removed >= 1) << "a discarded value pays for its slot only with a read removed";
-    EXPECT_EQ(kept.has_value(), removed >= 1 || readable >= 2) << "a kept value was going to a slot anyway";
+    EXPECT_EQ(kept.has_value(), removed >= 1 || readable.size() >= 2) << "a kept value was going to a slot anyway";
 
     // What a pass is given to read is what a row is certain to ask for, and nothing else.
     for (auto const &pass : {discarded, kept}) {
       if (!pass) continue;
-      EXPECT_EQ(pass->properties.size(), readable);
-      for (auto const &property : pass->properties) EXPECT_GT(property.unconditional_lookups, 0U);
+      auto read_ahead = std::vector<size_t>{};
+      for (auto const &property : pass->properties) read_ahead.push_back(property.Position());
+      EXPECT_EQ(read_ahead, readable);
     }
   }
 }
