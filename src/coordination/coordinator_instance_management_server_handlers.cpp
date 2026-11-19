@@ -56,8 +56,7 @@ void CoordinatorInstanceManagementServerHandlers::Register(CoordinatorInstanceMa
           uint64_t const request_version,
           slk::Reader *req_reader,
           slk::Builder *res_builder) -> void {
-        CoordinatorInstanceManagementServerHandlers::FwdRequestHandler<RegisterInstanceRpc,
-                                                                       RegisterInstanceCoordinatorStatus>(
+        CoordinatorInstanceManagementServerHandlers::FwdRequestHandler<RegisterInstanceRpc>(
             [&coordinator_instance](DataInstanceConfig const &config) -> RegisterInstanceCoordinatorStatus {
               return coordinator_instance.RegisterReplicationInstance(config);
             },
@@ -114,7 +113,7 @@ void CoordinatorInstanceManagementServerHandlers::Register(CoordinatorInstanceMa
                                        uint64_t const request_version,
                                        slk::Reader *req_reader,
                                        slk::Builder *res_builder) -> void {
-    CoordinatorInstanceManagementServerHandlers::FwdRequestHandler<UpdateConfigRpc, UpdateConfigStatus>(
+    CoordinatorInstanceManagementServerHandlers::FwdRequestHandler<UpdateConfigRpc>(
         [&coordinator_instance](UpdateInstanceConfig const &config) -> UpdateConfigStatus {
           return coordinator_instance.UpdateConfig(config);
         },

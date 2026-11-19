@@ -17,6 +17,7 @@
 #include <filesystem>
 #include <memory>
 #include <nlohmann/json_fwd.hpp>
+#include <optional>
 #include <string>
 #include <utility>
 #include <variant>
@@ -32,10 +33,22 @@ namespace memgraph::coordination {
 
 inline constexpr auto *kDefaultManagementServerIp = "0.0.0.0";
 
-// Used for updating configuration of both coordinators and data instances
-struct UpdateInstanceConfig {
+// Used for updating configuration of both coordinators and data instances. V1 is the coordinator-to-coordinator
+// forward format before data instances had regions.
+struct UpdateInstanceConfigV1 {
   std::variant<int32_t, std::string> data;
   io::network::Endpoint bolt_endpoint;
+};
+
+struct UpdateInstanceConfig {
+  std::variant<int32_t, std::string> data;
+  std::optional<io::network::Endpoint> bolt_endpoint;
+  // nullopt leaves the region unchanged; an engaged empty optional removes it.
+  std::optional<std::optional<std::string>> region;
+
+  static auto Upgrade(UpdateInstanceConfigV1 const &prev) -> UpdateInstanceConfig {
+    return UpdateInstanceConfig{.data = prev.data, .bolt_endpoint = prev.bolt_endpoint, .region = std::nullopt};
+  }
 };
 
 struct ReplicationInstanceInitConfig {
@@ -83,6 +96,14 @@ struct ReplicationClientInfo {
   friend bool operator==(ReplicationClientInfo const &, ReplicationClientInfo const &) = default;
 };
 
+// The coordinator-to-coordinator forward format of DataInstanceConfig before data instances had regions.
+struct DataInstanceConfigV1 {
+  std::string instance_name;
+  io::network::Endpoint mgt_server;
+  io::network::Endpoint bolt_server;
+  ReplicationClientInfo replication_client_info;
+};
+
 struct DataInstanceConfig {
   auto BoltSocketAddress() const -> std::string { return bolt_server.SocketAddress(); }
 
@@ -96,6 +117,15 @@ struct DataInstanceConfig {
   io::network::Endpoint mgt_server;
   io::network::Endpoint bolt_server;
   ReplicationClientInfo replication_client_info;
+  std::optional<std::string> region;
+
+  static auto Upgrade(DataInstanceConfigV1 const &prev) -> DataInstanceConfig {
+    return DataInstanceConfig{.instance_name = prev.instance_name,
+                              .mgt_server = prev.mgt_server,
+                              .bolt_server = prev.bolt_server,
+                              .replication_client_info = prev.replication_client_info,
+                              .region = std::nullopt};
+  }
 
   friend bool operator==(DataInstanceConfig const &, DataInstanceConfig const &) = default;
 };

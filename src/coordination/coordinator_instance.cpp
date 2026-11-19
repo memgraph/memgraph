@@ -17,6 +17,7 @@
 #include <chrono>
 #include <functional>
 #include <iterator>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -738,16 +739,24 @@ auto CoordinatorInstance::DemoteInstanceToReplica(std::string_view instance_name
 
 auto CoordinatorInstance::RegisterReplicationInstance(DataInstanceConfig const &config)
     -> RegisterInstanceCoordinatorStatus {
+  if (config.region.has_value() && !RegionNameIsWellFormed(*config.region)) {
+    return RegisterInstanceCoordinatorStatus::INVALID_REGION_NAME;
+  }
+
   // TODO: (andi) Can I move further down this lock
   auto lock = std::lock_guard{coord_instance_lock_};
 
-  if (auto const res = ForwardToLeader<RegisterInstanceRpc, RegisterInstanceCoordinatorStatus>(config);
+  if (auto const res = ForwardStatusToLeader<RegisterInstanceRpc, RegisterInstanceCoordinatorStatus>(config);
       res.has_value()) {
     return *res;
   }
 
   if (status.load(std::memory_order_acquire) != CoordinatorStatus::LEADER_READY) {
     return RegisterInstanceCoordinatorStatus::NOT_LEADER;
+  }
+
+  if (config.region.has_value() && !raft_state_->GetRegions().contains(*config.region)) {
+    return RegisterInstanceCoordinatorStatus::NO_SUCH_REGION;
   }
 
   auto data_instances = raft_state_->GetDataInstancesContext();
@@ -1305,6 +1314,10 @@ auto CoordinatorInstance::DropRegion(std::string_view const region_name) const -
   auto const it = regions.find(std::string{region_name});
   if (it == regions.end()) {
     return DropRegionStatus::NO_SUCH_REGION;
+  }
+  if (std::ranges::any_of(raft_state_->GetDataInstancesContext(),
+                          [region_name](auto const &instance) { return instance.config.region == region_name; })) {
+    return DropRegionStatus::REGION_HAS_INSTANCES;
   }
   regions.erase(it);
 
@@ -1913,12 +1926,27 @@ auto CoordinatorInstance::ShowRegionInfoAsLeader() const -> std::optional<std::v
     return std::nullopt;
   }
 
-  // The region set is ordered, so rows come out sorted by name.
-  auto const regions = raft_state_->GetRegions();
+  // Leader writes append to Raft under the unique lock, so regions and instances are read from the same state.
+  auto lock = std::shared_lock{coord_instance_lock_};
+
+  // Seeded with every region so empty regions get a row too; the map is ordered, so rows come out sorted by name.
+  std::map<std::string, std::vector<std::string>, std::less<>> instances_by_region;
+  for (auto const &region : raft_state_->GetRegions()) {
+    instances_by_region.try_emplace(region);
+  }
+  for (auto const &instance : raft_state_->GetDataInstancesContext()) {
+    if (auto const &region = instance.config.region; region.has_value()) {
+      if (auto it = instances_by_region.find(*region); it != instances_by_region.end()) {
+        it->second.emplace_back(instance.config.instance_name);
+      }
+    }
+  }
+
   std::vector<RegionInfo> result;
-  result.reserve(regions.size());
-  for (auto const &region : regions) {
-    result.emplace_back(RegionInfo{.name = region, .instances = {}, .is_primary_region = false});
+  result.reserve(instances_by_region.size());
+  for (auto &[region, instances] : instances_by_region) {
+    std::ranges::sort(instances);
+    result.emplace_back(RegionInfo{.name = region, .instances = std::move(instances), .is_primary_region = false});
   }
   return result;
 }
@@ -1981,7 +2009,16 @@ auto CoordinatorInstance::GetTelemetryJson() const -> nlohmann::json {
 }
 
 auto CoordinatorInstance::UpdateConfig(UpdateInstanceConfig const &config) -> UpdateConfigStatus {
-  if (auto const res = ForwardToLeader<UpdateConfigRpc, UpdateConfigStatus>(config); res.has_value()) {
+  if (config.region.has_value()) {
+    if (std::holds_alternative<int32_t>(config.data)) {
+      return UpdateConfigStatus::REGION_FOR_COORDINATOR;
+    }
+    if (config.region->has_value() && !RegionNameIsWellFormed(**config.region)) {
+      return UpdateConfigStatus::INVALID_REGION_NAME;
+    }
+  }
+
+  if (auto const res = ForwardStatusToLeader<UpdateConfigRpc, UpdateConfigStatus>(config); res.has_value()) {
     return *res;
   }
 
@@ -1996,8 +2033,13 @@ auto CoordinatorInstance::UpdateConfig(UpdateInstanceConfig const &config) -> Up
     // Need to update coordinator's bolt server
     auto const coord_id = std::get<int32_t>(config.data);
 
+    // A coordinator only has a bolt server to update.
+    if (!config.bolt_endpoint.has_value()) {
+      return UpdateConfigStatus::NO_CONFIG_CHANGE;
+    }
+
     auto coordinator_instances_context = raft_state_->GetCoordinatorInstancesContext();
-    auto new_bolt_server = config.bolt_endpoint.SocketAddress();
+    auto new_bolt_server = config.bolt_endpoint->SocketAddress();
 
     {
       auto const existing_coord =
@@ -2031,12 +2073,16 @@ auto CoordinatorInstance::UpdateConfig(UpdateInstanceConfig const &config) -> Up
 
   } else {
     // Updating a config for the replication instance
+    if (!config.bolt_endpoint.has_value() && !config.region.has_value()) {
+      return UpdateConfigStatus::NO_CONFIG_CHANGE;
+    }
+
     auto const instance_name = std::get<std::string>(config.data);
     auto data_instances_context = raft_state_->GetDataInstancesContext();
-    {
+    if (config.bolt_endpoint.has_value()) {
       auto const existing_repl_instance = std::ranges::find_if(
           data_instances_context,
-          [&config](auto const &repl_instance) { return repl_instance.config.bolt_server == config.bolt_endpoint; });
+          [&config](auto const &repl_instance) { return repl_instance.config.bolt_server == *config.bolt_endpoint; });
 
       if (existing_repl_instance != data_instances_context.end()) {
         spdlog::warn(
@@ -2054,7 +2100,17 @@ auto CoordinatorInstance::UpdateConfig(UpdateInstanceConfig const &config) -> Up
       return UpdateConfigStatus::NO_SUCH_REPL_INSTANCE;
     }
 
-    repl_instance_it->config.bolt_server = config.bolt_endpoint;
+    if (config.region.has_value() && config.region->has_value() &&
+        !raft_state_->GetRegions().contains(**config.region)) {
+      return UpdateConfigStatus::NO_SUCH_REGION;
+    }
+
+    if (config.bolt_endpoint.has_value()) {
+      repl_instance_it->config.bolt_server = *config.bolt_endpoint;
+    }
+    if (config.region.has_value()) {
+      repl_instance_it->config.region = *config.region;
+    }
 
     // NOLINTNEXTLINE
     CoordinatorClusterStateDelta const delta_state{.data_instances_ = std::move(data_instances_context)};

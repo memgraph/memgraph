@@ -91,5 +91,6 @@ constexpr std::string_view kReplicationServer{"replication_server"};
 // DataInstanceConfig
 constexpr std::string_view kMgtServer{"mgt_server"};
 constexpr std::string_view kReplicationClientInfo{"replication_client_info"};
+constexpr std::string_view kRegion{"region"};
 
 }  // namespace memgraph::coordination

@@ -83,7 +83,8 @@ enum class DropRegionStatus : uint8_t {
   RAFT_LOG_ERROR,
   LEADER_NOT_FOUND,
   LEADER_FAILED,
-  INVALID_REGION_NAME
+  INVALID_REGION_NAME,
+  REGION_HAS_INSTANCES
 };
 
 enum class RegisterInstanceCoordinatorStatus : uint8_t {
@@ -97,6 +98,8 @@ enum class RegisterInstanceCoordinatorStatus : uint8_t {
   STRICT_SYNC_AND_SYNC_FORBIDDEN,
   LEADER_NOT_FOUND,
   LEADER_FAILED,
+  NO_SUCH_REGION,
+  INVALID_REGION_NAME,
 };
 
 enum class UnregisterInstanceCoordinatorStatus : uint8_t {
@@ -177,6 +180,10 @@ enum class UpdateConfigStatus : uint8_t {
   NOT_LEADER,
   LEADER_FAILED,
   LEADER_NOT_FOUND,
+  NO_SUCH_REGION,
+  INVALID_REGION_NAME,
+  REGION_FOR_COORDINATOR,
+  NO_CONFIG_CHANGE,
 };
 
 enum class DemoteInstanceCoordinatorStatus : uint8_t {
