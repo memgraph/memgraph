@@ -24,8 +24,8 @@ from mg_utils import mg_sleep_and_assert_collection
 def test_show_replication_role(port, role, connection):
     cursor = connection(port, role).cursor()
     data = execute_and_fetch_all(cursor, "SHOW REPLICATION ROLE;")
-    assert cursor.description[0].name == "replication role"
-    assert data[0][0] == role
+    assert [column.name for column in cursor.description] == ["replication role", "writeable"]
+    assert data == [(role, role == "main")]
 
 
 def test_show_replicas(connection):

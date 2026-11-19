@@ -521,6 +521,8 @@ bool ReplicationHandler::IsMain() const { return repl_state_.ReadLock()->IsMain(
 
 bool ReplicationHandler::IsReplica() const { return repl_state_.ReadLock()->IsReplica(); }
 
+bool ReplicationHandler::IsMainWriteable() const { return repl_state_.ReadLock()->IsMainWriteable(); }
+
 auto ReplicationHandler::GetReplicationHealth() const -> std::optional<metrics::ReplicationHealth> {
   try {
     auto const repl_state = repl_state_.TryReadLock();

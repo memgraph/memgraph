@@ -209,6 +209,7 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
   auto GetRole() const -> replication_coordination_glue::ReplicationRole override;
   bool IsMain() const override;
   bool IsReplica() const override;
+  bool IsMainWriteable() const override;
 
   auto ShowReplicas() const -> std::expected<query::ReplicasInfos, query::ShowReplicaError> override;
 

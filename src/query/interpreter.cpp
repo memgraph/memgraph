@@ -461,6 +461,8 @@ class ReplQueryHandler {
     throw QueryRuntimeException("Couldn't show replication role - invalid role set!");
   }
 
+  bool IsMainWriteable() const { return handler_->IsMainWriteable(); }
+
   /// @throw QueryRuntimeException if an error ocurred.
   void RegisterReplica(const std::string &name, const std::string &socket_address,
                        const ReplicationQuery::SyncMode sync_mode, const std::chrono::seconds replica_check_frequency) {
@@ -2395,15 +2397,15 @@ Callback HandleReplicationInfoQuery(ReplicationInfoQuery *repl_query,
   Callback callback;
   switch (repl_query->action_) {
     case ReplicationInfoQuery::Action::SHOW_REPLICATION_ROLE: {
-      callback.header = {"replication role"};
+      callback.header = {"replication role", "writeable"};
       callback.fn = [handler = ReplQueryHandler{replication_query_handler}] {
         const auto mode = handler.ShowReplicationRole();
         switch (mode) {
           case ReplicationQuery::ReplicationRole::MAIN: {
-            return std::vector<std::vector<TypedValue>>{{TypedValue("main")}};
+            return std::vector<std::vector<TypedValue>>{{TypedValue("main"), TypedValue(handler.IsMainWriteable())}};
           }
           case ReplicationQuery::ReplicationRole::REPLICA: {
-            return std::vector<std::vector<TypedValue>>{{TypedValue("replica")}};
+            return std::vector<std::vector<TypedValue>>{{TypedValue("replica"), TypedValue(false)}};
           }
         }
       };

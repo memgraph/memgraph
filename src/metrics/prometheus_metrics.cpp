@@ -803,9 +803,10 @@ PrometheusMetrics::PrometheusMetrics()
                                    .Name("memgraph_replication_role")
                                    .Help("1 for the instance's current replication role, 0 otherwise")
                                    .Register(registry_)},
-      main_writeable_family_{prometheus::BuildGauge()
-                                 .Name("memgraph_main_writeable")
-                                 .Help("1 if the instance is a main that accepts writes, 0 otherwise")
+      accepts_writes_family_{prometheus::BuildGauge()
+                                 .Name("memgraph_accepts_writes")
+                                 .Help("1 if replication lets this instance accept writes: it is a main, and in HA "
+                                       "its writes are enabled. Doesn't reflect licence or storage limits.")
                                  .Register(registry_)},
       registered_replicas_family_{prometheus::BuildGauge()
                                       .Name("memgraph_registered_replicas")
@@ -823,7 +824,7 @@ PrometheusMetrics::PrometheusMetrics()
                                       .Register(registry_)},
       main_role_{replication_role_family_.Add({{"role", "main"}})},
       replica_role_{replication_role_family_.Add({{"role", "replica"}})},
-      main_writeable_{main_writeable_family_.Add({})},
+      accepts_writes_{accepts_writes_family_.Add({})},
       registered_replicas_{registered_replicas_family_.Add({})}
 #ifdef MG_ENTERPRISE
       ,
@@ -1409,7 +1410,7 @@ void PrometheusMetrics::UpdateGauges() {
 void PrometheusMetrics::UpdateReplicationGauges(ReplicationHealth const &health) {
   main_role_.Set(health.is_main ? 1.0 : 0.0);
   replica_role_.Set(health.is_main ? 0.0 : 1.0);
-  main_writeable_.Set(health.writeable ? 1.0 : 0.0);
+  accepts_writes_.Set(health.writeable ? 1.0 : 0.0);
   registered_replicas_.Set(static_cast<double>(health.registered_replicas));
 
   auto const reported = health.replicas | rv::transform([](auto const &replica) {

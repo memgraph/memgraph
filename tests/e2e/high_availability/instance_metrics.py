@@ -243,7 +243,7 @@ def test_replication_role_follows_failover(test_name):
         ("up", "replica"), lambda: next(row[4:] for row in show_instances(cursor) if row[0] == "instance_3")
     )
     assert replication_roles(["instance_3"]) == {"instance_3": "replica"}
-    mg_sleep_and_assert(1.0, partial(gauge_value, new_main, "memgraph_main_writeable"))
+    mg_sleep_and_assert(1.0, partial(gauge_value, new_main, "memgraph_accepts_writes"))
 
 
 if __name__ == "__main__":

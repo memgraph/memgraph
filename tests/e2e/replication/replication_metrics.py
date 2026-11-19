@@ -98,7 +98,7 @@ def instance_view(instance):
     samples = scrape(instance)
     return {
         "role": {role: sample(samples, "memgraph_replication_role", role=role) for role in ["main", "replica"]},
-        "writeable": sample(samples, "memgraph_main_writeable"),
+        "writeable": sample(samples, "memgraph_accepts_writes"),
         "registered_replicas": sample(samples, "memgraph_registered_replicas"),
     }
 

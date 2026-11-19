@@ -539,13 +539,13 @@ class PrometheusMetrics {
 
   // Global metric families — replication health, refreshed from ReplicationHealthResolver
   prometheus::Family<prometheus::Gauge> &replication_role_family_;
-  prometheus::Family<prometheus::Gauge> &main_writeable_family_;
+  prometheus::Family<prometheus::Gauge> &accepts_writes_family_;
   prometheus::Family<prometheus::Gauge> &registered_replicas_family_;
   prometheus::Family<prometheus::Gauge> &replica_state_family_;
   prometheus::Family<prometheus::Gauge> &replica_txns_behind_family_;
   prometheus::Gauge &main_role_;
   prometheus::Gauge &replica_role_;
-  prometheus::Gauge &main_writeable_;
+  prometheus::Gauge &accepts_writes_;
   prometheus::Gauge &registered_replicas_;
 
   struct ReplicaGauges {
