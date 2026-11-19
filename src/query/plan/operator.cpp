@@ -5680,8 +5680,7 @@ bool Filter::FilterCursor::Pull(Frame &frame, ExecutionContext &context) {
 
   AbortCheck(context);
 
-  // Like all filters, newly set values should not affect filtering of old
-  // nodes and edges.
+  // The planner's view: View::OLD at the root, View::NEW in a writing body.
   ExpressionEvaluator evaluator{&frame, context, self_.view_, context.frame_change_collector, &context.number_of_hops};
 
   while (input_cursor_->Pull(frame, context)) {
@@ -5847,7 +5846,6 @@ bool Produce::ProduceCursor::Pull(Frame &frame, ExecutionContext &context) {
   AbortCheck(context);
 
   if (input_cursor_->Pull(frame, context)) {
-    // Produce should always yield the latest results.
     ExpressionEvaluator evaluator{
         &frame, context, self_.view_, context.frame_change_collector, &context.number_of_hops};
 

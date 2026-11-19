@@ -343,7 +343,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
     bool const has_periodic_commit = query_parts.commit_frequency != nullptr;
     bool const is_root_query = !query_parts.is_subquery;
     auto const restore_scope = utils::OnScopeExit{[this, saved = read_scope_] { read_scope_ = saved; }};
-    // A query that commits in batches plans its root as on master: no barrier, no UNION-leg or RETURN advance.
+    // A batched query plans no barrier and no write-visibility advance at its root: no UNION-leg or RETURN advance.
     // A batch commit gives the query a new transaction, which a scan opened before an advance does not follow.
     if (is_root_query && !context.in_subquery_body && read_scope_ != ReadScope::kBatching) {
       read_scope_ = CommitsInBatches(query_parts) ? ReadScope::kBatching : ReadScope::kRoot;
@@ -627,8 +627,8 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
           // Set when this View::OLD reader reads View::NEW instead of a barrier; its read-only CALL body then reads
           // NEW. Per clause: a later CALL's barrier and drain bookkeeping is View::OLD's.
           bool switched_to_new = false;
-          // A RETURN ends its leg, so no later write reaches its subqueries: after a write they read View::NEW, as on
-          // master, and need no advance (analytical mode skips the drain's).
+          // A RETURN ends its leg, so no later write reaches its subqueries: after a write they read View::NEW and
+          // need no advance (analytical mode skips the drain's).
           bool const subqueries_read_new =
               clause_reads_new || (utils::Downcast<Return>(clause) != nullptr && branch_sees_write());
           SubqueryContext subquery_ctx{.pending_comprehensions = pending_comprehensions,
