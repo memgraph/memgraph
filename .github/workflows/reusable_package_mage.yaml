@@ -688,18 +688,6 @@ jobs:
             --conan-remote $CONAN_REMOTE \
             --sbom-scripts-dir "${GITHUB_WORKSPACE}/infra/infosec/sbom/memgraph"
 
-      - name: "Copy mgconsole for smoke tests"
-        if: ${{ inputs.run_smoke_tests }}
-        run: |
-          # TODO(matt): remove when mgconsole 1.7.1 is released
-          ./release/package/mgbuild.sh \
-            --toolchain $TOOLCHAIN \
-            --os "$OS" \
-            --arch $ARCH \
-            --cugraph $CUGRAPH \
-            copy \
-            --mgconsole
-
       - name: "Stop mgbuild container"
         if: always()
         run: |
