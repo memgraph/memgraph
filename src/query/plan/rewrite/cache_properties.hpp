@@ -81,7 +81,6 @@ class PropertyLookupCacher final : public ExpressionVisitor<void> {
   /// The frame slots a pass reads into, by the symbol and the property each holds.
   class CachedSlots {
    public:
-    /// Records that the pass reads `property` of `symbol` into `slot`.
     void Add(Symbol const &symbol, PropertyIx const &property, Symbol const &slot) {
       auto found = std::ranges::find(by_symbol_, symbol, &SymbolSlots::symbol);
       if (found == by_symbol_.end()) {
