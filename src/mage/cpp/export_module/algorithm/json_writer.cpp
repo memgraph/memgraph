@@ -108,11 +108,9 @@ std::string OffsetSuffix(int offset_minutes) {
   return fmt::format("{}{:02}:{:02}", offset_minutes < 0 ? '-' : '+', magnitude / 60, magnitude % 60);
 }
 
-// Creates a temporary beside `target`, unique to this writer, and reports whether it managed to. `O_EXCL` so a stale
-// temporary left by a crashed process whose pid has since been recycled is never adopted; mode 0666 so the kernel
-// applies the umask exactly as it would for a file the stream created itself.
-bool OpenTemporary(const std::string &target, const std::optional<std::filesystem::perms> &perms,
-                   std::string &temp_path) {
+// Creates a temporary beside `target`, unique per writer (`O_EXCL`: a stale one is never adopted). With `existing` it
+// takes the target's group and mode, since the rename replaces the target's inode; failing either, it is dropped.
+bool OpenTemporary(const std::string &target, const struct stat *existing, std::string &temp_path) {
   static std::atomic<std::uint64_t> counter{0};
   for (int attempt = 0; attempt < 8; ++attempt) {
     auto candidate = fmt::format("{}.{}.{}.part", target, ::getpid(), counter.fetch_add(1));
@@ -121,10 +119,13 @@ bool OpenTemporary(const std::string &target, const std::optional<std::filesyste
       if (errno != EEXIST) return false;
       continue;
     }
-    // The rename replaces the target's inode, so without this the target's mode would become the temporary's and a
-    // restricted export would silently widen on every rewrite.
-    if (perms) ::fchmod(fd, static_cast<mode_t>(*perms) & 07777);
+    const bool matched = existing == nullptr || (::fchown(fd, static_cast<uid_t>(-1), existing->st_gid) == 0 &&
+                                                 ::fchmod(fd, existing->st_mode & 0777) == 0);
     ::close(fd);
+    if (!matched) {
+      ::unlink(candidate.c_str());
+      return false;
+    }
     temp_path = std::move(candidate);
     return true;
   }
@@ -377,43 +378,26 @@ JsonWriter::JsonWriter(WriteConfig config, std::optional<std::string> file, bool
     : config_(config), file_(std::move(file)), retain_(retain) {
   if (!file_) return;
 
-  std::error_code error;
-  // Write *through* a symlink rather than replacing it: `latest.json -> dumps/<date>.json` is an ordinary layout, and
-  // renaming over the link would turn it into a regular file and leave what it pointed at stale.
-  target_path_ = *file_;
-  if (const auto link_status = std::filesystem::symlink_status(*file_, error);
-      !error && std::filesystem::is_symlink(link_status)) {
-    if (auto resolved = std::filesystem::weakly_canonical(*file_, error); !error) target_path_ = resolved.string();
+  // Replacing the target's inode is safe only for a plain file the server owns, with no other names. Anything else —
+  // a symlink, a hard link, a device, another user's file — keeps its identity only when written in place.
+  struct stat existing{};
+  const bool exists = ::lstat(file_->c_str(), &existing) == 0;
+  bool in_place = exists && !(S_ISREG(existing.st_mode) && existing.st_nlink == 1 && existing.st_uid == ::geteuid());
+
+  if (!in_place) {
+    if (exists) {
+      // The rename needs write permission on the directory, not on the target, so probe the target the way a direct
+      // write would; otherwise a file made read-only on purpose would be replaced.
+      const int probe = ::open(file_->c_str(), O_WRONLY | O_CLOEXEC);
+      if (probe < 0) throw mgp::ValueException(fmt::format("Cannot open '{}' for writing", *file_));
+      ::close(probe);
+    }
+    // No temporary may be possible — a read-only directory, a name too long once suffixed, a group the server cannot
+    // give it. Falling back to an in-place write keeps the export working and loses only its atomicity.
+    in_place = !OpenTemporary(*file_, exists ? &existing : nullptr, temp_path_);
   }
 
-  const auto status = std::filesystem::status(target_path_, error);
-  const bool exists = !error && std::filesystem::exists(status);
-  const bool regular = exists && std::filesystem::is_regular_file(status);
-  // A device or fifo cannot be renamed into place, and a file with more than one link would lose its other names, so
-  // both are written directly. Everything else goes through a temporary beside the target — same filesystem, so the
-  // rename in Finish() is atomic — which keeps a failure part-way through from destroying the previous export.
-  bool in_place = exists && (!regular || std::filesystem::hard_link_count(target_path_, error) > 1);
-
-  std::optional<std::filesystem::perms> target_perms;
-  if (regular) {
-    // Renaming a temporary into place needs write permission on the *directory*, not on the target, so without this
-    // an export would overwrite a file the caller had deliberately made read-only. Probe it exactly as a direct write
-    // would, and carry its permissions onto the temporary so the rename cannot widen them.
-    const int probe = ::open(target_path_.c_str(), O_WRONLY | O_CLOEXEC);
-    if (probe < 0) throw mgp::ValueException(fmt::format("Cannot open '{}' for writing", *file_));
-    ::close(probe);
-    target_perms = status.permissions();
-  }
-
-  if (!in_place && !OpenTemporary(target_path_, target_perms, temp_path_)) {
-    // No temporary is possible here — a read-only directory, or a name the filesystem will not take once `.part` and
-    // the uniquifier are appended. Writing in place is what this module did before the temporary existed, so fall
-    // back to it rather than failing an export that would otherwise have worked. The atomicity guarantee is what is
-    // lost, and only in this case.
-    in_place = true;
-  }
-
-  out_.open(in_place ? target_path_ : temp_path_, std::ios::binary | std::ios::trunc);
+  out_.open(in_place ? *file_ : temp_path_, std::ios::binary | std::ios::trunc);
   if (!out_) {
     const auto description = SinkDescription();
     if (!temp_path_.empty()) {
@@ -523,7 +507,7 @@ std::string JsonWriter::Finish() && {
     if (!out_) throw mgp::ValueException(fmt::format("Failed writing to {}", description));
     if (!temp_path_.empty()) {
       std::error_code error;
-      std::filesystem::rename(temp_path_, target_path_, error);
+      std::filesystem::rename(temp_path_, *file_, error);
       if (error) throw mgp::ValueException(fmt::format("Cannot write '{}': {}", *file_, error.message()));
       temp_path_.clear();
     }

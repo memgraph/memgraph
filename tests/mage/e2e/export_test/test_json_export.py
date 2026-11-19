@@ -698,7 +698,7 @@ def make_target(path, mode, content="stale"):
     "other" the access the server needs, since that is the class it falls into.
     """
     # Unlinked first: an earlier export may have left a file owned by the server, and chmod'ing that would fail.
-    # Replacing it is allowed because the shared directory is world-writable and deliberately not sticky.
+    # Allowed under the sticky bit because the test process owns the shared directory.
     if os.path.lexists(path):
         os.remove(path)
     with open(path, "w", encoding="utf-8") as handle:
