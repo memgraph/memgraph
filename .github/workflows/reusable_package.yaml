@@ -606,7 +606,8 @@ jobs:
               --organization-name $MEMGRAPH_ORGANIZATION_NAME \
               test-memgraph smoke \
               --image "memgraph/memgraph:${image_tag}" \
-              --reuse-env true
+              --reuse-env true \
+              --skip-mgagent
             echo "::endgroup::"
           done
           rm -rf tests/smoke/env

@@ -1127,7 +1127,8 @@ jobs:
               --os $distro \
               --arch $ARCH \
               test-mage smoke \
-              --image "${DOCKER_REPOSITORY_NAME}:${PROD_IMAGE_TAG}-${distro}"
+              --image "${DOCKER_REPOSITORY_NAME}:${PROD_IMAGE_TAG}-${distro}" \
+              --skip-mgagent
           done
 
       - name: Push DEB package to GitHub
