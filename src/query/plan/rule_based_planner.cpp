@@ -1346,7 +1346,7 @@ bool AtMostOneRow(const LogicalOperator *op) {
 
 }  // namespace
 
-bool IsRowUnique(const LogicalOperator &plan, Symbol symbol) {
+bool IsRowUnique(const LogicalOperator &plan, const Symbol &symbol) {
   auto position = symbol.position();
   for (const LogicalOperator *op = &plan; op != nullptr;) {
     if (auto const *scan = utils::Downcast<const ScanAll>(op); scan && scan->output_symbol_.position() == position) {

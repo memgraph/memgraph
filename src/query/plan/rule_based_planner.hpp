@@ -261,7 +261,7 @@ std::optional<std::unordered_set<Symbol>> SymbolsReadAfter(const QueryPart &quer
 
 /// Whether no two rows of @p plan hold the same @p symbol: a View::OLD scan that runs once, or a grouping or DISTINCT
 /// on it alone, binds it, with only operators that never repeat a row above. Used at the root only.
-bool IsRowUnique(const LogicalOperator &plan, Symbol symbol);
+bool IsRowUnique(const LogicalOperator &plan, const Symbol &symbol);
 
 std::unique_ptr<LogicalOperator> GenUnion(const CypherUnion &cypher_union, std::shared_ptr<LogicalOperator> left_op,
                                           std::shared_ptr<LogicalOperator> right_op, SymbolTable &symbol_table,
@@ -380,7 +380,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
       bool relabel_since_access_barrier = false;
       // The node and edge symbols a CREATE bound since the last barrier: each holds an entity this command created.
       std::unordered_set<Symbol> created_since_barrier;
-      const std::unordered_set<Symbol> no_symbols;
+      static const std::unordered_set<Symbol> no_symbols;
       // The Deletes of this segment, what they write, and the drain that owns them: their deletes land at the end of
       // the segment, and a drain moves only reads earlier.
       std::vector<plan::Delete *> segment_deletes;
@@ -799,7 +799,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
             auto op = HandleWriteClause(clause, input_op, *context.symbol_table, context.bound_symbols, view);
             MG_ASSERT(op, "Expected write clause to be handled");
             input_op = std::move(op);
-            if (auto *del = dynamic_cast<plan::Delete *>(input_op.get());
+            if (auto *del = utils::Downcast<plan::Delete>(input_op.get());
                 del && utils::Downcast<query::Delete>(clause)) {
               segment_deletes.push_back(del);
               segment_delete_writes.Merge(access.writes);
