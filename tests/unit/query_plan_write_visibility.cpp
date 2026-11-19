@@ -1276,208 +1276,139 @@ TEST_F(WriteVisibilityPlan, ConflictIsPerKey) {
   EXPECT_FALSE(Conflicts(Access("MATCH (n:B) RETURN n").reads, create_a));
 }
 
-// The queries of write_visibility.feature and their ablations; keep in step with it.
-constexpr std::string_view kCaseQueries[] = {
-    R"cypher(MATCH (a:WvP {name: 'A'}) SET a.flag = a.k RETURN EXISTS { MATCH (b:WvP) WHERE b.flag = 1 } AS e)cypher",
-    R"cypher(MATCH (a:WvP {name: 'A'}) WITH a, EXISTS { MATCH (b:WvP) WHERE b.flag = 1 } AS e SET a.flag = a.k RETURN e)cypher",
-    R"cypher(UNWIND [1, 2] AS i MATCH (a:WvS {id: i}) SET a.x = a.k RETURN collect(COUNT { MATCH (b:WvS) WHERE b.x = 1 }) AS r)cypher",
-    R"cypher(UNWIND [1, 2] AS i MATCH (a:WvS {id: i}) WITH a, COUNT { MATCH (b:WvS) WHERE b.x = 1 } AS c SET a.x = a.k RETURN collect(c) AS r)cypher",
-    R"cypher(MATCH (a:WvP {name: 'A'}) SET a.flag = a.k RETURN COLLECT { MATCH (b:WvP) WHERE b.flag = 1 RETURN b.name } AS r)cypher",
-    R"cypher(MATCH (a:WvP {name: 'A'}) WITH a, COLLECT { MATCH (b:WvP) WHERE b.flag = 1 RETURN b.name } AS r SET a.flag = a.k RETURN r)cypher",
-    R"cypher(MATCH (a:WvS {id: 1}) SET a:WvT RETURN EXISTS { MATCH (a) WHERE a:WvT } AS r)cypher",
-    R"cypher(MATCH (a:WvS {id: 1}) WITH a, EXISTS { MATCH (a) WHERE a:WvT } AS r SET a:WvT RETURN r)cypher",
-    R"cypher(MATCH (a:WvP {name: 'A'}) SET a.flag = a.k RETURN size([(b:WvP)-[:R]->() WHERE b.flag = 1 | b.name]) AS r)cypher",
-    R"cypher(MATCH (a:WvP {name: 'A'}) WITH a, size([(b:WvP)-[:R]->() WHERE b.flag = 1 | b.name]) AS r SET a.flag = a.k RETURN r)cypher",
-    R"cypher(MATCH (a:WvS {id: 1}) SET a.x = a.k RETURN [n IN [a] WHERE n.x = 1 | n.id] AS r)cypher",
-    R"cypher(MATCH (a:WvS {id: 1}) WITH a, [n IN [a] WHERE n.x = 1 | n.id] AS r SET a.x = a.k RETURN r)cypher",
-    R"cypher(MATCH (a:WvS) SET a.x = a.k WITH collect(a) AS ns RETURN size([n IN ns WHERE n.x = 1]) AS r)cypher",
-    R"cypher(MATCH (a:WvS) WITH collect(a) AS ns, size([n IN collect(a) WHERE n.x = 1]) AS r UNWIND ns AS a SET a.x = a.k RETURN DISTINCT r)cypher",
-    R"cypher(MATCH (a:WvS) SET a.x = a.k WITH count(*) AS n RETURN n, COUNT { MATCH (b:WvS) WHERE b.x = 1 } AS r)cypher",
-    R"cypher(MATCH (a:WvS) WITH count(*) AS n, COUNT { MATCH (b:WvS) WHERE b.x = 1 } AS r MATCH (a:WvS) SET a.x = a.k RETURN DISTINCT n, r)cypher",
-    R"cypher(CREATE (:WvX) CALL () { MATCH (x:WvX) RETURN count(x) AS c } RETURN c)cypher",
-    R"cypher(CALL () { MATCH (x:WvX) RETURN count(x) AS c } CREATE (:WvX) RETURN c)cypher",
-    R"cypher(CREATE (:WvX) CALL { MATCH (x:WvX) RETURN count(x) AS c } RETURN c)cypher",
-    R"cypher(CALL { MATCH (x:WvX) RETURN count(x) AS c } CREATE (:WvX) RETURN c)cypher",
-    R"cypher(CREATE (:WvX) WITH * CALL () { MATCH (x:WvX) RETURN count(x) AS c } RETURN c)cypher",
-    R"cypher(CALL () { CALL (*) { CREATE (:WvI {id: 1}) RETURN 1 AS x } MATCH (n:WvI) RETURN count(n) AS rows } RETURN rows)cypher",
-    R"cypher(CALL () { MATCH (n:WvI) WITH count(n) AS rows CALL (*) { CREATE (:WvI {id: 1}) RETURN 1 AS x } RETURN rows } RETURN rows)cypher",
-    R"cypher(CALL (*) { CREATE (:WvI {id: 1}) RETURN 1 AS x } MATCH (n:WvI) RETURN count(n) AS c)cypher",
-    R"cypher(MATCH (n:WvI) WITH count(n) AS c CALL (*) { CREATE (:WvI {id: 1}) RETURN 1 AS x } RETURN c)cypher",
-    R"cypher(UNWIND [1, 2] AS i MATCH (b:WvB) CALL (b, i) { WITH b, i WHERE b.x = 0 SET b.x = i RETURN i AS r } RETURN collect(r) AS rs, collect(b.x) AS xs)cypher",
-    R"cypher(UNWIND [1, 2] AS i MATCH (b:WvB) WITH b, i, b.x AS x0 CALL (b, i, x0) { WITH b, i, x0 WHERE x0 = 0 SET b.x = i RETURN i AS r } RETURN collect(r) AS rs, collect(b.x) AS xs)cypher",
-    R"cypher(UNWIND [1, 2] AS i CALL (i) { MATCH (b:WvB) WHERE b.x = 0 SET b.x = i RETURN i AS r } WITH collect(r) AS rs MATCH (b:WvB) RETURN rs, b.x AS x)cypher",
-    R"cypher(UNWIND [1, 2] AS i MATCH (b0:WvB) WITH i, b0.x AS x0 CALL (i, x0) { MATCH (b:WvB) WHERE x0 = 0 SET b.x = i RETURN i AS r } WITH collect(r) AS rs MATCH (b:WvB) RETURN rs, b.x AS x)cypher",
-    R"cypher(UNWIND [1, 2, 3] AS i CALL (i) { MATCH (n:WvB) WITH count(n) AS c CREATE (:WvB) RETURN c } RETURN collect(c) AS cs)cypher",
-    R"cypher(OPTIONAL MATCH (n:WvB) WITH count(n) AS c0 UNWIND [1, 2, 3] AS i CALL (i) { CREATE (:WvB) RETURN 1 AS one } RETURN collect(c0) AS cs)cypher",
-    R"cypher(UNWIND [1, 2, 3] AS i CALL (i) { MATCH (n:WvB), (m:WvM) WITH count(*) AS c CREATE (:WvB) RETURN c } RETURN collect(c) AS cs)cypher",
-    R"cypher(UNWIND [0, 1] AS i MATCH (b:WvC) SET b.z = i CALL (b, i) { WITH b, i WHERE b.z = i AND b.x = i RETURN 1 AS r } SET b.x = 1, b.c = b.c + 1 WITH count(*) AS n MATCH (y:WvC) WITH n, y ORDER BY y.c RETURN n, collect(y.c) AS cs)cypher",
-    R"cypher(UNWIND [0, 1] AS i MATCH (b:WvC) CALL (b, i) { WITH b, i WHERE b.z = i AND b.x = i RETURN 1 AS r } SET b.z = i, b.x = 1, b.c = b.c + 1 WITH count(*) AS n MATCH (y:WvC) WITH n, y ORDER BY y.c RETURN n, collect(y.c) AS cs)cypher",
-    R"cypher(UNWIND [0, 1] AS i MATCH (b:WvC) SET b.z = i CALL (b, i) { WHEN b.z = i AND b.x = i THEN RETURN 1 AS r } SET b.x = 1, b.c = b.c + 1 WITH count(*) AS n MATCH (y:WvC) WITH n, y ORDER BY y.c RETURN n, collect(y.c) AS cs)cypher",
-    R"cypher(UNWIND [0, 1] AS i MATCH (b:WvC) CALL (b, i) { WHEN b.z = i AND b.x = i THEN RETURN 1 AS r } SET b.z = i, b.x = 1, b.c = b.c + 1 WITH count(*) AS n MATCH (y:WvC) WITH n, y ORDER BY y.c RETURN n, collect(y.c) AS cs)cypher",
-    R"cypher(UNWIND [0, 1] AS i MATCH (b:WvC) SET b.z = i WITH * CALL (b, i) { WITH b, i WHERE b.z = i AND b.x = i RETURN 1 AS r } SET b.x = 1, b.c = b.c + 1 WITH count(*) AS n MATCH (y:WvC) WITH n, y ORDER BY y.c RETURN n, collect(y.c) AS cs)cypher",
-    R"cypher(UNWIND [0, 1] AS i MATCH (b:WvT) CALL (b, i) { WHEN b.x = i THEN RETURN 1 AS r } SET b.x = 1, b.c = b.c + 1 WITH count(*) AS n MATCH (y:WvT) WITH n, y ORDER BY y.c RETURN n, collect(y.c) AS cs)cypher",
-    R"cypher(UNWIND [0, 1] AS i MATCH (b:WvT) SET b.x = 1, b.c = b.c + 1 WITH b, i CALL (b, i) { WHEN b.x = i THEN RETURN 1 AS r } WITH count(*) AS n MATCH (y:WvT) WITH n, y ORDER BY y.c RETURN n, collect(y.c) AS cs)cypher",
-    R"cypher(UNWIND [0, 1] AS i MATCH (b:WvT) WHERE b.x = i SET b.x = 1, b.c = b.c + 1 WITH count(*) AS n MATCH (y:WvT) WITH n, y ORDER BY y.c RETURN n, collect(y.c) AS cs)cypher",
-    R"cypher(UNWIND [0, 1] AS i MATCH (b:WvT) SET b.x = 1, b.c = b.c + 1 WITH b, i WHERE b.x = i WITH count(*) AS n MATCH (y:WvT) WITH n, y ORDER BY y.c RETURN n, collect(y.c) AS cs)cypher",
-    R"cypher(UNWIND [0, 1] AS i MATCH (b:WvT) CALL (b, i) { WITH b, i WHERE b.x = i RETURN 1 AS r } SET b.x = 1, b.c = b.c + 1 WITH count(*) AS n MATCH (y:WvT) WITH n, y ORDER BY y.c RETURN n, collect(y.c) AS cs)cypher",
-    R"cypher(UNWIND [0, 1] AS i MATCH (b:WvT) SET b.x = 1, b.c = b.c + 1 WITH b, i CALL (b, i) { WITH b, i WHERE b.x = i RETURN 1 AS r } WITH count(*) AS n MATCH (y:WvT) WITH n, y ORDER BY y.c RETURN n, collect(y.c) AS cs)cypher",
-    R"cypher(MATCH (n:WvA) WHERE n.p > 0 AND n.p < 15 CALL (n) { SET n.p = n.p + 10 WITH n MATCH (m:WvA) RETURN count(m) AS k } WITH count(*) AS c MATCH (x:WvA) WITH c, x ORDER BY x.p RETURN c, collect(x.p) AS ps)cypher",
-    R"cypher(MATCH (n:WvA) WHERE n.p > 0 AND n.p < 15 CALL (n) { SET n.p = n.p + 10 WITH n MATCH (m:WvA) RETURN count(m) AS k } WITH count(*) AS c0 MATCH (n:WvA) WHERE n.p > 0 AND n.p < 15 CALL (n) { SET n.p = n.p + 10 WITH n MATCH (m:WvA) RETURN count(m) AS k } WITH count(*) AS c MATCH (x:WvA) WITH c0 + c AS c, x ORDER BY x.p RETURN c, collect(x.p) AS ps)cypher",
-    R"cypher(UNWIND [1, 2] AS i MERGE (e:WvG) MERGE (:WvG {name: 'Eve'}) WITH count(*) AS n MATCH (g:WvG) RETURN n, count(g) AS g)cypher",
-    R"cypher(MERGE (:WvG {name: 'Eve'}) WITH 1 AS d UNWIND [1, 2] AS i MERGE (e:WvG) MERGE (:WvG {name: 'Eve'}) WITH count(*) AS n MATCH (g:WvG) RETURN n, count(g) AS g)cypher",
-    R"cypher(UNWIND [1, 2] AS i CREATE (:WvK) MERGE (m:WvK) WITH count(*) AS n MATCH (k:WvK) RETURN n, count(k) AS k)cypher",
-    R"cypher(UNWIND [1, 2] AS i MERGE (m:WvK) CREATE (:WvK) WITH count(*) AS n MATCH (k:WvK) RETURN n, count(k) AS k)cypher",
-    R"cypher(CREATE (:WvK) MERGE (m:WvK) WITH count(*) AS n MATCH (k:WvK) RETURN n, count(k) AS k)cypher",
-    R"cypher(MERGE (m:WvK) CREATE (:WvK) WITH count(*) AS n MATCH (k:WvK) RETURN n, count(k) AS k)cypher",
-    R"cypher(UNWIND [1, 1, 2] AS i MERGE (e:WvG {k: i}) WITH count(*) AS n MATCH (g:WvG) RETURN n, count(g) AS g)cypher",
-    R"cypher(UNWIND [1, 1, 2] AS i CREATE (e:WvG {k: i}) WITH count(*) AS n MATCH (g:WvG) RETURN n, count(g) AS g)cypher",
-    R"cypher(UNWIND [1, 2, 3] AS i MATCH (a:WvF {id: 1}), (b:WvF {id: 2}) MERGE (a)-[q:R]->(b) WITH count(*) AS n MATCH (:WvF)-[r:R]->() RETURN n, count(r) AS r)cypher",
-    R"cypher(UNWIND [1, 2, 3] AS i MATCH (a:WvF {id: 1}), (b:WvF {id: 2}) CREATE (a)-[q:R]->(b) WITH count(*) AS n MATCH (:WvF)-[r:R]->() RETURN n, count(r) AS r)cypher",
-    R"cypher(MATCH (a:WvJ) SET a.x = a.x * a.m RETURN a.id AS id ORDER BY a.x LIMIT 1)cypher",
-    R"cypher(MATCH (a:WvJ) WITH a ORDER BY a.x LIMIT 1 SET a.x = a.x * a.m RETURN a.id AS id)cypher",
-    R"cypher(MATCH (a:WvJ) SET a.x = a.x * a.m RETURN a.id AS id, a.x ORDER BY a.x LIMIT 1)cypher",
-    R"cypher(MATCH (a:WvJ) WITH a ORDER BY a.x LIMIT 1 SET a.x = a.x * a.m RETURN a.id AS id, a.x)cypher",
-    R"cypher(MATCH (a:WvJ) SET a.x = a.x * a.m RETURN a.id AS id, a.x AS x ORDER BY x LIMIT 1)cypher",
-    R"cypher(MATCH (a:WvJ) WITH a ORDER BY a.x LIMIT 1 SET a.x = a.x * a.m RETURN a.id AS id, a.x AS x)cypher",
-    R"cypher(MATCH (a:WvJ) SET a.x = a.x * a.m WITH a ORDER BY a.x LIMIT 1 RETURN a.id AS id)cypher",
-    R"cypher(UNWIND [1, 2] AS i MATCH (a:WvJ) SET a.x = i RETURN collect(a.x) AS r)cypher",
-    R"cypher(UNWIND [1, 2] AS i MATCH (a:WvJ) SET a.x = i RETURN collect(i) AS r)cypher",
-    R"cypher(UNWIND [1, 2] AS i MATCH (a:WvJ) SET a.x = i RETURN a.x AS x, count(*) AS c ORDER BY x)cypher",
-    R"cypher(UNWIND [1, 2] AS i MATCH (a:WvJ) SET a.x = i RETURN i AS x, count(*) AS c ORDER BY x)cypher",
-    R"cypher(CREATE (:WvK) RETURN 1 AS x UNION ALL MATCH (n:WvK) RETURN count(n) AS x)cypher",
-    R"cypher(MATCH (n:WvK) RETURN count(n) AS x UNION ALL CREATE (:WvK) RETURN 1 AS x)cypher",
-    R"cypher(CREATE (:WvK) RETURN 5 AS x UNION MATCH (n:WvK) RETURN count(n) AS x)cypher",
-    R"cypher(MATCH (n:WvK) RETURN count(n) AS x UNION CREATE (:WvK) RETURN 5 AS x)cypher",
-    R"cypher(MATCH (a:WvS {id: 1}) SET a.x = a.k RETURN 0 AS x UNION ALL MATCH (b:WvS) WHERE b.x = 1 RETURN count(b) AS x)cypher",
-    R"cypher(MATCH (b:WvS) WHERE b.x = 1 RETURN count(b) AS x UNION ALL MATCH (a:WvS {id: 1}) SET a.x = a.k RETURN 0 AS x)cypher",
-    R"cypher(MATCH (a:WvF {id: 1}), (b:WvF {id: 2}) CREATE (a)-[:R]->(b) RETURN 0 AS x UNION ALL MATCH (:WvF)-[q:R]->() RETURN count(q) AS x)cypher",
-    R"cypher(MATCH (:WvF)-[q:R]->() RETURN count(q) AS x UNION ALL MATCH (a:WvF {id: 1}), (b:WvF {id: 2}) CREATE (a)-[:R]->(b) RETURN 0 AS x)cypher",
-    R"cypher(MATCH (a:WvK {id: 1}) DELETE a RETURN 0 AS x UNION ALL MATCH (n:WvK) RETURN count(n) AS x)cypher",
-    R"cypher(MATCH (n:WvK) RETURN count(n) AS x UNION ALL MATCH (a:WvK {id: 1}) DELETE a RETURN 0 AS x)cypher",
-    R"cypher(CREATE (:WvK) RETURN 0 AS x UNION ALL CREATE (:WvK) RETURN 0 AS x UNION ALL MATCH (n:WvK) RETURN count(n) AS x)cypher",
-    R"cypher(MATCH (n:WvK) RETURN count(n) AS x UNION ALL CREATE (:WvK) RETURN 0 AS x UNION ALL CREATE (:WvK) RETURN 0 AS x)cypher",
-    R"cypher(MATCH (a:WvW {id: 1}), (b:WvW {id: 2}) SET a.x = b.x, b.x = a.x RETURN a.x AS ax, b.x AS bx)cypher",
-    R"cypher(MATCH (a:WvW {id: 1}), (b:WvW {id: 2}) WITH a, b, a.x AS ax0, b.x AS bx0 SET a.x = bx0, b.x = ax0 RETURN a.x AS ax, b.x AS bx)cypher",
-    R"cypher(MATCH (a:WvU) SET a += {x: a.y, y: a.x} RETURN a.x AS x, a.y AS y)cypher",
-    R"cypher(MATCH (a:WvU) SET a.x = a.y SET a.y = a.x RETURN a.x AS x, a.y AS y)cypher",
-    R"cypher(MATCH (a:WvS) SET a:WvT WITH a MATCH (b:WvT) RETURN count(*) AS c)cypher",
-    R"cypher(MATCH (a:WvS) WITH a MATCH (b:WvT) SET a:WvT RETURN count(*) AS c)cypher",
-    R"cypher(UNWIND [1, 2] AS i MATCH (a:WvS {id: i}) SET a.x = a.k WITH i MATCH (b:WvS) WHERE b.x = 1 RETURN count(*) AS c)cypher",
-    R"cypher(UNWIND [1, 2] AS i MATCH (a:WvS {id: i}) WITH a, i MATCH (b:WvS) WHERE b.x = 1 SET a.x = a.k RETURN count(*) AS c)cypher",
-    R"cypher(MATCH (a:WvS {id: 1}) REMOVE a:WvS WITH a MATCH (b:WvS) RETURN count(*) AS c)cypher",
-    R"cypher(MATCH (a:WvS {id: 1}) WITH a MATCH (b:WvS) REMOVE a:WvS RETURN count(*) AS c)cypher",
-    R"cypher(MATCH (a:WvS {id: 1}) REMOVE a.x WITH a MATCH (b:WvS) WHERE b.x IS NOT NULL RETURN count(*) AS c)cypher",
-    R"cypher(MATCH (a:WvS {id: 1}) WITH a MATCH (b:WvS) WHERE b.x IS NOT NULL REMOVE a.x RETURN count(*) AS c)cypher",
-    R"cypher(MATCH (a:WvK {id: 1}) DELETE a WITH 1 AS d MATCH (b:WvK) RETURN count(*) AS c)cypher",
-    R"cypher(MATCH (a:WvK {id: 1}) WITH a MATCH (b:WvK) DELETE a RETURN count(*) AS c)cypher",
-    R"cypher(MATCH (a:WvK {id: 1}) DELETE a WITH 1 AS d OPTIONAL MATCH (b:WvK {id: 1}) RETURN count(b) AS c)cypher",
-    R"cypher(MATCH (a:WvK {id: 1}) WITH a OPTIONAL MATCH (b:WvK {id: 1}) DELETE a RETURN count(b) AS c)cypher",
-    R"cypher(MATCH (a:WvE {id: 1}) DETACH DELETE a WITH 1 AS d MATCH (x:WvE)-[r]-() RETURN count(r) AS c)cypher",
-    R"cypher(MATCH (a:WvE {id: 1}) WITH a MATCH (x:WvE)-[r]-() DETACH DELETE a RETURN count(r) AS c)cypher",
-    R"cypher(MATCH (:WvE {id: 1})-[r:R]->() DELETE r WITH 1 AS d MATCH (x:WvE {id: 2})-[q]-() RETURN count(q) AS c)cypher",
-    R"cypher(MATCH (:WvE {id: 1})-[r:R]->() WITH r MATCH (x:WvE {id: 2})-[q]-() DELETE r RETURN count(q) AS c)cypher",
-    R"cypher(UNWIND [1, 2] AS i MATCH (a:WvF {id: 1}), (b:WvF {id: 2}) CREATE (a)-[:R]->(b) WITH a MATCH (a)-[q:R]->() RETURN count(*) AS c)cypher",
-    R"cypher(UNWIND [1, 2] AS i MATCH (a:WvF {id: 1}), (b:WvF {id: 2}) WITH a, b OPTIONAL MATCH (a)-[q:R]->() CREATE (a)-[:R]->(b) RETURN count(q) AS c)cypher",
-    R"cypher(MATCH (a:WvS) FOREACH (k IN [a.k] | SET a.x = k) WITH a MATCH (b:WvS) WHERE b.x = 1 RETURN count(*) AS c)cypher",
-    R"cypher(MATCH (a:WvS) WITH a MATCH (b:WvS) WHERE b.x = 1 FOREACH (k IN [a.k] | SET a.x = k) RETURN count(*) AS c)cypher",
-    R"cypher(UNWIND [1, 2] AS i FOREACH (k IN [1] | CREATE (:WvK)) WITH i MATCH (n:WvK) RETURN count(*) AS c)cypher",
-    R"cypher(UNWIND [1, 2] AS i OPTIONAL MATCH (n:WvK) FOREACH (k IN [1] | CREATE (:WvK)) RETURN count(n) AS c)cypher",
-    R"cypher(MATCH (a:WvH) FOREACH (k IN [a.s, a.s, a.s] | SET a.x = a.x + k) RETURN a.x AS x)cypher",
-    R"cypher(MATCH (a:WvH) FOREACH (k IN [a.s] | SET a.x = a.x + k) RETURN a.x AS x)cypher",
-    R"cypher(MATCH (a:WvL) SET a.p = a.k WITH a MATCH (b:WvL) WHERE b.p = 5 RETURN count(*) AS c)cypher",
-    R"cypher(MATCH (a:WvL) WITH a MATCH (b:WvL) WHERE b.p = 5 SET a.p = a.k RETURN count(*) AS c)cypher",
-    R"cypher(MATCH (a:WvL {id: 1}) SET a.p = a.k WITH a MATCH (b:WvL) WHERE b.p = 1 RETURN count(*) AS c)cypher",
-    R"cypher(MATCH (a:WvL {id: 1}) WITH a MATCH (b:WvL) WHERE b.p = 1 SET a.p = a.k RETURN count(*) AS c)cypher",
-    R"cypher(MATCH (a:WvK) CREATE (:WvK) WITH count(*) AS n MATCH (k:WvK) RETURN n, count(k) AS k)cypher",
-    R"cypher(MATCH (a:WvK) MATCH (b:WvK) CREATE (:WvK) WITH count(*) AS n MATCH (k:WvK) RETURN n, count(k) AS k)cypher",
-    R"cypher(CREATE (a:WvV {id: 1})-[:R]->(:WvV {id: 2}) RETURN [(a)-[*]->(x) | x.id] AS r)cypher",
-    R"cypher(CREATE (a:WvV {id: 1})-[:R]->(:WvV {id: 2}) RETURN [(a)-[*2..]->(x) | x.id] AS r)cypher",
-    R"cypher(CREATE (a:WvV {id: 1})-[:R]->(:WvV {id: 2}) RETURN COUNT { (a)-[*]->(x) } AS r)cypher",
-    R"cypher(CREATE (a:WvV {id: 1})-[:R]->(:WvV {id: 2}) RETURN COUNT { (a)-[*2..]->(x) } AS r)cypher",
-    R"cypher(CREATE (a:WvV {id: 1})-[:R]->(:WvV {id: 2}) CALL (a) { MATCH (a)-[*]->(x) RETURN x.id AS xid } RETURN xid)cypher",
-    R"cypher(CREATE (a:WvV {id: 1})-[:R]->(:WvV {id: 2}) CALL (a) { MATCH (a)-[*2..]->(x) RETURN x.id AS xid } RETURN xid)cypher",
-    R"cypher(CREATE (a:WvV {id: 1})-[:R]->(:WvV {id: 2}) WITH a MATCH (a)-[*]->(x) RETURN x.id AS xid)cypher",
-    R"cypher(CREATE (a:WvV {id: 1})-[:R]->(:WvV {id: 2}) WITH a MATCH (a)-[*2..]->(x) RETURN x.id AS xid)cypher",
-    R"cypher(MATCH (a:WvQ) SET a.x = a.k WITH * WHERE a.x = 5 WITH count(*) AS c MATCH (q:WvQ) WITH c, q ORDER BY q.x RETURN c, collect(q.x) AS xs)cypher",
-    R"cypher(MATCH (a:WvQ) WITH * WHERE a.x = 5 SET a.x = a.k WITH count(*) AS c MATCH (q:WvQ) WITH c, q ORDER BY q.x RETURN c, collect(q.x) AS xs)cypher",
-    R"cypher(MATCH (a:WvQ) SET a.x = a.k WITH a WHERE a.x = 5 WITH count(*) AS c MATCH (q:WvQ) WITH c, q ORDER BY q.x RETURN c, collect(q.x) AS xs)cypher",
-    R"cypher(MATCH (a:WvQ) WITH a WHERE a.x = 5 SET a.x = a.k WITH count(*) AS c MATCH (q:WvQ) WITH c, q ORDER BY q.x RETURN c, collect(q.x) AS xs)cypher",
-    R"cypher(MATCH (a:WvQ) SET a.x = a.k CALL mg.procedures() YIELD name WHERE a.x = 5 AND name = 'mg.procedures' WITH count(*) AS c MATCH (q:WvQ) WITH c, q ORDER BY q.x RETURN c, collect(q.x) AS xs)cypher",
-    R"cypher(MATCH (a:WvQ) CALL db.labels() YIELD label WHERE a.x = 5 AND label = 'WvQ' SET a.x = a.k WITH count(*) AS c MATCH (q:WvQ) WITH c, q ORDER BY q.x RETURN c, collect(q.x) AS xs)cypher",
-    R"cypher(MATCH ()-[r:WvE]->() SET r.w = r.k WITH * WHERE r.w = 5 WITH count(*) AS c MATCH ()-[q:WvE]->() RETURN c, collect(q.w) AS ws)cypher",
-    R"cypher(MATCH ()-[r:WvE]->() WITH * WHERE r.w = 5 SET r.w = r.k WITH count(*) AS c MATCH ()-[q:WvE]->() RETURN c, collect(q.w) AS ws)cypher",
-    R"cypher(MATCH (a:WvR), (b:WvR) WHERE a.id <> b.id WITH a, b, b.x AS v SET a.x = a.t WITH a, v ORDER BY a.id RETURN collect(v) AS vs, collect(a.x) AS xs)cypher",
-    R"cypher(MATCH (a:WvR), (b:WvR) WHERE a.id <> b.id SET a.x = a.t WITH a, b, b.x AS v WITH a, v ORDER BY a.id RETURN collect(v) AS vs, collect(a.x) AS xs)cypher",
-    R"cypher(MATCH (a:WvR), (b:WvR) WHERE a.id <> b.id SET a.y = b.x SET a.x = a.t WITH a ORDER BY a.id RETURN collect(a.y) AS ys, collect(a.x) AS xs)cypher",
-    R"cypher(MATCH (a:WvR), (b:WvR) WHERE a.id <> b.id SET a.x = a.t SET a.y = b.x WITH a ORDER BY a.id RETURN collect(a.y) AS ys, collect(a.x) AS xs)cypher",
-    R"cypher(MATCH (a:WvR), (b:WvR) WHERE a.id <> b.id CREATE (:WvR2 {v: b.x, id: a.id}) SET a.x = a.t WITH count(*) AS n MATCH (c:WvR2) WITH c ORDER BY c.id RETURN collect(c.v) AS vs)cypher",
-    R"cypher(MATCH (a:WvR), (b:WvR) WHERE a.id <> b.id SET a.x = a.t CREATE (:WvR2 {v: b.x, id: a.id}) WITH count(*) AS n MATCH (c:WvR2) WITH c ORDER BY c.id RETURN collect(c.v) AS vs)cypher",
-    R"cypher(MATCH (a:WvY), (b:WvZ) SET a.y = b.x SET b.x = b.z WITH a ORDER BY a.id RETURN collect(a.y) AS ys)cypher",
-    R"cypher(MATCH (a:WvY), (b:WvZ) SET b.x = b.z SET a.y = b.x WITH a ORDER BY a.id RETURN collect(a.y) AS ys)cypher",
-    R"cypher(MATCH (a:WvP {name: 'A'}) SET a.flag = a.k SET a.n = size([(b:WvP)-[:R]->() WHERE b.flag = 1 | b.name]) RETURN a.n AS n)cypher",
-    R"cypher(MATCH (a:WvP {name: 'A'}) SET a.n = size([(b:WvP)-[:R]->() WHERE b.flag = 1 | b.name]) SET a.flag = a.k RETURN a.n AS n)cypher",
-    R"cypher(MATCH (a:WvP {name: 'A'}) SET a.flag = a.k CREATE (m:WvM {c: size([(b:WvP)-[:R]->() WHERE b.flag = 1 | 1])}) WITH count(*) AS n MATCH (m:WvM) RETURN n, collect(m.c) AS cs)cypher",
-    R"cypher(MATCH (a:WvP {name: 'A'}) CREATE (m:WvM {c: size([(b:WvP)-[:R]->() WHERE b.flag = 1 | 1])}) SET a.flag = a.k WITH count(*) AS n MATCH (m:WvM) RETURN n, collect(m.c) AS cs)cypher",
-    R"cypher(MATCH (a:WvP {name: 'A'}) SET a.flag = a.k FOREACH (v IN [(b:WvP)-[:R]->() WHERE b.flag = 1 | b.name] | CREATE (:WvM {v: v})) WITH count(*) AS n OPTIONAL MATCH (m:WvM) RETURN n, collect(m.v) AS vs)cypher",
-    R"cypher(MATCH (a:WvP {name: 'A'}) FOREACH (v IN [(b:WvP)-[:R]->() WHERE b.flag = 1 | b.name] | CREATE (:WvM {v: v})) SET a.flag = a.k WITH count(*) AS n OPTIONAL MATCH (m:WvM) RETURN n, collect(m.v) AS vs)cypher",
-    R"cypher(MATCH (a:WvP {name: 'A'}) SET a.flag = a.k CALL (a) { RETURN size([(b:WvP)-[:R]->() WHERE b.flag = 1 | 1]) AS c } RETURN c)cypher",
-    R"cypher(MATCH (a:WvP {name: 'A'}) CALL (a) { RETURN size([(b:WvP)-[:R]->() WHERE b.flag = 1 | 1]) AS c } SET a.flag = a.k RETURN c)cypher",
-    R"cypher(MATCH (a:WvS), (b:WvS) WHERE a.id <> b.id SET a.x = a.k MERGE (m:WvM {id: a.id, v: b.x}) WITH count(*) AS n MATCH (m:WvM) WITH n, m ORDER BY m.id RETURN n, collect(m.v) AS vs)cypher",
-    R"cypher(MATCH (a:WvS), (b:WvS) WHERE a.id <> b.id MERGE (m:WvM {id: a.id, v: b.x}) SET a.x = a.k WITH count(*) AS n MATCH (m:WvM) WITH n, m ORDER BY m.id RETURN n, collect(m.v) AS vs)cypher",
-    R"cypher(MATCH (a:WvS), (b:WvS) WHERE a.id <> b.id SET a.x = a.k CREATE (m:WvM {id: a.id, v: b.x}) WITH count(*) AS n MATCH (m:WvM) WITH n, m ORDER BY m.id RETURN n, collect(m.v) AS vs)cypher",
-    R"cypher(MATCH (a:WvS), (b:WvS) WHERE a.id <> b.id CREATE (m:WvM {id: a.id, v: b.x}) SET a.x = a.k WITH count(*) AS n MATCH (m:WvM) WITH n, m ORDER BY m.id RETURN n, collect(m.v) AS vs)cypher",
-    R"cypher(MATCH (a:WvS), (b:WvS) WHERE a.id <> b.id SET a.x = a.k FOREACH (v IN [b.x] | CREATE (:WvM {id: a.id, v: v})) WITH count(*) AS n MATCH (m:WvM) WITH n, m ORDER BY m.id RETURN n, collect(m.v) AS vs)cypher",
-    R"cypher(MATCH (a:WvS), (b:WvS) WHERE a.id <> b.id FOREACH (v IN [b.x] | CREATE (:WvM {id: a.id, v: v})) SET a.x = a.k WITH count(*) AS n MATCH (m:WvM) WITH n, m ORDER BY m.id RETURN n, collect(m.v) AS vs)cypher",
-    R"cypher(MATCH (a:WvS), (b:WvS) WHERE a.id <> b.id SET a.x = a.k SET a.v = b.x WITH a ORDER BY a.id RETURN collect(a.v) AS vs)cypher",
-    R"cypher(MATCH (a:WvS), (b:WvS) WHERE a.id <> b.id SET a.v = b.x SET a.x = a.k WITH a ORDER BY a.id RETURN collect(a.v) AS vs)cypher",
-    R"cypher(MATCH (a:WvS), (b:WvS) WHERE a.id <> b.id SET a.x = a.k CALL (a, b) { RETURN b.x AS v } WITH a, v ORDER BY a.id RETURN collect(v) AS vs)cypher",
-    R"cypher(MATCH (a:WvS), (b:WvS) WHERE a.id <> b.id CALL (a, b) { RETURN b.x AS v } SET a.x = a.k WITH a, v ORDER BY a.id RETURN collect(v) AS vs)cypher",
-    R"cypher(CALL () { CREATE (:WvK) RETURN 1 AS x UNION ALL MATCH (n:WvK) RETURN count(n) AS x } RETURN collect(x) AS xs)cypher",
-    R"cypher(CALL () { MATCH (n:WvK) RETURN count(n) AS x UNION ALL CREATE (:WvK) RETURN 1 AS x } RETURN collect(x) AS xs)cypher",
-    R"cypher(MATCH (a:WvS {id: 1}) SET a.x = a.k CALL () { MATCH (b:WvS) WHERE b.x = 1 RETURN count(b) AS c1 } SET a.y = c1 CALL () { MATCH (b:WvS) WHERE b.y = 1 RETURN count(b) AS c2 } RETURN c1, c2)cypher",
-    R"cypher(MATCH (a:WvS {id: 1}) CALL () { MATCH (b:WvS) WHERE b.x = 1 RETURN count(b) AS c1 } CALL () { MATCH (b:WvS) WHERE b.y = 1 RETURN count(b) AS c2 } SET a.x = a.k, a.y = c1 RETURN c1, c2)cypher",
-    R"cypher(MATCH (a:WvS {id: 1}) SET a.x = a.k RETURN COUNT { MATCH (b:WvS) WHERE b[$k] = 1 } AS r)cypher",
-    R"cypher(MATCH (a:WvS {id: 1}) WITH a, COUNT { MATCH (b:WvS) WHERE b[$k] = 1 } AS r SET a.x = a.k RETURN r)cypher",
-    R"cypher(MATCH (a:WvS {id: 1}) SET a += $m RETURN COUNT { MATCH (b:WvS) WHERE b.x = 1 } AS r)cypher",
-    R"cypher(MATCH (a:WvS {id: 1}) WITH a, COUNT { MATCH (b:WvS) WHERE b.x = 1 } AS r SET a += $m RETURN r)cypher",
-    R"cypher(MATCH (a:WvS {id: 1}) SET a = $m RETURN COUNT { MATCH (b:WvS) WHERE b.x = 1 } AS r)cypher",
-    R"cypher(MATCH (a:WvS {id: 1}) WITH a, COUNT { MATCH (b:WvS) WHERE b.x = 1 } AS r SET a = $m RETURN r)cypher",
-    R"cypher(MATCH (a:WvS {id: 1}) SET a:$l RETURN EXISTS { MATCH (b:WvT) } AS r)cypher",
-    R"cypher(MATCH (a:WvS {id: 1}) WITH a, EXISTS { MATCH (b:WvT) } AS r SET a:$($l) RETURN r)cypher",
-    R"cypher(MATCH (a:WvS {id: 1}) SET a.x = a.k RETURN COUNT { MATCH (b:WvS) WHERE properties(b).x = 1 } AS r)cypher",
-    R"cypher(MATCH (a:WvS {id: 1}) WITH a, COUNT { MATCH (b:WvS) WHERE properties(b).x = 1 } AS r SET a.x = a.k RETURN r)cypher",
-    R"cypher(MATCH (s:WvV {id: 1}) CREATE (s)-[:R]->(:WvV {id: 3}) CALL (s) { MATCH (s)-[*BFS]->(x) RETURN count(x) AS c } RETURN c)cypher",
-    R"cypher(MATCH (s:WvV {id: 1}) CALL (s) { MATCH p = ANY SHORTEST (s)-[*]->(x) RETURN count(x) AS c } CREATE (s)-[:R]->(:WvV {id: 3}) RETURN c)cypher",
-    R"cypher(MATCH (s:WvV {id: 1}) CREATE (s)-[:R]->(:WvV {id: 3}) RETURN size([(s)-[*BFS]->(x) | x]) AS c)cypher",
-    R"cypher(MATCH (s:WvV {id: 1}) WITH s, COUNT { MATCH p = ANY SHORTEST (s)-[*]->(x) } AS c CREATE (s)-[:R]->(:WvV {id: 3}) RETURN c)cypher",
-    R"cypher(MATCH (s:WvV {id: 1}) CREATE (s)-[:R]->(:WvV {id: 3}) WITH s MATCH (s)-[*BFS]->(x) RETURN count(x) AS c)cypher",
-    R"cypher(MATCH (s:WvV {id: 1}) CREATE (s)-[:R {w: 1}]->(:WvV {id: 3}) CALL (s) { MATCH (s)-[*WSHORTEST (r, n | r.w) total]->(x) RETURN count(x) AS c } RETURN c)cypher",
-    R"cypher(MATCH (s:WvV {id: 1}) CALL (s) { MATCH p = ANY SHORTEST (s)-[*]->(x) RETURN count(x) AS c } CREATE (s)-[:R {w: 1}]->(:WvV {id: 3}) RETURN c)cypher",
-    R"cypher(MATCH (s:WvV {id: 1}) CREATE (s)-[:R {w: 1}]->(:WvV {id: 3}) WITH s MATCH (s)-[*WSHORTEST (r, n | r.w) total]->(x) RETURN count(x) AS c)cypher",
-    R"cypher(MATCH (s:WvV {id: 1}), (t:WvV {id: 3}) CREATE (s)-[:R]->(t) CALL (s, t) { MATCH p = (s)-[*KSHORTEST]->(t) RETURN collect(size(p)) AS ls } RETURN ls)cypher",
-    R"cypher(MATCH (s:WvV {id: 1}), (t:WvV {id: 3}) CALL (s, t) { MATCH p = SHORTEST 5 (s)-[*]->(t) RETURN collect(length(p)) AS ls } CREATE (s)-[:R]->(t) RETURN ls)cypher",
-    R"cypher(MATCH (s:WvV {id: 1}), (t:WvV {id: 3}) CREATE (s)-[:R]->(t) WITH s, t MATCH p = (s)-[*KSHORTEST]->(t) RETURN collect(size(p)) AS ls)cypher",
-    R"cypher(MATCH (s:WvV {id: 1}), (t:WvV {id: 3}) CREATE (s)-[:R {w: 1}]->(t) CALL (s, t) { MATCH p = (s)-[*ALLSHORTEST (r, n | r.w) total]->(t) RETURN collect(size(p)) AS ls } RETURN ls)cypher",
-    R"cypher(MATCH (s:WvV {id: 1}), (t:WvV {id: 3}) CALL (s, t) { MATCH p = ALL SHORTEST (s)-[*]->(t) RETURN collect(length(p)) AS ls } CREATE (s)-[:R {w: 1}]->(t) RETURN ls)cypher",
-    R"cypher(MATCH (s:WvV {id: 1}), (t:WvV {id: 3}) CREATE (s)-[:R {w: 1}]->(t) WITH s, t MATCH p = (s)-[*ALLSHORTEST (r, n | r.w) total]->(t) RETURN collect(size(p)) AS ls)cypher",
-    R"cypher(UNWIND [{a: 1, b: 2}, {a: 2, b: 3}, {a: 1, b: 3}, {a: 3, b: 1}] AS r MERGE (a:WvL {id: r.a}) MERGE (b:WvL {id: r.b}) MERGE (a)-[:R]->(b) WITH count(*) AS n MATCH (x:WvL) WITH n, count(x) AS nodes MATCH (:WvL)-[e:R]->() RETURN n, nodes, count(e) AS edges)cypher",
-    R"cypher(UNWIND [{a: 1, b: 2}, {a: 2, b: 3}, {a: 1, b: 3}, {a: 3, b: 1}] AS r CREATE (a:WvL {id: r.a}) MERGE (b:WvL {id: r.b}) MERGE (a)-[:R]->(b) WITH count(*) AS n MATCH (x:WvL) WITH n, count(x) AS nodes MATCH (:WvL)-[e:R]->() RETURN n, nodes, count(e) AS edges)cypher",
-    R"cypher(UNWIND [{a: 1, b: 2}, {a: 2, b: 3}, {a: 1, b: 3}, {a: 3, b: 1}] AS r MERGE (a:WvL1 {id: r.a}) MERGE (b:WvL2 {id: r.b}) MERGE (a)-[:R]->(b) WITH count(*) AS n MATCH (x) WHERE x:WvL1 OR x:WvL2 WITH n, count(x) AS nodes MATCH ()-[e:R]->() RETURN n, nodes, count(e) AS edges)cypher",
-    R"cypher(UNWIND [{a: 1, b: 2}, {a: 2, b: 3}, {a: 1, b: 3}, {a: 3, b: 1}] AS r CREATE (a:WvL1 {id: r.a}) MERGE (b:WvL2 {id: r.b}) MERGE (a)-[:R]->(b) WITH count(*) AS n MATCH (x) WHERE x:WvL1 OR x:WvL2 WITH n, count(x) AS nodes MATCH ()-[e:R]->() RETURN n, nodes, count(e) AS edges)cypher",
-    R"cypher(UNWIND [1, 2] AS i CALL (i) { MATCH (n:WvU) SET n.l = [i, i] WITH n UNWIND n.l AS v RETURN collect(v) AS vs } RETURN collect(vs) AS r)cypher",
-    R"cypher(UNWIND [1, 2] AS i CALL (i) { MATCH (n:WvU) WITH n, i, n.l AS old SET n.l = [i, i] WITH old UNWIND coalesce(old, [0]) AS v RETURN collect(v) AS vs } RETURN collect(vs) AS r)cypher",
-    R"cypher(UNWIND [1, 2] AS i CALL (i) { MATCH (a:WvV {id: 1}) CREATE (a)-[:R]->(:WvV {id: 2}) WITH * MATCH (a)-[*]->(x) RETURN count(x) AS c } RETURN collect(c) AS cs)cypher",
-    R"cypher(UNWIND [1, 2] AS i CALL (i) { MATCH (a:WvV {id: 1}) OPTIONAL MATCH (a)-[*]->(x) WITH a, count(x) AS c CREATE (a)-[:R]->(:WvV {id: 2}) RETURN c } RETURN collect(c) AS cs)cypher",
-    R"cypher(UNWIND [1, 2] AS i CALL (i) { MATCH (a:WvV {id: 1}) CREATE (a)-[:R]->(:WvV {id: 2}) WITH a MATCH (a)-[*]->(x) RETURN count(x) AS c } RETURN collect(c) AS cs)cypher",
-    R"cypher(UNWIND [0, 1] AS i MATCH (b:WvT) CALL (b, i) { CALL (b, i) { WITH b, i WHERE b.x = i RETURN 1 AS r } RETURN r } SET b.x = 1, b.c = b.c + 1 WITH count(*) AS n MATCH (y:WvT) WITH n, y ORDER BY y.c RETURN n, collect(y.c) AS cs)cypher",
-    R"cypher(UNWIND [0, 1] AS i MATCH (b:WvT) SET b.x = 1, b.c = b.c + 1 WITH b, i CALL (b, i) { CALL (b, i) { WITH b, i WHERE b.x = i RETURN 1 AS r } RETURN r } WITH count(*) AS n MATCH (y:WvT) WITH n, y ORDER BY y.c RETURN n, collect(y.c) AS cs)cypher",
-    R"cypher(MATCH (n:WvA4) CALL (n) { SET n.x = 1 WITH n MATCH (n)-[*]->(m) RETURN count(m) AS c } RETURN c)cypher",
-    R"cypher(MATCH (n:WvA4) CALL (n) { SET n.x = 1 WITH n MATCH (n)-[*2..]->(m) RETURN count(m) AS c } RETURN c)cypher",
-    R"cypher(MATCH (n:WvA4) CALL (n) { CREATE (n)-[:R]->(k:WvM4) WITH n MATCH (n)-[*]->(m) RETURN count(m) AS c } RETURN c)cypher",
-    R"cypher(MATCH (n:WvA4) CALL (n) { OPTIONAL MATCH (n)-[*]->(m) WITH n, count(m) AS c CREATE (n)-[:R]->(k:WvM4) RETURN c } RETURN c)cypher",
-    R"cypher(MATCH (n:WvA4) CALL (n) { CREATE (n)-[:R]->(a:WvQ4)-[:R]->(:WvQ4) WITH a RETURN [(a)-[*]->(x) | 1] AS r } RETURN r)cypher",
-    R"cypher(MATCH (n:WvA4) CALL (n) { CREATE (n)-[:R]->(a:WvQ4)-[:R]->(:WvQ4) WITH a RETURN [(a)-[*2..]->(x) | 1] AS r } RETURN r)cypher",
-    R"cypher(CREATE (a:WvL {v: 1}), (b:WvL {w: a.v}) RETURN b.w AS w)cypher",
+struct CorpusQuery {
+  std::string scenario;
+  std::string query;
+  std::vector<std::pair<std::string, std::optional<std::string>>> indexes;  // label, property
+};
+
+std::vector<CorpusQuery> FeatureCorpus(std::filesystem::path const &path) {
+  std::ifstream in(path);
+  std::vector<CorpusQuery> corpus;
+  std::string scenario;
+  std::vector<std::pair<std::string, std::optional<std::string>>> indexes;
+  static std::regex const index_re{R"(with new index :(\w+)(?:\((\w+)\))?)"};
+  for (std::string line; std::getline(in, line);) {
+    std::smatch match;
+    if (auto pos = line.find("Scenario"); pos != std::string::npos && line.find(':', pos) != std::string::npos) {
+      scenario = line.substr(line.find(':', pos) + 2);
+      indexes.clear();
+    } else if (std::regex_search(line, match, index_re)) {
+      indexes.emplace_back(match[1], match[2].matched ? std::optional<std::string>{match[2]} : std::nullopt);
+    } else if (line.find("When executing query") != std::string::npos) {
+      std::getline(in, line);  // the opening """
+      std::string query;
+      while (std::getline(in, line) && line.find(R"(""")") == std::string::npos) query += line + "\n";
+      corpus.push_back({scenario, query, indexes});
+    }
+  }
+  return corpus;
+}
+
+std::filesystem::path FeaturePath() {
+  return std::filesystem::path{MG_SOURCE_DIR} / "tests/gql_behave/tests/memgraph_V1/features/write_visibility.feature";
+}
+
+// Ablations of write_visibility.feature queries that the feature itself does not run.
+constexpr std::string_view
+    kAblations
+        [] =
+            {
+                R"cypher(MATCH (a:WvP {name: 'A'}) WITH a, EXISTS { MATCH (b:WvP) WHERE b.flag = 1 } AS e SET a.flag = a.k RETURN e)cypher",
+                R"cypher(UNWIND [1, 2] AS i MATCH (a:WvS {id: i}) WITH a, COUNT { MATCH (b:WvS) WHERE b.x = 1 } AS c SET a.x = a.k RETURN collect(c) AS r)cypher",
+                R"cypher(MATCH (a:WvP {name: 'A'}) WITH a, COLLECT { MATCH (b:WvP) WHERE b.flag = 1 RETURN b.name } AS r SET a.flag = a.k RETURN r)cypher",
+                R"cypher(MATCH (a:WvS {id: 1}) WITH a, EXISTS { MATCH (a) WHERE a:WvT } AS r SET a:WvT RETURN r)cypher",
+                R"cypher(MATCH (a:WvP {name: 'A'}) WITH a, size([(b:WvP)-[:R]->() WHERE b.flag = 1 | b.name]) AS r SET a.flag = a.k RETURN r)cypher",
+                R"cypher(MATCH (a:WvS {id: 1}) WITH a, [n IN [a] WHERE n.x = 1 | n.id] AS r SET a.x = a.k RETURN r)cypher",
+                R"cypher(MATCH (a:WvS) WITH collect(a) AS ns, size([n IN collect(a) WHERE n.x = 1]) AS r UNWIND ns AS a SET a.x = a.k RETURN DISTINCT r)cypher",
+                R"cypher(MATCH (a:WvS) WITH count(*) AS n, COUNT { MATCH (b:WvS) WHERE b.x = 1 } AS r MATCH (a:WvS) SET a.x = a.k RETURN DISTINCT n, r)cypher",
+                R"cypher(CALL () { MATCH (x:WvX) RETURN count(x) AS c } CREATE (:WvX) RETURN c)cypher",
+                R"cypher(CALL { MATCH (x:WvX) RETURN count(x) AS c } CREATE (:WvX) RETURN c)cypher",
+                R"cypher(CALL () { MATCH (n:WvI) WITH count(n) AS rows CALL (*) { CREATE (:WvI {id: 1}) RETURN 1 AS x } RETURN rows } RETURN rows)cypher",
+                R"cypher(MATCH (n:WvI) WITH count(n) AS c CALL (*) { CREATE (:WvI {id: 1}) RETURN 1 AS x } RETURN c)cypher",
+                R"cypher(UNWIND [1, 2] AS i MATCH (b:WvB) WITH b, i, b.x AS x0 CALL (b, i, x0) { WITH b, i, x0 WHERE x0 = 0 SET b.x = i RETURN i AS r } RETURN collect(r) AS rs, collect(b.x) AS xs)cypher",
+                R"cypher(UNWIND [1, 2] AS i MATCH (b0:WvB) WITH i, b0.x AS x0 CALL (i, x0) { MATCH (b:WvB) WHERE x0 = 0 SET b.x = i RETURN i AS r } WITH collect(r) AS rs MATCH (b:WvB) RETURN rs, b.x AS x)cypher",
+                R"cypher(OPTIONAL MATCH (n:WvB) WITH count(n) AS c0 UNWIND [1, 2, 3] AS i CALL (i) { CREATE (:WvB) RETURN 1 AS one } RETURN collect(c0) AS cs)cypher",
+                R"cypher(UNWIND [0, 1] AS i MATCH (b:WvC) CALL (b, i) { WITH b, i WHERE b.z = i AND b.x = i RETURN 1 AS r } SET b.z = i, b.x = 1, b.c = b.c + 1 WITH count(*) AS n MATCH (y:WvC) WITH n, y ORDER BY y.c RETURN n, collect(y.c) AS cs)cypher",
+                R"cypher(UNWIND [0, 1] AS i MATCH (b:WvC) CALL (b, i) { WHEN b.z = i AND b.x = i THEN RETURN 1 AS r } SET b.z = i, b.x = 1, b.c = b.c + 1 WITH count(*) AS n MATCH (y:WvC) WITH n, y ORDER BY y.c RETURN n, collect(y.c) AS cs)cypher",
+                R"cypher(UNWIND [0, 1] AS i MATCH (b:WvT) SET b.x = 1, b.c = b.c + 1 WITH b, i CALL (b, i) { WHEN b.x = i THEN RETURN 1 AS r } WITH count(*) AS n MATCH (y:WvT) WITH n, y ORDER BY y.c RETURN n, collect(y.c) AS cs)cypher",
+                R"cypher(UNWIND [0, 1] AS i MATCH (b:WvT) SET b.x = 1, b.c = b.c + 1 WITH b, i WHERE b.x = i WITH count(*) AS n MATCH (y:WvT) WITH n, y ORDER BY y.c RETURN n, collect(y.c) AS cs)cypher",
+                R"cypher(UNWIND [0, 1] AS i MATCH (b:WvT) SET b.x = 1, b.c = b.c + 1 WITH b, i CALL (b, i) { WITH b, i WHERE b.x = i RETURN 1 AS r } WITH count(*) AS n MATCH (y:WvT) WITH n, y ORDER BY y.c RETURN n, collect(y.c) AS cs)cypher",
+                R"cypher(MATCH (n:WvA) WHERE n.p > 0 AND n.p < 15 CALL (n) { SET n.p = n.p + 10 WITH n MATCH (m:WvA) RETURN count(m) AS k } WITH count(*) AS c0 MATCH (n:WvA) WHERE n.p > 0 AND n.p < 15 CALL (n) { SET n.p = n.p + 10 WITH n MATCH (m:WvA) RETURN count(m) AS k } WITH count(*) AS c MATCH (x:WvA) WITH c0 + c AS c, x ORDER BY x.p RETURN c, collect(x.p) AS ps)cypher",
+                R"cypher(MERGE (:WvG {name: 'Eve'}) WITH 1 AS d UNWIND [1, 2] AS i MERGE (e:WvG) MERGE (:WvG {name: 'Eve'}) WITH count(*) AS n MATCH (g:WvG) RETURN n, count(g) AS g)cypher",
+                R"cypher(UNWIND [1, 2] AS i MERGE (m:WvK) CREATE (:WvK) WITH count(*) AS n MATCH (k:WvK) RETURN n, count(k) AS k)cypher",
+                R"cypher(MERGE (m:WvK) CREATE (:WvK) WITH count(*) AS n MATCH (k:WvK) RETURN n, count(k) AS k)cypher",
+                R"cypher(UNWIND [1, 1, 2] AS i CREATE (e:WvG {k: i}) WITH count(*) AS n MATCH (g:WvG) RETURN n, count(g) AS g)cypher",
+                R"cypher(UNWIND [1, 2, 3] AS i MATCH (a:WvF {id: 1}), (b:WvF {id: 2}) CREATE (a)-[q:R]->(b) WITH count(*) AS n MATCH (:WvF)-[r:R]->() RETURN n, count(r) AS r)cypher",
+                R"cypher(MATCH (a:WvJ) WITH a ORDER BY a.x LIMIT 1 SET a.x = a.x * a.m RETURN a.id AS id)cypher",
+                R"cypher(MATCH (a:WvJ) WITH a ORDER BY a.x LIMIT 1 SET a.x = a.x * a.m RETURN a.id AS id, a.x)cypher",
+                R"cypher(MATCH (a:WvJ) WITH a ORDER BY a.x LIMIT 1 SET a.x = a.x * a.m RETURN a.id AS id, a.x AS x)cypher",
+                R"cypher(UNWIND [1, 2] AS i MATCH (a:WvJ) SET a.x = i RETURN collect(i) AS r)cypher",
+                R"cypher(UNWIND [1, 2] AS i MATCH (a:WvJ) SET a.x = i RETURN i AS x, count(*) AS c ORDER BY x)cypher",
+                R"cypher(MATCH (n:WvK) RETURN count(n) AS x UNION CREATE (:WvK) RETURN 5 AS x)cypher",
+                R"cypher(MATCH (b:WvS) WHERE b.x = 1 RETURN count(b) AS x UNION ALL MATCH (a:WvS {id: 1}) SET a.x = a.k RETURN 0 AS x)cypher",
+                R"cypher(MATCH (:WvF)-[q:R]->() RETURN count(q) AS x UNION ALL MATCH (a:WvF {id: 1}), (b:WvF {id: 2}) CREATE (a)-[:R]->(b) RETURN 0 AS x)cypher",
+                R"cypher(MATCH (n:WvK) RETURN count(n) AS x UNION ALL MATCH (a:WvK {id: 1}) DELETE a RETURN 0 AS x)cypher",
+                R"cypher(MATCH (n:WvK) RETURN count(n) AS x UNION ALL CREATE (:WvK) RETURN 0 AS x UNION ALL CREATE (:WvK) RETURN 0 AS x)cypher",
+                R"cypher(MATCH (a:WvW {id: 1}), (b:WvW {id: 2}) WITH a, b, a.x AS ax0, b.x AS bx0 SET a.x = bx0, b.x = ax0 RETURN a.x AS ax, b.x AS bx)cypher",
+                R"cypher(MATCH (a:WvU) SET a.x = a.y SET a.y = a.x RETURN a.x AS x, a.y AS y)cypher",
+                R"cypher(MATCH (a:WvS) WITH a MATCH (b:WvT) SET a:WvT RETURN count(*) AS c)cypher",
+                R"cypher(UNWIND [1, 2] AS i MATCH (a:WvS {id: i}) WITH a, i MATCH (b:WvS) WHERE b.x = 1 SET a.x = a.k RETURN count(*) AS c)cypher",
+                R"cypher(MATCH (a:WvS {id: 1}) WITH a MATCH (b:WvS) REMOVE a:WvS RETURN count(*) AS c)cypher",
+                R"cypher(MATCH (a:WvS {id: 1}) WITH a MATCH (b:WvS) WHERE b.x IS NOT NULL REMOVE a.x RETURN count(*) AS c)cypher",
+                R"cypher(MATCH (a:WvK {id: 1}) WITH a MATCH (b:WvK) DELETE a RETURN count(*) AS c)cypher",
+                R"cypher(MATCH (a:WvK {id: 1}) WITH a OPTIONAL MATCH (b:WvK {id: 1}) DELETE a RETURN count(b) AS c)cypher",
+                R"cypher(MATCH (a:WvE {id: 1}) WITH a MATCH (x:WvE)-[r]-() DETACH DELETE a RETURN count(r) AS c)cypher",
+                R"cypher(MATCH (:WvE {id: 1})-[r:R]->() WITH r MATCH (x:WvE {id: 2})-[q]-() DELETE r RETURN count(q) AS c)cypher",
+                R"cypher(UNWIND [1, 2] AS i MATCH (a:WvF {id: 1}), (b:WvF {id: 2}) WITH a, b OPTIONAL MATCH (a)-[q:R]->() CREATE (a)-[:R]->(b) RETURN count(q) AS c)cypher",
+                R"cypher(MATCH (a:WvS) WITH a MATCH (b:WvS) WHERE b.x = 1 FOREACH (k IN [a.k] | SET a.x = k) RETURN count(*) AS c)cypher",
+                R"cypher(UNWIND [1, 2] AS i OPTIONAL MATCH (n:WvK) FOREACH (k IN [1] | CREATE (:WvK)) RETURN count(n) AS c)cypher",
+                R"cypher(MATCH (a:WvH) FOREACH (k IN [a.s] | SET a.x = a.x + k) RETURN a.x AS x)cypher",
+                R"cypher(MATCH (a:WvL) WITH a MATCH (b:WvL) WHERE b.p = 5 SET a.p = a.k RETURN count(*) AS c)cypher",
+                R"cypher(MATCH (a:WvL {id: 1}) WITH a MATCH (b:WvL) WHERE b.p = 1 SET a.p = a.k RETURN count(*) AS c)cypher",
+                R"cypher(MATCH (a:WvK) MATCH (b:WvK) CREATE (:WvK) WITH count(*) AS n MATCH (k:WvK) RETURN n, count(k) AS k)cypher",
+                R"cypher(CREATE (a:WvV {id: 1})-[:R]->(:WvV {id: 2}) RETURN [(a)-[*2..]->(x) | x.id] AS r)cypher",
+                R"cypher(CREATE (a:WvV {id: 1})-[:R]->(:WvV {id: 2}) RETURN COUNT { (a)-[*2..]->(x) } AS r)cypher",
+                R"cypher(CREATE (a:WvV {id: 1})-[:R]->(:WvV {id: 2}) CALL (a) { MATCH (a)-[*2..]->(x) RETURN x.id AS xid } RETURN xid)cypher",
+                R"cypher(CREATE (a:WvV {id: 1})-[:R]->(:WvV {id: 2}) WITH a MATCH (a)-[*2..]->(x) RETURN x.id AS xid)cypher",
+                R"cypher(MATCH (a:WvQ) WITH * WHERE a.x = 5 SET a.x = a.k WITH count(*) AS c MATCH (q:WvQ) WITH c, q ORDER BY q.x RETURN c, collect(q.x) AS xs)cypher",
+                R"cypher(MATCH (a:WvQ) WITH a WHERE a.x = 5 SET a.x = a.k WITH count(*) AS c MATCH (q:WvQ) WITH c, q ORDER BY q.x RETURN c, collect(q.x) AS xs)cypher",
+                R"cypher(MATCH (a:WvQ) CALL db.labels() YIELD label WHERE a.x = 5 AND label = 'WvQ' SET a.x = a.k WITH count(*) AS c MATCH (q:WvQ) WITH c, q ORDER BY q.x RETURN c, collect(q.x) AS xs)cypher",
+                R"cypher(MATCH ()-[r:WvE]->() SET r.w = r.k WITH * WHERE r.w = 5 WITH count(*) AS c MATCH ()-[q:WvE]->() RETURN c, collect(q.w) AS ws)cypher",
+                R"cypher(MATCH ()-[r:WvE]->() WITH * WHERE r.w = 5 SET r.w = r.k WITH count(*) AS c MATCH ()-[q:WvE]->() RETURN c, collect(q.w) AS ws)cypher",
+                R"cypher(MATCH (a:WvR), (b:WvR) WHERE a.id <> b.id SET a.x = a.t WITH a, b, b.x AS v WITH a, v ORDER BY a.id RETURN collect(v) AS vs, collect(a.x) AS xs)cypher",
+                R"cypher(MATCH (a:WvR), (b:WvR) WHERE a.id <> b.id SET a.x = a.t SET a.y = b.x WITH a ORDER BY a.id RETURN collect(a.y) AS ys, collect(a.x) AS xs)cypher",
+                R"cypher(MATCH (a:WvR), (b:WvR) WHERE a.id <> b.id SET a.x = a.t CREATE (:WvR2 {v: b.x, id: a.id}) WITH count(*) AS n MATCH (c:WvR2) WITH c ORDER BY c.id RETURN collect(c.v) AS vs)cypher",
+                R"cypher(MATCH (a:WvY), (b:WvZ) SET b.x = b.z SET a.y = b.x WITH a ORDER BY a.id RETURN collect(a.y) AS ys)cypher",
+                R"cypher(MATCH (a:WvP {name: 'A'}) SET a.n = size([(b:WvP)-[:R]->() WHERE b.flag = 1 | b.name]) SET a.flag = a.k RETURN a.n AS n)cypher",
+                R"cypher(MATCH (a:WvP {name: 'A'}) CREATE (m:WvM {c: size([(b:WvP)-[:R]->() WHERE b.flag = 1 | 1])}) SET a.flag = a.k WITH count(*) AS n MATCH (m:WvM) RETURN n, collect(m.c) AS cs)cypher",
+                R"cypher(MATCH (a:WvP {name: 'A'}) FOREACH (v IN [(b:WvP)-[:R]->() WHERE b.flag = 1 | b.name] | CREATE (:WvM {v: v})) SET a.flag = a.k WITH count(*) AS n OPTIONAL MATCH (m:WvM) RETURN n, collect(m.v) AS vs)cypher",
+                R"cypher(MATCH (a:WvP {name: 'A'}) CALL (a) { RETURN size([(b:WvP)-[:R]->() WHERE b.flag = 1 | 1]) AS c } SET a.flag = a.k RETURN c)cypher",
+                R"cypher(MATCH (a:WvS), (b:WvS) WHERE a.id <> b.id MERGE (m:WvM {id: a.id, v: b.x}) SET a.x = a.k WITH count(*) AS n MATCH (m:WvM) WITH n, m ORDER BY m.id RETURN n, collect(m.v) AS vs)cypher",
+                R"cypher(MATCH (a:WvS), (b:WvS) WHERE a.id <> b.id CREATE (m:WvM {id: a.id, v: b.x}) SET a.x = a.k WITH count(*) AS n MATCH (m:WvM) WITH n, m ORDER BY m.id RETURN n, collect(m.v) AS vs)cypher",
+                R"cypher(MATCH (a:WvS), (b:WvS) WHERE a.id <> b.id FOREACH (v IN [b.x] | CREATE (:WvM {id: a.id, v: v})) SET a.x = a.k WITH count(*) AS n MATCH (m:WvM) WITH n, m ORDER BY m.id RETURN n, collect(m.v) AS vs)cypher",
+                R"cypher(MATCH (a:WvS), (b:WvS) WHERE a.id <> b.id SET a.v = b.x SET a.x = a.k WITH a ORDER BY a.id RETURN collect(a.v) AS vs)cypher",
+                R"cypher(MATCH (a:WvS), (b:WvS) WHERE a.id <> b.id CALL (a, b) { RETURN b.x AS v } SET a.x = a.k WITH a, v ORDER BY a.id RETURN collect(v) AS vs)cypher",
+                R"cypher(CALL () { MATCH (n:WvK) RETURN count(n) AS x UNION ALL CREATE (:WvK) RETURN 1 AS x } RETURN collect(x) AS xs)cypher",
+                R"cypher(MATCH (a:WvS {id: 1}) CALL () { MATCH (b:WvS) WHERE b.x = 1 RETURN count(b) AS c1 } CALL () { MATCH (b:WvS) WHERE b.y = 1 RETURN count(b) AS c2 } SET a.x = a.k, a.y = c1 RETURN c1, c2)cypher",
+                R"cypher(MATCH (a:WvS {id: 1}) WITH a, COUNT { MATCH (b:WvS) WHERE b[$k] = 1 } AS r SET a.x = a.k RETURN r)cypher",
+                R"cypher(MATCH (a:WvS {id: 1}) WITH a, COUNT { MATCH (b:WvS) WHERE b.x = 1 } AS r SET a += $m RETURN r)cypher",
+                R"cypher(MATCH (a:WvS {id: 1}) WITH a, COUNT { MATCH (b:WvS) WHERE b.x = 1 } AS r SET a = $m RETURN r)cypher",
+                R"cypher(MATCH (a:WvS {id: 1}) WITH a, EXISTS { MATCH (b:WvT) } AS r SET a:$($l) RETURN r)cypher",
+                R"cypher(MATCH (a:WvS {id: 1}) WITH a, COUNT { MATCH (b:WvS) WHERE properties(b).x = 1 } AS r SET a.x = a.k RETURN r)cypher",
+                R"cypher(MATCH (s:WvV {id: 1}) CALL (s) { MATCH p = ANY SHORTEST (s)-[*]->(x) RETURN count(x) AS c } CREATE (s)-[:R]->(:WvV {id: 3}) RETURN c)cypher",
+                R"cypher(MATCH (s:WvV {id: 1}) WITH s, COUNT { MATCH p = ANY SHORTEST (s)-[*]->(x) } AS c CREATE (s)-[:R]->(:WvV {id: 3}) RETURN c)cypher",
+                R"cypher(MATCH (s:WvV {id: 1}) CALL (s) { MATCH p = ANY SHORTEST (s)-[*]->(x) RETURN count(x) AS c } CREATE (s)-[:R {w: 1}]->(:WvV {id: 3}) RETURN c)cypher",
+                R"cypher(MATCH (s:WvV {id: 1}), (t:WvV {id: 3}) CALL (s, t) { MATCH p = SHORTEST 5 (s)-[*]->(t) RETURN collect(length(p)) AS ls } CREATE (s)-[:R]->(t) RETURN ls)cypher",
+                R"cypher(MATCH (s:WvV {id: 1}), (t:WvV {id: 3}) CALL (s, t) { MATCH p = ALL SHORTEST (s)-[*]->(t) RETURN collect(length(p)) AS ls } CREATE (s)-[:R {w: 1}]->(t) RETURN ls)cypher",
+                R"cypher(UNWIND [{a: 1, b: 2}, {a: 2, b: 3}, {a: 1, b: 3}, {a: 3, b: 1}] AS r CREATE (a:WvL {id: r.a}) MERGE (b:WvL {id: r.b}) MERGE (a)-[:R]->(b) WITH count(*) AS n MATCH (x:WvL) WITH n, count(x) AS nodes MATCH (:WvL)-[e:R]->() RETURN n, nodes, count(e) AS edges)cypher",
+                R"cypher(UNWIND [{a: 1, b: 2}, {a: 2, b: 3}, {a: 1, b: 3}, {a: 3, b: 1}] AS r CREATE (a:WvL1 {id: r.a}) MERGE (b:WvL2 {id: r.b}) MERGE (a)-[:R]->(b) WITH count(*) AS n MATCH (x) WHERE x:WvL1 OR x:WvL2 WITH n, count(x) AS nodes MATCH ()-[e:R]->() RETURN n, nodes, count(e) AS edges)cypher",
+                R"cypher(UNWIND [1, 2] AS i CALL (i) { MATCH (n:WvU) WITH n, i, n.l AS old SET n.l = [i, i] WITH old UNWIND coalesce(old, [0]) AS v RETURN collect(v) AS vs } RETURN collect(vs) AS r)cypher",
+                R"cypher(UNWIND [1, 2] AS i CALL (i) { MATCH (a:WvV {id: 1}) OPTIONAL MATCH (a)-[*]->(x) WITH a, count(x) AS c CREATE (a)-[:R]->(:WvV {id: 2}) RETURN c } RETURN collect(c) AS cs)cypher",
+                R"cypher(UNWIND [0, 1] AS i MATCH (b:WvT) SET b.x = 1, b.c = b.c + 1 WITH b, i CALL (b, i) { CALL (b, i) { WITH b, i WHERE b.x = i RETURN 1 AS r } RETURN r } WITH count(*) AS n MATCH (y:WvT) WITH n, y ORDER BY y.c RETURN n, collect(y.c) AS cs)cypher",
+                R"cypher(MATCH (n:WvA4) CALL (n) { SET n.x = 1 WITH n MATCH (n)-[*2..]->(m) RETURN count(m) AS c } RETURN c)cypher",
+                R"cypher(MATCH (n:WvA4) CALL (n) { OPTIONAL MATCH (n)-[*]->(m) WITH n, count(m) AS c CREATE (n)-[:R]->(k:WvM4) RETURN c } RETURN c)cypher",
+                R"cypher(MATCH (n:WvA4) CALL (n) { CREATE (n)-[:R]->(a:WvQ4)-[:R]->(:WvQ4) WITH a RETURN [(a)-[*2..]->(x) | 1] AS r } RETURN r)cypher",
 };
 
 // ---------------------------------------------------------------- reads the collector must not miss
@@ -1674,8 +1605,10 @@ TEST_F(WriteVisibilityPlan, OneSetDecidesItsBarrierFromAllItsItems) {
 
 // The new write facts agree with the coarse ones the planner and the interpreter use today.
 TEST_F(WriteVisibilityPlan, WritesAgreeWithRwCheckerAndQueryParts) {
+  std::vector<std::string> queries(std::begin(kAblations), std::end(kAblations));
+  for (auto const &item : FeatureCorpus(FeaturePath())) queries.push_back(item.query);
   int checked = 0;
-  for (auto query_string : kCaseQueries) {
+  for (std::string_view query_string : queries) {
     // A procedure needs the module registry, and a label parameter a value at parse time; this test has neither.
     if (query_string.find("CALL mg.") != std::string_view::npos ||
         query_string.find("CALL db.") != std::string_view::npos || query_string.find(":$") != std::string_view::npos) {
@@ -2613,39 +2546,6 @@ struct PlannedQuery {
     return nullptr;
   }
 };
-
-struct CorpusQuery {
-  std::string scenario;
-  std::string query;
-  std::vector<std::pair<std::string, std::optional<std::string>>> indexes;  // label, property
-};
-
-std::vector<CorpusQuery> FeatureCorpus(std::filesystem::path const &path) {
-  std::ifstream in(path);
-  std::vector<CorpusQuery> corpus;
-  std::string scenario;
-  std::vector<std::pair<std::string, std::optional<std::string>>> indexes;
-  static std::regex const index_re{R"(with new index :(\w+)(?:\((\w+)\))?)"};
-  for (std::string line; std::getline(in, line);) {
-    std::smatch match;
-    if (auto pos = line.find("Scenario"); pos != std::string::npos && line.find(':', pos) != std::string::npos) {
-      scenario = line.substr(line.find(':', pos) + 2);
-      indexes.clear();
-    } else if (std::regex_search(line, match, index_re)) {
-      indexes.emplace_back(match[1], match[2].matched ? std::optional<std::string>{match[2]} : std::nullopt);
-    } else if (line.find("When executing query") != std::string::npos) {
-      std::getline(in, line);  // the opening """
-      std::string query;
-      while (std::getline(in, line) && line.find(R"(""")") == std::string::npos) query += line + "\n";
-      corpus.push_back({scenario, query, indexes});
-    }
-  }
-  return corpus;
-}
-
-std::filesystem::path FeaturePath() {
-  return std::filesystem::path{MG_SOURCE_DIR} / "tests/gql_behave/tests/memgraph_V1/features/write_visibility.feature";
-}
 
 /// The queries of write_visibility.feature, planned with and without their scenario's indexes, plus the shapes
 /// the feature does not cover. Every view of every plan must follow the rule.
