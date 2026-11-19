@@ -567,7 +567,7 @@ PrometheusMetrics::PrometheusMetrics()
       versioning_active_branches_family_{prometheus::BuildGauge()
                                              .Name("memgraph_versioning_active_branches")
                                              .Help("Current number of live and unavailable branches of loaded "
-                                                   "databases; hidden branches are not counted")
+                                                   "databases")
                                              .Register(registry_)},
       versioning_active_sessions_family_{prometheus::BuildGauge()
                                              .Name("memgraph_versioning_active_sessions")

@@ -24,8 +24,6 @@ namespace memgraph::versioning {
 // '@' is rejected as the <database>@<branch> separator.
 std::expected<void, std::string> ValidateBranchName(std::string_view name);
 
-enum class GidKind : uint8_t { kVertex, kEdge };
-
 struct BranchInfo {
   // Never reused, even across drops. 1 is main (implicit, never stored), so the first branch is 2.
   uint64_t id;
@@ -35,24 +33,11 @@ struct BranchInfo {
   // replay recommits main's tail at fresh MVCC timestamps, so the rebuilt history's pin differs. Defaults to fork_ts
   // so an omitted initializer cannot persist 0.
   uint64_t durable_fork_ts{fork_ts};
-  // Unset until the branch's core is first built.
-  std::optional<uint64_t> vertex_gid_floor;
-  std::optional<uint64_t> edge_gid_floor;
-  // Every native gid the branch has taken is below these, and they are durable before the gid is used. Absent (the
-  // floor stands in) until the branch takes its first native gid.
-  std::optional<uint64_t> vertex_gid_ceiling;
-  std::optional<uint64_t> edge_gid_ceiling;
+  // Main's id counters read right after the fork pin; every gid visible at the fork is below them.
+  uint64_t vertex_gid_floor{0};
+  uint64_t edge_gid_floor{0};
   // Wall-clock creation time, microseconds since the Unix epoch.
   std::optional<uint64_t> created_at_us;
 };
-
-// The gid at or above which the ledger knows no object of the branch: its ceiling, or its floor while it has taken no
-// native gid, or 0 while its floors are unset.
-inline uint64_t GidsHeldBelow(const BranchInfo &info, GidKind kind) {
-  const auto &floor = kind == GidKind::kVertex ? info.vertex_gid_floor : info.edge_gid_floor;
-  const auto &ceiling = kind == GidKind::kVertex ? info.vertex_gid_ceiling : info.edge_gid_ceiling;
-  // Validate rejects a ceiling below the floor, so the ceiling, when set, is the larger.
-  return ceiling.value_or(floor.value_or(0));
-}
 
 }  // namespace memgraph::versioning
