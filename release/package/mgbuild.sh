@@ -2278,7 +2278,7 @@ test_memgraph() {
 
       docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --installation-type native $MGBENCH_CACHE_ARG --num-workers-for-benchmark 1 --export-results $EXPORT_RESULTS_FILE $NO_AUTHORIZATION supernode"
     ;;
-    mgbench-hub-edge-deletion)
+    mgbench-hub-edge-rewrite)
       shift 1
       local EXPORT_RESULTS_FILE="$default_benchmark_result_file"
       local NO_AUTHORIZATION=""
@@ -2293,14 +2293,14 @@ test_memgraph() {
             shift 1
           ;;
           *)
-            echo "Error: Unknown flag '$1' for mgbench-hub-edge-deletion" >&2
+            echo "Error: Unknown flag '$1' for mgbench-hub-edge-rewrite" >&2
             echo "Supported flags: --export-results-file, --no-authorization" >&2
             exit 1
           ;;
         esac
       done
 
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --installation-type native $MGBENCH_CACHE_ARG --num-workers-for-benchmark 1 --export-results $EXPORT_RESULTS_FILE $NO_AUTHORIZATION hub_edge_deletion"
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --installation-type native $MGBENCH_CACHE_ARG --num-workers-for-benchmark 1 --export-results $EXPORT_RESULTS_FILE $NO_AUTHORIZATION hub_edge_rewrite"
     ;;
     mgbench-load-parquet)
       shift 1

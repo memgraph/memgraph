@@ -12,24 +12,20 @@
 import random
 
 from constants import GraphVendors
-from workloads.base import Workload, fixed_executions
+from workloads.base import Workload
 
 
-class HubEdgeDeletion(Workload):
+class HubEdgeRewrite(Workload):
     """
-    Users each linked to every one of a few hubs, so every hub has an in-degree of USERS. Deleting a user's edges
-    removes one edge from each hub's adjacency, which is the shape of a workload that rewrites per-user interest
-    edges pointing into shared hub vertices.
+    Users each linked to every one of a few hubs, so every hub has an in-degree of USERS. Rewriting a user's edges
+    removes one edge from each hub's adjacency and appends a new one, which is the shape of a workload that rewrites
+    per-user interest edges pointing into shared hub vertices. The dataset keeps its size, so the query can repeat.
     """
 
-    NAME = "hub_edge_deletion"
+    NAME = "hub_edge_rewrite"
     HUBS = 25
     USERS = 200_000
     USERS_PER_IMPORT_QUERY = 2_000
-
-    def __init__(self, variant: str = None, benchmark_context=None):
-        super().__init__(variant, benchmark_context=benchmark_context)
-        self._users_left = None
 
     def indexes_generator(self):
         # The hubs are created here rather than in the dataset: the dataset is imported on several workers, so a
@@ -37,13 +33,13 @@ class HubEdgeDeletion(Workload):
         return [
             ("CREATE INDEX ON :User(id);", {}),
             ("CREATE INDEX ON :Hub(id);", {}),
-            ("UNWIND range(1, $hubs) AS id CREATE (:Hub {id: id});", {"hubs": HubEdgeDeletion.HUBS}),
+            ("UNWIND range(1, $hubs) AS id CREATE (:Hub {id: id});", {"hubs": HubEdgeRewrite.HUBS}),
         ]
 
     def dataset_generator(self):
         queries = []
-        for first in range(1, HubEdgeDeletion.USERS + 1, HubEdgeDeletion.USERS_PER_IMPORT_QUERY):
-            last = min(first + HubEdgeDeletion.USERS_PER_IMPORT_QUERY - 1, HubEdgeDeletion.USERS)
+        for first in range(1, HubEdgeRewrite.USERS + 1, HubEdgeRewrite.USERS_PER_IMPORT_QUERY):
+            last = min(first + HubEdgeRewrite.USERS_PER_IMPORT_QUERY - 1, HubEdgeRewrite.USERS)
             queries.append(
                 (
                     "UNWIND range($first, $last) AS id CREATE (u:User {id: id}) "
@@ -53,23 +49,17 @@ class HubEdgeDeletion(Workload):
             )
         return queries
 
-    def reset_generators(self) -> None:
-        self._users_left = None
+    @staticmethod
+    def _get_random_user():
+        return random.randint(1, HubEdgeRewrite.USERS)
 
-    def _take_random_user(self):
-        # Users are drawn without replacement across a batch, so every query deletes edges that still exist.
-        if self._users_left is None:
-            self._users_left = list(range(1, HubEdgeDeletion.USERS + 1))
-            random.shuffle(self._users_left)
-        return self._users_left.pop()
-
-    @fixed_executions(1000)
-    def benchmark__delete__user_hub_edges(self):
+    def benchmark__rewrite__user_hub_edges(self):
         match self._vendor:
             case GraphVendors.MEMGRAPH:
                 return (
-                    "MATCH (:User {id: $id})-[r:LINKED_TO]->(:Hub) DELETE r;",
-                    {"id": self._take_random_user()},
+                    "MATCH (u:User {id: $id})-[r:LINKED_TO]->(:Hub) DELETE r "
+                    "WITH DISTINCT u MATCH (h:Hub) CREATE (u)-[:LINKED_TO]->(h);",
+                    {"id": self._get_random_user()},
                 )
             case _:
                 raise Exception(f"Unknown vendor {self._vendor}")
