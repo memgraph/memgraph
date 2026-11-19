@@ -1555,6 +1555,12 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
                   .reads.access_check);
         }
         node_reads.access_check.Note(node);
+        // A label the pattern gives the node, it already has: a write of it through the node changes nothing.
+        if (writes.relabel.One() == node) {
+          for (auto const &label : expansion.node1->LabelConjunction().value_or(std::vector<QueryLabelType>{})) {
+            if (auto const *ix = std::get_if<LabelIx>(&label)) node_reads.labels.erase(ix->name);
+          }
+        }
         if (ConflictsOnlyOnKeysOf(node_reads, writes) == node) return on_match;
       } else if (expansion.direction != EdgeAtom::Direction::BOTH &&
                  ConflictsOnlyOnKeysOf(reads, writes) == symbol_table.at(*expansion.edge->identifier_)) {
