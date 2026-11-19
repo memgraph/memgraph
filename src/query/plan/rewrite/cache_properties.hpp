@@ -128,18 +128,17 @@ class PropertyLookupCacher final : public ExpressionVisitor<void> {
     std::vector<SymbolSlots> by_symbol_;
   };
 
-  /// What a symbol's lookups must show before a pass of its own pays for itself. What separates the
-  /// two is where the value the pass read is going: into a frame slot the operator was going to
-  /// write anyway, or into something else.
-  enum class Threshold : uint8_t {
-    /// Anything the pass would save, which is either a second property to read alongside the first
-    /// or a second lookup of one property. What a projection asks for, because the slot holds the
-    /// value its row returns and so costs the projection nothing.
-    kAnythingToSave,
-    /// A read the pass removes, which only a property named by more than one lookup gives it. What
-    /// an aggregation asks for: it compares a value and discards it, so each slot is cost it would
-    /// not otherwise pay, and batching reads it was going to make once each buys nothing.
-    kAReadToRemove,
+  /// What an operator does with a value its lookups read, which decides what a pass of its own has
+  /// to save before it pays for itself.
+  enum class ValueUse : uint8_t {
+    /// A projection returns the value, so it was going to put it in a frame slot either way. Any
+    /// saving then pays: a second property to read alongside the first, or a second lookup of one
+    /// property.
+    kKept,
+    /// An aggregation compares the value and keeps none of it, so a slot is a write it would not
+    /// otherwise make. Only a read the pass removes pays for that write, and only a property more
+    /// than one lookup names gives it one.
+    kDiscarded,
   };
 
   /// A property gathered for a symbol, with how many lookups named it. A pass reads it once
@@ -167,21 +166,20 @@ class PropertyLookupCacher final : public ExpressionVisitor<void> {
     }
 
     /// The properties worth reading in one pass, and nothing when none of them are.
-    [[nodiscard]] auto PropertiesWorthOnePass(Threshold threshold) const -> std::optional<Gathered> {
+    [[nodiscard]] auto PropertiesWorthOnePass(ValueUse value_use) const -> std::optional<Gathered> {
       auto const removes_a_read = std::ranges::any_of(properties, [](auto const &p) { return p.lookups > 1; });
-      auto const pays =
-          threshold == Threshold::kAReadToRemove ? removes_a_read : removes_a_read || properties.size() >= 2;
+      auto const pays = value_use == ValueUse::kDiscarded ? removes_a_read : removes_a_read || properties.size() >= 2;
       if (!pays) return std::nullopt;
       return *this;
     }
   };
 
-  /// The symbols worth a pass of their own, by the standard the reading operator sets. A symbol
-  /// whose lookups fall short is left out and keeps reading as it did.
-  [[nodiscard]] auto SymbolsWorthOnePass(Threshold threshold) const -> std::vector<Gathered> {
+  /// The symbols worth a pass of their own, by what the operator does with the values. A symbol
+  /// whose lookups save it too little is left out and keeps reading as it did.
+  [[nodiscard]] auto SymbolsWorthOnePass(ValueUse value_use) const -> std::vector<Gathered> {
     auto worthwhile = std::vector<Gathered>{};
     for (auto const &gathered : gathered_) {
-      if (auto properties = gathered.PropertiesWorthOnePass(threshold)) worthwhile.push_back(*std::move(properties));
+      if (auto properties = gathered.PropertiesWorthOnePass(value_use)) worthwhile.push_back(*std::move(properties));
     }
     return worthwhile;
   }
@@ -384,7 +382,7 @@ class CachePropertiesRewriter final : public HierarchicalLogicalOperatorVisitor 
     CacheBelow(
         op,
         [&op] { return std::vector<Tree const *>{op.named_expressions_.begin(), op.named_expressions_.end()}; },
-        PropertyLookupCacher::Threshold::kAnythingToSave,
+        PropertyLookupCacher::ValueUse::kKept,
         [&op](auto &&each) {
           for (auto *&named_expression : op.named_expressions_) each(named_expression);
         });
@@ -400,7 +398,7 @@ class CachePropertiesRewriter final : public HierarchicalLogicalOperatorVisitor 
     CacheBelow(
         op,
         [&owned] { return PoolKeyOf(owned); },
-        PropertyLookupCacher::Threshold::kAReadToRemove,
+        PropertyLookupCacher::ValueUse::kDiscarded,
         [&owned](auto &&each) {
           for (auto *expression : owned) each(*expression);
         });
@@ -408,13 +406,14 @@ class CachePropertiesRewriter final : public HierarchicalLogicalOperatorVisitor 
   }
 
  private:
-  /// Puts a one-pass read below `op` for each symbol whose lookups clear `threshold`.
+  /// Puts a one-pass read below `op` for each symbol whose lookups save it enough, which is what
+  /// `value_use` decides.
   ///
   /// `for_each_expression` reaches each expression the operator evaluates for every row, which a
   /// projection and an aggregation name differently. `pool_key` is asked only once a pass is going
   /// to be put there, since every operator reaching here would otherwise build one to discard.
   template <class TPoolKey, class TForEachExpression>
-  void CacheBelow(LogicalOperator &op, TPoolKey pool_key, PropertyLookupCacher::Threshold threshold,
+  void CacheBelow(LogicalOperator &op, TPoolKey pool_key, PropertyLookupCacher::ValueUse value_use,
                   TForEachExpression for_each_expression) {
     auto input = op.input();
     if (!input) return;
@@ -424,7 +423,7 @@ class CachePropertiesRewriter final : public HierarchicalLogicalOperatorVisitor 
 
     // Before a slot is taken or the input is walked, because most operators read nothing worth a
     // pass and should pay only for the gathering that says so.
-    auto const worthwhile = cacher.SymbolsWorthOnePass(threshold);
+    auto const worthwhile = cacher.SymbolsWorthOnePass(value_use);
     if (worthwhile.empty()) return;
 
     auto pool = slots_->PoolFor(pool_key());
