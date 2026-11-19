@@ -411,6 +411,12 @@ def test_query_duration_histogram_has_observations(memgraph):
     assert get_metric_value(memgraph, "QueryDurationSuccess_us_50p") > 0
 
 
+def test_query_duration_failure_observed_on_parse_error(memgraph):
+    with pytest.raises(Exception):
+        memgraph.execute("METCH (n) RETURN n")
+    assert get_metric_value(memgraph, "QueryDurationFailure_us_50p") > 0
+
+
 def test_session_metrics_reflect_active_connection(memgraph):
     assert get_metric_value(memgraph, "ActiveSessions") >= 1
     assert get_metric_value(memgraph, "ActiveBoltSessions") >= 1
