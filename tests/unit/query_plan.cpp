@@ -9530,8 +9530,6 @@ TYPED_TEST(TestPlanner, CachePropertiesAProjectionPassesOverWhatASlotAlreadyHold
       << "the lookup a slot below holds still reads the record";
 }
 
-// An aggregation keeps no value, so one lookup never earns it a pass. It still reads the slot the
-// filter's pass filled rather than the record.
 TYPED_TEST(TestPlanner, CachePropertiesAnAggregationReadsASlotAFilterAlreadyFilled) {
   CachePropertiesFlagGuard guard{true};
   FakeDbAccessor dba;
@@ -9560,8 +9558,7 @@ TYPED_TEST(TestPlanner, CachePropertiesAnAggregationReadsASlotAFilterAlreadyFill
       << "the aggregation still reads the record";
 }
 
-// One lookup never earns a pass of its own, so the saving here is the read it does not make: the
-// projection returns the slot the filter's pass filled rather than asking the record again.
+// Nothing in the plan's shape shows this saving, so what the projection reads is the assertion.
 TYPED_TEST(TestPlanner, CachePropertiesAProjectionReturnsASlotWithoutAPassOfItsOwn) {
   CachePropertiesFlagGuard guard{true};
   FakeDbAccessor dba;
