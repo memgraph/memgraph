@@ -532,6 +532,13 @@ void EncodeDelta(BaseEncoder *encoder, Storage *storage, SalientConfig::Items it
 void EncodeDelta(BaseEncoder *encoder, Storage *storage, const Delta &delta, Edge *edge, uint64_t timestamp,
                  Gid in_vertex_gid, EdgeTypeId edge_type_id);
 
+#ifdef MG_ENTERPRISE
+/// Encodes a branch's deletion of a base edge as an edge delete: the edge overlay's delete mark is the branch's only
+/// write, so the endpoints and type come from the caller.
+void EncodeBaseEdgeDelete(BaseEncoder *encoder, Storage *storage, Gid edge_gid, Gid from_gid, Gid to_gid,
+                          EdgeTypeId edge_type_id, uint64_t timestamp);
+#endif
+
 struct WalTxnDataPos {
   uint64_t commit_flag_wal_position_{0};  // position of the commit flag inside the transaction-start frame
   uint64_t crc_wal_pos_{0};               // position of the stored CRC value inside the transaction-end frame

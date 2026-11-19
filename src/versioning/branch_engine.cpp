@@ -62,7 +62,8 @@ void MirrorMainEnumsIntoDiffEngine(storage::InMemoryStorage &diff_engine, const 
             "BranchCore::Build: failed to obtain a database protector for the freshly-built diff "
             "engine while mirroring main's enum definitions -- should be impossible (a null "
             "database_protector_factory_ always resolves to a non-null DefaultDatabaseProtector, storage.cpp).");
-  auto commit_res = unique_acc->PrepareForCommitPhase(storage::CommitArgs::make_main(std::move(protector)));
+  auto commit_res =
+      unique_acc->PrepareForCommitPhase(storage::CommitArgs::make_main(std::move(protector)).without_wal());
   MG_ASSERT(commit_res.has_value(), "BranchCore::Build: enum-definition mirror commit failed.");
 }
 
@@ -104,8 +105,8 @@ storage::Config DiffEngineConfig(const storage::Config &main_config, storage::St
   config.experimental_commit_lock_narrowing = false;
   // config.gc stays main's: the diff engine needs its own GC or committed branch deltas are never freed while another
   // transaction is active.
-  // The diff engine is never durable: no WAL, snapshot or recovery (a recovery failure would Clear() the shared
-  // mapper).
+  // No snapshot or recovery (a recovery failure would Clear() the shared mapper), and no WAL unless Build makes it a
+  // durable branch.
   config.durability.snapshot_wal_mode = storage::Config::Durability::SnapshotWalMode::DISABLED;
   config.durability.snapshot_interval = utils::SchedulerInterval{};
   config.durability.recover_on_startup = false;
@@ -117,9 +118,8 @@ storage::Config DiffEngineConfig(const storage::Config &main_config, storage::St
   return config;
 }
 
-std::expected<std::shared_ptr<BranchCore>, BranchCore::BuildError> BranchCore::Build(storage::InMemoryStorage &main,
-                                                                                     const ForkPoint &fork,
-                                                                                     uint64_t fork_ts) {
+std::expected<std::shared_ptr<BranchCore>, BranchCore::BuildError> BranchCore::Build(
+    storage::InMemoryStorage &main, const ForkPoint &fork, uint64_t fork_ts, std::optional<uint64_t> branch_number) {
   const memory::DbArenaScope db_arena_scope{main.DbArenaPool()};
 
   // Pinned first so an unpinned fork fails before the diff engine is built; the accessor's shared hold also keeps
@@ -131,7 +131,16 @@ std::expected<std::shared_ptr<BranchCore>, BranchCore::BuildError> BranchCore::B
   }
   std::unique_ptr<storage::Storage::Accessor> historical = std::move(*hist_exp);
 
-  const storage::Config config = DiffEngineConfig(main.config_, main.GetStorageMode());
+  storage::Config config = DiffEngineConfig(main.config_, main.GetStorageMode());
+  // A durable branch keeps its WAL in its own directory; DiffEngineConfig's snapshot interval stays empty because no
+  // thread snapshots a branch, whose WAL is all its durable state.
+  if (branch_number.has_value() && main.config_.durability.snapshot_wal_mode ==
+                                       storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL) {
+    config.durability.snapshot_wal_mode = storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL;
+    config.durability.storage_directory =
+        main.config_.durability.storage_directory / "branches" / std::to_string(*branch_number);
+    config.durability.root_data_directory = config.durability.storage_directory;
+  }
   // Only the unreleased-delta gauge is shared, so branch memory shows up under the tenant.
   metrics::DatabaseMetricHandles metric_handles{};
   metric_handles.unreleased_delta_objects = main.metric_handles_.unreleased_delta_objects;
@@ -148,7 +157,8 @@ std::expected<std::shared_ptr<BranchCore>, BranchCore::BuildError> BranchCore::B
       storage::RetainedGidFloors{.vertex = fork.vertex_gid_floor, .edge = fork.edge_gid_floor});
   diff_engine->ReportNameOf(main);
 
-  // Done before the core is visible to any session, so the diff engine never needs UNIQUE access afterwards.
+  // Done before the core is visible to any session, so the diff engine never needs UNIQUE access afterwards. Mirror
+  // commits are rebuilt on every build, so they stay out of the branch WAL.
   MirrorMainEnumsIntoDiffEngine(*diff_engine, historical->GetEnumStoreShared());
 
   return std::shared_ptr<BranchCore>(new BranchCore(&main, fork, fork_ts, std::move(diff_engine)));
@@ -174,11 +184,11 @@ BranchCore::~BranchCore() {
 }
 
 std::expected<std::unique_ptr<BranchContext>, BranchContext::BuildError> BranchContext::BuildFromFork(
-    storage::InMemoryStorage &main, uint64_t fork_ts) {
+    storage::InMemoryStorage &main, uint64_t fork_ts, std::optional<uint64_t> branch_number) {
   // Read after the fork pin, as the registry does: every gid visible at fork_ts is below the floors.
   ForkPoint const fork{.vertex_gid_floor = main.vertex_id_.load(std::memory_order_acquire),
                        .edge_gid_floor = main.edge_id_.load(std::memory_order_acquire)};
-  auto core = BranchCore::Build(main, fork, fork_ts);
+  auto core = BranchCore::Build(main, fork, fork_ts, branch_number);
   if (!core) return std::unexpected(std::move(core.error()));
   return std::make_unique<BranchContext>(std::move(*core));
 }
@@ -835,6 +845,11 @@ storage::Result<bool> BranchContext::DeleteBaseEdgeOnBranch(const storage::EdgeA
   // Listed before the delete mark, so a visible delete mark is always found from the listed endpoints. The edge overlay
   // is the only write: no endpoint overlay is touched, so deletes of different edges at one vertex never conflict.
   ListBaseEdgeDelete(overlays(), from.Gid(), to.Gid(), edge_overlay, sides);
+  // Recorded before the delete mark, so a committed delete mark always has its WAL record. The commit emits a record
+  // only for an edge whose delete mark delta this transaction wrote, so one left by a conflicting or no-op delete is
+  // inert.
+  txn().diff->GetTransaction()->RecordBaseEdgeDelete(
+      edge_overlay->gid, {.from_gid = from.Gid(), .to_gid = to.Gid(), .edge_type_id = base_edge.EdgeType()});
   // The edge may already be deleted by a transaction committed after this one began: not a broken precondition but a
   // conflict, which the edge overlay's PrepareForWrite reports. Already deleted by this transaction is a no-op.
   auto const deleted = overlay::MarkEdgeDeleted(txn().diff->GetTransaction(), edge_overlay);
