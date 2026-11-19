@@ -40,10 +40,13 @@ class HubEdgeRewrite(Workload):
         queries = []
         for first in range(1, HubEdgeRewrite.USERS + 1, HubEdgeRewrite.USERS_PER_IMPORT_QUERY):
             last = min(first + HubEdgeRewrite.USERS_PER_IMPORT_QUERY - 1, HubEdgeRewrite.USERS)
+            # The hubs are matched once per query: matching them for every user would re-read hubs the
+            # query keeps modifying, which gets slower with every edge it adds.
             queries.append(
                 (
+                    "MATCH (h:Hub) WITH collect(h) AS hubs "
                     "UNWIND range($first, $last) AS id CREATE (u:User {id: id}) "
-                    "WITH u MATCH (h:Hub) CREATE (u)-[:LINKED_TO]->(h);",
+                    "WITH u, hubs UNWIND hubs AS h CREATE (u)-[:LINKED_TO]->(h);",
                     {"first": first, "last": last},
                 )
             )
