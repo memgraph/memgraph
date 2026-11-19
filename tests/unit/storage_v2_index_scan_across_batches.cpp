@@ -18,10 +18,13 @@
 
 #include <algorithm>
 #include <array>
+#include <functional>
+#include <latch>
 #include <memory>
 #include <mutex>
 #include <optional>
 #include <set>
+#include <thread>
 #include <vector>
 
 #include <fmt/format.h>
@@ -688,6 +691,30 @@ TEST_F(OwnBatchWrite, ArmingAtCommandZeroRaisesNoStamp) {
   }
   acc->Abort();
   EXPECT_EQ(seen, gids);
+}
+
+TEST_F(OwnBatchWrite, ConcurrentAdvancesMintDistinctOrderedStamps) {
+  // Parallel branches advance the one shared transaction at once; each mint must land whole.
+  constexpr int kThreads = 8;
+  constexpr int kAdvances = 4000;
+  auto acc = Armed();
+  acc->AdvanceCommand();
+  auto *transaction = acc->GetTransaction();
+  transaction->index_stamps.reserve(1 + (kThreads * kAdvances));
+  std::latch start{kThreads};
+  std::vector<std::jthread> threads;
+  for (int t = 0; t < kThreads; ++t) {
+    threads.emplace_back([&] {
+      start.arrive_and_wait();
+      for (int i = 0; i < kAdvances; ++i) acc->AdvanceCommand();
+    });
+  }
+  threads.clear();
+  auto const &stamps = transaction->index_stamps;
+  EXPECT_EQ(stamps.size(), 1 + (kThreads * kAdvances));
+  EXPECT_EQ(std::ranges::adjacent_find(stamps, std::greater_equal<>{}), stamps.end());
+  EXPECT_EQ(stamps.back(), transaction->index_stamp);
+  acc->Abort();
 }
 
 TEST_F(OwnBatchWrite, AReadCommittedReaderSeesAStampedWritersCommittedEntry) {

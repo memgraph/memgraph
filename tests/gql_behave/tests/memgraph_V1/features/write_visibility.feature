@@ -3686,3 +3686,45 @@ Feature: Write visibility inside one query
             | k | c |
             | 0 | 2 |
             | 1 | 3 |
+
+    Scenario: A batched update after a write and a WITH updates each node once, also in parallel
+        Given an empty graph
+        And with new index :WvPx(p)
+        And having executed:
+            """
+            UNWIND [1, 2] AS i CREATE (:WvPx {p: i})
+            """
+        And having executed:
+            """
+            CREATE (:WvPx {p: 5}) WITH 1 AS x MATCH (n:WvPx) WHERE n.p > 0 AND n.p < 20 CALL (n) { SET n.p = n.p + 10 } IN TRANSACTIONS OF 1 ROWS MATCH (m:WvPx) RETURN count(m) AS k
+            """
+        When executing query:
+            """
+            MATCH (n:WvPx) RETURN n.p AS p ORDER BY p
+            """
+        Then the result should be, in order:
+            | p  |
+            | 11 |
+            | 12 |
+            | 15 |
+
+    Scenario: A batched update after a write and a WITH, then an aggregation, updates each node once, also in parallel
+        Given an empty graph
+        And with new index :WvPy(p)
+        And having executed:
+            """
+            UNWIND [1, 2] AS i CREATE (:WvPy {p: i})
+            """
+        And having executed:
+            """
+            CREATE (:WvPy {p: 5}) WITH 1 AS x MATCH (n:WvPy) WHERE n.p > 0 AND n.p < 20 CALL (n) { SET n.p = n.p + 10 } IN TRANSACTIONS OF 1 ROWS WITH count(*) AS c MATCH (m:WvPy) RETURN count(m) AS k
+            """
+        When executing query:
+            """
+            MATCH (n:WvPy) RETURN n.p AS p ORDER BY p
+            """
+        Then the result should be, in order:
+            | p  |
+            | 11 |
+            | 12 |
+            | 15 |
