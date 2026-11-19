@@ -2253,6 +2253,9 @@ TEST_F(WriteVisibilityPlan, ExplainPrintsTheViewOfEachReaderOnRequest) {
 // under batching keeps the views it had before write visibility: no check.
 class ViewOracle {
  public:
+  /// @p symbol_table is the planned query's, anonymous symbols included.
+  explicit ViewOracle(const SymbolTable &symbol_table) : symbol_table_(symbol_table) {}
+
   struct Mismatch {
     std::string op;
     View expected;
@@ -2570,17 +2573,18 @@ class ViewOracle {
   }
 
   /// The Produce of one SET's right-hand sides is part of that SET, which reads NEW: the planner names each value
-  /// with an anonymous symbol that a SET item reads.
+  /// with a symbol no query declares, which a SET item reads.
   bool IsSetRunProduce(LogicalOperator &op) const {
     auto *produce = memgraph::utils::Downcast<plan::Produce>(&op);
-    return produce && produce->keeps_input_symbols_ && !produce->named_expressions_.empty() &&
+    return produce && !produce->named_expressions_.empty() &&
            std::ranges::all_of(produce->named_expressions_, [this](auto const *named) {
-             return named->name_.starts_with("anon") && set_values_.contains(named->symbol_pos_);
+             return !symbol_table_.at(*named).user_declared() && set_values_.contains(named->symbol_pos_);
            });
   }
 
   std::vector<Mismatch> mismatches_;
   std::unordered_set<int32_t> set_values_;
+  const SymbolTable &symbol_table_;
 };
 
 /// One planning environment per query, so the indexes of one scenario do not leak into the next.
@@ -2696,7 +2700,7 @@ TEST(WriteVisibilityOracle, EveryViewFollowsTheRule) {
       auto *plan = planned_query.Plan(item.query);
       if (plan == nullptr) continue;
       ++planned;
-      for (auto const &m : ViewOracle{}.Check(*plan)) {
+      for (auto const &m : ViewOracle{planned_query.symbol_table}.Check(*plan)) {
         failures.push_back(fmt::format("{} [{}] {}: expected {}, planned {}\n  {}",
                                        item.scenario,
                                        with_indexes ? "indexes" : "plain",
