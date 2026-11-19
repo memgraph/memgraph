@@ -335,7 +335,13 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
                 .wal_directory_ = config.durability.storage_directory / durability::kWalDirectory},
       lock_file_path_(config.durability.storage_directory / durability::kLockFile),
       snapshot_periodic_observer_(std::make_shared<PeriodicSnapshotObserver>(snapshot_runner_)),
-      global_locker_(file_retainer_.AddLocker()) {
+      global_locker_(file_retainer_.AddLocker())
+#ifdef MG_ENTERPRISE
+      ,
+      retained_vertex_floor_(config.retained_gid_floors.vertex),
+      retained_edge_floor_(config.retained_gid_floors.edge)
+#endif
+{
   MG_ASSERT(config.salient.storage_mode != StorageMode::ON_DISK_TRANSACTIONAL,
             "Invalid storage mode sent to InMemoryStorage constructor!");
   MG_ASSERT(!config_.salient.items.storage_light_edge || config_.salient.items.properties_on_edges,
