@@ -644,36 +644,36 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
                   : CollectReadsAndWrites(*clause, *context.symbol_table, context.bound_symbols, non_graph_symbols_);
           // The items of one SET or REMOVE are one clause: the first item decides for all of them, so no barrier or
           // drain falls between two items.
-          auto group_access = access;
           if (!clause->continues_previous_) {
+            auto group_access = access;
             for (auto next = std::next(clause_it); next != clauses.end() && (*next)->continues_previous_; ++next) {
               auto const item =
                   CollectReadsAndWrites(**next, *context.symbol_table, context.bound_symbols, non_graph_symbols_);
               group_access.reads.Merge(item.reads);
               group_access.writes.Merge(item.writes);
             }
-          }
-          if (!is_projection && !clause->continues_previous_) {
-            auto reads = group_access.reads;
-            // View::NEW sees what this command created; only a View::OLD reader needs the advance for that.
-            if (clause_reads_new) {
-              reads.symbols.clear();
-            } else if (BarriersOn() && (utils::Downcast<Create>(clause) ||
-                                        IsReadOnlyCall(*clause, single_query_part.subqueries, subquery_id))) {
-              // A View::OLD reader that reads only its own row's earlier writes reads View::NEW instead of a barrier.
-              auto new_reads = reads;
-              new_reads.symbols.clear();
-              // At View::NEW it would also see its own earlier rows' writes, so it must not read what it writes.
-              if (!Conflicts(new_reads, group_access.writes) &&
-                  row_local(new_reads, pending_writes, group_access.writes)) {
-                clause_reads_new = true;
-                switched_to_new = true;
-                reads = std::move(new_reads);
+            if (!is_projection) {
+              auto reads = group_access.reads;
+              // View::NEW sees what this command created; only a View::OLD reader needs the advance for that.
+              if (clause_reads_new) {
+                reads.symbols.clear();
+              } else if (BarriersOn() && (utils::Downcast<Create>(clause) ||
+                                          IsReadOnlyCall(*clause, single_query_part.subqueries, subquery_id))) {
+                // A View::OLD reader that reads only its own row's earlier writes reads View::NEW instead of a barrier.
+                auto new_reads = reads;
+                new_reads.symbols.clear();
+                // At View::NEW it would also see its own earlier rows' writes, so it must not read what it writes.
+                if (!Conflicts(new_reads, group_access.writes) &&
+                    row_local(new_reads, pending_writes, group_access.writes)) {
+                  clause_reads_new = true;
+                  switched_to_new = true;
+                  reads = std::move(new_reads);
+                }
               }
+              barrier_before(reads, clause_reads_new, group_access.writes);
             }
-            barrier_before(reads, clause_reads_new, group_access.writes);
+            drain_before(group_access.writes);
           }
-          if (!clause->continues_previous_) drain_before(group_access.writes);
           // An entity bound since the last barrier is not there at View::OLD, so the evaluator reads it at View::NEW:
           // a later write of what this clause read would reach its earlier rows.
           bool const reads_fresh = std::ranges::any_of(
