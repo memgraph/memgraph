@@ -672,8 +672,8 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
             }
             drain_before(group_access.writes);
           }
-          // An entity bound since the last barrier is not there at View::OLD, so the evaluator reads it at View::NEW:
-          // a later write of what this clause read would reach its earlier rows.
+          // An entity bound since the last barrier is read at View::NEW (`ReadSeeingCreated`): a later write of what
+          // this clause read would reach its earlier rows.
           bool const reads_fresh = std::ranges::any_of(
               access.reads.referenced, [&](const auto &sym) { return pending_writes.symbols.contains(sym); });
           // A CREATE or MERGE binds the new atoms its write set names, and its named paths; any other clause is
@@ -778,7 +778,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
             }
             plan_and_apply_comprehensions(eligible);
             input_op = PreEvaluateSetGroup(clauses, index, std::move(input_op));
-            // View::OLD reads a created entity by failing, then reading View::NEW; read only those, read View::NEW.
+            // A CREATE that reads only created entities reads them at View::NEW anyway (`ReadSeeingCreated`).
             auto const created = [&](const Symbol &symbol) {
               return created_since_barrier.contains(symbol) || created_here.contains(symbol);
             };
