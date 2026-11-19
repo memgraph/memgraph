@@ -38,6 +38,9 @@
 #include "utils/on_scope_exit.hpp"
 #include "utils/synchronized.hpp"
 #include "utils/uuid.hpp"
+#ifdef MG_ENTERPRISE
+#include "versioning/branch_ledger.hpp"
+#endif
 
 #include <mutex>
 
@@ -112,6 +115,22 @@ struct Durability {
   };
 
   static auto GenKey(std::string_view name) -> std::string { return fmt::format("{}{}", kDBPrefix, name); }
+
+  static auto GenBranchLedgerKey(const utils::UUID &uuid) -> std::string {
+    return std::string{versioning::kBranchLedgerKeyPrefix} + std::string{uuid};
+  }
+
+  // The uuid a database was registered under, which keys its branch ledger. Not the storage's uuid, which recovery
+  // replaces with the one on disk.
+  static auto RegisteredUuid(kvstore::KVStore &durability, std::string_view name) -> std::optional<utils::UUID> {
+    const auto value = durability.Get(GenKey(name));
+    if (!value) return std::nullopt;
+    try {
+      return nlohmann::json::parse(*value).at(kUuidKey).get<utils::UUID>();
+    } catch (const nlohmann::json::exception &) {
+      return std::nullopt;
+    }
+  }
 
   static auto GenVal(utils::UUID uuid, std::filesystem::path rel_dir) {
     nlohmann::json json;
@@ -250,6 +269,7 @@ DbmsHandler::DbmsHandler(storage::Config config, ResumeRetryPolicy resume_retry_
   // cleanup pass below (it would delete every dir not in the keep-set, including the one this corrupt
   // entry owned). Track that the durable view is incomplete and skip cleanup for this boot.
   bool durability_view_incomplete = false;
+  std::set<std::string> registered_uuids;
   auto it = durability_->begin(std::string(kDBPrefix));
   auto end = durability_->end(std::string(kDBPrefix));
   for (; it != end; ++it) {
@@ -279,6 +299,7 @@ DbmsHandler::DbmsHandler(storage::Config config, ResumeRetryPolicy resume_retry_
     // The on-disk directory must survive the cleanup pass below for BOTH hot and cold tenants — a
     // COLD shell's data dir is exactly what a later resume rebuilds from.
     directories.emplace(rel_dir.filename());
+    registered_uuids.emplace(std::string{uuid});
 
     const bool is_cold = json.value("cold", false);
     if (is_cold) {
@@ -355,6 +376,19 @@ DbmsHandler::DbmsHandler(storage::Config config, ResumeRetryPolicy resume_retry_
           directories.erase(itr);
         }
       }
+    }
+  }
+
+  // A branch ledger whose database is gone (a drop that died before its batch, or a branch write that raced the drop)
+  // is never read again. Skipped like the cleanup above: an unreadable entry may be the owner.
+  if (!durability_view_incomplete) {
+    const std::string ledger_prefix{versioning::kBranchLedgerKeyPrefix};
+    std::vector<std::string> orphan_ledgers;
+    for (auto lit = durability_->begin(ledger_prefix), lend = durability_->end(ledger_prefix); lit != lend; ++lit) {
+      if (!registered_uuids.contains(lit->first.substr(ledger_prefix.size()))) orphan_ledgers.push_back(lit->first);
+    }
+    if (!orphan_ledgers.empty() && durability_->DeleteMultiple(orphan_ledgers)) {
+      spdlog::info("Removed {} branch ledger(s) whose database no longer exists.", orphan_ledgers.size());
     }
   }
 
@@ -795,7 +829,7 @@ std::expected<void, TenantProfiles::DetachError> DbmsHandler::RemoveTenantProfil
 }
 
 DbmsHandler::NewResultT DbmsHandler::New_(storage::Config storage_config, system::Transaction *txn) {
-  auto new_db = db_handler_.New(storage_config);
+  auto new_db = db_handler_.New(storage_config, durability_.get());
 
   if (new_db) {  // Success
     if (ttl_user_check_) (*new_db)->storage()->ttl_.SetUserCheck(ttl_user_check_);
@@ -911,11 +945,18 @@ DbmsHandler::DeleteResult DbmsHandler::Delete_(std::string db_name) {
 }
 
 void DbmsHandler::DetachProfileAndRetireDurabilityKey_(std::string_view db_name) {
+  // The database's branch ledger goes in the same batch.
+  std::vector<std::string> keys{Durability::GenKey(db_name)};
+  if (durability_) {
+    if (const auto uuid = Durability::RegisteredUuid(*durability_, db_name)) {
+      keys.push_back(Durability::GenBranchLedgerKey(*uuid));
+    }
+  }
   bool retired_with_detach = false;
   if (tenant_profiles_) {
-    retired_with_detach = tenant_profiles_->DetachFromDatabase(db_name, {Durability::GenKey(db_name)}).has_value();
+    retired_with_detach = tenant_profiles_->DetachFromDatabase(db_name, keys).has_value();
   }
-  if (!retired_with_detach && durability_) durability_->Delete(Durability::GenKey(db_name));
+  if (!retired_with_detach && durability_) durability_->DeleteMultiple(keys);
 }
 
 void DbmsHandler::UpdateDurability(const storage::Config &config, std::optional<std::filesystem::path> rel_dir) {
@@ -1473,8 +1514,8 @@ DbmsHandler::ResumeResult DbmsHandler::Resume_(std::string_view name, system::Tr
       cfg.salient = salient;
       cfg.durability.recover_on_startup = true;
       storage::UpdatePaths(cfg, default_config_.durability.storage_directory / rel_dir);
-      auto fresh = db_handler_.BuildDetached(std::move(cfg));  // Database ctor recovers from disk
-      DatabaseAccess acc = fresh.access().value();             // fresh gk is HOT => has_value
+      auto fresh = db_handler_.BuildDetached(std::move(cfg), durability_.get());  // Database ctor recovers from disk
+      DatabaseAccess acc = fresh.access().value();                                // fresh gk is HOT => has_value
       // Roll a failed pre-publish rebuild back to COLD (retriable). CRITICAL ORDERING: fully tear down
       // `fresh` (its InMemoryStorage closes WAL/snapshot fds; ~Database -> RemoveDatabase deregisters the
       // uuid-keyed prometheus metrics) BEFORE abort_resume() releases the single-flight RESUMING token.

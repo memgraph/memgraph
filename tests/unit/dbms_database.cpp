@@ -62,19 +62,19 @@ TEST_F(DBMS_Database, New) {
                            memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL},
         .disk = {.main_storage_directory = storage_directory / "disk"},
         .salient.name = "db2"};
-    auto db2 = db_handler.New(db_config);
+    auto db2 = db_handler.New(db_config, nullptr);
     ASSERT_TRUE(db2.has_value() && db2.value());
     ASSERT_TRUE(std::filesystem::exists(storage_directory / "db2"));
   }
   {
     // With default config
-    auto db3 = db_handler.New(default_conf("db3"));
+    auto db3 = db_handler.New(default_conf("db3"), nullptr);
     ASSERT_TRUE(db3.has_value() && db3.value());
     ASSERT_TRUE(std::filesystem::exists(storage_directory / "db3"));
-    auto db4 = db_handler.New(default_conf("four"));
+    auto db4 = db_handler.New(default_conf("four"), nullptr);
     ASSERT_TRUE(db4.has_value() && db4.value());
     ASSERT_TRUE(std::filesystem::exists(storage_directory / "four"));
-    auto db5 = db_handler.New(default_conf("db3"));
+    auto db5 = db_handler.New(default_conf("db3"), nullptr);
     ASSERT_EQ(db5, std::unexpected{memgraph::dbms::NewError::EXISTS});
   }
 
@@ -89,9 +89,9 @@ TEST_F(DBMS_Database, New) {
 TEST_F(DBMS_Database, Get) {
   memgraph::dbms::DatabaseHandler db_handler;
 
-  auto db1 = db_handler.New(default_conf("db1"));
-  auto db2 = db_handler.New(default_conf("db2"));
-  auto db3 = db_handler.New(default_conf("db3"));
+  auto db1 = db_handler.New(default_conf("db1"), nullptr);
+  auto db2 = db_handler.New(default_conf("db2"), nullptr);
+  auto db3 = db_handler.New(default_conf("db3"), nullptr);
 
   ASSERT_TRUE(db1.has_value());
   ASSERT_TRUE(db2.has_value());
@@ -113,9 +113,9 @@ TEST_F(DBMS_Database, Get) {
 TEST_F(DBMS_Database, Delete) {
   memgraph::dbms::DatabaseHandler db_handler;
 
-  auto db1 = db_handler.New(default_conf("db1"));
-  auto db2 = db_handler.New(default_conf("db2"));
-  auto db3 = db_handler.New(default_conf("db3"));
+  auto db1 = db_handler.New(default_conf("db1"), nullptr);
+  auto db2 = db_handler.New(default_conf("db2"), nullptr);
+  auto db3 = db_handler.New(default_conf("db3"), nullptr);
 
   ASSERT_TRUE(db1.has_value());
   ASSERT_TRUE(db2.has_value());
@@ -150,8 +150,8 @@ TEST_F(DBMS_Database, DeleteAndRecover) {
   memgraph::dbms::DatabaseHandler db_handler;
 
   {
-    auto db1 = db_handler.New(default_conf("db1"));
-    auto db2 = db_handler.New(default_conf("db2"));
+    auto db1 = db_handler.New(default_conf("db1"), nullptr);
+    auto db2 = db_handler.New(default_conf("db2"), nullptr);
 
     memgraph::storage::Config conf_w_snap{
         .durability = {.storage_directory = storage_directory / "db3",
@@ -161,7 +161,7 @@ TEST_F(DBMS_Database, DeleteAndRecover) {
         .disk = {.main_storage_directory = storage_directory / "db3" / "disk"},
         .salient.name = "db3"};
 
-    auto db3 = db_handler.New(conf_w_snap);
+    auto db3 = db_handler.New(conf_w_snap, nullptr);
 
     ASSERT_TRUE(db1.has_value());
     ASSERT_TRUE(db2.has_value());
@@ -199,8 +199,8 @@ TEST_F(DBMS_Database, DeleteAndRecover) {
 
   {
     // Recover graphs (only db3)
-    auto db1 = db_handler.New(default_conf("db1"));
-    auto db2 = db_handler.New(default_conf("db2"));
+    auto db1 = db_handler.New(default_conf("db1"), nullptr);
+    auto db2 = db_handler.New(default_conf("db2"), nullptr);
 
     memgraph::storage::Config conf_w_rec{
         .durability = {.storage_directory = storage_directory / "db3",
@@ -210,7 +210,7 @@ TEST_F(DBMS_Database, DeleteAndRecover) {
         .disk = {.main_storage_directory = storage_directory / "db3" / "disk"},
         .salient.name = "db3"};
 
-    auto db3 = db_handler.New(conf_w_rec);
+    auto db3 = db_handler.New(conf_w_rec, nullptr);
 
     // Check content
     {
@@ -257,7 +257,7 @@ TEST_F(DBMS_Database, MetricsFollowUuidAdoptedDuringRecovery) {
 
   memgraph::utils::UUID const snapshot_uuid{};
   {
-    auto db = db_handler.New(make_conf(snapshot_uuid, false));
+    auto db = db_handler.New(make_conf(snapshot_uuid, false), nullptr);
     ASSERT_TRUE(db.has_value());
     const memgraph::memory::DbArenaScope arena_scope{&db.value()->Arena()};
     auto storage_dba = db.value()->Access(memgraph::storage::WRITE);
@@ -270,7 +270,7 @@ TEST_F(DBMS_Database, MetricsFollowUuidAdoptedDuringRecovery) {
   // Rebuild from the snapshot, with a config carrying a different uuid.
   memgraph::utils::UUID const config_uuid{};
   ASSERT_NE(std::string(config_uuid), std::string(snapshot_uuid));
-  auto db = db_handler.New(make_conf(config_uuid, true));
+  auto db = db_handler.New(make_conf(config_uuid, true), nullptr);
   ASSERT_TRUE(db.has_value());
 
   ASSERT_EQ(std::string(db.value()->uuid()), std::string(snapshot_uuid));
