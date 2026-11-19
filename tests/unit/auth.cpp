@@ -2643,9 +2643,12 @@ TEST_F(AuthWithStorage, MultipleRoles) {
 
   const auto &roles = retrieved_user->roles();
   ASSERT_EQ(roles.size(), 3);
-  ASSERT_TRUE(std::find(roles.rolenames().begin(), roles.rolenames().end(), "role1") != roles.rolenames().end());
-  ASSERT_TRUE(std::find(roles.rolenames().begin(), roles.rolenames().end(), "role2") != roles.rolenames().end());
-  ASSERT_TRUE(std::find(roles.rolenames().begin(), roles.rolenames().end(), "role3") != roles.rolenames().end());
+  // rolenames() returns by value, so each call has to be held: iterators from two different
+  // temporaries do not compare.
+  const auto rolenames = roles.rolenames();
+  ASSERT_TRUE(std::find(rolenames.begin(), rolenames.end(), "role1") != rolenames.end());
+  ASSERT_TRUE(std::find(rolenames.begin(), rolenames.end(), "role2") != rolenames.end());
+  ASSERT_TRUE(std::find(rolenames.begin(), rolenames.end(), "role3") != rolenames.end());
 
   // Test removing a specific role
   retrieved_user->RemoveRole("role2");
