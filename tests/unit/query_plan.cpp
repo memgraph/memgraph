@@ -9158,12 +9158,19 @@ namespace {
 
 using Cacher = memgraph::query::plan::impl::PropertyLookupCacher;
 
-auto GatheredWith(std::vector<size_t> const &lookups_per_property) -> Cacher::Gathered {
+/// One property, by how many lookups name it and how many of those every row reaches.
+struct Reads {
+  size_t lookups;
+  size_t on_every_row;
+};
+
+auto GatheredWith(std::vector<Reads> const &per_property) -> Cacher::Gathered {
   auto gathered = Cacher::Gathered{.symbol = memgraph::query::Symbol{"n", 0, true}, .properties = {}};
-  for (auto property = size_t{0}; property < lookups_per_property.size(); ++property) {
+  for (auto property = size_t{0}; property < per_property.size(); ++property) {
     auto const index = Cacher::AstPropertyIndex{
         memgraph::query::PropertyIx{.name = "p" + std::to_string(property), .ix = static_cast<int64_t>(property)}};
-    for (auto lookup = size_t{0}; lookup < lookups_per_property[property]; ++lookup) gathered.Note(index);
+    auto const &reads = per_property[property];
+    for (auto lookup = size_t{0}; lookup < reads.lookups; ++lookup) gathered.Note(index, lookup < reads.on_every_row);
   }
   return gathered;
 }
@@ -9171,21 +9178,26 @@ auto GatheredWith(std::vector<size_t> const &lookups_per_property) -> Cacher::Ga
 }  // namespace
 
 TEST(CachePropertiesDecision, ARepeatedPropertyPaysWhateverTheOperatorKeeps) {
-  // One property two lookups name: a pass reads it once and removes the second read.
-  EXPECT_TRUE(GatheredWith({2}).PropertiesWorthOnePass(Cacher::ValueUse::kDiscarded).has_value());
-  EXPECT_TRUE(GatheredWith({2}).PropertiesWorthOnePass(Cacher::ValueUse::kKept).has_value());
+  // One property two lookups name, both of which every row reaches: a pass reads it once and
+  // removes the second read.
+  EXPECT_TRUE(GatheredWith({{2, 2}}).PropertiesWorthOnePass(Cacher::ValueUse::kDiscarded).has_value());
+  EXPECT_TRUE(GatheredWith({{2, 2}}).PropertiesWorthOnePass(Cacher::ValueUse::kKept).has_value());
 }
 
 TEST(CachePropertiesDecision, OneLookupPaysNeither) {
-  EXPECT_FALSE(GatheredWith({1}).PropertiesWorthOnePass(Cacher::ValueUse::kDiscarded).has_value());
-  EXPECT_FALSE(GatheredWith({1}).PropertiesWorthOnePass(Cacher::ValueUse::kKept).has_value());
+  EXPECT_FALSE(GatheredWith({{1, 1}}).PropertiesWorthOnePass(Cacher::ValueUse::kDiscarded).has_value());
+  EXPECT_FALSE(GatheredWith({{1, 1}}).PropertiesWorthOnePass(Cacher::ValueUse::kKept).has_value());
 }
 
 TEST(CachePropertiesDecision, TwoPropertiesReadOnceEachPayOnlyAKeptValue) {
   // Two reads either way, so the only thing a pass offers is reading them together, which is worth
   // a slot to an operator that was going to hold the value and not to one that discards it.
-  EXPECT_FALSE(GatheredWith({1, 1}).PropertiesWorthOnePass(Cacher::ValueUse::kDiscarded).has_value());
-  EXPECT_TRUE(GatheredWith({1, 1}).PropertiesWorthOnePass(Cacher::ValueUse::kKept).has_value());
+  EXPECT_FALSE(GatheredWith({{1, 1}, {1, 1}}).PropertiesWorthOnePass(Cacher::ValueUse::kDiscarded).has_value());
+  EXPECT_TRUE(GatheredWith({{1, 1}, {1, 1}}).PropertiesWorthOnePass(Cacher::ValueUse::kKept).has_value());
+
+  // A property no row is certain to read is not one a pass may read, so the second property here
+  // leaves the first on its own and there is nothing to batch it with.
+  EXPECT_FALSE(GatheredWith({{1, 1}, {1, 0}}).PropertiesWorthOnePass(Cacher::ValueUse::kKept).has_value());
 }
 
 TEST(CachePropertiesDecision, NothingGatheredPaysNeither) {
@@ -9193,36 +9205,56 @@ TEST(CachePropertiesDecision, NothingGatheredPaysNeither) {
   EXPECT_FALSE(GatheredWith({}).PropertiesWorthOnePass(Cacher::ValueUse::kKept).has_value());
 }
 
-// Every shape of up to three properties read up to three times each, against the reads a pass
-// would actually remove: a record is read once per lookup without a pass and once per property
-// with one, so what a pass saves is the difference, and a slot an operator does not keep the value
-// in has to be paid for by a read it removes.
+// Every shape of up to three properties, each read up to three times with every number of those
+// reads a row is certain to make, against what a pass would actually save: only a property some
+// lookup reads on every row may be read ahead, a record is read once per lookup without a pass and
+// once per such property with one, and a slot an operator does not keep the value in has to be
+// paid for by a read removed.
 TEST(CachePropertiesDecision, PaysExactlyWhenAReadIsRemovedOrAKeptValueIsBatched) {
-  auto shapes = std::vector<std::vector<size_t>>{{}};
+  auto variants = std::vector<Reads>{};
+  for (auto lookups = size_t{1}; lookups <= 3; ++lookups) {
+    for (auto on_every_row = size_t{0}; on_every_row <= lookups; ++on_every_row) {
+      variants.push_back(Reads{.lookups = lookups, .on_every_row = on_every_row});
+    }
+  }
+
+  auto shapes = std::vector<std::vector<Reads>>{{}};
   for (auto properties = size_t{1}; properties <= 3; ++properties) {
-    auto grown = std::vector<std::vector<size_t>>{};
+    auto grown = std::vector<std::vector<Reads>>{};
     for (auto const &shape : shapes) {
       if (shape.size() != properties - 1) continue;
-      for (auto lookups = size_t{1}; lookups <= 3; ++lookups) {
+      for (auto const &variant : variants) {
         auto next = shape;
-        next.push_back(lookups);
+        next.push_back(variant);
         grown.push_back(next);
       }
     }
     shapes.insert(shapes.end(), grown.begin(), grown.end());
   }
-  ASSERT_EQ(shapes.size(), 40U) << "the bounded space is every shape of up to three properties";
+  ASSERT_EQ(shapes.size(), 1U + 9U + 81U + 729U);
 
   for (auto const &shape : shapes) {
-    auto const reads_without_a_pass = std::accumulate(shape.begin(), shape.end(), size_t{0});
-    auto const reads_with_a_pass = shape.size();
-    auto const removed = reads_without_a_pass - reads_with_a_pass;
+    auto readable = size_t{0};
+    auto removed = size_t{0};
+    for (auto const &reads : shape) {
+      if (reads.on_every_row == 0) continue;
+      ++readable;
+      removed += reads.lookups - 1;
+    }
 
     auto const gathered = GatheredWith(shape);
-    EXPECT_EQ(gathered.PropertiesWorthOnePass(Cacher::ValueUse::kDiscarded).has_value(), removed >= 1)
-        << "a discarded value pays for its slot only with a read removed";
-    EXPECT_EQ(gathered.PropertiesWorthOnePass(Cacher::ValueUse::kKept).has_value(), removed >= 1 || shape.size() >= 2)
-        << "a kept value was going to a slot anyway, so any saving pays";
+    auto const discarded = gathered.PropertiesWorthOnePass(Cacher::ValueUse::kDiscarded);
+    auto const kept = gathered.PropertiesWorthOnePass(Cacher::ValueUse::kKept);
+
+    EXPECT_EQ(discarded.has_value(), removed >= 1) << "a discarded value pays for its slot only with a read removed";
+    EXPECT_EQ(kept.has_value(), removed >= 1 || readable >= 2) << "a kept value was going to a slot anyway";
+
+    // What a pass is given to read is what a row is certain to ask for, and nothing else.
+    for (auto const &pass : {discarded, kept}) {
+      if (!pass) continue;
+      EXPECT_EQ(pass->properties.size(), readable);
+      for (auto const &property : pass->properties) EXPECT_GT(property.unconditional_lookups, 0U);
+    }
   }
 }
 
