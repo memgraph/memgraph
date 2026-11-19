@@ -5993,11 +5993,24 @@ bool CacheProperties::CachePropertiesCursor::Pull(Frame &frame, ExecutionContext
     }
 #endif
 
+    // A lookup leaves an embedding a reference wherever the context asks for one, so a pass has to
+    // leave it the same reference. A slot is read where that lookup's value would have been, and a
+    // row may hold it to the end of the query, so materialising here holds every row's floats at
+    // once where a reference holds none.
+    auto const lazy_refs = context.evaluation_context.lazy_vector_refs;
+
     // NEW so that the row sees writes made earlier in this same transaction, as a
     // property lookup evaluated at this point would.
-    auto const read =
-        reads_a_vertex ? input_value.ValueVertex().impl_.ReadPropertyValues(group.ordered(), slots, storage::View::NEW)
-                       : input_value.ValueEdge().impl_.ReadPropertyValues(group.ordered(), slots, storage::View::NEW);
+    auto const read = std::invoke([&] {
+      if (reads_a_vertex) {
+        auto const &accessor = input_value.ValueVertex().impl_;
+        return lazy_refs ? accessor.ReadPropertyValuesCompact(group.ordered(), slots, storage::View::NEW)
+                         : accessor.ReadPropertyValues(group.ordered(), slots, storage::View::NEW);
+      }
+      auto const &accessor = input_value.ValueEdge().impl_;
+      return lazy_refs ? accessor.ReadPropertyValuesCompact(group.ordered(), slots, storage::View::NEW)
+                       : accessor.ReadPropertyValues(group.ordered(), slots, storage::View::NEW);
+    });
     if (!read) ThrowPropertyReadError(read.error());
 
     for (std::size_t slot = 0; slot != slots.size(); ++slot) {
@@ -6011,6 +6024,11 @@ bool CacheProperties::CachePropertiesCursor::Pull(Frame &frame, ExecutionContext
 #endif
       if (value.IsNull()) {
         frame_writer.Write(cached.output_symbol, TypedValue(context.evaluation_context.memory));
+      } else if (lazy_refs && value.IsVectorIndexId()) {
+        auto const ref = reads_a_vertex
+                             ? VectorRefValue{input_value.ValueVertex().impl_, cached.property_id, storage::View::NEW}
+                             : VectorRefValue{input_value.ValueEdge().impl_, cached.property_id, storage::View::NEW};
+        frame_writer.Write(cached.output_symbol, TypedValue(ref, context.evaluation_context.memory));
       } else {
         frame_writer.Write(cached.output_symbol,
                            TypedValue(std::move(value), name_id_mapper, context.evaluation_context.memory));
