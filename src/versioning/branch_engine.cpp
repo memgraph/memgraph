@@ -132,10 +132,14 @@ std::expected<std::shared_ptr<BranchCore>, BranchCore::BuildError> BranchCore::B
   std::unique_ptr<storage::Storage::Accessor> historical = std::move(*hist_exp);
 
   storage::Config config = DiffEngineConfig(main.config_, main.GetStorageMode());
+  bool const durable =
+      branch_id.has_value() && main.config_.durability.snapshot_wal_mode ==
+                                       storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL;
+  // A durable branch's directory holds its own WAL, which the replay reads after a restart: never moved aside.
+  config.durability.keep_existing_files = durable;
   // A durable branch keeps its WAL in its own directory; DiffEngineConfig's snapshot interval stays empty because no
   // thread snapshots a branch, whose WAL is all its durable state.
-  if (branch_id.has_value() && main.config_.durability.snapshot_wal_mode ==
-                                   storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL) {
+  if (durable) {
     config.durability.snapshot_wal_mode = storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL;
     config.durability.storage_directory =
         main.config_.durability.storage_directory / "branches" / std::to_string(*branch_id);
@@ -301,6 +305,16 @@ std::optional<storage::VertexAccessor> BranchContext::BaseAccessorByPtr(storage:
 std::optional<storage::VertexAccessor> BranchContext::FindBaseVertex(storage::Gid gid) {
   if (!IsBaseCandidateVertex(gid)) return std::nullopt;
   return BaseAccessorByGid(gid);
+}
+
+storage::Vertex *BranchContext::FindBaseVertexPtr(storage::Gid gid) {
+  auto const base_vertex = FindBaseVertex(gid);
+  return base_vertex ? base_vertex->vertex_ : nullptr;
+}
+
+storage::VertexAccessor BranchContext::BaseVertexAccessor(storage::Vertex *base_vertex) {
+  DMG_ASSERT(base_vertex != nullptr, "a base vertex pointer comes from FindBaseVertexPtr.");
+  return storage::VertexAccessor{base_vertex, &main(), historical().GetTransaction()};
 }
 
 std::optional<storage::EdgeAccessor> BranchContext::FindBaseEdge(storage::Gid edge_gid, storage::Gid from_gid) {
@@ -615,10 +629,17 @@ storage::Result<BranchContext::EdgeOverlay> BranchContext::OverlayForWrite(const
 storage::Result<storage::EdgeAccessor> BranchContext::CreateNativeEdge(storage::VertexAccessor &from,
                                                                        storage::VertexAccessor &to,
                                                                        storage::EdgeTypeId edge_type) {
+  auto const gid = storage::Gid::FromUint(main().edge_id_.fetch_add(1, std::memory_order_acq_rel));
+  return CreateNativeEdgeAt(gid, from, to, edge_type);
+}
+
+storage::Result<storage::EdgeAccessor> BranchContext::CreateNativeEdgeAt(storage::Gid gid,
+                                                                         storage::VertexAccessor &from,
+                                                                         storage::VertexAccessor &to,
+                                                                         storage::EdgeTypeId edge_type) {
   core_->RecordEdgeChange(from.Gid(), storage::EdgeDirection::OUT);
   core_->RecordEdgeChange(to.Gid(), storage::EdgeDirection::IN);
-  // Plain fetch_add on main's counter; CreateEdgeEx raises the diff engine's own counter past the gid.
-  auto const gid = storage::Gid::FromUint(main().edge_id_.fetch_add(1, std::memory_order_acq_rel));
+  // CreateEdgeEx raises the diff engine's own counter past the gid.
   return static_cast<storage::ReplicationAccessor &>(diff()).CreateEdgeEx(&from, &to, edge_type, gid);
 }
 

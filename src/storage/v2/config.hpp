@@ -120,6 +120,13 @@ struct Config {
 
     bool allow_parallel_snapshot_creation{false};  // PER DATABASE
     bool allow_parallel_schema_creation{false};    // PER DATABASE
+
+#ifdef MG_ENTERPRISE
+    // When set, files an earlier run left in the snapshot and WAL directories stay in place instead of being moved to
+    // .backup because recover_on_startup is off. For an owner that reads them itself before use (a branch diff engine
+    // replaying its own WAL).
+    bool keep_existing_files{false};  // PER DATABASE
+#endif
     friend bool operator==(const Durability &lrh, const Durability &rhs) = default;
   } durability;
 
