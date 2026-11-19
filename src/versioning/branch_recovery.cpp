@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <expected>
 #include <filesystem>
+#include <limits>
 #include <memory>
 #include <optional>
 #include <string>
@@ -21,6 +22,7 @@
 #include <system_error>
 #include <tuple>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -36,10 +38,12 @@
 #include "storage/v2/durability/wal.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/property_value.hpp"
+#include "utils/atomic_utils.hpp"
 #include "utils/crc_accumulator.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/variant_helpers.hpp"
 #include "versioning/branch_engine.hpp"
+#include "versioning/version_store.hpp"
 
 namespace memgraph::versioning {
 
@@ -54,8 +58,9 @@ struct WalFileEntry {
 
 // Selects files as main's GetWalFiles does: unreadable ones and ones with no complete transaction are warned about and
 // skipped, never renamed or deleted. Except a finalized (`_from_`) file: FinalizeWal renames a file (RemakeWalName)
-// only after syncing its summary, so it held a transaction and a read failure is damage, and an error.
-std::vector<WalFileEntry> ListWalFiles(const std::filesystem::path &dir) {
+// only after syncing its summary, so it held a transaction and a read failure is damage, and an error. `skipped` counts
+// the unreadable ones.
+std::vector<WalFileEntry> ListWalFiles(const std::filesystem::path &dir, size_t &skipped) {
   std::vector<WalFileEntry> files;
   std::error_code ec;
   for (const auto &entry : std::filesystem::directory_iterator(dir, ec)) {
@@ -69,6 +74,7 @@ std::vector<WalFileEntry> ListWalFiles(const std::filesystem::path &dir) {
         throw utils::BasicException(
             "The finalized branch WAL file '{}' is damaged: {}", entry.path().string(), e.what());
       }
+      ++skipped;
       spdlog::warn("Failed to read branch WAL file '{}'. Error: {}", entry.path().string(), e.what());
     }
   }
@@ -127,14 +133,72 @@ struct TxnState {
   std::unordered_map<uint64_t, storage::EdgeAccessor> edges;
 };
 
+// The gids main holds. Main recovers independently of branches, so it may already hold a gid the branch created
+// natively, and both objects would answer to it: such a branch is refused, never remapped. Main's counters end above
+// every gid it holds, so an edge gid at or above them is free. Below, the edges are listed once, as a gid-only lookup
+// scans all of main with light edges and no metadata index and finds nothing without properties_on_edges: only those at
+// or above `edge_floor`, the lowest floor of any branch, as natives are never below.
+class MainGids {
+ public:
+  MainGids(storage::InMemoryStorage &main, uint64_t edge_floor)
+      : main_(main), edge_end_(main.edge_id_.load(std::memory_order_acquire)), edge_floor_(edge_floor) {}
+
+  void RequireVertexFree(storage::Gid gid) {
+    if (Access().FindVertex(gid, storage::View::NEW)) ThrowConflict("vertex", gid);
+  }
+
+  void RequireEdgeFree(storage::Gid gid) {
+    if (gid.AsUint() >= edge_end_) return;
+    if (!edges_) ListEdges();
+    if (edges_->contains(gid.AsUint())) ThrowConflict("edge", gid);
+  }
+
+ private:
+  [[noreturn]] static void ThrowConflict(std::string_view what, storage::Gid gid) {
+    throw utils::BasicException(
+        "gid conflict with main: {} {} exists in main, which reused it while this branch was not recovered; only DROP "
+        "BRANCH resolves it",
+        what,
+        gid.AsUint());
+  }
+
+  storage::Storage::Accessor &Access() {
+    if (!acc_) acc_ = main_.Access(storage::READ);
+    return *acc_;
+  }
+
+  void ListEdges() {
+    edges_.emplace();
+    for (auto vertex : Access().Vertices(storage::View::NEW)) {
+      auto out = vertex.OutEdges(storage::View::NEW);
+      if (!out) {
+        throw utils::BasicException("Cannot list main's edges (storage error {}).", static_cast<int>(out.error()));
+      }
+      for (const auto &edge : out->edges) {
+        if (edge.Gid().AsUint() >= edge_floor_) edges_->insert(edge.Gid().AsUint());
+      }
+    }
+  }
+
+  storage::InMemoryStorage &main_;
+  uint64_t edge_end_;
+  uint64_t edge_floor_;
+  std::unique_ptr<storage::Storage::Accessor> acc_;
+  std::optional<std::unordered_set<uint64_t>> edges_;
+};
+
 // Replays a branch's WAL into its freshly built core. A record on an object below the gid floors is a base-object write
 // and goes through the BranchContext write resolver, as the live write did: the first one materializes the overlay with
 // the base's labels, so a label record lands on the full set, a null SET_PROPERTY is an explicit null, a vertex DELETE
 // a delete mark and an edge DELETE the base-edge delete. A native object gets the stock operation at its recorded gid.
 class BranchWalReplayer {
  public:
-  explicit BranchWalReplayer(BranchContext &ctx)
-      : ctx_(ctx), core_(*ctx.core()), diff_(ctx.diff_engine()), mapper_(diff_.GetSharedNameIdMapper().get()) {}
+  BranchWalReplayer(BranchContext &ctx, MainGids &main_gids)
+      : ctx_(ctx),
+        core_(*ctx.core()),
+        diff_(ctx.diff_engine()),
+        mapper_(diff_.GetSharedNameIdMapper().get()),
+        main_gids_(main_gids) {}
 
   // @throw std::exception the WAL is corrupt or does not fit the base state
   NativeGidEnds Run(const std::vector<WalFileEntry> &files) {
@@ -271,6 +335,7 @@ class BranchWalReplayer {
                 throw utils::BasicException("The branch WAL creates vertex {}, a gid of the base state.",
                                             d.gid.AsUint());
               }
+              main_gids_.RequireVertexFree(d.gid);
               if (!acc.CreateVertexEx(d.gid)) {
                 throw utils::BasicException("Vertex {} already exists in the branch.", d.gid.AsUint());
               }
@@ -315,6 +380,7 @@ class BranchWalReplayer {
               if (ctx_.FindDiffEdge(d.gid, d.from_vertex, storage::View::NEW)) {
                 throw utils::BasicException("Edge {} already exists in the branch.", d.gid.AsUint());
               }
+              main_gids_.RequireEdgeFree(d.gid);
               auto from = ctx_.EnsureDiffVertex(d.from_vertex);
               if (!from) throw utils::BasicException("{}", from.error().message);
               auto to = ctx_.EnsureDiffVertex(d.to_vertex);
@@ -376,22 +442,128 @@ class BranchWalReplayer {
   storage::InMemoryStorage &diff_;
   storage::NameIdMapper *mapper_;
   std::unordered_map<uint64_t, storage::Vertex *> base_vertices_;
+  MainGids &main_gids_;
   NativeGidEnds native_ends_;
 };
 
 }  // namespace
 
-std::expected<NativeGidEnds, std::string> ReplayBranchWal(std::shared_ptr<BranchCore> core,
-                                                          const std::filesystem::path &wal_dir) {
+namespace {
+
+std::expected<NativeGidEnds, std::string> ReplayWithMainGids(std::shared_ptr<BranchCore> core,
+                                                             const std::filesystem::path &wal_dir, MainGids &main_gids,
+                                                             std::string_view branch) {
   const memory::DbArenaScope arena_scope{core->main().DbArenaPool()};
   try {
-    const auto files = ListWalFiles(wal_dir);
+    size_t unreadable = 0;
+    const auto files = ListWalFiles(wal_dir, unreadable);
     CheckWalChain(files);
-    if (files.empty()) return NativeGidEnds{};
+    if (files.empty()) {
+      if (unreadable > 0) {
+        spdlog::warn(
+            "Graph Versioning: branch '{}' of database '{}': none of the files in '{}' is readable; it starts as "
+            "forked.",
+            branch,
+            core->main().config_.salient.name.str(),
+            wal_dir.string());
+      }
+      return NativeGidEnds{};
+    }
     BranchContext ctx{std::move(core)};
-    return BranchWalReplayer{ctx}.Run(files);
+    return BranchWalReplayer{ctx, main_gids}.Run(files);
   } catch (const std::exception &e) {
     return std::unexpected(std::string{e.what()});
+  }
+}
+
+}  // namespace
+
+std::expected<NativeGidEnds, std::string> ReplayBranchWal(std::shared_ptr<BranchCore> core,
+                                                          const std::filesystem::path &wal_dir) {
+  auto &main = core->main();
+  const memory::DbArenaScope arena_scope{main.DbArenaPool()};
+  MainGids main_gids{main, core->edge_gid_floor()};
+  return ReplayWithMainGids(std::move(core), wal_dir, main_gids, wal_dir.parent_path().filename().string());
+}
+
+namespace {
+
+// CREATE BRANCH makes the branch directory and its WAL directory, so a missing one means the files were removed, not
+// that the branch never wrote.
+void RequireDirectory(const std::filesystem::path &dir, std::string_view what) {
+  std::error_code ec;
+  if (std::filesystem::is_directory(dir, ec)) return;
+  if (ec && ec != std::errc::no_such_file_or_directory) {
+    throw utils::BasicException("Cannot inspect '{}': {}", dir.string(), ec.message());
+  }
+  throw utils::BasicException("The {} '{}' is missing, so the branch's committed writes are lost", what, dir.string());
+}
+
+// False when the branch never committed (no WAL file). Throws when the directory cannot be listed.
+bool HasWalFiles(const std::filesystem::path &dir) {
+  std::error_code ec;
+  for (std::filesystem::directory_iterator it{dir, ec}, end; !ec && it != end; it.increment(ec)) {
+    if (it->is_regular_file(ec)) return true;
+  }
+  if (ec) throw utils::BasicException("Cannot list '{}': {}", dir.string(), ec.message());
+  return false;
+}
+
+// Builds `name`'s core in the store with its WAL replayed and returns the native gids it holds, or the reason it
+// cannot.
+std::expected<NativeGidEnds, std::string> RecoverBranch(VersionStore &store, storage::InMemoryStorage &main,
+                                                        MainGids &main_gids, const std::string &name,
+                                                        const std::filesystem::path &wal_dir) {
+  try {
+    RequireDirectory(wal_dir.parent_path(), "branch directory");
+    RequireDirectory(wal_dir, "WAL directory");
+    if (!HasWalFiles(wal_dir)) return NativeGidEnds{};
+    auto branch = store.Checkout(name);
+    if (!branch) return std::unexpected(std::move(branch.error()));
+    const auto &info = (*branch)->info();
+    NativeGidEnds ends;
+    const auto core = (*branch)->GetOrBuildCore([&]() -> CoreResult {
+      auto built = BranchCore::Build(main, info.fork, (*branch)->fork_ts(), info.id);
+      if (!built) return std::unexpected(std::move(built.error().message));
+      auto replayed = ReplayWithMainGids(*built, wal_dir, main_gids, name);
+      if (!replayed) return std::unexpected(std::move(replayed.error()));
+      ends = *replayed;
+      return std::move(*built);
+    });
+    if (!core) return std::unexpected(core.error());
+    return ends;
+  } catch (const std::exception &e) {
+    return std::unexpected(std::string{e.what()});
+  }
+}
+
+}  // namespace
+
+void RecoverBranches(VersionStore &store, storage::InMemoryStorage &main) {
+  const memory::DbArenaScope arena_scope{main.DbArenaPool()};
+  const auto branches_dir = main.config_.durability.storage_directory / "branches";
+  const auto listings = store.List();
+  // The check is against main as recovered: the counters the loop raises must not widen it.
+  uint64_t lowest_edge_floor = std::numeric_limits<uint64_t>::max();
+  for (const auto &listing : listings) {
+    lowest_edge_floor = std::min(lowest_edge_floor, listing.info.fork.edge_gid_floor);
+  }
+  MainGids main_gids{main, lowest_edge_floor};
+  for (const auto &listing : listings) {
+    if (listing.unavailable_reason) continue;
+    const auto &info = listing.info;
+    const auto ends =
+        RecoverBranch(store, main, main_gids, listing.name, branches_dir / std::to_string(info.id) / "wal");
+    if (!ends) {
+      store.MarkUnavailable(info.id, ends.error());
+      spdlog::warn("Graph Versioning: branch '{}' of database '{}' cannot be recovered and is unavailable: {}.",
+                   listing.name,
+                   main.config_.salient.name.str(),
+                   ends.error());
+      continue;
+    }
+    atomic_fetch_max_explicit(&main.vertex_id_, ends->vertex, std::memory_order_acq_rel);
+    atomic_fetch_max_explicit(&main.edge_id_, ends->edge, std::memory_order_acq_rel);
   }
 }
 

@@ -17,9 +17,12 @@
 #include <memory>
 #include <string>
 
+#include "storage/v2/inmemory/storagefwd.hpp"
+
 namespace memgraph::versioning {
 
 class BranchCore;
+class VersionStore;
 
 // One past the highest native gid the replay created, 0 where it created none. The caller raises main's id counters to
 // at least these before the database serves, so main never hands out a gid the branch uses, and refuses a branch
@@ -34,9 +37,17 @@ struct NativeGidEnds {
 // a base object main no longer has is an error. Native objects keep their recorded gids. Afterwards the diff clock is
 // past every replayed commit and WAL numbering continues. An unfinalized file with no readable header or whole
 // transaction is skipped, one with some is replayed to its last whole transaction; a seq-num gap or repeat, an
-// unreadable finalized file, a CRC failure or an inapplicable record is an error. No file is renamed, deleted or
-// written. Never throws.
+// unreadable finalized file, a CRC failure or an inapplicable record is an error. A branch whose only files are
+// unreadable starts as forked, with a warning. No file is renamed, deleted or written. Never throws.
 [[nodiscard]] std::expected<NativeGidEnds, std::string> ReplayBranchWal(std::shared_ptr<BranchCore> core,
                                                                         const std::filesystem::path &wal_dir);
+
+// Startup only, after VersionStore::Restore and before the database serves: replays every available branch that has WAL
+// files into a core the store keeps, then raises main's id counters to at least the native gids each replay created.
+// A branch that cannot be recovered (damaged files, a replay error, a native gid main already holds) is marked
+// unavailable (VersionStore::MarkUnavailable) and the start goes on; main is never changed by a failing branch. A
+// missing branch or WAL directory is such a failure (CREATE BRANCH makes both); a branch with no WAL file has nothing
+// to replay. Never throws.
+void RecoverBranches(VersionStore &store, storage::InMemoryStorage &main);
 
 }  // namespace memgraph::versioning

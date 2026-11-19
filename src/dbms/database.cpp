@@ -51,6 +51,7 @@
 #include "utils/logging.hpp"
 #include "utils/string.hpp"
 #include "versioning/branch_ledger.hpp"
+#include "versioning/branch_recovery.hpp"
 #include "versioning/gate.hpp"
 #include "versioning/version_store.hpp"
 #endif
@@ -399,8 +400,8 @@ Database::Database(storage::Config config, [[maybe_unused]] kvstore::KVStore *du
       version_store_->MarkUnavailable(info.id, *reason);
       spdlog::warn("Graph Versioning: branch '{}' of database '{}' is unavailable: {}.", name, this->name(), *reason);
     }
-    // Branch WAL replay and the raising of main's gid counters past the branches' gids belong here: before the
-    // database is published and serves writes.
+    // Before the database is published: main must not hand out a gid a branch created.
+    versioning::RecoverBranches(*version_store_, in_memory);
   }
 #endif
 
