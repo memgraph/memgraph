@@ -88,7 +88,8 @@ bool ConfigBool(const mgp::Map &config, const char *key, bool fallback) {
 // Unrecognized keys are ignored, matching the reference's leniency — `useTypes` in particular is measured to be a
 // no-op for these procedures, so rejecting it would break otherwise-portable queries.
 Options ParseOptions(const mgp::Value &file_arg, const mgp::Value &config_arg) {
-  // An explicit null config means "no config", as it does on the reference.
+  // An explicit null config means "no config", as on the reference. The map type also admits a node or relationship.
+  if (!config_arg.IsNull() && !config_arg.IsMap()) throw mgp::ValueException("Argument 'config' must be a map or null");
   const auto config = config_arg.IsNull() ? mgp::Map{} : config_arg.ValueMap();
 
   for (const auto *unsupported : {kConfigCompression, kConfigCharset}) {
@@ -291,7 +292,9 @@ void JsonGraph(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mg
 
   try {
     const auto options = ParseOptions(Argument(args, 1), Argument(args, 2));
-    auto *graph_map = mgp::value_get_map(Argument(args, 0).ptr());
+    const auto graph_arg = Argument(args, 0);
+    if (!graph_arg.IsMap()) throw mgp::ValueException("Argument 'graph' must be a map");
+    auto *graph_map = mgp::value_get_map(graph_arg.ptr());
     // A missing half would export part of the graph, or none of it, under `done: true`, so both are required.
     const auto nodes_value = GraphKey(graph_map, kGraphKeyNodes);
     if (nodes_value.IsNull())
