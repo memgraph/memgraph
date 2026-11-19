@@ -82,42 +82,55 @@ class PropertyLookupCacher final : public ExpressionVisitor<void> {
     AcceptExpression(expression);
   }
 
-  /// The frontend's index for a property. `storage::PropertyId` is the other integer naming one
-  /// and means something else, so this is constructible only from the index itself.
-  class PropertyIndex {
+  /// The frame slots a pass reads into, by the symbol and the property each holds.
+  class CachedSlots {
    public:
-    PropertyIndex() = default;
+    /// Records that the pass reads `property` of `symbol` into `slot`.
+    void Add(Symbol const &symbol, PropertyIx const &property, Symbol const &slot) {
+      auto found = std::ranges::find(by_symbol_, symbol, &SymbolSlots::symbol);
+      if (found == by_symbol_.end()) {
+        by_symbol_.push_back(SymbolSlots{.symbol = symbol});
+        found = std::prev(by_symbol_.end());
+      }
+      found->slots.emplace_back(PropertyIndex{property}, slot);
+    }
 
-    explicit PropertyIndex(PropertyIx const &property) : value_{property.ix} {}
+    /// Whether the pass reads anything of this symbol, which is all that looking for a lookup to
+    /// replace asks: it decides only whether an expression needs a copy of its own.
+    [[nodiscard]] auto Holds(Symbol const &symbol) const -> bool {
+      return std::ranges::find(by_symbol_, symbol, &SymbolSlots::symbol) != by_symbol_.end();
+    }
 
-    friend bool operator==(PropertyIndex const &, PropertyIndex const &) = default;
+    [[nodiscard]] auto SlotFor(Symbol const &symbol, PropertyIx const &property) const -> std::optional<Symbol> {
+      auto const found = std::ranges::find(by_symbol_, symbol, &SymbolSlots::symbol);
+      if (found == by_symbol_.end()) return std::nullopt;
+      auto const slot = std::ranges::find(found->slots, PropertyIndex{property}, &PropertySlot::first);
+      if (slot == found->slots.end()) return std::nullopt;
+      return slot->second;
+    }
 
    private:
-    int64_t value_{-1};
+    /// A property as the frontend indexes it, and no more. A slot is never found by the name a
+    /// `PropertyIx` also carries, and this mapping is built afresh for every candidate plan.
+    class PropertyIndex {
+     public:
+      explicit PropertyIndex(PropertyIx const &property) : value_{property.ix} {}
+
+      friend bool operator==(PropertyIndex const &, PropertyIndex const &) = default;
+
+     private:
+      int64_t value_;
+    };
+
+    using PropertySlot = std::pair<PropertyIndex, Symbol>;
+
+    struct SymbolSlots {
+      Symbol symbol;
+      std::vector<PropertySlot> slots;
+    };
+
+    std::vector<SymbolSlots> by_symbol_;
   };
-
-  /// A property gathered for a symbol, with how many lookups named it. A pass reads it once
-  /// however many asked, so the count says how many reads the pass saves.
-  struct GatheredProperty {
-    PropertyIx property;
-    size_t lookups{0};
-  };
-
-  /// One symbol and its gathered properties, each named once. The order must be the same on every
-  /// planning of a query rather than any particular order.
-  struct Gathered {
-    Symbol symbol;
-    std::vector<GatheredProperty> properties;
-
-    /// Whether a pass here would remove a read rather than move one.
-    [[nodiscard]] auto AnyPropertyReadTwice() const -> bool {
-      return std::ranges::any_of(properties, [](auto const &p) { return p.lookups > 1; });
-    }
-  };
-
-  /// Which frame slot each cached property was read into, sized once so the mapping is one
-  /// allocation.
-  using CachedSymbolsOfProperty = std::vector<std::pair<PropertyIndex, Symbol>>;
 
   /// What a symbol's lookups must show before a pass of its own pays for itself. What separates the
   /// two is where the value the pass read is going: into a frame slot the operator was going to
@@ -133,21 +146,51 @@ class PropertyLookupCacher final : public ExpressionVisitor<void> {
     kAReadToRemove,
   };
 
+  /// A property gathered for a symbol, with how many lookups named it. A pass reads it once
+  /// however many asked, so the count says how many reads the pass saves.
+  struct GatheredProperty {
+    PropertyIx property;
+    size_t lookups{0};
+
+    void Note() { ++lookups; }
+  };
+
+  /// One symbol and its gathered properties, each named once. The order must be the same on every
+  /// planning of a query rather than any particular order.
+  struct Gathered {
+    Symbol symbol;
+    std::vector<GatheredProperty> properties;
+
+    void Note(PropertyIx const &property) {
+      auto found = std::ranges::find(properties, property, &GatheredProperty::property);
+      if (found == properties.end()) {
+        properties.push_back(GatheredProperty{.property = property});
+        found = std::prev(properties.end());
+      }
+      found->Note();
+    }
+
+    /// The properties worth reading in one pass, and nothing when none of them are.
+    [[nodiscard]] auto PropertiesWorthOnePass(Threshold threshold) const -> std::optional<Gathered> {
+      auto const removes_a_read = std::ranges::any_of(properties, [](auto const &p) { return p.lookups > 1; });
+      auto const pays =
+          threshold == Threshold::kAReadToRemove ? removes_a_read : removes_a_read || properties.size() >= 2;
+      if (!pays) return std::nullopt;
+      return *this;
+    }
+  };
+
   /// The symbols worth a pass of their own, by the standard the reading operator sets. A symbol
   /// whose lookups fall short is left out and keeps reading as it did.
   [[nodiscard]] auto Candidates(Threshold threshold) const -> std::vector<Gathered> {
     auto worthwhile = std::vector<Gathered>{};
     for (auto const &gathered : gathered_) {
-      auto const pays = threshold == Threshold::kAnythingToSave
-                            ? (gathered.properties.size() >= 2 || gathered.AnyPropertyReadTwice())
-                            : gathered.AnyPropertyReadTwice();
-      if (!pays) continue;
-      worthwhile.push_back(gathered);
+      if (auto properties = gathered.PropertiesWorthOnePass(threshold)) worthwhile.push_back(*std::move(properties));
     }
     return worthwhile;
   }
 
-  void SetCachedSymbols(std::vector<std::pair<Symbol, CachedSymbolsOfProperty>> cached) { cached_ = std::move(cached); }
+  void SetCachedSlots(CachedSlots cached) { cached_ = std::move(cached); }
 
   /// Whether the later phases would change anything in this expression, asked before either of
   /// them writes to it. Only one they would change needs a copy of its own.
@@ -177,43 +220,29 @@ class PropertyLookupCacher final : public ExpressionVisitor<void> {
         // The cursor fills a slot with Null for anything that is not a record, so an untyped symbol
         // would silently lose its properties.
         if (!symbol.BindsOneRecord()) return;
-        auto found = std::ranges::find_if(gathered_, [&symbol](auto const &g) { return g.symbol == symbol; });
-        if (found == gathered_.end()) {
-          gathered_.push_back(Gathered{.symbol = symbol, .properties = {}});
-          found = std::prev(gathered_.end());
-        }
-        auto &properties = found->properties;
-        auto const named = std::ranges::find_if(
-            properties, [&op](GatheredProperty const &p) { return p.property.ix == op.property_.ix; });
-        if (named == properties.end()) {
-          properties.push_back(GatheredProperty{.property = op.property_, .lookups = 1});
-        } else {
-          ++named->lookups;
-        }
+        GatheredFor(symbol).Note(op.property_);
         return;
       }
       case Phase::PROBE: {
-        // A symbol match is enough, since this only decides whether the expression needs its own copy.
-        auto const &symbol = symbol_table_->at(*identifier);
-        if (std::ranges::any_of(cached_, [&symbol](auto const &entry) { return entry.first == symbol; })) {
-          probe_found_ = true;
-        }
+        if (cached_.Holds(symbol_table_->at(*identifier))) probe_found_ = true;
         return;
       }
       case Phase::REPLACE: {
-        auto const &symbol = symbol_table_->at(*identifier);
-        auto const group =
-            std::ranges::find_if(cached_, [&symbol](auto const &entry) { return entry.first == symbol; });
-        if (group == cached_.end()) return;
-        auto const it =
-            std::ranges::find(group->second, PropertyIndex{op.property_}, &std::pair<PropertyIndex, Symbol>::first);
-        if (it == group->second.end()) return;
-        auto *replacement = ast_storage_->Create<Identifier>(it->second.name(), false);
-        replacement->MapTo(it->second);
+        auto const slot = cached_.SlotFor(symbol_table_->at(*identifier), op.property_);
+        if (!slot) return;
+        auto *replacement = ast_storage_->Create<Identifier>(slot->name(), false);
+        replacement->MapTo(*slot);
         prev_expressions_.back() = replacement;
         return;
       }
     }
+  }
+
+  /// The symbol's gathered properties, which its first lookup starts.
+  [[nodiscard]] auto GatheredFor(Symbol const &symbol) -> Gathered & {
+    auto found = std::ranges::find(gathered_, symbol, &Gathered::symbol);
+    if (found != gathered_.end()) return *found;
+    return gathered_.emplace_back(Gathered{.symbol = symbol, .properties = {}});
   }
 
   void AcceptExpression(Expression *&expr) {
@@ -323,7 +352,7 @@ class PropertyLookupCacher final : public ExpressionVisitor<void> {
   Phase phase_{Phase::GATHER};
   std::vector<Expression *> prev_expressions_;
   std::vector<Gathered> gathered_;
-  std::vector<std::pair<Symbol, CachedSymbolsOfProperty>> cached_;
+  CachedSlots cached_;
   bool probe_found_{false};
 };
 
@@ -430,32 +459,30 @@ class CachePropertiesRewriter final : public HierarchicalLogicalOperatorVisitor 
     return key;
   }
 
-  /// Draws the frame slots for each of `candidates` the input binds a record for, telling the cacher
-  /// which slot each property was given, and answering with the groups the pass reads into them.
+  /// Takes a frame slot for each property of each of `candidates` the input binds a record for,
+  /// telling the cacher which slot each property was given, and answering with the groups the pass
+  /// reads into them.
   auto DrawGroups(PropertyLookupCacher &cacher, std::vector<PropertyLookupCacher::Gathered> const &candidates,
                   LogicalOperator const &input, CachedPropertySlots::Pool &pool) -> std::vector<CachedPropertyGroup> {
     auto const modified = input.ModifiedSymbols(*symbol_table_);
-    auto cached_by_symbol = std::vector<std::pair<Symbol, PropertyLookupCacher::CachedSymbolsOfProperty>>{};
+    auto slots = PropertyLookupCacher::CachedSlots{};
     auto groups = std::vector<CachedPropertyGroup>{};
 
-    for (auto const &candidate : candidates) {
+    for (auto const &pass : candidates) {
       // A symbol the input does not bind is read by something else, so there is no record here to read it from.
-      if (std::ranges::find(modified, candidate.symbol) == modified.end()) continue;
+      if (std::ranges::find(modified, pass.symbol) == modified.end()) continue;
 
-      auto cached_by_property = PropertyLookupCacher::CachedSymbolsOfProperty{};
       auto cached_properties = std::vector<CachedProperty>{};
-      cached_properties.reserve(candidate.properties.size());
-      cached_by_property.reserve(candidate.properties.size());
-      for (auto const &gathered : candidate.properties) {
+      cached_properties.reserve(pass.properties.size());
+      for (auto const &gathered : pass.properties) {
         auto const output_symbol = pool.Next(*symbol_table_);
-        cached_by_property.emplace_back(PropertyLookupCacher::PropertyIndex{gathered.property}, output_symbol);
+        slots.Add(pass.symbol, gathered.property, output_symbol);
         cached_properties.push_back(CachedProperty{db_->NameToProperty(gathered.property.name), output_symbol});
       }
-      cached_by_symbol.emplace_back(candidate.symbol, std::move(cached_by_property));
-      groups.emplace_back(candidate.symbol, std::move(cached_properties));
+      groups.emplace_back(pass.symbol, std::move(cached_properties));
     }
 
-    if (!groups.empty()) cacher.SetCachedSymbols(std::move(cached_by_symbol));
+    if (!groups.empty()) cacher.SetCachedSlots(std::move(slots));
     return groups;
   }
 
