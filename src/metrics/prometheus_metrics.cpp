@@ -908,7 +908,6 @@ PrometheusMetrics::PrometheusMetrics()
   // No-db fallback counters: same family as per-db, but with no database label.
   // Incremented only when a query fires outside any database context.
   global.transient_errors = &transient_errors_family_.Add(no_labels);
-  global.replication_failures = {.family = &replication_failures_family_};
   global.failed_query = &failed_query_family_.Add(no_labels);
   global.failed_prepare = &failed_prepare_family_.Add(no_labels);
   global.failed_pull = &failed_pull_family_.Add(no_labels);

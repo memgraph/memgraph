@@ -114,5 +114,13 @@ def test_after_commit_trigger_counts_its_own_commit(test_name):
     mg_sleep_and_assert(before + 2, lambda: replication_failures("committed"))
 
 
+def test_each_periodic_commit_batch_counts(test_name):
+    cursor = start_with_replica_down(test_name)
+
+    execute_and_fetch_all(cursor, "UNWIND range(1, 100) AS i CALL { WITH i CREATE () } IN TRANSACTIONS OF 10 ROWS;")
+
+    assert replication_failures("committed") == 10
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))

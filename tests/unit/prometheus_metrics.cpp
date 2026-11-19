@@ -139,7 +139,6 @@ TEST(PrometheusMetrics, ReplicationFailuresSumOnlyTheDatabasesOwnSeries) {
   db1.handles().replication_failures.Increment("replica_2", COMMITTED, RPC_ERROR);
   db1.handles().replication_failures.Increment("replica_2", COMMITTED, RPC_ERROR);
   db2.handles().replication_failures.Increment("replica_1", ABORTED, TIMEOUT);
-  pm.global.replication_failures.Increment("replica_1", COMMITTED, RPC_ERROR);
 
   auto const info_value = [&](memgraph::utils::UUID const &uuid, std::string_view name) {
     auto const info = pm.GetDbMetricsInfo(uuid);
