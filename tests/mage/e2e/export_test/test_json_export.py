@@ -784,6 +784,16 @@ def test_export_keeps_the_target_owner_and_group(conn, server_files, export_path
     assert (after.st_uid, after.st_gid) == (before.st_uid, before.st_gid)
 
 
+def test_export_through_a_hard_link_updates_every_name(conn, server_files, export_path):
+    # Renaming over one name of a hard-linked file would detach it, leaving the other name with the old export.
+    alias = export_path + ".alias"
+    execute(conn, SEED_MIXED)
+    make_target(export_path, 0o666)
+    os.link(export_path, alias)
+    export(conn, call=f"export.json_data(ns, rs, '{alias}', {{}})")
+    assert parse(require_server_file(export_path)) == ALL_ELEMENTS
+
+
 def test_json_graph_argument_error_leaves_a_hard_linked_target_intact(conn, server_files, export_path):
     # A hard-linked target is written in place, so nothing may open it before the arguments are known to be valid.
     alias = export_path + ".alias"
