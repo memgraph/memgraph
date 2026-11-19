@@ -1438,6 +1438,75 @@ TEST(AuthWithoutStorage, FineGrainedAccessPermissions) {
   }
 }
 
+namespace {
+// Drops the license for the duration of a scope and puts back what was there. Other tests in this
+// binary assume an active license, so leaving it off would make them fail depending on run order.
+struct UnlicensedScope {
+  UnlicensedScope() : was_valid_{memgraph::license::global_license_checker.IsEnterpriseValidFast()} {
+    memgraph::license::global_license_checker.DisableTesting();
+  }
+
+  ~UnlicensedScope() {
+    if (was_valid_) memgraph::license::global_license_checker.EnableTesting();
+  }
+
+  UnlicensedScope(const UnlicensedScope &) = delete;
+  UnlicensedScope &operator=(const UnlicensedScope &) = delete;
+  UnlicensedScope(UnlicensedScope &&) = delete;
+  UnlicensedScope &operator=(UnlicensedScope &&) = delete;
+
+ private:
+  bool was_valid_;
+};
+}  // namespace
+
+// Losing the license must never widen access: a label a rule denies stays denied.
+TEST(AuthWithoutStorage, ConfiguredFineGrainedRulesAreEnforcedWithoutLicense) {
+  const UnlicensedScope unlicensed;
+
+  const std::string public_label = "Public";
+  const std::string secret_label = "Secret";
+
+  FineGrainedAccessPermissions fga_permissions;
+  fga_permissions.GrantGlobal(kAllLabelPermissions);
+  fga_permissions.Deny({secret_label}, kAllLabelPermissions);
+
+  EXPECT_EQ(fga_permissions.Has(std::array{public_label}, FineGrainedPermission::READ), PermissionLevel::GRANT);
+  EXPECT_EQ(fga_permissions.Has(std::array{secret_label}, FineGrainedPermission::READ), PermissionLevel::DENY);
+}
+
+// The same holds for permissions expressed globally rather than per label.
+TEST(AuthWithoutStorage, GlobalFineGrainedGrantsAreEnforcedWithoutLicense) {
+  const UnlicensedScope unlicensed;
+
+  const std::string any_label = "AnyLabel";
+
+  FineGrainedAccessPermissions fga_permissions;
+  fga_permissions.GrantGlobal(FineGrainedPermission::READ);
+
+  EXPECT_EQ(fga_permissions.Has(std::array{any_label}, FineGrainedPermission::READ), PermissionLevel::GRANT);
+  EXPECT_EQ(fga_permissions.Has(std::array{any_label}, FineGrainedPermission::DELETE), PermissionLevel::DENY);
+  EXPECT_EQ(fga_permissions.HasGlobal(FineGrainedPermission::DELETE), PermissionLevel::DENY);
+}
+
+// What a query actually consults is the user's merged permissions, so those must carry the stored
+// rules too rather than coming back empty once the license is gone.
+TEST(AuthWithoutStorage, UserFineGrainedPermissionsSurviveLicenseLoss) {
+  const UnlicensedScope unlicensed;
+
+  const std::string public_label = "Public";
+  const std::string secret_label = "Secret";
+
+  User user{"test"};
+  user.fine_grained_access_handler().label_permissions().GrantGlobal(kAllLabelPermissions);
+  user.fine_grained_access_handler().label_permissions().Deny({secret_label}, kAllLabelPermissions);
+
+  const auto permissions = user.GetFineGrainedAccessLabelPermissions(std::nullopt);
+
+  EXPECT_EQ(permissions.Has(std::array{public_label}, FineGrainedPermission::READ), PermissionLevel::GRANT);
+  EXPECT_EQ(permissions.Has(std::array{secret_label}, FineGrainedPermission::READ), PermissionLevel::DENY);
+}
+
 TEST(AuthWithoutStorage, PropertyAccessPermissions) {
   using memgraph::auth::PermissionLevel;
   using memgraph::auth::PropertyAccessPermissions;

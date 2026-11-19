@@ -398,6 +398,12 @@ class FineGrainedAccessPermissions final {
 
   std::vector<FineGrainedAccessRule> const &GetRules() const { return rules_; }
 
+  /// True when nothing has ever been granted or denied here. Access checks are deny-by-default, so an
+  /// unconfigured set means fine-grained access control was never set up for this principal, and such a
+  /// principal is unrestricted while unlicensed. A configured set is enforced whatever the license says:
+  /// losing a license must not hand a user access that was taken away from them.
+  bool IsUnconfigured() const { return rules_.empty() && !global_grants_.has_value() && !global_denies_.has_value(); }
+
  private:
   std::optional<uint64_t> global_grants_;
   std::optional<uint64_t> global_denies_;
