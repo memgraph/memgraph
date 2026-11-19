@@ -64,9 +64,10 @@ class DatabaseHandler : public Handler<Database> {
    *
    * @param name Name associating the new interpreter context
    * @param config Storage configuration
+   * @param durability DBMS durability KVStore holding the branch ledgers
    * @return HandlerT::NewResult
    */
-  HandlerT::NewResult New(storage::Config config) {
+  HandlerT::NewResult New(storage::Config config, kvstore::KVStore *durability) {
     // Control that no one is using the same data directory
     if (std::ranges::any_of(*this, [&](auto &elem) {
           // A hot/cold COLD shell is a no-value gatekeeper (access() == nullopt). It does not hold a
@@ -82,7 +83,7 @@ class DatabaseHandler : public Handler<Database> {
       return std::unexpected{NewError::EXISTS};
     }
 
-    return HandlerT::New(std::piecewise_construct, *config.salient.name.str_view(), config);
+    return HandlerT::New(std::piecewise_construct, *config.salient.name.str_view(), config, durability);
   }
 
   /**
@@ -95,10 +96,10 @@ class DatabaseHandler : public Handler<Database> {
    * @param config Storage configuration (already path-resolved by the caller)
    * @return a HOT utils::Gatekeeper<Database> by value (move)
    */
-  utils::Gatekeeper<Database> BuildDetached(storage::Config config) {
+  utils::Gatekeeper<Database> BuildDetached(storage::Config config, kvstore::KVStore *durability) {
     // Build OFF the map (no insert). The Database ctor recovers when
     // config.durability.recover_on_startup == true. Returned by value (move).
-    return utils::Gatekeeper<Database>{std::move(config)};
+    return utils::Gatekeeper<Database>{std::move(config), durability};
   }
 
   /**
