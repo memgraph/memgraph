@@ -615,8 +615,6 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
         };
         // Whether the current clause reads View::NEW (`ClauseReadsNew`).
         bool clause_reads_new = false;
-        // Set when a View::OLD reader reads View::NEW instead of a barrier; a read-only CALL body then reads NEW too.
-        bool switched_to_new = false;
         // Plan and apply the satisfiable comprehensions this clause originates, before the clause itself.
         auto plan_and_apply_comprehensions = [&](const std::unordered_set<Symbol> &eligible) {
           input_op = SpliceSatisfiedComprehensions(
@@ -632,6 +630,9 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
 
           // A writing clause is marked before its own comprehensions are planned, so they see earlier rows' writes.
           clause_reads_new = ClauseReadsNew(*clause, branch_sees_write());
+          // Set when this View::OLD reader reads View::NEW instead of a barrier; its read-only CALL body then reads
+          // NEW. Per clause: a later CALL's barrier and drain bookkeeping is View::OLD's.
+          bool switched_to_new = false;
           // A RETURN ends its leg, so no later write reaches its subqueries: after a write they read View::NEW, as on
           // master, and need no advance (analytical mode skips the drain's).
           bool const subqueries_read_new =
