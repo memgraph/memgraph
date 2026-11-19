@@ -1093,11 +1093,11 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
            });
   }
 
-  /// A CALL body that writes nothing and runs once per input row, not in batches.
+  /// A CALL body that writes nothing. A batched one never gets here: its query plans no barriers.
   static bool IsReadOnlyCall(const Clause &clause, const std::vector<std::shared_ptr<QueryParts>> &subqueries,
                              uint64_t next_subquery) {
     auto const *call = utils::Downcast<const query::CallSubquery>(&clause);
-    return call && !call->cypher_query_->pre_query_directives_.commit_frequency_ && !subqueries[next_subquery]->writes;
+    return call && !subqueries[next_subquery]->writes;
   }
 
   /// A clause that must see its own earlier rows, so it reads View::NEW: a SET/REMOVE right-hand side, MERGE,
