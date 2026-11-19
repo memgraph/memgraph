@@ -12,6 +12,7 @@
 // Recovery bounded by a durable timestamp: the recovered state is the one as of the bound, and the WAL files that
 // hold the remaining transactions are reported back.
 
+#include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
 #include <algorithm>
@@ -21,6 +22,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <fstream>
 #include <memory>
 #include <optional>
 #include <string>
@@ -30,6 +32,7 @@
 
 #include "dbms/database.hpp"
 #include "flags/general.hpp"
+#include "kvstore/kvstore.hpp"
 #include "memory/db_arena.hpp"
 #include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/durability/durability.hpp"
@@ -44,9 +47,12 @@
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/replication/replication_storage_state.hpp"
 #include "tests/test_commit_args_helper.hpp"
+#include "tests/versioning_durable_files.hpp"
 #include "utils/file.hpp"
 #include "utils/scheduler.hpp"
 #include "utils/uuid.hpp"
+#include "versioning/branch_ledger.hpp"
+#include "versioning/version_store.hpp"
 
 namespace ms = memgraph::storage;
 namespace md = memgraph::storage::durability;
@@ -54,13 +60,40 @@ namespace md = memgraph::storage::durability;
 namespace {
 
 const std::filesystem::path kRoot{std::filesystem::temp_directory_path() / "versioning_bounded_recovery"};
+const std::filesystem::path kKvRoot{std::filesystem::temp_directory_path() / "versioning_bounded_recovery_kv"};
+
+// The DBMS durability KVStore that holds the branch ledger, shared by the databases of one test.
+const memgraph::utils::UUID kDbUuid;
+
+std::unique_ptr<memgraph::kvstore::KVStore> &KvSlot() {
+  static std::unique_ptr<memgraph::kvstore::KVStore> kv;
+  return kv;
+}
+
+memgraph::kvstore::KVStore *Kv() {
+  auto &kv = KvSlot();
+  if (!kv) kv = std::make_unique<memgraph::kvstore::KVStore>(kKvRoot);
+  return kv.get();
+}
+
+void ResetKv() {
+  KvSlot().reset();
+  std::filesystem::remove_all(kKvRoot);
+}
+
+std::string LedgerKey() { return std::string{memgraph::versioning::kBranchLedgerKeyPrefix} + std::string{kDbUuid}; }
+
+std::string ReadLedger() { return Kv()->Get(LedgerKey()).value_or(""); }
+
+void WriteLedger(const std::string &value) { ASSERT_TRUE(Kv()->Put(LedgerKey(), value)); }
 
 // Small WAL files rotate every few commits, so a history spans several of them.
 constexpr uint64_t kSmallWalKiB = 1;
 constexpr uint64_t kDefaultWalKiB = 20 * 1024;
 
-ms::Config MakeConfig(bool recover, uint64_t wal_kib = kDefaultWalKiB) {
+ms::Config MakeConfig(bool recover, bool versioning = true, uint64_t wal_kib = kDefaultWalKiB) {
   ms::Config config;
+  config.experimental_versioning = versioning;
   config.gc = {.type = ms::Config::Gc::Type::PERIODIC, .interval = std::chrono::hours(24)};
   config.durability = {.storage_directory = kRoot,
                        .recover_on_startup = recover,
@@ -70,8 +103,14 @@ ms::Config MakeConfig(bool recover, uint64_t wal_kib = kDefaultWalKiB) {
                        .wal_file_size_kibibytes = wal_kib,
                        .wal_file_flush_every_n_tx = 1};
   config.salient.items.properties_on_edges = true;
+  config.salient.uuid = kDbUuid;
   return config;
 }
+
+// A Database wired to the test's ledger store.
+struct TestDatabase : memgraph::dbms::Database {
+  explicit TestDatabase(ms::Config config) : memgraph::dbms::Database(std::move(config), Kv()) {}
+};
 
 // Makes the vertex section undecodable while the header still reads, so the file is listed and then fails to load.
 void CorruptSnapshot(std::filesystem::path const &path) {
@@ -194,7 +233,7 @@ struct History {
 
 // `snapshot_after` lists the commit numbers (1-based) after which a snapshot is taken.
 void BuildHistory(History &h, std::vector<size_t> const &snapshot_after, uint64_t wal_kib) {
-  memgraph::dbms::Database db{MakeConfig(false, wal_kib)};
+  TestDatabase db{MakeConfig(false, true, wal_kib)};
   const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
   auto *s = static_cast<ms::InMemoryStorage *>(db.storage());
   auto const p = s->NameToProperty("p");
@@ -342,10 +381,14 @@ class VersioningBoundedRecoveryTest : public ::testing::Test {
  protected:
   void SetUp() override {
     FLAGS_metrics_format = "OpenMetrics";
+    ResetKv();
     std::filesystem::remove_all(kRoot);
   }
 
-  void TearDown() override { std::filesystem::remove_all(kRoot); }
+  void TearDown() override {
+    ResetKv();
+    std::filesystem::remove_all(kRoot);
+  }
 
   // Two snapshots among sixteen commits, in WAL files small enough to rotate every few of them.
   static void BuildWithSnapshots(History &h) { BuildHistory(h, {5, 12}, kSmallWalKiB); }
@@ -381,7 +424,7 @@ TEST_F(VersioningBoundedRecoveryTest, AllSnapshotsPastTheBoundWithoutWalFail) {
   {
     auto config = MakeConfig(false);
     config.durability.snapshot_wal_mode = ms::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT;
-    memgraph::dbms::Database db{config};
+    TestDatabase db{config};
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
     auto acc = db.Access(ms::WRITE);
     acc->CreateVertex();
@@ -516,10 +559,106 @@ TEST_F(VersioningBoundedRecoveryTest, ConfiguredBoundRecoversStateAtBoundAndHand
     EXPECT_FALSE(s.TakeRecoveryTail().has_value()) << "the tail is moved out";
   }
   {
-    memgraph::dbms::Database db{MakeConfig(true)};
+    TestDatabase db{MakeConfig(true)};
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
     StorageReader reader{*db.storage()};
     ExpectStateAsOf(reader, h, h.end_ts);
     EXPECT_FALSE(static_cast<ms::InMemoryStorage *>(db.storage())->TakeRecoveryTail().has_value());
   }
+}
+
+namespace {
+// Main with three vertices and a branch "b" forked after the second; the branch has one file, standing in for its WAL.
+std::filesystem::path CreateBranchedDatabase() {
+  {
+    TestDatabase db{MakeConfig(false)};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+    for (int i = 0; i < 2; ++i) {
+      auto acc = db.Access(ms::WRITE);
+      acc->CreateVertex();
+      Commit(*acc);
+    }
+    EXPECT_TRUE(db.version_store()->CreateBranch("b").has_value());
+    auto acc = db.Access(ms::WRITE);
+    acc->CreateVertex();
+    Commit(*acc);
+  }
+  const auto read = memgraph::versioning::BranchLedger{*Kv(), kDbUuid}.Read();
+  EXPECT_TRUE(read.has_value() && read->has_value());
+  const auto marker = kRoot / "branches" / std::to_string((*read)->branches.at(0).info.id) / "wal" / "marker";
+  std::filesystem::create_directories(marker.parent_path());
+  std::ofstream{marker} << "x";
+  return marker;
+}
+}  // namespace
+
+// Versioning on in a storage mode that cannot host branches: main starts, the branches stay on disk untouched, and the
+// next start in the supported mode finds them again.
+TEST_F(VersioningBoundedRecoveryTest, AnAnalyticalStartupStartsAndLeavesTheBranchesOnDisk) {
+  CreateBranchedDatabase();
+  const auto files_before = memgraph::tests::ImageDurableFiles(kRoot);
+  const auto ledger_before = ReadLedger();
+  {
+    auto config = MakeConfig(true);
+    config.salient.storage_mode = ms::StorageMode::IN_MEMORY_ANALYTICAL;
+    TestDatabase db{std::move(config)};
+    EXPECT_EQ(db.version_store(), nullptr);
+    EXPECT_FALSE(db.branches_unavailable().has_value());
+  }
+  EXPECT_EQ(ReadLedger(), ledger_before);
+  EXPECT_EQ(memgraph::tests::ImageDurableFiles(kRoot), files_before);
+
+  TestDatabase db{MakeConfig(true)};
+  ASSERT_NE(db.version_store(), nullptr);
+  EXPECT_TRUE(db.version_store()->Exists("b"));
+}
+
+// Versioning off: the ledger is not looked at, as on master. No registry, no retention, no message; the files stay.
+TEST_F(VersioningBoundedRecoveryTest, WithVersioningOffALedgerIsIgnored) {
+  const auto marker = CreateBranchedDatabase();
+  const auto ledger_before = ReadLedger();
+  ASSERT_FALSE(ledger_before.empty());
+
+  for (const bool readable : {true, false}) {
+    if (!readable) WriteLedger("not a ledger");
+    TestDatabase db{MakeConfig(true, /*versioning=*/false)};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+    EXPECT_EQ(db.Access(ms::READ)->ApproximateVertexCount(), 3U);
+    EXPECT_EQ(db.version_store(), nullptr);
+    EXPECT_FALSE(db.branches_unavailable().has_value());
+    EXPECT_FALSE(static_cast<ms::InMemoryStorage *>(db.storage())->TakeRecoveryTail().has_value());
+    EXPECT_EQ(db.storage()->RetentionFloor(), ms::Storage::kNoRetentionFloor);
+  }
+  EXPECT_EQ(ReadLedger(), "not a ledger");
+  EXPECT_TRUE(std::filesystem::exists(marker));
+}
+
+// An unreadable ledger never blocks main: it recovers whole, every branch operation of the database is refused with
+// the reason, and the ledger and the branch files are left as they are.
+TEST_F(VersioningBoundedRecoveryTest, AnUnreadableLedgerStartsMainAndRefusesBranchesWithoutTouchingTheLedger) {
+  const auto marker = CreateBranchedDatabase();
+  const auto good_ledger = ReadLedger();
+  WriteLedger("not a ledger");
+
+  {
+    TestDatabase db{MakeConfig(true)};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+    EXPECT_EQ(db.Access(ms::READ)->ApproximateVertexCount(), 3U) << "main recovers whole";
+    EXPECT_EQ(db.version_store(), nullptr) << "no store can write over the ledger";
+    ASSERT_TRUE(db.branches_unavailable().has_value());
+    EXPECT_THAT(*db.branches_unavailable(), ::testing::HasSubstr("cannot be read"));
+    EXPECT_THAT(*db.branches_unavailable(), ::testing::HasSubstr("restart Memgraph"));
+    auto acc = db.Access(ms::WRITE);
+    acc->CreateVertex();
+    Commit(*acc);
+  }
+  EXPECT_EQ(ReadLedger(), "not a ledger");
+  EXPECT_TRUE(std::filesystem::exists(marker));
+
+  WriteLedger(good_ledger);
+  TestDatabase db{MakeConfig(true)};
+  EXPECT_FALSE(db.branches_unavailable().has_value());
+  ASSERT_NE(db.version_store(), nullptr);
+  EXPECT_TRUE(db.version_store()->Exists("b")) << "the restored ledger brings the branch back";
+  EXPECT_EQ(db.version_store()->Get("b")->unavailable_reason, std::nullopt);
 }
