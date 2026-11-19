@@ -296,6 +296,8 @@ struct Transaction {
   std::vector<uint64_t> index_stamps;
   // Set while a query that commits in batches runs; an advance then raises a stamp.
   bool index_stamps_armed{false};
+  // The storage's owners of stamp spans; null where no index scan reads entry timestamps (disk storage).
+  StampSpanOwners const *stamp_span_owners{nullptr};
 
   delta_container deltas;
   utils::pmr::list<MetadataDelta> md_deltas;

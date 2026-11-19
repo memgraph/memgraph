@@ -1527,6 +1527,50 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
     return last_op;
   }
 
+  /// The match branch, under an Accumulate (no advance) when an ON MATCH write can reach another match of the row. It
+  /// cannot through the node of a one-node pattern or the edge of a directed one-edge pattern: the scan passed it.
+  std::unique_ptr<LogicalOperator> BufferMatchesBeforeOnMatch(query::Merge &merge, const Matching &matching,
+                                                              std::unique_ptr<LogicalOperator> on_match,
+                                                              const std::unordered_set<Symbol> &matched_bound) {
+    if (merge.on_match_.empty()) return on_match;
+    auto const &symbol_table = *context_->symbol_table;
+    auto reads = CollectReads(matching, symbol_table, context_->bound_symbols, non_graph_symbols_);
+    reads.symbols.clear();  // the match reads View::NEW
+    ReadWriteSet writes;
+    for (auto *clause : merge.on_match_) {
+      writes.Merge(CollectReadsAndWrites(*clause, symbol_table, matched_bound, non_graph_symbols_).writes);
+    }
+    if (!Conflicts(reads, writes)) return on_match;
+    if (matching.expansions.size() == 1) {
+      auto const &expansion = matching.expansions.front();
+      if (!expansion.edge) {
+        // The scan checks only the node it returns; a filter may check another one.
+        auto const node = symbol_table.at(*expansion.node1->identifier_);
+        auto node_reads = reads;
+        node_reads.access_check = {};
+        for (auto const &filter : matching.filters) {
+          if (!filter.expression) continue;
+          node_reads.access_check.Merge(
+              CollectReadsAndWrites(*filter.expression, symbol_table, context_->bound_symbols, non_graph_symbols_)
+                  .reads.access_check);
+        }
+        node_reads.access_check.Note(node);
+        if (ConflictsOnlyOnKeysOf(node_reads, writes) == node) return on_match;
+      } else if (expansion.direction != EdgeAtom::Direction::BOTH &&
+                 ConflictsOnlyOnKeysOf(reads, writes) == symbol_table.at(*expansion.edge->identifier_)) {
+        return on_match;
+      }
+    }
+    std::vector<Symbol> symbols;
+    for (auto const &symbol : on_match->ModifiedSymbols(symbol_table)) {
+      if (!context_->bound_symbols.contains(symbol)) symbols.push_back(symbol);
+    }
+    std::ranges::sort(symbols, std::less<>{}, &Symbol::position);
+    auto buffer = std::make_unique<Accumulate>(std::move(on_match), symbols, /*advance_command=*/false);
+    buffer->access_check_only_ = ConflictsOnlyInAccessCheck(reads, writes);
+    return buffer;
+  }
+
   auto GenMerge(query::Merge &merge, std::unique_ptr<LogicalOperator> input_op, const Matching &matching,
                 std::unordered_map<Symbol, PatternComprehensionMatching> &pending_comprehensions) {
     // Copy the bound symbol set, because we don't want to use the updated
@@ -1538,6 +1582,8 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
 
     auto once_with_symbols = std::make_unique<Once>(bound_symbols);
     auto on_match = PlanMatching(match_ctx, std::move(once_with_symbols));
+    // An ON MATCH write must not reach a later match of the same input row, so the row's matches come first.
+    on_match = BufferMatchesBeforeOnMatch(merge, matching, std::move(on_match), bound_symbols_copy);
 
     // A comprehension an ON CREATE / ON MATCH reads is spliced into that branch. On the MERGE's own chain it would be
     // the Merge's *input*, written but computed before `GenCreateForPattern`, so ON CREATE could not see what this

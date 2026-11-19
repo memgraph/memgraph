@@ -40,6 +40,7 @@
 #include "spdlog/spdlog.h"
 #include "storage/v2/common_function_signatures.hpp"
 #include "storage/v2/durability/durability.hpp"
+#include "storage/v2/durability/exceptions.hpp"
 #include "storage/v2/durability/paths.hpp"
 #include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/edge_direction.hpp"
@@ -1477,16 +1478,22 @@ void InMemoryStorage::InMemoryAccessor::ArmIndexStamps() {
 }
 
 void InMemoryStorage::InMemoryAccessor::MintIndexStamp() {
-  auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
-  uint64_t stamp = 0;
-  {
-    auto const engine_guard = std::lock_guard{storage_->engine_lock_};
-    stamp = storage_->timestamp_++;
+  auto stamp = transaction_.index_stamp + 1;
+  if ((stamp & kIndexStampMask) == 0) {
+    // The span is used up: go on in the span of a timestamp no transaction starts at, owned by this batch.
+    auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
+    uint64_t span = 0;
+    {
+      auto const engine_guard = std::lock_guard{storage_->engine_lock_};
+      span = storage_->timestamp_++;
+    }
+    DMG_ASSERT(span < kMaxIndexedTimestamp, "A stamp span past the timestamp limit");
+    mem_storage->commit_log_->MarkFinished(span);
+    mem_storage->stamp_span_owners_.Add(span, transaction_.start_timestamp);
+    stamp = IndexTimestamp(span);
   }
-  // No transaction starts at a stamp; the batch start below it keeps the GC horizon while the stamp matters.
-  mem_storage->commit_log_->MarkFinished(stamp);
-  transaction_.index_stamps.push_back(IndexTimestamp(stamp));
-  transaction_.index_stamp = IndexTimestamp(stamp);
+  transaction_.index_stamps.push_back(stamp);
+  transaction_.index_stamp = stamp;
 }
 
 void InMemoryStorage::InMemoryAccessor::GCRapidDeltaCleanup(BatchedList<Edge *> &current_deleted_edges,
@@ -3045,6 +3052,10 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
   ActiveConstraintsPtr active_constraints;
   {
     auto guard = std::lock_guard{engine_lock_};
+    if (timestamp_ >= kMaxIndexedTimestamp) {
+      throw utils::BasicException("The timestamp reached its limit {}; no transaction can start.",
+                                  kMaxIndexedTimestamp);
+    }
     transaction_id = transaction_id_++;
     start_timestamp = timestamp_++;
     // Capture the SI snapshot boundary under the same engine_lock hold as the mint (consistent with
@@ -3077,6 +3088,7 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
                                  commit_ts_info.num_committed_txns_,
                                  metric_handles_.unreleased_delta_objects};
   transaction.snapshot_ts = snapshot_ts;
+  transaction.stamp_span_owners = &stamp_span_owners_;
   transaction.commit_lock_narrowing =
       config_.experimental_commit_lock_narrowing && isolation_level == IsolationLevel::SNAPSHOT_ISOLATION;
   return transaction;
@@ -3222,6 +3234,9 @@ void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode) {
 }
 
 void InMemoryStorage::SetTimestampQuiescent(uint64_t const next_timestamp) {
+  if (next_timestamp >= kMaxIndexedTimestamp) {
+    throw durability::RecoveryFailure("The timestamp {} reaches the limit {}.", next_timestamp, kMaxIndexedTimestamp);
+  }
   timestamp_ = next_timestamp;
   // 0 is never a live commit ts (the first BEGIN consumes it) and is recovery's always-visible stamp,
   // so the clamp is exact.
@@ -5575,6 +5590,7 @@ void InMemoryStorage::Clear(std::function<void()> const &on_progress) {
     // Windows hold pre-rewind ids; recovery is single-threaded, so no concurrent GC or committer.
     commit_windows_.clear();
   }
+  stamp_span_owners_.Clear();
   transaction_id_ = kTransactionInitialId;
 
   // Reset WALs

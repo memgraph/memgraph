@@ -581,8 +581,8 @@ TEST_F(OwnBatchWrite, AnElementMovedIntoTheRangeBeforeTheScanIsSeenOnce) {
   acc->Abort();
 }
 
-// T4: another transaction that started after this batch and committed before the scan opened wrote an entry
-// stamped between the batch start and the scan's stamp; the scan, which sees the graph as of its batch, hides it.
+// T4: another transaction that started after this batch, before its stamp, committed before the scan opened; the
+// scan, which sees the graph as of its batch, hides its entry.
 TEST_F(OwnBatchWrite, AForeignEntryBetweenTheBatchStartAndTheStampStaysHidden) {
   Index([&](auto &acc) { return acc.CreateIndex(label, {ms::PropertyPath{property}}).has_value(); });
   auto const gids = Vertices();

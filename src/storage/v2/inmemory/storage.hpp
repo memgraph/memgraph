@@ -1186,6 +1186,9 @@ class InMemoryStorage final : public Storage {
 
   std::deque<CommitWindow> commit_windows_;
 
+  // The batch start owning each stamp span a batch ran out into; reset where the clock rewinds.
+  StampSpanOwners stamp_span_owners_;
+
   free_mem_fn free_memory_func_;
 
   // Moved the create snapshot to a user defined handler so we can remove the global replication state from the storage
