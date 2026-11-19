@@ -360,6 +360,10 @@ class BranchContext {
   storage::Result<storage::EdgeAccessor> CreateNativeEdge(storage::VertexAccessor &from, storage::VertexAccessor &to,
                                                           storage::EdgeTypeId edge_type);
 
+  // CreateNativeEdge at the gid a WAL record names (recovery); same refusals and records.
+  storage::Result<storage::EdgeAccessor> CreateNativeEdgeAt(storage::Gid gid, storage::VertexAccessor &from,
+                                                            storage::VertexAccessor &to, storage::EdgeTypeId edge_type);
+
   // A base gid resolves to the base accessor unless the branch deleted it, a native gid to the diff engine's vertex.
   std::optional<storage::VertexAccessor> ResolveVertex(storage::Gid gid, storage::View view);
 
@@ -369,6 +373,13 @@ class BranchContext {
 
   // Base-state vertex (View::OLD). Null for a native gid, or a candidate main lacks at fork_ts.
   std::optional<storage::VertexAccessor> FindBaseVertex(storage::Gid gid);
+
+  // Lets a caller that re-reads the same base vertices (WAL replay) skip FindBaseVertex's walk of main's post-fork
+  // history: the Ptr is main's vertex (null where FindBaseVertex finds none), valid for the branch's life (fork pin).
+  // BaseVertexAccessor rebuilds the accessor on the current historical transaction, which OpenHistorical replaces, so
+  // never keep an accessor across transactions.
+  storage::Vertex *FindBaseVertexPtr(storage::Gid gid);
+  storage::VertexAccessor BaseVertexAccessor(storage::Vertex *base_vertex);
 
   // The base edge out of base vertex `from_gid`, found in its base-state out-adjacency: O(out-degree).
   std::optional<storage::EdgeAccessor> FindBaseEdge(storage::Gid edge_gid, storage::Gid from_gid);
