@@ -27,4 +27,5 @@ target_link_libraries(mg-dbms
 
 if (MG_ENTERPRISE)
     target_sources(mg-dbms PRIVATE inmemory/history_replay.cpp)
+    target_link_libraries(mg-dbms PUBLIC mg::versioning)
 endif()
