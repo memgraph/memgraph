@@ -14,16 +14,20 @@
 #include <array>
 #include <concepts>
 #include <cstddef>
-#include <cstdint>
+#include <functional>
 #include <mutex>
 #include <shared_mutex>
+#include <span>
 #include <utility>
 
-#include "absl/container/flat_hash_map.h"
+#include <boost/unordered/unordered_flat_map.hpp>
+
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/storage.hpp"
 #include "storage/v2/vertex.hpp"
-#include "utils/atomic_memory_block.hpp"
 #include "utils/db_aware_allocator.hpp"
+#include "utils/small_vector.hpp"
+#include "versioning/overlay_state.hpp"
 
 namespace memgraph::versioning {
 
@@ -37,6 +41,12 @@ class OverlayIndex {
         : storage::Vertex(gid, nullptr), base_vertex(base_vertex) {}
 
     storage::Vertex *base_vertex;
+
+    // Insert-only, non-MVCC candidate lists of the base edges that may be deleted on this branch (pointers to
+    // EdgeOverlayIndex::BaseEdgeOverlay bases). Guarded by the inherited `lock`; see ListBaseEdgeDelete.
+    using EdgeCandidates = utils::small_vector<storage::Edge *, memory::DbAwareAllocator<storage::Edge *>>;
+    EdgeCandidates deleted_out;
+    EdgeCandidates deleted_in;
   };
 
   struct Found {
@@ -44,11 +54,11 @@ class OverlayIndex {
     storage::Vertex *base_vertex{nullptr};
   };
 
-  storage::Vertex *FindOverlay(uint64_t gid) const noexcept { return Find(gid).overlay; }
+  storage::Vertex *FindOverlay(storage::Gid gid) const noexcept { return Find(gid).overlay; }
 
-  storage::Vertex *FindBase(uint64_t gid) const noexcept { return Find(gid).base_vertex; }
+  storage::Vertex *FindBase(storage::Gid gid) const noexcept { return Find(gid).base_vertex; }
 
-  Found Find(uint64_t gid) const noexcept {
+  Found Find(storage::Gid gid) const noexcept {
     const Shard &shard = ShardFor(gid);
     std::shared_lock guard{shard.mutex};
     const auto it = shard.map.find(gid);
@@ -56,18 +66,21 @@ class OverlayIndex {
     return {it->second.get(), it->second->base_vertex};
   }
 
-  // Returns the overlay for `gid`, creating one if none exists; `base_vertex` is recorded only by the creating call.
-  // The insert runs OOM-blocked (absl maps are not exception-safe), so a refusal is reported only after the entry is
-  // published.
+  // Returns the overlay for `gid`, creating one if none exists. The creating call records `base_vertex` and gives the
+  // new overlay `base_labels` (the base vertex's labels at the fork point, which the caller reads: `base_vertex` is
+  // main's live vertex) before it is published, so no reader sees an overlay without them; later calls ignore both. The
+  // create runs under the shard lock, so only the winner copies labels. boost's strong guarantee means a throw
+  // publishes nothing.
   // @throw utils::OutOfMemoryException, std::bad_alloc
-  storage::Vertex *GetOrCreateOverlay(uint64_t gid, storage::Vertex *base_vertex) {
+  storage::Vertex *GetOrCreateOverlay(storage::Gid gid, storage::Vertex *base_vertex,
+                                      std::span<const storage::LabelId> base_labels) {
     if (auto *found = FindOverlay(gid); found != nullptr) return found;
     Shard &shard = ShardFor(gid);
-    return utils::AtomicMemoryBlock([&]() -> storage::Vertex * {
-      auto candidate = memory::MakeDbAwareUnique<BaseVertexOverlay>(storage::Gid::FromUint(gid), base_vertex);
-      std::unique_lock guard{shard.mutex};
-      return shard.map.try_emplace(gid, std::move(candidate)).first->second.get();
-    });
+    std::unique_lock guard{shard.mutex};
+    if (const auto it = shard.map.find(gid); it != shard.map.end()) return it->second.get();
+    auto overlay = memory::MakeDbAwareUnique<BaseVertexOverlay>(gid, base_vertex);
+    overlay::CopyBaseLabels(overlay.get(), base_labels);
+    return shard.map.try_emplace(gid, std::move(overlay)).first->second.get();
   }
 
   // Calls `fn(overlay)` for every overlay in unspecified order until it returns false. Concurrent creators may or may
@@ -88,12 +101,13 @@ class OverlayIndex {
 
   struct alignas(64) Shard {
     mutable std::shared_mutex mutex;
-    absl::flat_hash_map<uint64_t, memory::ArenaAwareUniquePtr<BaseVertexOverlay>> map;
+    boost::unordered_flat_map<storage::Gid, memory::ArenaAwareUniquePtr<BaseVertexOverlay>, std::hash<storage::Gid>>
+        map;
   };
 
-  Shard &ShardFor(uint64_t gid) noexcept { return shards_[gid % kShards]; }
+  Shard &ShardFor(storage::Gid gid) noexcept { return shards_[gid.AsUint() % kShards]; }
 
-  const Shard &ShardFor(uint64_t gid) const noexcept { return shards_[gid % kShards]; }
+  const Shard &ShardFor(storage::Gid gid) const noexcept { return shards_[gid.AsUint() % kShards]; }
 
   std::array<Shard, kShards> shards_;
 };

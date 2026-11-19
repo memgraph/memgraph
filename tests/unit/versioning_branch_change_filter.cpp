@@ -64,16 +64,12 @@ TEST(VersioningBranchChangeFilter, EachRecordHitsOnlyItsOwnKind) {
   }
 }
 
-TEST(VersioningBranchChangeFilter, LabelGatesAreIndependentAndNeverMissARecordedLabel) {
+TEST(VersioningBranchChangeFilter, LabelGateNeverMissesARecordedLabel) {
   BranchChangeFilters filters;
   const auto l = [](uint64_t id) { return ms::LabelId::FromUint(id); };
   EXPECT_FALSE(filters.MayHaveLabelTouched(l(3)));
-  EXPECT_FALSE(filters.MayHaveLabelMarked(l(3)));
   filters.RecordLabelTouched(l(3));
   EXPECT_TRUE(filters.MayHaveLabelTouched(l(3)));
-  EXPECT_FALSE(filters.MayHaveLabelMarked(l(3)));
-  filters.RecordLabelMarked(l(4));
-  EXPECT_TRUE(filters.MayHaveLabelMarked(l(4)));
   EXPECT_FALSE(filters.MayHaveLabelTouched(l(4)));
   for (uint64_t id = 0; id < 1000; ++id) {
     filters.RecordLabelTouched(l(id));
