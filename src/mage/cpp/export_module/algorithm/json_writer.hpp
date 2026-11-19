@@ -68,8 +68,8 @@ std::string DurationToString(const mgp::Duration &duration);
 // node afterwards is rejected rather than silently producing malformed JSON.
 class JsonWriter {
  public:
-  // With `file`, a new or server-owned single-link file is written via a temporary renamed into place, so a failure
-  // keeps the previous export; any other target is written in place. Else `retain` keeps the payload for `data`.
+  // With `file`, a new or server-owned single-link file without an ACL goes via a temporary renamed into place, so a
+  // failure keeps the previous export; others, or when no temporary can be made, are written in place.
   JsonWriter(WriteConfig config, std::optional<std::string> file, bool retain);
   JsonWriter(const JsonWriter &) = delete;
   JsonWriter &operator=(const JsonWriter &) = delete;

@@ -13,6 +13,7 @@
 
 #include <fcntl.h>
 #include <sys/stat.h>
+#include <sys/xattr.h>
 #include <unistd.h>
 
 #include <algorithm>
@@ -108,6 +109,8 @@ std::string OffsetSuffix(int offset_minutes) {
   return fmt::format("{}{:02}:{:02}", offset_minutes < 0 ? '-' : '+', magnitude / 60, magnitude % 60);
 }
 
+constexpr const char *kAccessAcl = "system.posix_acl_access";
+
 // Creates a temporary beside `target`, unique per writer (`O_EXCL`: a stale one is never adopted). With `existing` it
 // takes the target's group and mode, since the rename replaces the target's inode; failing either, it is dropped.
 bool OpenTemporary(const std::string &target, const struct stat *existing, std::string &temp_path) {
@@ -119,8 +122,10 @@ bool OpenTemporary(const std::string &target, const struct stat *existing, std::
       if (errno != EEXIST) return false;
       continue;
     }
-    const bool matched = existing == nullptr || (::fchown(fd, static_cast<uid_t>(-1), existing->st_gid) == 0 &&
-                                                 ::fchmod(fd, existing->st_mode & 0777) == 0);
+    // An ACL inherited from the directory would grant what the target never had, so such a temporary is refused.
+    const bool matched = existing == nullptr ||
+                         (::fchown(fd, static_cast<uid_t>(-1), existing->st_gid) == 0 &&
+                          ::fchmod(fd, existing->st_mode & 0777) == 0 && ::fgetxattr(fd, kAccessAcl, nullptr, 0) < 0);
     ::close(fd);
     if (!matched) {
       ::unlink(candidate.c_str());
@@ -382,7 +387,9 @@ JsonWriter::JsonWriter(WriteConfig config, std::optional<std::string> file, bool
   // a symlink, a hard link, a device, another user's file — keeps its identity only when written in place.
   struct stat existing{};
   const bool exists = ::lstat(file_->c_str(), &existing) == 0;
-  bool in_place = exists && !(S_ISREG(existing.st_mode) && existing.st_nlink == 1 && existing.st_uid == ::geteuid());
+  // An access ACL also lives on the inode, and with one the mode's group bits are its mask.
+  bool in_place = exists && !(S_ISREG(existing.st_mode) && existing.st_nlink == 1 && existing.st_uid == ::geteuid() &&
+                              ::lgetxattr(file_->c_str(), kAccessAcl, nullptr, 0) < 0);
 
   if (!in_place) {
     if (exists) {
