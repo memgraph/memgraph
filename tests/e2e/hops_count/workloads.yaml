@@ -23,10 +23,10 @@ workloads:
 
   - name: "Hops limit concurrent commit"
     binary: "tests/e2e/pytest_runner.sh"
-    args: ["hops_count/hops_limit_concurrent.py", "-k", "not no_cache_leak"]
+    args: ["hops_count/hops_limit_concurrent.py", "-k", "not delta_cache"]
     <<: *hops_count_cluster
 
-  - name: "Hops limit no cache leak"
+  - name: "Hops limit delta cache"
     binary: "tests/e2e/pytest_runner.sh"
-    args: ["hops_count/hops_limit_concurrent.py", "-k", "no_cache_leak"]
+    args: ["hops_count/hops_limit_concurrent.py", "-k", "delta_cache"]
     <<: *hops_count_delta_cache_cluster

@@ -11,7 +11,7 @@
 
 """USING HOPS LIMIT on a vertex with snapshot deltas to replay (concurrent commit).
 
-The hops budget applies after the replay, and bounded expansions bypass the many-deltas cache.
+The hops budget applies after the replay, and bounded expansions share the many-deltas cache through its full list.
 """
 
 import sys
@@ -136,8 +136,8 @@ def test_hops_limit_typed_ignores_hidden_edge_of_other_type():
         _close(driver)
 
 
-def test_hops_limit_no_cache_leak():
-    """A bounded expansion neither stores nor reads the many-deltas cache."""
+def test_hops_limit_delta_cache_charges_each_expansion():
+    """A cached full list must charge each expansion's own budget, not carry the first one's cut."""
     driver = _new_driver()
     try:
         _reset(driver)
@@ -149,8 +149,33 @@ def test_hops_limit_no_cache_leak():
             rows, _ = _bounded_read(
                 tx, "USING HOPS LIMIT 10 MATCH (v:S)-[r]->() MATCH (v)-[r2]->() RETURN count(*) AS c"
             )
-            # First expansion spends 5 hops; the second has 5 left and must not get a cached list.
+            # First expansion spends 5 hops; the second has 5 left, and every later revisit has none.
             assert rows == [{"c": 5}]
+            rows, _ = _bounded_read(
+                tx, "USING HOPS LIMIT 6 MATCH (v:S)-[r]->() MATCH (v)-[r2]->() RETURN count(*) AS c"
+            )
+            assert rows == [{"c": 1}]
+            tx.commit()
+        assert _probe_alive(driver)
+    finally:
+        _close(driver)
+
+
+def test_hops_limit_delta_cache_large_limit_matches_unbounded():
+    """A limit that is never reached must return what an unbounded read does, across cached revisits."""
+    driver = _new_driver()
+    try:
+        _reset(driver)
+        _write(driver, SETUP_FIVE_OUT)
+        revisit = "MATCH (v:S)-[r]->() MATCH (v)-[r2]->() MATCH (v)-[r3:E]->(w) RETURN count(*) AS c"
+        with driver.session() as session_a:
+            tx = session_a.begin_transaction()
+            assert tx.run(DIRECTIONS["out"]["count"]).single()["c"] == 5
+            _write(driver, "MATCH (v:S)-[r]->(:W) WITH r LIMIT 2 DELETE r")
+            unbounded, _ = _bounded_read(tx, revisit)
+            bounded, _ = _bounded_read(tx, "USING HOPS LIMIT 1000000 " + revisit)
+            assert unbounded == [{"c": 125}]
+            assert bounded == unbounded
             tx.commit()
         assert _probe_alive(driver)
     finally:
