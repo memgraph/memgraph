@@ -8150,6 +8150,8 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
         }
         auto const global = metrics::Metrics().GetGlobalMetricsInfo();
         metric_rows.insert(metric_rows.end(), global.begin(), global.end());
+        auto const process = metrics::Metrics().GetProcessMetricsInfo();
+        metric_rows.insert(metric_rows.end(), process.begin(), process.end());
         std::vector<std::vector<TypedValue>> results;
         results.reserve(metric_rows.size());
         for (auto const &m : metric_rows) {

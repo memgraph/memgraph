@@ -271,6 +271,9 @@ class PrometheusMetrics {
   // Returns truly global metrics: session gauges, HA counters/histograms, and peak memory.
   std::vector<MetricInfo> GetGlobalMetricsInfo() const;
 
+  // Returns the process start time and worker pool gauges for SHOW METRICS INFO only, never the JSON endpoint.
+  std::vector<MetricInfo> GetProcessMetricsInfo() const;
+
   // Returns metrics for the legacy JSON endpoint. For backwards compatibility,
   // storage fields (vertex/edge count, disk/memory usage) reflect the default
   // database only. All other per-db counters and histograms are aggregated

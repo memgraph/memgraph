@@ -2194,10 +2194,8 @@ std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfoForJson() {
   return out;
 }
 
-std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfo() const {
+std::vector<MetricInfo> PrometheusMetrics::GetProcessMetricsInfo() const {
   std::vector<MetricInfo> out;
-
-  // General (global only)
   out.push_back({"ProcessStartTime", "General", "Gauge", static_cast<int64_t>(process_start_time_->Value())});
   if (worker_pool_resolver_) {
     auto const pool = worker_pool_resolver_();
@@ -2205,6 +2203,11 @@ std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfo() const {
     out.push_back({"WorkersBusy", "General", "Gauge", static_cast<int64_t>(pool.busy)});
     out.push_back({"WorkerQueueLength", "General", "Gauge", static_cast<int64_t>(pool.queued)});
   }
+  return out;
+}
+
+std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfo() const {
+  std::vector<MetricInfo> out;
 
   // Memory (global only)
   auto const memory_res = utils::GetMemoryRES();
