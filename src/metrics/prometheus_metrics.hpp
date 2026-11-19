@@ -31,14 +31,14 @@
 #include <prometheus/registry.h>
 #include <nlohmann/json_fwd.hpp>
 
-#include "coordination/include/coordination/raft_status.hpp"
 #include "metrics/metric_handles.hpp"
 #include "utils/uuid.hpp"
 
 #ifdef MG_ENTERPRISE
 namespace memgraph::coordination {
 struct InstanceStatus;
-}
+struct RaftStatus;
+}  // namespace memgraph::coordination
 #endif
 
 namespace memgraph::metrics {

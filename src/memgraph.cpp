@@ -35,6 +35,7 @@
 #include "communication/v2/server.hpp"
 #include "communication/websocket/server.hpp"
 #include "coordination/coordinator_state.hpp"
+#include "coordination/raft_status.hpp"
 #include "dbms/constants.hpp"
 #include "dbms/dbms_handler.hpp"
 #include "dbms/inmemory/two_pc_commit_cache.hpp"

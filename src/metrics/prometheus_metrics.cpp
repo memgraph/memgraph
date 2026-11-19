@@ -19,7 +19,6 @@
 #include <array>
 
 #include <ranges>
-#include <span>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -31,6 +30,7 @@
 #include "utils/stat.hpp"
 #ifdef MG_ENTERPRISE
 #include "coordination/include/coordination/instance_status.hpp"
+#include "coordination/include/coordination/raft_status.hpp"
 #endif
 
 namespace r = std::ranges;
@@ -827,7 +827,8 @@ PrometheusMetrics::PrometheusMetrics()
       raft_follower_lag_entries_family_{prometheus::BuildGauge()
                                             .Name("memgraph_raft_follower_lag_entries")
                                             .Help("Raft log entries the follower is behind the leader; reported by "
-                                                  "the leader")
+                                                  "the leader. A new leader reports stale values until each follower "
+                                                  "accepts an append")
                                             .Register(registry_)},
       raft_follower_last_response_seconds_family_{prometheus::BuildGauge()
                                                       .Name("memgraph_raft_follower_last_response_seconds")
@@ -1338,8 +1339,7 @@ void PrometheusMetrics::UpdateGauges() {
   global.memory_res_bytes->Set(static_cast<double>(utils::GetMemoryRES()));
 
 #ifdef MG_ENTERPRISE
-  // A family returns the gauge it already holds for a label set, so these series appear on the first scrape of a
-  // coordinator and never on a data instance.
+  // The resolver returns nullopt on a data instance, so Raft series exist only on coordinators.
   auto const raft = raft_status_resolver_ ? raft_status_resolver_() : std::nullopt;
   if (raft) {
     raft_term_family_.Add({}).Set(static_cast<double>(raft->term));
@@ -1350,13 +1350,15 @@ void PrometheusMetrics::UpdateGauges() {
     // Followers change with elections and membership, so series of coordinators no longer reported are removed.
     std::lock_guard const lock{raft_followers_.mutex};
     decltype(raft_followers_.gauges) current;
-    for (auto const &follower : raft ? std::span{raft->followers} : std::span<coordination::RaftFollower const>{}) {
-      prometheus::Labels const labels{{"mg_instance", follower.name}};
-      auto &lag = raft_follower_lag_entries_family_.Add(labels);
-      auto &last_response = raft_follower_last_response_seconds_family_.Add(labels);
-      lag.Set(static_cast<double>(follower.lag_entries));
-      last_response.Set(follower.last_response_seconds);
-      current.emplace(follower.name, std::pair{&lag, &last_response});
+    if (raft) {
+      for (auto const &follower : raft->followers) {
+        prometheus::Labels const labels{{"mg_instance", follower.name}};
+        auto &lag = raft_follower_lag_entries_family_.Add(labels);
+        auto &last_response = raft_follower_last_response_seconds_family_.Add(labels);
+        lag.Set(static_cast<double>(follower.lag_entries));
+        last_response.Set(follower.last_response_seconds);
+        current.emplace(follower.name, std::pair{&lag, &last_response});
+      }
     }
     for (auto const &[name, gauges] : raft_followers_.gauges) {
       if (current.contains(name)) continue;
