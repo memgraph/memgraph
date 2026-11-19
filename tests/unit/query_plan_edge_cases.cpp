@@ -404,6 +404,20 @@ TYPED_TEST(QueryExecution, ADeepVariableExpansionWalksBothWaysToEveryLength) {
       EXPECT_EQ(results[0][1].ValueInt(), 1);                                                                     \
     }                                                                                                             \
     {                                                                                                             \
+      /* A second predicate reads what the first one's pass left, and the row returns it after both. */           \
+      auto results = this->Execute("MATCH (n) WHERE n.a > 0 AND n.a < 2 WITH n WHERE n.a > 0 RETURN n.a AS a");   \
+      ASSERT_EQ(results.size(), 1);                                                                               \
+      EXPECT_EQ(results[0][0].ValueInt(), 1);                                                                     \
+    }                                                                                                             \
+    {                                                                                                             \
+      /* One property comes from a slot a predicate filled and the other from a pass of this */                   \
+      /* row's own, so each has to answer its own property. */                                                    \
+      auto results = this->Execute("MATCH (n) WHERE n.a > 0 AND n.a < 2 RETURN n.a AS x, n.b + n.b AS y");        \
+      ASSERT_EQ(results.size(), 1);                                                                               \
+      EXPECT_EQ(results[0][0].ValueInt(), 1);                                                                     \
+      EXPECT_EQ(results[0][1].ValueString(), "xx");                                                               \
+    }                                                                                                             \
+    {                                                                                                             \
       /* A write stands between the predicate and the row, so the row answers what the write left. */             \
       auto results = this->Execute("MATCH (n) WHERE n.a > 1 AND n.a < 3 SET n.a = 99 RETURN n.a AS a, n.a AS b"); \
       ASSERT_EQ(results.size(), 1);                                                                               \
@@ -540,6 +554,7 @@ TYPED_TEST(QueryExecution, ADeletedRecordRefusesWithFlagOff) {
   CHECK_A_DELETED_RECORD_REFUSES("RETURN n.a AS a, n.b AS b");
   CHECK_A_DELETED_RECORD_REFUSES("RETURN sum(n.a) AS s, max(n.a) AS m");
   CHECK_A_DELETED_RECORD_REFUSES("WITH n WHERE n.a > 0 AND n.a < 10 RETURN n.b AS b");
+  CHECK_A_DELETED_RECORD_REFUSES("WITH n WHERE n.a > 0 AND n.a < 10 RETURN n.a AS a");
 }
 
 TYPED_TEST(QueryExecution, ADeletedRecordRefusesWithFlagOn) {
@@ -547,6 +562,7 @@ TYPED_TEST(QueryExecution, ADeletedRecordRefusesWithFlagOn) {
   CHECK_A_DELETED_RECORD_REFUSES("RETURN n.a AS a, n.b AS b");
   CHECK_A_DELETED_RECORD_REFUSES("RETURN sum(n.a) AS s, max(n.a) AS m");
   CHECK_A_DELETED_RECORD_REFUSES("WITH n WHERE n.a > 0 AND n.a < 10 RETURN n.b AS b");
+  CHECK_A_DELETED_RECORD_REFUSES("WITH n WHERE n.a > 0 AND n.a < 10 RETURN n.a AS a");
 }
 
 TYPED_TEST(QueryExecution, LeftoverLookupResultsWithFlagOff) {

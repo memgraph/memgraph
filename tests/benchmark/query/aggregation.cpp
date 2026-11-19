@@ -532,6 +532,12 @@ void FilterOnePropertyThreeTimes(benchmark::State &state) {
            "RETURN count(*) AS n");
 }
 
+// The predicate earns a pass, and what it read is what the row then asks for, so the aggregation
+// has somewhere to read it from other than the record.
+void FilterOnePropertyTwiceThenReadItAgain(benchmark::State &state) {
+  RunQuery(state, "MATCH (:Hub)-[:HAS]->(i) WHERE i.quantity > 0 AND i.quantity < 101 RETURN sum(i.quantity) AS n");
+}
+
 // Two properties read once each, which a filter keeps no value from, so there is nothing to remove.
 void FilterTwoPropertiesOnceEach(benchmark::State &state) {
   RunQuery(state, "MATCH (:Hub)-[:HAS]->(i) WHERE i.quantity > 0 AND i.bucket > -1 RETURN count(*) AS n");
@@ -641,6 +647,7 @@ BENCHMARK(CountAllItems)->Unit(kUnit);
 BENCHMARK(FilterOnePropertyOnce)->Unit(kUnit);
 BENCHMARK(FilterOnePropertyTwice)->Unit(kUnit);
 BENCHMARK(FilterOnePropertyThreeTimes)->Unit(kUnit);
+BENCHMARK(FilterOnePropertyTwiceThenReadItAgain)->Unit(kUnit);
 BENCHMARK(FilterTwoPropertiesOnceEach)->Unit(kUnit);
 BENCHMARK(GroupByBucketRegion)->Unit(kUnit);
 BENCHMARK(GroupByCategoryBucket)->Unit(kUnit);
