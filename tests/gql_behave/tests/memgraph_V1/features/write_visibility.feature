@@ -3617,6 +3617,7 @@ Feature: Write visibility inside one query
             | 0 | 2 |
             | 1 | 3 |
 
+    @skip_parallel_execution
     Scenario: A read-only CALL after a switched CREATE does not see a later clause's writes
         Given an empty graph
         And having executed:
