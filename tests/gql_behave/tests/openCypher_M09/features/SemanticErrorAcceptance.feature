@@ -228,15 +228,6 @@ Feature: SemanticErrorAcceptance
       """
     Then a SyntaxError should be raised at compile time: UndefinedVariable
 
-  Scenario: Failing when using MATCH after OPTIONAL MATCH
-    When executing query:
-      """
-      OPTIONAL MATCH ()-->()
-      MATCH ()-->(d)
-      RETURN d
-      """
-    Then a SyntaxError should be raised at compile time: InvalidClauseComposition
-
   Scenario: Failing when float value is too large
     When executing query:
       """

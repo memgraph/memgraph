@@ -474,12 +474,15 @@ Result<PropertyValue> EdgeAccessor::GetPropertyCompact(PropertyId property, View
 Result<uint64_t> EdgeAccessor::GetPropertySize(PropertyId property, View view) const {
   if (!storage_->config_.salient.items.properties_on_edges) return 0;
 
-  auto guard = std::shared_lock{edge_.ptr->lock};
-  Delta *delta = edge_.ptr->delta();
-  if (!delta) {
-    return edge_.ptr->properties.PropertySize(property);
+  {
+    auto guard = std::shared_lock{edge_.ptr->lock};
+    if (!edge_.ptr->delta()) {
+      return edge_.ptr->properties.PropertySize(property);
+    }
   }
 
+  // Reading the property takes this lock itself, and a writer waiting for it lets no new reader in,
+  // so holding it here would leave this read and that writer each waiting for the other.
   auto property_result = this->GetProperty(property, view);
 
   if (!property_result) {

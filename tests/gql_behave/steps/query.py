@@ -112,6 +112,19 @@ def with_new_edge_index_step(context, index_arg):
     context.add_cleanup(cleanup_global_edge_index, index_arg, context, context.test_parameters.get_parameters())
 
 
+def cleanup_edge_type_index(index_arg, context, params):
+    database.query(f"DROP EDGE INDEX ON {index_arg};", context, params)
+
+
+@step("with new edge type index {index_arg}")
+def with_new_edge_type_index_step(context, index_arg):
+    # index_arg is :T or :T(p), as in CREATE EDGE INDEX ON :T(p).
+    context.results = database.query(
+        f"CREATE EDGE INDEX ON {index_arg};", context, context.test_parameters.get_parameters()
+    )
+    context.add_cleanup(cleanup_edge_type_index, index_arg, context, context.test_parameters.get_parameters())
+
+
 def print_actual_query(context):
     """Print the actual query if it differs from the original (e.g., with USING PARALLEL EXECUTION)."""
     actual_query = getattr(context, "last_executed_query", None)

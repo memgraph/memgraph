@@ -846,6 +846,18 @@ antlrcpp::Any CypherMainVisitor::visitDropPointIndex(MemgraphCypher::DropPointIn
   return index_query;
 }
 
+namespace {
+// A record is read for a whole set of properties in one pass, and such a pass answers a property
+// named twice only once, so the repeat would be indexed as a missing value rather than refused.
+void CheckTextIndexPropertiesAreUnique(std::vector<PropertyIx> const &properties) {
+  auto sorted = properties;
+  std::ranges::sort(sorted, {}, &PropertyIx::ix);
+  if (std::ranges::adjacent_find(sorted, {}, &PropertyIx::ix) != sorted.end()) {
+    throw SemanticException("Properties cannot be repeated in a text index.");
+  }
+}
+}  // namespace
+
 antlrcpp::Any CypherMainVisitor::visitCreateTextIndex(MemgraphCypher::CreateTextIndexContext *ctx) {
   auto *index_query = storage_->Create<TextIndexQuery>();
   index_query->index_name_ = std::any_cast<std::string>(ctx->indexName()->accept(this));
@@ -856,6 +868,7 @@ antlrcpp::Any CypherMainVisitor::visitCreateTextIndex(MemgraphCypher::CreateText
       index_query->properties_.emplace_back(std::any_cast<PropertyIx>(property_key_name_ctx->accept(this)));
     }
   }
+  CheckTextIndexPropertiesAreUnique(index_query->properties_);
   return index_query;
 }
 
@@ -875,6 +888,7 @@ antlrcpp::Any CypherMainVisitor::visitCreateTextEdgeIndex(MemgraphCypher::Create
       index_query->properties_.emplace_back(std::any_cast<PropertyIx>(property_key_name_ctx->accept(this)));
     }
   }
+  CheckTextIndexPropertiesAreUnique(index_query->properties_);
   query_ = index_query;
   return index_query;
 }
@@ -2042,7 +2056,6 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(MemgraphCypher::SingleQueryCon
   // consecutive SET clauses are undefined behaviour in neo4j.
   bool has_update = false;
   bool has_return = false;
-  bool has_optional_match = false;
   bool has_call_procedure = false;
   bool calls_write_procedure = false;
   bool has_any_update = false;
@@ -2106,14 +2119,9 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(MemgraphCypher::SingleQueryCon
       has_load_parquet |= is_load_parquet;
       has_load_jsonl |= is_load_jsonl;
 
-    } else if (auto *match = utils::Downcast<Match>(clause)) {
+    } else if (utils::IsSubtype(clause_type, Match::kType)) {
       if (has_update || has_return) {
         throw SemanticException("MATCH can't be put after RETURN clause or after an update.");
-      }
-      if (match->optional_) {
-        has_optional_match = true;
-      } else if (has_optional_match) {
-        throw SemanticException("MATCH can't be put after OPTIONAL MATCH.");
       }
       check_write_procedure("MATCH");
     } else if (utils::IsSubtype(clause_type, Create::kType) || utils::IsSubtype(clause_type, Delete::kType) ||
@@ -2138,7 +2146,7 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(MemgraphCypher::SingleQueryCon
         throw SemanticException("RETURN can't be put before WITH.");
       }
       check_write_procedure("WITH");
-      has_update = has_return = has_optional_match = false;
+      has_update = has_return = false;
     } else {
       DLOG_FATAL("Can't happen");
     }
