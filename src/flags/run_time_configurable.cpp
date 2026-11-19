@@ -21,6 +21,8 @@
 #include <expected>
 #include <functional>
 #include <iostream>
+#include <memory>
+#include <mutex>
 #include <optional>
 #include <ranges>
 #include <stdexcept>
@@ -28,6 +30,7 @@
 #include <string_view>
 #include <system_error>
 #include <utility>
+#include <variant>
 
 #include "croncpp.h"
 #include "flags/coord_flag_env_handler.hpp"
@@ -190,6 +193,10 @@ constexpr auto kTimezoneGFlagsKey = kTimezoneSettingKey;
 
 constexpr auto kSnapshotPeriodicSettingKey = "storage.snapshot.interval";
 constexpr auto kSnapshotPeriodicGFlagsKey = "storage-snapshot-interval";
+constexpr std::string_view kCronSnapshotNeedsLicense =
+    "Defining snapshot schedule via cron expressions is an enterprise feature. Check your license status by running "
+    "SHOW LICENSE INFO.";
+constexpr std::string_view kCronSnapshotsSkipped = "Scheduled snapshots are skipped until the license is valid.";
 
 // AWS configuration
 constexpr auto kAwsRegionSettingKey = "aws.region";
@@ -258,8 +265,26 @@ memgraph::utils::Settings::ValidatorResult ValidQueryTimeoutStr(std::string_view
 class PeriodicObservable : public memgraph::utils::Observable<memgraph::utils::SchedulerInterval> {
  public:
   void Accept(std::shared_ptr<memgraph::utils::Observer<memgraph::utils::SchedulerInterval>> observer) override {
-    const auto periodic_locked = periodic_.ReadLock();
-    observer->Update(*periodic_locked);
+    observer->Update(Effective());
+  }
+
+  bool IsCron() const { return std::holds_alternative<std::string>(periodic_.ReadLock()->period_or_cron); }
+
+  // A cron schedule is an enterprise feature: without a valid license, snapshots have no schedule.
+  memgraph::utils::SchedulerInterval Effective() const {
+    auto periodic = *periodic_.ReadLock();
+    if (std::holds_alternative<std::string>(periodic.period_or_cron) &&
+        !memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
+      return {};
+    }
+    return periodic;
+  }
+
+  void Republish() { Notify(); }
+
+  void Refresh(std::shared_ptr<memgraph::utils::Observer<memgraph::utils::SchedulerInterval>> const &observer) {
+    auto const lock = std::unique_lock{mtx_};
+    Accept(observer);
   }
 
   void Modify(std::chrono::seconds pause) {
@@ -335,7 +360,11 @@ bool ValidPeriodicSnapshot(const std::string_view def) {
   try {
     // Try to get a period in seconds
     const auto period = ValidPeriod(def);
-    return period >= 0L && period <= 7L * 24 * 3600;
+    const bool in_range = period >= 0L && period <= 7L * 24 * 3600;
+    if constexpr (FATAL) {
+      if (!in_range) LOG_FATAL("Snapshot interval must be between 0 and 604800 seconds.");
+    }
+    return in_range;
   } catch (const std::invalid_argument & /* unused */) {
     // Handled later on
     failure = true;
@@ -345,13 +374,11 @@ bool ValidPeriodicSnapshot(const std::string_view def) {
     // NOTE: Cron is an enterprise feature
     const auto cron = cron::make_cron(def);
     if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-      constexpr std::string_view msg =
-          "Defining snapshot schedule via cron expressions is an enterprise feature. Check your license status by "
-          "running SHOW LICENSE INFO.";
       if constexpr (FATAL) {
-        LOG_FATAL(msg);
+        spdlog::error("{} {}", kCronSnapshotNeedsLicense, kCronSnapshotsSkipped);
+        return true;
       }
-      spdlog::error(msg);
+      spdlog::error(kCronSnapshotNeedsLicense);
       return false;
     }
     return true;
@@ -386,6 +413,8 @@ void Initialize(utils::Settings &settings) {
    * @param durability - how the setting treats the value in the data directory
    * @param post_update - user defined callback executed post flag update
    * @param validator - user defined value correctness checker
+   * @param validate_startup_value - false applies the startup value without the validator; the caller has validated it.
+   *                                 Ignored for kPersisted.
    */
   auto register_flag = [&](
                            const std::string &flag,
@@ -393,7 +422,8 @@ void Initialize(utils::Settings &settings) {
                            Durability durability,
                            std::function<void(const std::string &)> post_update = [](auto) {},
                            utils::Settings::Validation validator =
-                               [](std::string_view) -> utils::Settings::ValidatorResult { return {}; }) {
+                               [](std::string_view) -> utils::Settings::ValidatorResult { return {}; },
+                           bool validate_startup_value = true) {
     // Get flag info
     gflags::CommandLineFlagInfo info;
     gflags::GetCommandLineFlagInfo(flag.c_str(), &info);
@@ -430,7 +460,12 @@ void Initialize(utils::Settings &settings) {
         spdlog::warn("Ignoring the stored value of setting '{}': {}", key, e.what());
       }
     }
-    settings.SetValue(key, info.current_value);
+    if (validate_startup_value) {
+      settings.SetValue(key, info.current_value);
+    } else {
+      settings.SetValueForce(key, info.current_value);
+      callback();
+    }
   };
 
   /*
@@ -573,7 +608,8 @@ void Initialize(utils::Settings &settings) {
       }
     }
 
-    // FATAL validation at startup; can't be part of the flag defintion, since we need to check for license
+    // Fatal on an invalid schedule. Not part of the flag definition, because a cron schedule also needs the license,
+    // which an unlicensed instance keeps but skips until the license is valid.
     ValidPeriodicSnapshot<true>(FLAGS_storage_snapshot_interval);
     register_flag(
         kSnapshotPeriodicGFlagsKey,
@@ -596,7 +632,18 @@ void Initialize(utils::Settings &settings) {
                 "Please note that a valid license is needed in order to use cron expressions."};
           }
           return {};
-        });
+        },
+        /*validate_startup_value=*/false);
+    static std::once_flag listener_registered;
+    std::call_once(listener_registered, [] {
+      license::global_license_checker.OnEnterpriseValidityChange([] {
+        if (!snapshot_periodic_.IsCron()) return;
+        if (!license::global_license_checker.IsEnterpriseValidFast()) {
+          spdlog::error("{} {}", kCronSnapshotNeedsLicense, kCronSnapshotsSkipped);
+        }
+        snapshot_periodic_.Republish();
+      });
+    });
   }
 
   // AWS Section
@@ -740,6 +787,12 @@ void SnapshotPeriodicAttach(std::shared_ptr<utils::Observer<utils::SchedulerInte
 void SnapshotPeriodicDetach(std::shared_ptr<utils::Observer<utils::SchedulerInterval>> observer) {
   snapshot_periodic_.Detach(observer);
 }
+
+void SnapshotPeriodicRefresh(std::shared_ptr<utils::Observer<utils::SchedulerInterval>> const &observer) {
+  snapshot_periodic_.Refresh(observer);
+}
+
+auto GetEffectiveSnapshotInterval() -> utils::SchedulerInterval { return snapshot_periodic_.Effective(); }
 
 int64_t GetLogMinDurationMs() { return log_min_duration_ms_.load(std::memory_order_acquire); }
 

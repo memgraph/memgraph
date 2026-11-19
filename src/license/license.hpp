@@ -14,6 +14,7 @@
 #include <atomic>
 #include <cstdint>
 #include <expected>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -137,6 +138,9 @@ struct LicenseChecker {
 
   void StartBackgroundLicenseChecker(std::weak_ptr<utils::Settings> settings);
 
+  // Runs after every revalidation that changes IsEnterpriseValidFast(), while revalidation is still locked.
+  void OnEnterpriseValidityChange(std::function<void()> listener);
+
   utils::Synchronized<std::optional<LicenseInfo>, utils::SpinLock> &GetLicenseInfo();
   DetailedLicenseInfo GetDetailedLicenseInfo();
 
@@ -158,6 +162,7 @@ struct LicenseChecker {
   std::atomic<int64_t> last_expiry_warning_day_{0};
   // The scheduler and the settings callbacks call RevalidateLicense concurrently.
   std::mutex revalidate_mutex_;
+  std::vector<std::function<void()>> validity_listeners_;  // Guarded by revalidate_mutex_.
   bool enterprise_enabled_{false};
   std::atomic<LicenseState> state_{};
   static_assert(std::atomic<LicenseState>::is_always_lock_free);

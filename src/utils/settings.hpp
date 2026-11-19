@@ -51,7 +51,8 @@ struct Settings {
   std::optional<std::string> GetValue(const std::string &setting_name) const;
   bool SetValue(const std::string &setting_name, const std::string &new_value);
   // Set without validation and without the on-change callback.
-  // Use only for internal system writes (e.g. persisting the winning license back to storage).
+  // Use only for internal system writes (e.g. persisting the winning license back to storage), or for a startup
+  // value the caller has already validated, in which case the caller runs the on-change callback itself.
   void SetValueForce(const std::string &setting_name, const std::string &new_value);
   std::vector<std::pair<std::string, std::string>> AllSettings() const;
 

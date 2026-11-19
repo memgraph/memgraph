@@ -38,6 +38,7 @@
 #include "utils/base64.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
+#include "utils/on_scope_exit.hpp"
 #include "utils/settings.hpp"
 #include "utils/spin_lock.hpp"
 #include "utils/string.hpp"
@@ -196,6 +197,10 @@ void ApplyLicenseMemoryLimit(int64_t memory_limit, std::optional<LicenseType> li
 
 void LicenseChecker::RevalidateLicense(utils::Settings &settings) {
   auto const guard = std::scoped_lock{revalidate_mutex_};
+  utils::OnScopeExit const notify_validity_change{[this, was_valid = IsEnterpriseValidFast()] {
+    if (IsEnterpriseValidFast() == was_valid) return;
+    for (auto const &listener : validity_listeners_) listener();
+  }};
   spdlog::trace("License revalidation started");
 
   if (enterprise_enabled_) [[unlikely]] {
@@ -435,6 +440,11 @@ LicenseCheckResult LicenseChecker::IsEnterpriseValid() const {
     return std::unexpected{LicenseCheckError::NOT_ENTERPRISE_LICENSE};
   }
   return IsEnterpriseValid(license_info->license_key, license_info->organization_name);
+}
+
+void LicenseChecker::OnEnterpriseValidityChange(std::function<void()> listener) {
+  auto const guard = std::scoped_lock{revalidate_mutex_};
+  validity_listeners_.push_back(std::move(listener));
 }
 
 void LicenseChecker::StartBackgroundLicenseChecker(std::weak_ptr<utils::Settings> settings) {
