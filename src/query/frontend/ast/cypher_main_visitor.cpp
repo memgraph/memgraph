@@ -2224,7 +2224,9 @@ antlrcpp::Any CypherMainVisitor::visitClause(MemgraphCypher::ClauseContext *ctx)
     return static_cast<Clause *>(std::any_cast<CallSubquery *>(ctx->callSubquery()->accept(this)));
   }
   if (ctx->orderSkipLimit()) {
+    // A standalone ORDER BY, SKIP or LIMIT is `WITH *` with that tail.
     auto *with = storage_->Create<With>();
+    with->body_ = std::any_cast<ReturnBody>(ctx->orderSkipLimit()->accept(this));
     with->body_.all_identifiers = true;
     return static_cast<Clause *>(with);
   }
