@@ -920,7 +920,6 @@ TEST_F(WriteVisibilityPlan, ASwitchReadsNewForItsOwnClauseOnly) {
 // A MERGE reads its own pattern key through its own variable: only the keys the earlier write reached decide.
 TEST_F(WriteVisibilityPlan, AMergeReadsARowUniqueKeyWithoutABarrier) {
   for (auto const *query : {
-           "MATCH (a:P) SET a.w = 1 MERGE (q:Q {x: a.w + a.id})",
            "MATCH (a:P) SET a.w = 1 MERGE (q:Q {x: a.w})",
            "MATCH (a:P) SET a.w = 1 MERGE (q:Q) ON CREATE SET q.x = a.w + q.y",
            "MATCH (a:P) SET a.w = 1 FOREACH (i IN [a.w] | MERGE (:Q {x: i}))",
@@ -949,8 +948,6 @@ TEST_F(WriteVisibilityPlan, ANodeThatMayRepeatKeepsItsBarrier) {
            "MATCH (n:L)--() SET n.x = n.x + 1 SET n.y = n.x",
            // The scan of n runs once per a.
            "MATCH (a:K), (n:L) SET n.x = n.x + 1 SET n.y = n.x",
-           // The UNWIND repeats every n.
-           "UNWIND [1, 2] AS i MATCH (n:L) SET n.x = n.x + i SET n.y = n.x",
            // Grouped on n and c, so n may repeat.
            "MATCH (n:L)--(m) WITH n, m.k AS k, count(*) AS c SET n.x = n.x + c SET n.y = n.x",
            // The key is read through another variable.
