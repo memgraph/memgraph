@@ -5995,8 +5995,8 @@ bool CacheProperties::CachePropertiesCursor::Pull(Frame &frame, ExecutionContext
     }
 
 #ifdef MG_ENTERPRISE
-    // A group of nothing but denied properties answers Null without reading the record. Only a record live at this
-    // view gets here: one deleted at it has no labels to deny with, and its read raises for every caller.
+    // A group of nothing but denied properties answers Null without reading the record. A vertex gets here only if
+    // it is live at this view: one deleted at it has no labels to deny with, and its read raises for every caller.
     if (!AnyPropertyReadable(group, input_value, context.auth_checker)) {
       answer_with_null(group);
       continue;
