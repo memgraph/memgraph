@@ -349,8 +349,6 @@ TEST_F(OwnBatchWrite, AnEarlierBatchsWriteDoesNotCount) {
   acc->Abort();
 }
 
-// An element the batch created before the scan opened is the scan's to see, after a commit too. Analytical mode
-// keeps no deltas, so there every advance counts as an earlier write.
 // An element the batch created in the scan's own command stays hidden at View::OLD after a batch commit.
 TEST_F(OwnBatchWrite, ALabelIndexScanHidesAnElementOfItsOwnCommand) {
   Index([&](auto &acc) { return acc.CreateIndex(label).has_value(); });
@@ -384,6 +382,8 @@ TEST_F(OwnBatchWrite, AnEdgeTypeIndexScanHidesAnElementOfItsOwnCommand) {
   EXPECT_EQ(seen, gids);
 }
 
+// An element the batch created before the scan opened is the scan's to see, after a commit too. Analytical mode
+// keeps no deltas, so there every advance counts as an earlier write.
 TEST_F(OwnBatchWrite, AnElementTheBatchCreatedBeforeTheScanStaysVisible) {
   for (auto mode : {ms::StorageMode::IN_MEMORY_TRANSACTIONAL, ms::StorageMode::IN_MEMORY_ANALYTICAL}) {
     SCOPED_TRACE(static_cast<int>(mode));
