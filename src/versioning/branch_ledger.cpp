@@ -35,12 +35,6 @@ std::optional<std::string> Validate(const LedgerContents &contents) {
       return fmt::format(
           "branch '{}' has id {} outside [2, next_branch_id {})", name, info.id, contents.next_branch_id);
     }
-    if (info.vertex_gid_floor && info.vertex_gid_ceiling && *info.vertex_gid_ceiling < *info.vertex_gid_floor) {
-      return fmt::format("branch '{}' has a vertex gid ceiling below its floor", name);
-    }
-    if (info.edge_gid_floor && info.edge_gid_ceiling && *info.edge_gid_ceiling < *info.edge_gid_floor) {
-      return fmt::format("branch '{}' has an edge gid ceiling below its floor", name);
-    }
     if (!names.insert(name).second) return fmt::format("branch '{}' is listed twice", name);
     if (!ids.insert(info.id).second) return fmt::format("branch id {} is used twice", info.id);
   }
@@ -65,11 +59,9 @@ std::string Serialize(const LedgerContents &contents) {
     nlohmann::json b{{"name", name},
                      {"id", info.id},
                      // Persist the recorded boundary, not the runtime pin: they differ after startup restore.
-                     {"durable_fork_ts", info.durable_fork_ts}};
-    if (info.vertex_gid_floor) b["vertex_gid_floor"] = *info.vertex_gid_floor;
-    if (info.edge_gid_floor) b["edge_gid_floor"] = *info.edge_gid_floor;
-    if (info.vertex_gid_ceiling) b["vertex_gid_ceiling"] = *info.vertex_gid_ceiling;
-    if (info.edge_gid_ceiling) b["edge_gid_ceiling"] = *info.edge_gid_ceiling;
+                     {"durable_fork_ts", info.durable_fork_ts},
+                     {"vertex_gid_floor", info.vertex_gid_floor},
+                     {"edge_gid_floor", info.edge_gid_floor}};
     if (info.created_at_us) b["created_at_us"] = *info.created_at_us;
     branches.push_back(std::move(b));
   }
@@ -95,10 +87,8 @@ std::expected<LedgerContents, std::string> Deserialize(std::string_view payload)
                               .info = {.id = Unsigned(b.at("id"), "id"),
                                        .fork_ts = durable_fork_ts,
                                        .durable_fork_ts = durable_fork_ts,
-                                       .vertex_gid_floor = OptionalUnsigned(b, "vertex_gid_floor"),
-                                       .edge_gid_floor = OptionalUnsigned(b, "edge_gid_floor"),
-                                       .vertex_gid_ceiling = OptionalUnsigned(b, "vertex_gid_ceiling"),
-                                       .edge_gid_ceiling = OptionalUnsigned(b, "edge_gid_ceiling"),
+                                       .vertex_gid_floor = Unsigned(b.at("vertex_gid_floor"), "vertex_gid_floor"),
+                                       .edge_gid_floor = Unsigned(b.at("edge_gid_floor"), "edge_gid_floor"),
                                        .created_at_us = OptionalUnsigned(b, "created_at_us")}});
     }
   } catch (const nlohmann::json::exception &e) {
