@@ -24,9 +24,11 @@ import glob
 import itertools
 import json
 import os
+import re
 import shutil
 import stat
 import subprocess
+import uuid
 
 import mgclient
 import pytest
@@ -153,13 +155,21 @@ def without_ids(element):
 
 @pytest.fixture(scope="module")
 def server_files(conn):
-    """Skips a test that inspects export files when the server writes them where this process cannot see."""
-    probe = os.path.join(SERVER_SHARED_DIR, f"mage_export_json_probe_{os.getpid()}.json")
-    with contextlib.suppress(mgclient.DatabaseError):
-        execute(conn, f"CALL export.json_data([], [], '{probe}', {{}}) YIELD done RETURN done")
-    if not os.path.exists(probe):
-        pytest.skip("the server's export files are not reachable from the test process")
-    os.remove(probe)
+    """Skips a test that inspects export files unless the server reads a file this process wrote.
+
+    Decided without the export module, so a broken file sink fails these tests instead of skipping them.
+    """
+    marker = os.path.join(SERVER_SHARED_DIR, f"mage_export_json_marker_{uuid.uuid4().hex}.csv")
+    with open(marker, "w", encoding="utf-8") as handle:
+        handle.write("shared\n")
+    try:
+        rows = execute(conn, f"LOAD CSV FROM '{marker}' NO HEADER AS row RETURN count(row) AS n")
+    except mgclient.DatabaseError:
+        rows = []
+    finally:
+        os.remove(marker)
+    if rows != [{"n": 1}]:
+        pytest.skip("the server does not share a filesystem with the test process")
 
 
 _export_paths = itertools.count()
@@ -535,6 +545,17 @@ def test_json_graph_empty_list_does_not_shadow_the_other_key(conn, keys):
     assert (row["nodes"], row["relationships"]) == (3, 2)
 
 
+@pytest.mark.parametrize("value", ["ns[0]", "rs[0]"])
+def test_graph_elements_are_not_maps(conn, value):
+    # The map type also admits a node or a relationship, which a procedure must not read as a map.
+    execute(conn, SEED_MIXED)
+    with pytest.raises(Exception, match="Argument 'graph' must be a map"):
+        export(conn, call=f"export.json_graph({value}, null, {{stream: true}})")
+    with pytest.raises(Exception, match="Argument 'config' must be a map or null"):
+        export(conn, call=f"export.json_data(ns, rs, null, {value})")
+    assert execute(conn, "RETURN 1 AS alive") == [{"alive": 1}]
+
+
 @pytest.mark.parametrize(
     "graph,error",
     [
@@ -731,7 +752,7 @@ def test_export_refuses_a_read_only_target(conn, server_files, export_path):
     # would otherwise be replaced without an error.
     execute(conn, SEED_MIXED)
     before = make_target(export_path, 0o444)
-    with pytest.raises(Exception, match="Cannot open"):
+    with pytest.raises(Exception, match=f"Cannot open '{re.escape(export_path)}' for writing"):
         export(conn, call=f"export.json_data(ns, rs, '{export_path}', {{}})")
     assert read_server_file(export_path) == before, "a refused export must not have touched the target"
 
