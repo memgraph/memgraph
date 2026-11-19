@@ -296,7 +296,7 @@ bool FineGrainedAuthChecker::HasAllGlobalPrivilegesOnVertices() const {
   return global_grants.has_value() &&
          static_cast<memgraph::auth::FineGrainedPermission>(global_grants.value()) ==
              memgraph::auth::kAllLabelPermissions &&
-         !global_denies.has_value() && permissions.GetGlobalWeakDenies() == 0;
+         !global_denies.has_value();
 }
 
 bool FineGrainedAuthChecker::HasAllGlobalPrivilegesOnEdges() const {
@@ -309,7 +309,7 @@ bool FineGrainedAuthChecker::HasAllGlobalPrivilegesOnEdges() const {
   return global_grants.has_value() &&
          static_cast<memgraph::auth::FineGrainedPermission>(global_grants.value()) ==
              memgraph::auth::kAllEdgeTypePermissions &&
-         !global_denies.has_value() && permissions.GetGlobalWeakDenies() == 0;
+         !global_denies.has_value();
 }
 
 bool FineGrainedAuthChecker::HasUnrestrictedAccessToVertices() const {

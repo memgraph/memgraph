@@ -416,6 +416,28 @@ def test_role_merge_wildcard_grant_does_not_override_weak_deny():
     assert result == [(None,)]
 
 
+def test_role_merge_global_grant_overrides_global_weak_deny():
+    admin = admin_cursor()
+    try:
+        common.execute_and_fetch_all(admin, "CREATE USER roles_only IDENTIFIED BY 'test';")
+        common.execute_and_fetch_all(admin, "GRANT ALL PRIVILEGES TO roles_only;")
+        common.execute_and_fetch_all(admin, "GRANT DATABASE * TO roles_only;")
+        common.execute_and_fetch_all(admin, "CREATE ROLE worker;")
+        common.execute_and_fetch_all(admin, "WEAK DENY READ ON NODES CONTAINING LABELS * TO ROLE worker;")
+        common.execute_and_fetch_all(admin, "CREATE ROLE ceo;")
+        common.execute_and_fetch_all(
+            admin, "GRANT CREATE, READ, UPDATE, DELETE ON NODES CONTAINING LABELS * TO ROLE ceo;"
+        )
+        common.execute_and_fetch_all(admin, "GRANT CREATE, READ, UPDATE, DELETE ON EDGES OF TYPE * TO ROLE ceo;")
+        common.execute_and_fetch_all(admin, "GRANT ROLE worker, ceo TO roles_only;")
+        cursor = common.connect(username="roles_only", password="test").cursor()
+        assert common.execute_and_fetch_all(cursor, SALARY) == [(50000,)]
+    finally:
+        common.execute_and_fetch_all(admin, "DROP USER roles_only;")
+        common.execute_and_fetch_all(admin, "DROP ROLE worker;")
+        common.execute_and_fetch_all(admin, "DROP ROLE ceo;")
+
+
 def test_show_privileges_shows_weak_deny():
     admin = admin_cursor()
     try:
