@@ -428,6 +428,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
         if (input_op) {
           auto symbols = barrier_symbols();
           auto accumulate = std::make_unique<Accumulate>(std::move(input_op), symbols, read_scope_ == ReadScope::kRoot);
+          accumulate->skip_advance_in_analytical_ = true;
           barrier = accumulate.get();
           input_op = std::move(accumulate);
         }
@@ -453,6 +454,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
           auto barrier =
               std::make_unique<Accumulate>(std::move(input_op), barrier_symbols(), read_scope_ == ReadScope::kRoot);
           barrier->access_check_only_ = true;
+          barrier->skip_advance_in_analytical_ = true;
           own_deletes(*barrier);
           input_op = std::move(barrier);
         }

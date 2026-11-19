@@ -1071,7 +1071,8 @@ std::unique_ptr<LogicalOperator> PlanProjectionAndOrdering(std::unique_ptr<Logic
 
 std::unique_ptr<LogicalOperator> GenReturnBody(std::unique_ptr<LogicalOperator> input_op, bool advance_command,
                                                const ReturnBodyContext &body, bool accumulate,
-                                               Expression *commit_frequency, storage::View read_view) {
+                                               Expression *commit_frequency, storage::View read_view,
+                                               bool skip_advance_in_analytical = false) {
   std::vector<Symbol> used_symbols(body.used_symbols().begin(), body.used_symbols().end());
   using BodyPosition = ReturnBodyContext::BodyPosition;
   auto last_op = std::move(input_op);
@@ -1079,7 +1080,9 @@ std::unique_ptr<LogicalOperator> GenReturnBody(std::unique_ptr<LogicalOperator> 
     // We only advance the command in Accumulate. This is done for WITH clause,
     // when the first part updated the database. RETURN clause may only need an
     // accumulation after updates, without advancing the command.
-    last_op = std::make_unique<Accumulate>(std::move(last_op), used_symbols, advance_command);
+    auto accumulate_op = std::make_unique<Accumulate>(std::move(last_op), used_symbols, advance_command);
+    accumulate_op->skip_advance_in_analytical_ = skip_advance_in_analytical;
+    last_op = std::move(accumulate_op);
   }
   // A planned branch, folded onto last_op: the list fold reads a column, the column-less folds do not, and that is
   // the whole difference between the two RollUpApply constructors.
@@ -1487,7 +1490,8 @@ std::unique_ptr<LogicalOperator> GenReturn(Return &ret, std::unique_ptr<LogicalO
   // View::OLD. A body's RETURN runs once per outer row, and an advance there would change the outer scan mid-way.
   bool const advance_command = may_advance;
   const ReturnBodyContext body(ret.body_, symbol_table, bound_symbols, storage, &subquery_ctx);
-  return GenReturnBody(std::move(input_op), advance_command, body, accumulate, commit_frequency, read_view);
+  // Master's RETURN never advances, so this advance is the PR's: analytical mode skips it.
+  return GenReturnBody(std::move(input_op), advance_command, body, accumulate, commit_frequency, read_view, true);
 }
 
 std::unique_ptr<LogicalOperator> GenWith(With &with, std::unique_ptr<LogicalOperator> input_op,

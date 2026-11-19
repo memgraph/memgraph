@@ -1971,6 +1971,9 @@ class Accumulate : public memgraph::query::plan::LogicalOperator {
   /// Planned only because a fine-grained access check reads labels an earlier clause wrote: without a check to run,
   /// the cursor passes rows through and does not advance.
   bool access_check_only_{false};
+  /// A write-visibility advance: analytical mode keeps no deltas, so after it an index scan sees its own command's
+  /// writes, and the cursor skips it there.
+  bool skip_advance_in_analytical_{false};
   /// Nonzero on the outermost drain of a segment that holds Deletes: the id those Deletes defer their deletes to.
   uint64_t defers_deletes_{0};
 
