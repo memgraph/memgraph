@@ -2825,7 +2825,8 @@ class Union : public memgraph::query::plan::LogicalOperator {
   std::vector<Symbol> union_symbols_;
   std::vector<Symbol> left_symbols_;
   std::vector<Symbol> right_symbols_;
-  /// Advance the command once the left side is done, so the right side's View::OLD reads see its writes.
+  /// Advance the command once the left side is done, so the right side's View::OLD reads see its writes. Analytical
+  /// mode skips it, as Accumulate::skip_advance_in_analytical_ does.
   bool advance_command_{false};
 
   std::string ToString(const DbAccessor *dba) const override;

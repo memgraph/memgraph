@@ -7514,6 +7514,8 @@ auto OwnDeletes(ExecutionContext &context, uint64_t id, DeferredDeletes *list) {
     if (id != 0) context.delete_owners.pop_back();
   }};
 }
+
+bool IsAnalytical(DbAccessor const &dba) { return dba.GetStorageMode() == storage::StorageMode::IN_MEMORY_ANALYTICAL; }
 }  // namespace
 
 class AccumulateCursor : public Cursor {
@@ -7552,7 +7554,7 @@ class AccumulateCursor : public Cursor {
       pulled_all_input_ = true;
       cache_it_ = cache_.begin();
 
-      if (self_.advance_command_) dba.AdvanceCommand();
+      if (self_.advance_command_ && !(self_.skip_advance_in_analytical_ && IsAnalytical(dba))) dba.AdvanceCommand();
     }
 
     AbortCheck(context);
@@ -9246,7 +9248,7 @@ bool Union::UnionCursor::Pull(Frame &frame, ExecutionContext &context) {
   } else {
     if (!is_left_exhausted_) {
       is_left_exhausted_ = true;
-      if (self_.advance_command_) context.db_accessor->AdvanceCommand();
+      if (self_.advance_command_ && !IsAnalytical(*context.db_accessor)) context.db_accessor->AdvanceCommand();
     }
     if (!right_cursor_->Pull(frame, context)) return false;
     // collect values from the right child
