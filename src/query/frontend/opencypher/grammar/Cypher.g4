@@ -96,6 +96,7 @@ clause : cypherMatch
        | with
        | cypherReturn
        | callProcedure
+       | orderSkipLimit
        ;
 
 cypherMatch : OPTIONAL? MATCH pattern where? ;

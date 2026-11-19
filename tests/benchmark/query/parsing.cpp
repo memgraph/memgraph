@@ -70,6 +70,10 @@ const Shape kShapes[] = {
      "MATCH (n:$p)-[e]->(m) WHERE n.a > n.b AND m.c IN n.list "
      "WITH n, m, n.a + n.b AS s, count(*) AS c ORDER BY n.a + n.b, m.c "
      "RETURN n.a, n.b, m.c, s, c ORDER BY s", true},
+    // A projection's tail and a standalone tail start with the same keyword; these say what telling them apart costs.
+    {"with_order_skip_limit",  "MATCH (n) WITH n ORDER BY n.a SKIP 1 LIMIT 2 RETURN n"},
+    {"return_long_tail",       "MATCH (n) RETURN n ORDER BY n.a, toLower(n.b) DESC, n.c SKIP $s LIMIT $l"},
+    {"standalone_order_by",    "MATCH (n) WITH n WHERE n.a > 1 ORDER BY n.a LIMIT 1 RETURN n"},
 };
 // clang-format on
 

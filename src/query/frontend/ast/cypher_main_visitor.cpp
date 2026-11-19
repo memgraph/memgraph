@@ -2223,6 +2223,11 @@ antlrcpp::Any CypherMainVisitor::visitClause(MemgraphCypher::ClauseContext *ctx)
   if (ctx->callSubquery()) {
     return static_cast<Clause *>(std::any_cast<CallSubquery *>(ctx->callSubquery()->accept(this)));
   }
+  if (ctx->orderSkipLimit()) {
+    auto *with = storage_->Create<With>();
+    with->body_.all_identifiers = true;
+    return static_cast<Clause *>(with);
+  }
   // TODO: implement other clauses.
   throw utils::NotYetImplemented("clause '{}'", ctx->getText());
   return 0;
