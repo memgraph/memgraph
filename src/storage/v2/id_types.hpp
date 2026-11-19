@@ -66,29 +66,21 @@ constexpr EdgeTypeId kInvalidEdgeTypeId = EdgeTypeId::FromUint(-1);
 #undef STORAGE_DEFINE_ID_TYPE
 
 #ifdef MG_ENTERPRISE
-/// Branch diff markers are labels/properties/edge types with this bit set; NameIdMapper refuses ids above kLastRealId.
+/// Branch diff markers are edge types with this bit set; NameIdMapper refuses ids above kLastRealId.
 inline constexpr uint32_t kReservedIdBit = uint32_t{1} << 31U;
 
-/// The id of the label (vertex) / property (edge) that marks a branch overlay as deleted.
-inline constexpr uint32_t kDeleteId = 0xFFFFFFFEU;
-
-/// Largest id a name may get; its mark stays below kDeleteId and the invalid id 0xFFFFFFFF.
-inline constexpr uint32_t kLastRealId = kReservedIdBit - 3;
+/// Largest id a name may get; its mark stays below the invalid id 0xFFFFFFFF.
+inline constexpr uint32_t kLastRealId = kReservedIdBit - 2;
 
 constexpr uint32_t StripReservedId(uint32_t id) noexcept { return id & ~kReservedIdBit; }
-
-constexpr LabelId StripReservedId(LabelId id) noexcept { return LabelId::FromUint(StripReservedId(id.AsUint())); }
-
-constexpr PropertyId StripReservedId(PropertyId id) noexcept {
-  return PropertyId::FromUint(StripReservedId(id.AsUint()));
-}
 
 constexpr EdgeTypeId StripReservedId(EdgeTypeId id) noexcept {
   return EdgeTypeId::FromUint(StripReservedId(id.AsUint()));
 }
 #endif
 
-/// Structures indexed densely by id must skip reserved ids. Always false in community.
+/// Whether an edge type is a branch marker; structures indexed densely by edge type must skip it. Always false in
+/// community.
 constexpr bool IsReservedId([[maybe_unused]] uint32_t id) noexcept {
 #ifdef MG_ENTERPRISE
   return (id & kReservedIdBit) != 0;
@@ -96,10 +88,6 @@ constexpr bool IsReservedId([[maybe_unused]] uint32_t id) noexcept {
   return false;
 #endif
 }
-
-constexpr bool IsReservedId(LabelId id) noexcept { return IsReservedId(id.AsUint()); }
-
-constexpr bool IsReservedId(PropertyId id) noexcept { return IsReservedId(id.AsUint()); }
 
 constexpr bool IsReservedId(EdgeTypeId id) noexcept { return IsReservedId(id.AsUint()); }
 

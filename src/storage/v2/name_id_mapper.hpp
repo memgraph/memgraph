@@ -61,7 +61,8 @@ class NameIdMapper {
   virtual ~NameIdMapper() = default;
 
   /// @throw std::bad_alloc if unable to insert a new mapping
-  /// @throw utils::BasicException (enterprise) if the name space is exhausted, as branch markers reserve the upper half
+  /// @throw utils::BasicException (enterprise) if the name space is exhausted, as branch edge-type markers reserve the
+  /// upper half
   virtual uint64_t NameToId(const std::string_view name) {
     auto name_to_id_acc = name_to_id_.access();
     auto found = name_to_id_acc.find(name);
