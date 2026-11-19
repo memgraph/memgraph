@@ -228,6 +228,25 @@ struct Transaction {
     return it->second;
   }
 
+#ifdef MG_ENTERPRISE
+  /// A branch's deletion of a base edge: the edge overlay's delete mark is the only write, so the WAL record of the
+  /// deletion takes its endpoints and type from here.
+  struct BaseEdgeDelete {
+    Gid from_gid = kInvalidGid;
+    Gid to_gid = kInvalidGid;
+    EdgeTypeId edge_type_id = kInvalidEdgeTypeId;
+  };
+
+  void RecordBaseEdgeDelete(Gid edge_gid, BaseEdgeDelete info) { base_edge_deletes_[edge_gid] = info; }
+
+  const BaseEdgeDelete *FindBaseEdgeDelete(Gid edge_gid) const {
+    auto const it = base_edge_deletes_.find(edge_gid);
+    return it == base_edge_deletes_.end() ? nullptr : &it->second;
+  }
+
+  void ClearBaseEdgeDeletes() { base_edge_deletes_.clear(); }
+#endif
+
   void UpdateOnChangeLabel(LabelId label, Vertex *vertex) {
     point_index_change_collector_.UpdateOnChangeLabel(label, vertex);
     manyDeltasCache.Invalidate(vertex, label);
@@ -339,6 +358,9 @@ struct Transaction {
   // Only for disk storage
   ModifiedEdgesMap modified_edges_{};
   std::unordered_map<Gid, EdgeSetPropertyInfo> edge_set_property_info_{};
+#ifdef MG_ENTERPRISE
+  std::unordered_map<Gid, BaseEdgeDelete> base_edge_deletes_{};
+#endif
   rocksdb::Transaction *disk_transaction_{};
   /// Main storage
   std::optional<utils::SkipListDb<Vertex>> vertices_{};
