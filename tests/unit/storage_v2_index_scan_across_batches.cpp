@@ -405,15 +405,16 @@ TEST_F(OwnBatchWrite, AnElementTheBatchCreatedBeforeTheScanStaysVisible) {
   }
 }
 
-// Known residual of the per-scan flag: once the batch wrote before the scan opened, the scan cannot tell its own
-// later entries from earlier ones (a write before a batched update). A documented gap: index entries do not grow.
-TEST_F(OwnBatchWrite, DISABLED_AWriteBeforeTheScanOpenedStillHidesItsLaterEntries) {
+// Known gap of the per-scan flag: once the batch wrote before the scan opened, the scan cannot tell its own later
+// entries from earlier ones, so it meets the first node again. Index entries do not grow; interpreter row F3 pins it.
+TEST_F(OwnBatchWrite, AWriteBeforeTheScanOpenedMeetsItsLaterEntriesKnownGap) {
   Index([&](auto &acc) { return acc.CreateIndex(label, {ms::PropertyPath{property}}).has_value(); });
   auto const gids = Vertices();
+  ASSERT_EQ(gids.size(), 2);
   auto acc = storage->Access(ms::WRITE);
   WriteOther(*acc);
   acc->AdvanceCommand();
-  EXPECT_EQ(BumpEach(*acc, LabelPropertyScan(*acc)), gids);
+  EXPECT_EQ(BumpEach(*acc, LabelPropertyScan(*acc)), (std::vector{gids[0], gids[1], gids[0]}));
   acc->Abort();
 }
 
