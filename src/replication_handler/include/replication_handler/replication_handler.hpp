@@ -212,7 +212,7 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
 
   auto ShowReplicas() const -> std::expected<query::ReplicasInfos, query::ShowReplicaError> override;
 
-  // Empty when the replication state or the dbms handler is locked by a writer.
+  // Empty when the replication state, the dbms handler, or a replica's state is locked.
   auto GetReplicationHealth() const -> std::optional<metrics::ReplicationHealth>;
 
   auto GetReplState() const { return repl_state_.ReadLock(); }

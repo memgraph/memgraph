@@ -81,8 +81,8 @@ struct DurabilityThroughput {
 /// if there is no such database.
 using StorageSnapshotResolver = std::function<std::optional<StorageSnapshot>(utils::UUID const &uuid)>;
 
-/// Retrieves this instance's `ReplicationHealth`, or `std::nullopt` if it
-/// cannot be read without blocking.
+/// Retrieves this instance's `ReplicationHealth`, or `std::nullopt` if a lock it
+/// tries is busy. A `std::nullopt` snapshot leaves the replication gauges at their previous values.
 using ReplicationHealthResolver = std::function<std::optional<ReplicationHealth>()>;
 
 #ifdef MG_ENTERPRISE

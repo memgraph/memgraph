@@ -536,7 +536,7 @@ auto ReplicationHandler::GetReplicationHealth() const -> std::optional<metrics::
       ForEachReplicaLag(
           db_acc->storage()->repl_storage_state_,
           [&](auto const &client, uint64_t /*num_replica_committed_txns*/, int64_t const txns_behind) {
-            auto const state = client.State();
+            auto const state = client.TryState();
             health.replicas.push_back(
                 {.replica = client.Name(),
                  .database = db_name,

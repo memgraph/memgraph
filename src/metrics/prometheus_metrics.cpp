@@ -1430,19 +1430,21 @@ void PrometheusMetrics::UpdateReplicationGauges(ReplicationHealth const &health)
   }
 
   for (auto const &replica : health.replicas) {
-    auto [it, inserted] = entries.try_emplace({replica.replica, replica.database, std::string{replica.mode}});
-    auto &gauges = it->second;
-    if (inserted) {
+    auto key = std::tuple{replica.replica, replica.database, std::string{replica.mode}};
+    auto it = entries.find(key);
+    if (it == entries.end()) {
       prometheus::Labels const labels{
           {"mg_instance", replica.replica}, {"database", replica.database}, {"mode", std::string{replica.mode}}};
-      gauges.txns_behind = &replica_txns_behind_family_.Add(labels);
-      gauges.states = replica.states | rv::keys | rv::transform([&](auto const state) {
-                        auto state_labels = labels;
-                        state_labels.emplace("state", state);
-                        return &replica_state_family_.Add(state_labels);
-                      }) |
-                      r::to<std::vector>();
+      ReplicaGauges gauges{.states = replica.states | rv::keys | rv::transform([&](auto const state) {
+                                       auto state_labels = labels;
+                                       state_labels.emplace("state", state);
+                                       return &replica_state_family_.Add(state_labels);
+                                     }) |
+                                     r::to<std::vector>(),
+                           .txns_behind = &replica_txns_behind_family_.Add(labels)};
+      it = entries.emplace(std::move(key), std::move(gauges)).first;
     }
+    auto const &gauges = it->second;
     for (auto const &[gauge, state] : rv::zip(gauges.states, replica.states)) gauge->Set(state.second ? 1.0 : 0.0);
     gauges.txns_behind->Set(static_cast<double>(replica.txns_behind));
   }
