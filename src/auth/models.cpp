@@ -942,10 +942,6 @@ const FineGrainedAccessPermissions &Role::GetFineGrainedAccessLabelPermissions(
 
 const FineGrainedAccessPermissions &Role::GetFineGrainedAccessEdgeTypePermissions(
     std::optional<std::string_view> db_name) const {
-  if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-    return empty_permissions;
-  }
-
   // If db_name is provided, check if the role has access to that database
   if (db_name && !HasAccess(*db_name)) {
     return empty_permissions;
@@ -1313,20 +1309,12 @@ FineGrainedAccessPermissions User::GetFineGrainedAccessLabelPermissions(std::opt
 
 FineGrainedAccessPermissions User::GetFineGrainedAccessEdgeTypePermissions(
     std::optional<std::string_view> db_name) const {
-  if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-    return FineGrainedAccessPermissions{};
-  }
-
   if (db_name && !HasAccess(*db_name)) return FineGrainedAccessPermissions{};  // Users+role level access check
   return Merge(GetUserFineGrainedAccessEdgeTypePermissions(), GetRoleFineGrainedAccessEdgeTypePermissions(db_name));
 }
 
 FineGrainedAccessPermissions User::GetUserFineGrainedAccessEdgeTypePermissions(
     std::optional<std::string_view> db_name) const {
-  if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-    return FineGrainedAccessPermissions{};
-  }
-
   if (db_name && !HasAccess(*db_name)) return FineGrainedAccessPermissions{};  // Users+role level access check
   return fine_grained_access_handler_.edge_type_permissions();
 }
@@ -1339,10 +1327,6 @@ FineGrainedAccessPermissions User::GetUserFineGrainedAccessLabelPermissions(
 
 FineGrainedAccessPermissions User::GetRoleFineGrainedAccessEdgeTypePermissions(
     std::optional<std::string_view> db_name) const {
-  if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-    return FineGrainedAccessPermissions{};
-  }
-
   FineGrainedAccessPermissions combined_permissions{};
   for (const auto &role : roles_) {
     // If db_name is provided, only include roles that grant access to that database

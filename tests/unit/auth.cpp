@@ -1507,6 +1507,22 @@ TEST(AuthWithoutStorage, UserFineGrainedPermissionsSurviveLicenseLoss) {
   EXPECT_EQ(permissions.Has(std::array{secret_label}, FineGrainedPermission::READ), PermissionLevel::DENY);
 }
 
+TEST(AuthWithoutStorage, UserEdgeTypePermissionsSurviveLicenseLoss) {
+  const UnlicensedScope unlicensed;
+
+  const std::string public_edge = "KNOWS";
+  const std::string secret_edge = "PAYS";
+
+  User user{"test"};
+  user.fine_grained_access_handler().edge_type_permissions().GrantGlobal(kAllEdgeTypePermissions);
+  user.fine_grained_access_handler().edge_type_permissions().Deny({secret_edge}, kAllEdgeTypePermissions);
+
+  const auto permissions = user.GetFineGrainedAccessEdgeTypePermissions(std::nullopt);
+
+  EXPECT_EQ(permissions.Has(std::array{public_edge}, FineGrainedPermission::READ), PermissionLevel::GRANT);
+  EXPECT_EQ(permissions.Has(std::array{secret_edge}, FineGrainedPermission::READ), PermissionLevel::DENY);
+}
+
 TEST(AuthWithoutStorage, PropertyAccessPermissions) {
   using memgraph::auth::PermissionLevel;
   using memgraph::auth::PropertyAccessPermissions;
