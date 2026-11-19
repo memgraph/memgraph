@@ -53,7 +53,7 @@ struct GaugeHandle {
   }
 };
 
-// A value of a counter's label, and the name its counter has in SHOW METRICS INFO and the JSON endpoint.
+// A value of a counter's label, and the name its counter has in SHOW METRICS INFO.
 struct CounterLabelValue {
   std::string_view label;
   std::string_view info_name;

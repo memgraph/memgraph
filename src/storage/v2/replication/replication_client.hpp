@@ -295,6 +295,7 @@ class ReplicationStorageClient {
 
   ::memgraph::replication::ReplicationClient &client_;
   // The database's replication failure counters, holding this replica's series from Start until destruction.
+  // A copy, because Storage destroys its metric handles before its replication clients.
   std::unique_ptr<metrics::ReplicationFailureCounters> failure_counters_;
   mutable utils::Synchronized<replication::ReplicaState, utils::SpinLock> replica_state_{
       replication::ReplicaState::MAYBE_BEHIND};

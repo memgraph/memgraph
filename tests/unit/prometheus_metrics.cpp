@@ -98,12 +98,12 @@ TEST(PrometheusMetrics, ReplicationFailureSeriesExistAtZeroWhileTheReplicaIsAtta
   auto db = pm.AddDatabase(memgraph::utils::UUID{}, "db1");
   auto const &counters = db.handles().replication_failures;
 
-  auto const replica_series = [&] {
+  auto const replica_series = [&](std::string_view replica) {
     std::vector<double> values;
     for (auto const &family : pm.CollectForScrape()) {
       if (family.name != "memgraph_replication_failures_total") continue;
       for (auto const &metric : family.metric) {
-        if (r::any_of(metric.label, [](auto const &l) { return l.name == "mg_instance" && l.value == "replica_1"; })) {
+        if (r::any_of(metric.label, [&](auto const &l) { return l.name == "mg_instance" && l.value == replica; })) {
           values.push_back(metric.counter.value);
         }
       }
@@ -112,15 +112,17 @@ TEST(PrometheusMetrics, ReplicationFailureSeriesExistAtZeroWhileTheReplicaIsAtta
   };
 
   counters.AddReplica("replica_1");
-  EXPECT_EQ(replica_series(), std::vector<double>(8, 0.0)) << "one series per outcome and reason, at 0";
+  counters.AddReplica("replica_2");
+  EXPECT_EQ(replica_series("replica_1"), std::vector<double>(8, 0.0)) << "one series per outcome and reason, at 0";
 
   counters.RemoveReplica("replica_1");
-  EXPECT_TRUE(replica_series().empty());
+  EXPECT_TRUE(replica_series("replica_1").empty());
+  EXPECT_EQ(replica_series("replica_2").size(), 8) << "removing one replica keeps the others";
 
   counters.Increment("replica_1",
                      memgraph::metrics::ReplicationFailureOutcome::COMMITTED,
                      memgraph::metrics::ReplicationFailureReason::NOT_IN_SYNC);
-  EXPECT_TRUE(replica_series().empty()) << "a failure counted after removal does not re-create the series";
+  EXPECT_TRUE(replica_series("replica_1").empty()) << "a failure counted after removal does not re-create the series";
 }
 
 TEST(PrometheusMetrics, ReplicationFailuresSumOnlyTheDatabasesOwnSeries) {
