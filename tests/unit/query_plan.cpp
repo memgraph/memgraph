@@ -9323,6 +9323,52 @@ TYPED_TEST(TestPlanner, CachePropertiesCopiesOnlyWhatItRewrites) {
 // Candidate plans for one query are weighed and all but one thrown away, and the expressions they
 // were planned from are shared. Two that rewrite one expression the same way hold one rewrite of
 // it, so weighing more candidates does not copy the expression again.
+// Candidates for one query reach a symbol's properties differently: where an expansion stands
+// between a predicate's pass and the projection, the projection reads the record and takes a pass
+// of its own, and where it does not, the projection reads the slot that pass filled. The two
+// rewrite one expression into different slots, so a rewrite one candidate made is the wrong answer
+// for the other, and a plan would read a slot nothing in it fills.
+TYPED_TEST(TestPlanner, CachePropertiesACandidateReadsOnlyTheSlotsItFills) {
+  CachePropertiesFlagGuard guard{true};
+  FakeDbAccessor dba;
+  auto prop_a = PROPERTY_PAIR(dba, "a");
+  auto prop_b = PROPERTY_PAIR(dba, "b");
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))),
+                                   WHERE(AND(GREATER(PROPERTY_LOOKUP(dba, "n", prop_a), LITERAL(0)),
+                                             LESS(PROPERTY_LOOKUP(dba, "n", prop_a), LITERAL(9)))),
+                                   RETURN(ADD(PROPERTY_LOOKUP(dba, "n", prop_a), PROPERTY_LOOKUP(dba, "n", prop_a)),
+                                          AS("x"),
+                                          PROPERTY_LOOKUP(dba, "m", prop_b),
+                                          AS("y"))));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto context = MakePlanningContext(&this->storage, &symbol_table, query, &dba);
+  auto query_parts = CollectQueryParts(symbol_table, this->storage, query, false);
+  memgraph::query::Parameters parameters;
+  PostProcessor post_processor{parameters, std::vector<memgraph::query::IndexHint>{}, &dba};
+
+  auto candidates = 0;
+  for (auto plan : MakeLogicalPlanForSingleQuery<VariableStartPlanner>(query_parts, &context)) {
+    if (!plan) continue;
+    auto rewritten = post_processor.Rewrite(std::move(plan), &context);
+    ++candidates;
+
+    auto *produce = dynamic_cast<Produce *>(rewritten.get());
+    if (produce == nullptr) continue;
+
+    auto const written = produce->input()->ModifiedSymbols(symbol_table);
+    memgraph::query::plan::UsedSymbolsCollector collector(symbol_table);
+    for (auto *named_expression : produce->named_expressions_) named_expression->Accept(collector);
+
+    for (auto const &read : collector.symbols_) {
+      EXPECT_TRUE(std::ranges::find(written, read) != written.end())
+          << "the projection reads " << read.name() << ", which nothing below it writes";
+    }
+  }
+
+  ASSERT_GT(candidates, 1) << "the pattern must offer the planner a choice for this to prove anything";
+}
+
 TYPED_TEST(TestPlanner, CachePropertiesRewritesAnExpressionOncePerQuery) {
   CachePropertiesFlagGuard guard{true};
   FakeDbAccessor dba;
