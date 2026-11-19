@@ -71,10 +71,12 @@ class PropertyStore {
   template <typename T>
   PropertyValue GetProperty(PropertyId property, const IndexedPropertyDecoder<T> &decoder) const;
 
+#ifdef MG_ENTERPRISE
   /// Tri-state lookup: nullopt when the key is absent, a Null value when the key holds an explicit null
   /// (see SetExplicitNull), otherwise the stored value. GetProperty cannot tell the first two apart.
   /// @throw std::bad_alloc
   std::optional<PropertyValue> FindProperty(PropertyId property) const;
+#endif
 
   ExtendedPropertyType GetExtendedPropertyType(PropertyId property) const;
 
@@ -152,14 +154,16 @@ class PropertyStore {
   /// @throw std::bad_alloc
   bool SetProperty(PropertyId property, const PropertyValue &value);
 
+#ifdef MG_ENTERPRISE
   /// Stores `property` as an explicit null entry, replacing any existing value, so a diff-engine overlay can record
   /// "removed" distinctly from "absent". Returns `true` if the key was not present before.
-  /// An explicit null is visible to FindProperty and HasProperty, reads as Null through GetProperty, is skipped by
-  /// Properties(), and is erased by a later SetProperty(property, Null). Whole-store accessors that decode every entry
-  /// (ExtendedPropertyTypes, ExtractPropertyIds, PropertiesOfTypes, IsPropertyEqual on an overlay) see it as a
-  /// Null entry; only versioning overlays hold one and they are read through FindProperty.
+  /// An explicit null is visible to FindProperty and HasProperty, reads as Null through GetProperty, is returned as
+  /// a Null entry by Properties(), and is erased by a later SetProperty(property, Null). Whole-store accessors that
+  /// decode every entry (ExtendedPropertyTypes, ExtractPropertyIds, PropertiesOfTypes, IsPropertyEqual on an overlay)
+  /// see it as a Null entry; only versioning overlays hold one and they are read through FindProperty.
   /// @throw std::bad_alloc
   bool SetExplicitNull(PropertyId property);
+#endif
 
   /// Init property values and return `true` if insertion took place. `false` is
   /// returned if there is any existing property in property store and insertion couldn't take place. The time
@@ -202,7 +206,8 @@ class PropertyStore {
       -> std::optional<PropertyStoreConstraintViolation>;
 
  private:
-  bool SetPropertyImpl(PropertyId property, const PropertyValue &value, bool store_null);
+  template <bool kStoreNull>
+  bool SetPropertyImpl(PropertyId property, const PropertyValue &value);
 
   template <typename TContainer>
   bool DoInitProperties(const TContainer &properties);

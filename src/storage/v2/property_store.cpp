@@ -2573,6 +2573,7 @@ struct SafeReader {
 template <typename GetFunc, typename ApplyFunc, typename MissingValue>
 SafeReader(Reader &, GetFunc &&, ApplyFunc &&, MissingValue) -> SafeReader<GetFunc, ApplyFunc, MissingValue>;
 
+#ifdef MG_ENTERPRISE
 std::optional<PropertyValue> PropertyStore::FindProperty(PropertyId property) const {
   auto find_property = [&](Reader &reader) -> std::optional<PropertyValue> {
     PropertyValue value;
@@ -2581,6 +2582,7 @@ std::optional<PropertyValue> PropertyStore::FindProperty(PropertyId property) co
   };
   return WithReader(find_property);
 }
+#endif
 
 PropertyValue PropertyStore::GetProperty(PropertyId property) const {
   auto get_property = [&](Reader &reader) -> PropertyValue {
@@ -2838,7 +2840,6 @@ std::map<PropertyId, PropertyValue> PropertyStore::Properties() const {
     while (true) {
       auto prop = DecodeAnyProperty(&reader, value);
       if (!prop) break;
-      if (value.IsNull()) continue;  // explicit null (SetExplicitNull): not a user property
       props.emplace(*prop, std::move(value));
     }
     return props;
@@ -2854,7 +2855,6 @@ std::map<PropertyId, PropertyValue> PropertyStore::Properties(const IndexedPrope
     while (true) {
       auto prop = DecodeAnyProperty(&reader, value);
       if (!prop) break;
-      if (value.IsNull()) continue;  // explicit null (SetExplicitNull): not a user property
       decoder.DecodeProperty(value);
       props.emplace(*prop, std::move(value));
     }
@@ -2895,17 +2895,10 @@ std::vector<PropertyId> PropertyStore::ExtractPropertyIds() const {
   return WithReader(get_properties);
 }
 
-bool PropertyStore::SetProperty(PropertyId property, const PropertyValue &value) {
-  return SetPropertyImpl(property, value, /*store_null=*/false);
-}
-
-bool PropertyStore::SetExplicitNull(PropertyId property) {
-  return SetPropertyImpl(property, PropertyValue{}, /*store_null=*/true);
-}
-
-bool PropertyStore::SetPropertyImpl(PropertyId property, const PropertyValue &value, bool store_null) {
-  // A null value erases the key unless the caller asked for it to be stored as an explicit null entry.
-  const bool erase = value.IsNull() && !store_null;
+template <bool kStoreNull>
+bool PropertyStore::SetPropertyImpl(PropertyId property, const PropertyValue &value) {
+  // A null value erases the key (main never stores one); the enterprise-only explicit-null path keeps it.
+  const bool erase = !kStoreNull && value.IsNull();
   uint32_t property_size = 0;
   if (!erase) {
     Writer writer;
@@ -3035,6 +3028,14 @@ bool PropertyStore::SetPropertyImpl(PropertyId property, const PropertyValue &va
 
   return !existed;
 }
+
+bool PropertyStore::SetProperty(PropertyId property, const PropertyValue &value) {
+  return SetPropertyImpl<false>(property, value);
+}
+
+#ifdef MG_ENTERPRISE
+bool PropertyStore::SetExplicitNull(PropertyId property) { return SetPropertyImpl<true>(property, PropertyValue{}); }
+#endif
 
 template <typename TContainer>
 bool PropertyStore::DoInitProperties(const TContainer &properties) {
