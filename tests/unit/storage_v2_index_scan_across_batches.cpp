@@ -25,6 +25,7 @@
 
 #include <fmt/format.h>
 
+#include "storage/v2/indices/batch_timestamps.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/isolation_level.hpp"
 #include "storage/v2/property_value.hpp"
@@ -306,6 +307,106 @@ class OwnBatchWrite : public ::testing::Test {
     }
     return count;
   }
+
+  /// Reads on from `it` to the end, at most one element past `limit`, so a looping scan still ends.
+  template <class TIterator, class TEnd>
+  static void ReadOn(TIterator &it, TEnd const &end, std::vector<ms::Gid> &seen, size_t limit) {
+    for (; it != end && seen.size() <= limit; ++it) seen.push_back((*it).Gid());
+  }
+
+  /// Gives `other` label L and p = 3, so it enters the label-property index.
+  void AddOtherToTheIndex(ms::Storage::Accessor &acc) {
+    auto vertex = acc.FindVertex(other, ms::View::NEW);
+    ASSERT_TRUE(vertex->AddLabel(label).has_value());
+    ASSERT_TRUE(vertex->SetProperty(property, ms::PropertyValue{3}).has_value());
+  }
+
+  /// Advances `acc` past the stamps its batch start owns, so its next write carries a stamp of a fresh span.
+  static void AdvancePastTheStampSpan(ms::Storage::Accessor &acc) {
+    for (uint64_t i = 0; i < (uint64_t{1} << ms::kIndexStampBits); ++i) acc.AdvanceCommand();
+  }
+
+  struct ScanResult {
+    std::vector<ms::Gid> expected;
+    std::vector<ms::Gid> seen;
+  };
+
+  /// R6-E1: a reader at command 0 reads the first element of its scan; a writer that began after it (armed and past
+  /// a stamp, if `armed`) moves that element ahead in the range and commits. The scan must return it once.
+  ScanResult ScanWhileAYoungerWriterMovesTheFirst(ms::StorageMode mode, std::optional<ms::IsolationLevel> isolation,
+                                                  bool armed) {
+    Open(mode);
+    Index([&](auto &acc) { return acc.CreateIndex(label, {ms::PropertyPath{property}}).has_value(); });
+    auto const gids = Vertices();
+    auto reader = storage->Access(ms::WRITE, isolation, std::nullopt);
+    auto iterable = LabelPropertyScan(*reader);
+    auto it = iterable.begin();
+    std::vector<ms::Gid> seen{(*it).Gid()};
+    {
+      auto mover = armed ? Armed() : storage->Access(ms::WRITE);
+      if (armed) mover->AdvanceCommand();
+      EXPECT_TRUE(
+          mover->FindVertex(seen.front(), ms::View::NEW)->SetProperty(property, ms::PropertyValue{100}).has_value());
+      Commit(mover);
+    }
+    ++it;
+    ReadOn(it, iterable.end(), seen, gids.size());
+    return {gids, std::move(seen)};
+  }
+
+  /// The interleaving no threshold on the entry timestamp gets right: a writer that began before the reader stamps
+  /// after a mover that began after it. The reader must see the writer's commit and return the moved element once.
+  ScanResult ScanAfterAnOlderStampedWriterAndAYoungerMover(ms::StorageMode mode,
+                                                           std::optional<ms::IsolationLevel> isolation) {
+    Open(mode);
+    Index([&](auto &acc) { return acc.CreateIndex(label, {ms::PropertyPath{property}}).has_value(); });
+    auto gids = Vertices();
+    auto writer = Armed();
+    WriteOther(*writer);
+    auto reader = storage->Access(ms::WRITE, isolation, std::nullopt);
+    auto mover = storage->Access(ms::WRITE);
+    writer->AdvanceCommand();
+    auto created = writer->CreateVertex();
+    EXPECT_TRUE(created.AddLabel(label).has_value());
+    EXPECT_TRUE(created.SetProperty(property, ms::PropertyValue{3}).has_value());
+    auto const created_gid = created.Gid();
+    Commit(writer);
+    auto iterable = LabelPropertyScan(*reader);
+    auto it = iterable.begin();
+    std::vector<ms::Gid> seen{(*it).Gid()};
+    EXPECT_TRUE(
+        mover->FindVertex(seen.front(), ms::View::NEW)->SetProperty(property, ms::PropertyValue{100}).has_value());
+    Commit(mover);
+    ++it;
+    ReadOn(it, iterable.end(), seen, gids.size() + 1);
+    if (isolation != ms::IsolationLevel::SNAPSHOT_ISOLATION) gids.push_back(created_gid);
+    return {std::move(gids), std::move(seen)};
+  }
+
+  /// A writer that began before the reader writes past its stamp span and commits; the reader's scan at command 0
+  /// opens after that.
+  ScanResult ScanAfterABatchPastItsStampSpan(ms::StorageMode mode, std::optional<ms::IsolationLevel> isolation) {
+    Open(mode);
+    Index([&](auto &acc) { return acc.CreateIndex(label, {ms::PropertyPath{property}}).has_value(); });
+    auto gids = Vertices();
+    auto writer = Armed();
+    auto reader = storage->Access(ms::WRITE, isolation, std::nullopt);
+    AdvancePastTheStampSpan(*writer);
+    AddOtherToTheIndex(*writer);
+    Commit(writer);
+    std::vector<ms::Gid> seen;
+    auto iterable = LabelPropertyScan(*reader);
+    auto it = iterable.begin();
+    ReadOn(it, iterable.end(), seen, gids.size() + 1);
+    if (isolation != ms::IsolationLevel::SNAPSHOT_ISOLATION) gids.push_back(other);
+    return {std::move(gids), std::move(seen)};
+  }
+
+  /// The readers whose index scans at command 0 leave another writer's entries to MVCC: it shows committed values.
+  static constexpr std::array kCurrentValueReaders{
+      std::pair{ms::StorageMode::IN_MEMORY_TRANSACTIONAL, std::optional{ms::IsolationLevel::READ_COMMITTED}},
+      std::pair{ms::StorageMode::IN_MEMORY_TRANSACTIONAL, std::optional{ms::IsolationLevel::READ_UNCOMMITTED}},
+      std::pair{ms::StorageMode::IN_MEMORY_ANALYTICAL, std::optional<ms::IsolationLevel>{}}};
 
   std::unique_ptr<ms::Storage> storage;
   ms::LabelId label;
@@ -629,8 +730,8 @@ TEST_F(OwnBatchWrite, AnOldScanAtCommandZeroHidesItsOwnNewEntries) {
   }
 }
 
-// A5-M1: one abort removes the entries a batch wrote at its start and at each stamp, for one element and for several,
-// and keeps the entry of a transaction that started between two stamps.
+// A5-M1: one abort removes a batch's entries at its start and each stamp, for one element and several. It keeps the
+// entry of a transaction begun between two stamps, on another element: an element has one writer (PrepareForWrite).
 TEST_F(OwnBatchWrite, AnAbortRemovesEveryOwnEntryOfAnElementAndKeepsAForeignOne) {
   Index([&](auto &acc) { return acc.CreateIndex(label, {ms::PropertyPath{property}}).has_value(); });
   auto const gids = Vertices();
@@ -661,6 +762,105 @@ TEST_F(OwnBatchWrite, AnAbortRemovesEveryOwnEntryOfAnElementAndKeepsAForeignOne)
     acc->Abort();
   }
   EXPECT_EQ(count(), before + 1);
+}
+
+TEST_F(OwnBatchWrite, ACommandZeroReaderReturnsAnElementAYoungerWriterMovesOnce) {
+  for (auto const [mode, isolation] : kCurrentValueReaders) {
+    for (auto const armed : {false, true}) {
+      SCOPED_TRACE(fmt::format("mode {} armed {}", static_cast<int>(mode), armed));
+      auto const [gids, seen] = ScanWhileAYoungerWriterMovesTheFirst(mode, isolation, armed);
+      EXPECT_EQ(seen, gids);
+    }
+  }
+}
+
+// Guard: a snapshot reader hides the younger writer's commit in MVCC too.
+TEST_F(OwnBatchWrite, ACommandZeroSnapshotReaderReturnsAnElementAYoungerWriterMovesOnce) {
+  auto const [gids, seen] = ScanWhileAYoungerWriterMovesTheFirst(
+      ms::StorageMode::IN_MEMORY_TRANSACTIONAL, ms::IsolationLevel::SNAPSHOT_ISOLATION, false);
+  EXPECT_EQ(seen, gids);
+}
+
+TEST_F(OwnBatchWrite, ACommandZeroReaderSeesAnOlderStampedWriterAndNotAYoungerMover) {
+  for (auto const [mode, isolation] : kCurrentValueReaders) {
+    SCOPED_TRACE(static_cast<int>(mode));
+    auto const [expected, seen] = ScanAfterAnOlderStampedWriterAndAYoungerMover(mode, isolation);
+    EXPECT_EQ(seen, expected);
+  }
+}
+
+// Guard: a snapshot reader sees neither commit.
+TEST_F(OwnBatchWrite, ACommandZeroSnapshotReaderSeesNeitherTheOlderStampedWriterNorTheMover) {
+  auto const [expected, seen] = ScanAfterAnOlderStampedWriterAndAYoungerMover(ms::StorageMode::IN_MEMORY_TRANSACTIONAL,
+                                                                              ms::IsolationLevel::SNAPSHOT_ISOLATION);
+  EXPECT_EQ(seen, expected);
+}
+
+// After a batch commit a scan reads on with MVCC; a writer that began before it and stamps after the scan opened
+// committed before that batch, so the scan sees it, as an unarmed writer's entry.
+TEST_F(OwnBatchWrite, AScanAcrossABatchCommitSeesAnOlderStampedWritersCommit) {
+  for (auto const past_the_span : {false, true}) {
+    SCOPED_TRACE(past_the_span);
+    Open(ms::StorageMode::IN_MEMORY_TRANSACTIONAL);
+    Index([&](auto &acc) { return acc.CreateIndex(label, {ms::PropertyPath{property}}).has_value(); });
+    auto gids = Vertices();
+    auto writer = Armed();
+    auto reader = Armed();
+    reader->AdvanceCommand();
+    auto iterable = LabelPropertyScan(*reader);
+    if (past_the_span) {
+      AdvancePastTheStampSpan(*writer);
+    } else {
+      writer->AdvanceCommand();
+    }
+    AddOtherToTheIndex(*writer);
+    Commit(writer);
+    ASSERT_TRUE(reader->PeriodicCommit(memgraph::tests::MakeMainCommitArgs()).has_value());
+    std::vector<ms::Gid> seen;
+    auto it = iterable.begin();
+    ReadOn(it, iterable.end(), seen, gids.size() + 1);
+    reader->Abort();
+    gids.push_back(other);
+    EXPECT_EQ(seen, gids);
+  }
+}
+
+// A batch past its stamp span writes in a fresh span; a reader that began inside the batch still sees its commit.
+TEST_F(OwnBatchWrite, AReaderThatBeganInsideABatchPastItsStampSpanSeesItsCommit) {
+  for (auto const [mode, isolation] : kCurrentValueReaders) {
+    SCOPED_TRACE(static_cast<int>(mode));
+    auto const [expected, seen] = ScanAfterABatchPastItsStampSpan(mode, isolation);
+    EXPECT_EQ(seen, expected);
+  }
+}
+
+// Guard: a snapshot reader hides that commit in MVCC.
+TEST_F(OwnBatchWrite, ASnapshotReaderThatBeganInsideABatchPastItsStampSpanDoesNotSeeItsCommit) {
+  auto const [expected, seen] =
+      ScanAfterABatchPastItsStampSpan(ms::StorageMode::IN_MEMORY_TRANSACTIONAL, ms::IsolationLevel::SNAPSHOT_ISOLATION);
+  EXPECT_EQ(seen, expected);
+}
+
+// Guard: an abort removes the entries a batch wrote before and after it ran past its stamp span.
+TEST_F(OwnBatchWrite, AnAbortPastTheStampSpanRemovesEveryOwnEntry) {
+  Index([&](auto &acc) { return acc.CreateIndex(label, {ms::PropertyPath{property}}).has_value(); });
+  auto const gids = Vertices();
+  auto count = [&] {
+    auto acc = storage->Access(ms::WRITE);
+    return acc->ApproximateVertexCount(label, std::array{ms::PropertyPath{property}});
+  };
+  auto const before = count();
+  {
+    auto acc = Armed();
+    ASSERT_TRUE(acc->FindVertex(gids[0], ms::View::NEW)->SetProperty(property, ms::PropertyValue{5}).has_value());
+    AdvancePastTheStampSpan(*acc);
+    ASSERT_TRUE(acc->FindVertex(gids[0], ms::View::NEW)->SetProperty(property, ms::PropertyValue{6}).has_value());
+    ASSERT_TRUE(acc->FindVertex(gids[1], ms::View::NEW)->SetProperty(property, ms::PropertyValue{7}).has_value());
+    acc->AdvanceCommand();
+    ASSERT_TRUE(acc->FindVertex(gids[1], ms::View::NEW)->SetProperty(property, ms::PropertyValue{8}).has_value());
+    acc->Abort();
+  }
+  EXPECT_EQ(count(), before);
 }
 
 // One case per index insert site, each through the index it feeds. `Setup` commits one element the scan returns

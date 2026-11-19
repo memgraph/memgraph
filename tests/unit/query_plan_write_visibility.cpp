@@ -1091,6 +1091,59 @@ TEST_F(WriteVisibilityPlan, DrainBetweenMergeAndALaterWriteOfWhatItMatched) {
             (Names{"EmptyResult", "CreateNode", "Merge", "Unwind", "Once"}));
 }
 
+/// The chain of the one MERGE's match branch.
+Names MatchBranch(LogicalOperator &plan) {
+  auto merges = Collect<memgraph::query::plan::Merge>(plan);
+  EXPECT_EQ(merges.size(), 1);
+  return merges.empty() ? Names{} : Chain(*merges.front()->merge_match_);
+}
+
+/// Whether the one MERGE's match branch takes a row's matches before its ON MATCH; that never advances the command.
+bool BuffersMatches(LogicalOperator &plan) {
+  auto merges = Collect<memgraph::query::plan::Merge>(plan);
+  EXPECT_EQ(merges.size(), 1);
+  if (merges.empty()) return false;
+  auto const buffers = Collect<Accumulate>(*merges.front()->merge_match_);
+  EXPECT_TRUE(std::ranges::none_of(buffers, &Accumulate::advance_command_));
+  return !buffers.empty();
+}
+
+// An ON MATCH write that a later match of the same input row could see waits for the row's matches.
+TEST_F(WriteVisibilityPlan, OnMatchThatWritesWhatThePatternReadsTakesTheRowsMatchesFirst) {
+  EXPECT_EQ(MatchBranch(Plan("MATCH (m:M) MERGE (n:L) ON MATCH SET m:L")),
+            (Names{"SetLabels", "Accumulate", "Filter", "ScanAll", "Once"}));
+  EXPECT_EQ(MatchBranch(Plan("MATCH (m:L) MERGE (n:L {p: 1}) ON MATCH SET m.p = null")),
+            (Names{"SetProperty", "Accumulate", "Filter", "ScanAll", "Once"}));
+  EXPECT_TRUE(BuffersMatches(Plan("MERGE (x:A)-[:R]->(y:B) ON MATCH SET x:B")));
+  EXPECT_TRUE(BuffersMatches(Plan("MATCH (m:M) FOREACH (i IN [1] | MERGE (n:L) ON MATCH SET m:L)")));
+  // The pattern reads the key through an alias too: the first match may be m.
+  EXPECT_TRUE(BuffersMatches(Plan("MATCH (m:L {k: 0}) MERGE (n:L {p: m.p}) ON MATCH SET n.p = 7")));
+  EXPECT_TRUE(BuffersMatches(Plan("MATCH (m:L {k: 0}) MERGE (n:L {f: m:X}) ON MATCH SET n:X")));
+  // An undirected edge is matched once per direction.
+  EXPECT_TRUE(BuffersMatches(Plan("MERGE (x)-[r:R {id: 1}]-(y) ON MATCH SET r.id = 2")));
+  LabelPropertyIndex("L", "p");
+  EXPECT_EQ(MatchBranch(Plan("MATCH (m:M) MERGE (n:L {p: 1}) ON MATCH SET m:L")),
+            (Names{"SetLabels", "Accumulate", "ScanAllByLabelProperties", "Once"}));
+}
+
+// A write through the node of a one-node pattern, or the edge of a directed one-edge pattern, reaches no later match.
+TEST_F(WriteVisibilityPlan, OnMatchThatCannotReachAnotherMatchIsNotBuffered) {
+  EXPECT_EQ(MatchBranch(Plan("UNWIND [1, 2] AS i MERGE (n:P {id: i}) ON MATCH SET n.c = 1")),
+            (Names{"SetProperty", "Filter", "ScanAll", "Once"}));
+  EXPECT_FALSE(BuffersMatches(Plan("UNWIND [1, 2] AS i MERGE (n:P {id: i}) ON MATCH SET n += {id: i, c: 1}")));
+  EXPECT_FALSE(BuffersMatches(Plan("UNWIND [1, 2] AS i MERGE (n:P {id: i}) ON MATCH SET n:Seen")));
+  EXPECT_FALSE(BuffersMatches(Plan("MATCH (m:M) MERGE (n:L) ON CREATE SET m:L")));
+  EXPECT_FALSE(BuffersMatches(
+      Plan("MATCH (a:N {k: 1}), (b:N {k: 2}) MERGE (a)-[r:R {id: 1}]->(b) ON MATCH SET r += {id: 1, c: 1}")));
+}
+
+#ifdef MG_ENTERPRISE
+TEST_F(WriteVisibilityPlan, OnMatchRelabelOfAnotherNodeBuffersOnlyForTheAccessCheck) {
+  EXPECT_EQ(MatchBranch(Plan("MATCH (m:M) MERGE (n:L) ON MATCH SET m:X")),
+            (Names{"SetLabels", "Accumulate(access)", "Filter", "ScanAll", "Once"}));
+}
+#endif
+
 // ---------------------------------------------------------------- read and write sets
 
 TEST_F(WriteVisibilityPlan, SetWritesItsKey) {

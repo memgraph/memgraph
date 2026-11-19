@@ -3595,3 +3595,94 @@ Feature: Write visibility inside one query
             | 1 |
             | 2 |
             | 3 |
+
+    Scenario: MERGE does not match a node its own ON MATCH relabels for the same row
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:WvOmL {k: 0}), (:WvOmM {k: 2})
+            """
+        When executing query:
+            """
+            MATCH (m:WvOmM) MERGE (n:WvOmL) ON MATCH SET m:WvOmL RETURN m.k AS m, n.k AS n
+            """
+        Then the result should be:
+            | m | n |
+            | 2 | 0 |
+
+    Scenario: MERGE sees an earlier row's ON MATCH write but not its own row's
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:WvOmQ {k: 1}), (:WvOmQ {k: 2}), (:WvOmO {k: 0, p: 1}), (:WvOmO {k: 9, p: 1})
+            """
+        When executing query:
+            """
+            MATCH (m:WvOmQ) WITH m ORDER BY m.k MERGE (n:WvOmO {p: 1}) ON MATCH SET m:WvOmO, m.p = 1 RETURN m.k AS m, n.k AS n
+            """
+        Then the result should be:
+            | m | n |
+            | 1 | 0 |
+            | 1 | 9 |
+            | 2 | 0 |
+            | 2 | 1 |
+            | 2 | 9 |
+
+    Scenario: MERGE keeps a match its own ON MATCH changes away for the same row
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:WvOmR {k: 0, p: 1}), (:WvOmS:WvOmR {k: 2, p: 1})
+            """
+        When executing query:
+            """
+            MATCH (m:WvOmS) MERGE (n:WvOmR {p: 1}) ON MATCH SET m.p = 2 RETURN m.k AS m, n.k AS n
+            """
+        Then the result should be:
+            | m | n |
+            | 2 | 0 |
+            | 2 | 2 |
+
+    Scenario: MERGE of a path does not match what its own ON MATCH wrote for the same row
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (a:WvOmA {k: 1})-[:WvOmT]->(:WvOmB {k: 2}), (:WvOmA {k: 3})-[:WvOmT]->(a)
+            """
+        When executing query:
+            """
+            MERGE (x:WvOmA)-[:WvOmT]->(y:WvOmB) ON MATCH SET x:WvOmB RETURN x.k AS x, y.k AS y
+            """
+        Then the result should be:
+            | x | y |
+            | 1 | 2 |
+
+    Scenario: MERGE matches by the value its pattern read before its own ON MATCH wrote it through an alias
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:WvOmP {k: 0, p: 1}), (:WvOmP {k: 1, p: 7}), (:WvOmP {k: 2, p: 1})
+            """
+        When executing query:
+            """
+            MATCH (m:WvOmP {k: 0}) MERGE (n:WvOmP {p: m.p}) ON MATCH SET n.p = 7 RETURN n.k AS k
+            """
+        Then the result should be:
+            | k |
+            | 0 |
+            | 2 |
+
+    Scenario: An ON MATCH comprehension sees the earlier matches' writes but the match does not
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:WvOmC {k: 0}), (:WvOmC {k: 1}), (:WvOmD {k: 2})
+            """
+        When executing query:
+            """
+            MATCH (m:WvOmD) MERGE (n:WvOmC) ON MATCH SET n.c = size([(x:WvOmC)-[*0]-(y) | y]), m:WvOmC RETURN n.k AS k, n.c AS c
+            """
+        Then the result should be:
+            | k | c |
+            | 0 | 2 |
+            | 1 | 3 |
