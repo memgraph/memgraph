@@ -155,7 +155,8 @@ def without_ids(element):
 def server_files(conn):
     """Skips a test that inspects export files when the server writes them where this process cannot see."""
     probe = os.path.join(SERVER_SHARED_DIR, f"mage_export_json_probe_{os.getpid()}.json")
-    execute(conn, f"CALL export.json_data([], [], '{probe}', {{}}) YIELD done RETURN done")
+    with contextlib.suppress(mgclient.DatabaseError):
+        execute(conn, f"CALL export.json_data([], [], '{probe}', {{}}) YIELD done RETURN done")
     if not os.path.exists(probe):
         pytest.skip("the server's export files are not reachable from the test process")
     os.remove(probe)
