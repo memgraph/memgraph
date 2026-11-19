@@ -226,6 +226,26 @@ TEST_F(WriteVisibilityPlan, AUnionOutsideTheRootDoesNotAdvance) {
   EXPECT_TRUE(std::ranges::none_of(scans, std::identity{}));
 }
 
+// A query that commits in batches plans no UNION-leg advance, wherever its IN TRANSACTIONS call sits.
+TEST_F(WriteVisibilityPlan, ABatchedQueryPlansNoUnionAdvance) {
+  for (auto const &[query, advances] : {
+           std::pair{"CREATE (:Z) UNION ALL MATCH (n:L) WHERE n.p > 0 CALL (n) { SET n.p = n.p + 10 }", true},
+           std::pair{"CREATE (:Z) UNION ALL MATCH (n:L) WHERE n.p > 0 CALL (n) { SET n.p = n.p + 10 } IN TRANSACTIONS "
+                     "OF 1 ROWS",
+                     false},
+           std::pair{
+               "MATCH (n:L) CALL (n) { SET n.p = 1 } IN TRANSACTIONS OF 1 ROWS UNION ALL MATCH (a:L) SET a.q = a.p",
+               false},
+           std::pair{"CREATE (:Z) UNION ALL CALL () { CALL () { CREATE (:Y) } IN TRANSACTIONS OF 1 ROWS }", false},
+           std::pair{
+               "CREATE (:Z) UNION ALL CALL () { WHEN true THEN CALL () { CREATE (:Y) } IN TRANSACTIONS OF 1 ROWS }",
+               false},
+           std::pair{"CREATE (:Z) UNION ALL CALL () { WHEN true THEN CALL () { CREATE (:Y) } }", true},
+       }) {
+    EXPECT_EQ(UnionAdvances(Plan(query)), (std::vector{advances})) << query;
+  }
+}
+
 TEST_F(WriteVisibilityPlan, ReadOnlyReturnHasNoDrain) {
   EXPECT_TRUE(Collect<Accumulate>(Plan("MATCH (n) RETURN n.x AS x ORDER BY x")).empty());
 }
@@ -393,19 +413,13 @@ TEST_F(WriteVisibilityPlan, BarrierBeforeCallBodyThatReadsAnEarlierSet) {
             (Names{"Produce", "Accumulate+", "Apply", "SetProperty", "ScanAll", "Unwind", "Once"}));
   EXPECT_EQ(Views<Produce>(Plan("UNWIND [1, 2] AS i MATCH (a) SET a.x = 1 CALL (a) { RETURN a.x AS v } RETURN v")),
             (std::vector{View::OLD, View::OLD}));
-  // A batched body and a writing body do not switch to View::NEW, even with a row-unique a: a barrier is the call's
-  // input.
-  for (auto const &[query, call] : {
-           std::pair{"MATCH (a) SET a.x = 1 CALL (a) { RETURN a.x AS v } IN TRANSACTIONS OF 1 ROWS RETURN v",
-                     "PeriodicSubquery"},
-           std::pair{"MATCH (a) SET a.x = 1 CALL (a) { CREATE ({v: a.x}) } RETURN count(*) AS c", "Apply"},
-       }) {
-    auto const chain = Chain(Plan(query));
-    auto const at = std::ranges::find(chain, call);
-    ASSERT_NE(at, chain.end()) << query;
-    ASSERT_NE(std::next(at), chain.end()) << query;
-    EXPECT_TRUE(std::next(at)->starts_with("Accumulate")) << query;
-  }
+  // A writing body does not switch to View::NEW, even with a row-unique a: a barrier is the call's input. A batched
+  // body gets none: ABatchedQueryPlansNoBarrier.
+  auto const chain = Chain(Plan("MATCH (a) SET a.x = 1 CALL (a) { CREATE ({v: a.x}) } RETURN count(*) AS c"));
+  auto const at = std::ranges::find(chain, "Apply");
+  ASSERT_NE(at, chain.end());
+  ASSERT_NE(std::next(at), chain.end());
+  EXPECT_TRUE(std::next(at)->starts_with("Accumulate"));
 }
 
 TEST_F(WriteVisibilityPlan, BarrierBeforeExpansionFromACreatedNode) {
@@ -1880,16 +1894,35 @@ TEST_F(WriteVisibilityPlan, AWritingCallBodySeeksNoPointIndex) {
 
 // ---------------------------------------------------------------- every reader of a writing CALL body reads View::NEW
 
-// Batching is per level: the root of a query with an IN TRANSACTIONS call keeps its advancing barriers.
-TEST_F(WriteVisibilityPlan, ARootWithAnInTransactionsCallKeepsItsBarriers) {
-  auto &plan = Plan(
-      "UNWIND [1, 2] AS i CREATE (:L) MERGE (m:L) WITH count(*) AS n CALL () { CREATE (:Z) } IN TRANSACTIONS OF 10 "
-      "ROWS MATCH (k:L) RETURN n, count(k) AS c");
-  auto merges = Collect<memgraph::query::plan::Merge>(plan);
-  ASSERT_EQ(merges.size(), 1);
-  auto *barrier = dynamic_cast<Accumulate *>(merges[0]->input_.get());
+// A query that commits in batches plans its root as on master: no barrier, whichever leg or body holds the batching.
+TEST_F(WriteVisibilityPlan, ABatchedQueryPlansNoBarrier) {
+  auto merge_input = [this](std::string_view query) {
+    auto merges = Collect<memgraph::query::plan::Merge>(Plan(query));
+    return merges.size() == 1 ? merges[0]->input_.get() : nullptr;
+  };
+  // Guard: without batching the MERGE reads behind an advancing barrier.
+  auto *barrier =
+      dynamic_cast<Accumulate *>(merge_input("UNWIND [1, 2] AS i CREATE (:L) MERGE (m:L) WITH count(*) AS n RETURN n"));
   ASSERT_NE(barrier, nullptr);
   EXPECT_TRUE(barrier->advance_command_);
+  for (auto const *query : {
+           "UNWIND [1, 2] AS i CREATE (:L) MERGE (m:L) WITH count(*) AS n CALL () { CREATE (:Z) } IN TRANSACTIONS OF "
+           "10 ROWS MATCH (k:L) RETURN n, count(k) AS c",
+           "UNWIND [1, 2] AS i CREATE (:L) MERGE (m:L) WITH count(*) AS n CALL () { CALL () { CREATE (:Z) } IN "
+           "TRANSACTIONS OF 10 ROWS } RETURN n",
+           "UNWIND [1, 2] AS i CREATE (:L) MERGE (m:L) WITH count(*) AS n RETURN n UNION ALL CALL () { CREATE (:Z) } "
+           "IN TRANSACTIONS OF 10 ROWS RETURN 1 AS n",
+       }) {
+    auto *input = merge_input(query);
+    ASSERT_NE(input, nullptr) << query;
+    EXPECT_EQ(dynamic_cast<Accumulate *>(input), nullptr) << query;
+  }
+  auto const chain =
+      Chain(Plan("MATCH (a) SET a.x = 1 CALL (a) { RETURN a.x AS v } IN TRANSACTIONS OF 1 ROWS RETURN v"));
+  auto const at = std::ranges::find(chain, "PeriodicSubquery");
+  ASSERT_NE(at, chain.end());
+  ASSERT_NE(std::next(at), chain.end());
+  EXPECT_EQ(*std::next(at), "SetProperty");
 }
 
 // Pinned, known: under USING PERIODIC COMMIT no barrier is
@@ -1927,12 +1960,23 @@ TEST_F(WriteVisibilityPlan, PeriodicCommitPlansNoBarriers) {
                    "Once"}));
 }
 
-// The root RETURN after an IN TRANSACTIONS call drains every batch before it advances, so no scan is open: kept.
-TEST_F(WriteVisibilityPlan, RootReturnAfterAnInTransactionsCallAdvances) {
-  auto &plan = Plan("MATCH (n:P) CALL (n) { SET n.x = 1 } IN TRANSACTIONS OF 10 ROWS RETURN n.x AS x ORDER BY x");
-  auto accumulates = Collect<Accumulate>(plan);
-  ASSERT_FALSE(accumulates.empty());
-  EXPECT_TRUE(accumulates.front()->advance_command_);
+// A query that commits in batches plans no RETURN drain advance, as on master; without batching the drain advances.
+TEST_F(WriteVisibilityPlan, ARootReturnInABatchedQueryDoesNotAdvance) {
+  for (auto const &[query, advances] : {
+           std::pair{"MATCH (n:P) CALL (n) { SET n.x = 1 } RETURN n.x AS x ORDER BY x", true},
+           std::pair{"MATCH (n:P) CALL (n) { SET n.x = 1 } IN TRANSACTIONS OF 10 ROWS RETURN n.x AS x ORDER BY x",
+                     false},
+           std::pair{"MATCH (n:P) SET n.x = 1 RETURN n.x AS x UNION ALL MATCH (n:P) RETURN n.x AS x", true},
+           std::pair{"MATCH (n:P) SET n.x = 1 RETURN n.x AS x UNION ALL MATCH (n:P) CALL (n) { SET n.y = 1 } IN "
+                     "TRANSACTIONS OF 1 ROWS RETURN n.x AS x",
+                     false},
+       }) {
+    // The topmost Accumulate of the first leg is its RETURN drain.
+    auto unions = Collect<Union>(Plan(query));
+    auto accumulates = Collect<Accumulate>(unions.empty() ? *plan_ : *unions[0]->left_op_);
+    ASSERT_FALSE(accumulates.empty()) << query;
+    EXPECT_EQ(accumulates.front()->advance_command_, advances) << query;
+  }
 }
 
 // A writing IN TRANSACTIONS body is a writing tree: its cursor runs the body to the end for each input row before it
@@ -2251,9 +2295,9 @@ class ViewOracle {
     return std::ranges::any_of(Children(op), [](auto const &child) { return ContainsWrite(*child.first); });
   }
 
-  /// USING PERIODIC COMMIT keeps master's views throughout; an IN TRANSACTIONS call is batching for its body only.
+  /// A query that commits in batches keeps master's views throughout.
   static bool ContainsBatching(LogicalOperator &op) {
-    if (Is<plan::PeriodicCommit>(op)) return true;
+    if (Is<plan::PeriodicCommit>(op) || Is<plan::PeriodicSubquery>(op)) return true;
     return std::ranges::any_of(Children(op), [](auto const &child) { return ContainsBatching(*child.first); });
   }
 
