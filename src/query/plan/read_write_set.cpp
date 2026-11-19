@@ -12,7 +12,11 @@
 #include "query/plan/read_write_set.hpp"
 
 #include <algorithm>
+#include <initializer_list>
+#include <string_view>
+#include <unordered_map>
 #include <variant>
+#include <vector>
 
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/ast_visitor.hpp"
