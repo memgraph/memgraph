@@ -388,11 +388,14 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
       std::vector<plan::Delete *> segment_deletes;
       ReadWriteSet segment_delete_writes;
       Accumulate *delete_owner = nullptr;
-      auto forget_pending = [&] {
+      auto forget_reads_and_writes = [&] {
         created_since_barrier.clear();
         pending_writes.Clear();
         pending_new_reads.Clear();
         access_pending_writes.Clear();
+      };
+      auto forget_pending = [&] {
+        forget_reads_and_writes();
         segment_deletes.clear();
         segment_delete_writes.Clear();
         delete_owner = nullptr;
@@ -434,14 +437,9 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
         }
         if (drain && barrier && !segment_deletes.empty()) {
           own_deletes(*barrier);
-          auto deletes = std::move(segment_deletes);
-          auto writes = std::move(segment_delete_writes);
-          forget_pending();
-          pending_writes.Merge(writes);
-          access_pending_writes.Merge(writes);
-          segment_deletes = std::move(deletes);
-          segment_delete_writes = std::move(writes);
-          delete_owner = barrier;
+          forget_reads_and_writes();
+          pending_writes.Merge(segment_delete_writes);
+          access_pending_writes.Merge(segment_delete_writes);
           return;
         }
         forget_pending();
