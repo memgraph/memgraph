@@ -31,6 +31,7 @@
 
 #include "auth/auth.hpp"
 #include "auth/models.hpp"
+#include "auth_test_utils.hpp"
 #include "glue/auth_checker.hpp"
 #include "license/license.hpp"
 #include "query/context.hpp"
@@ -202,6 +203,25 @@ TYPED_TEST(MatchReturnFixture, ScanAllByEdgeIdString) {
 }
 
 #ifdef MG_ENTERPRISE
+// Losing the license withdraws the restriction, not access: a label a rule denies becomes readable
+// again. Pinned here so it is not later "fixed" into a denial, which would turn a lapsed license
+// into an outage.
+TYPED_TEST(MatchReturnFixture, ScanAllIgnoresLabelRulesWithoutLicense) {
+  const std::string labelName = "l1";
+  const auto label = this->dba.NameToLabel(labelName);
+
+  ASSERT_TRUE(this->dba.InsertVertex().AddLabel(label).has_value());
+  this->dba.AdvanceCommand();
+
+  const UnlicensedScope unlicensed;
+
+  auto denied = memgraph::auth::User{"deny_label_read"};
+  denied.fine_grained_access_handler().label_permissions().Deny({labelName}, memgraph::auth::kAllLabelPermissions);
+
+  auto scan_all = MakeScanAll(this->storage, this->symbol_table, "n", nullptr, memgraph::storage::View::NEW);
+  EXPECT_EQ(1, this->PullCountAuthorized(scan_all, denied));
+}
+
 TYPED_TEST(MatchReturnFixture, ScanAllWithAuthChecker) {
   std::string labelName = "l1";
   const auto label = this->dba.NameToLabel(labelName);
