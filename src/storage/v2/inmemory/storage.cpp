@@ -1533,6 +1533,9 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
   // start_timestamp, so this is inert to the read path.
   transaction_.snapshot_ts = new_transaction.snapshot_ts;
   transaction_.commit_info.reset();
+#ifdef MG_ENTERPRISE
+  transaction_.ClearBaseEdgeDeletes();
+#endif
   // What the batch just committed wrote has been checked and is no longer owed. Carrying it into
   // the next batch would have every later commit re-enter its vertices into constraints none of
   // its own writes named, which nothing would then come back to collect.
@@ -4283,6 +4286,11 @@ struct TxnDataCommand {
   Edge *edge;
   Gid in_vertex_gid;
   EdgeTypeId edge_type_id;
+#ifdef MG_ENTERPRISE
+  // Set only for a branch's base-edge delete: `edge` is the marked-deleted edge overlay and `delta` its
+  // RECREATE_OBJECT.
+  Gid base_edge_from_gid{kInvalidGid};
+#endif
 };
 
 // Everything a transaction writes, in encode order. Built once on the commit thread; the WAL worker
@@ -4707,13 +4715,20 @@ auto InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
       auto prev = delta.prev.Get();
       MG_ASSERT(prev.type != PreviousPtr::Type::NULL_PTR, "Invalid pointer!");
       if (prev.type != PreviousPtr::Type::EDGE) continue;
-      find_and_apply_deltas(kNoTracking, &delta, prev.edge, [](auto action) {
+      find_and_apply_deltas(kNoTracking, &delta, prev.edge, [&](auto action) {
         switch (action) {
           case Delta::Action::SET_PROPERTY:
             return true;
+          case Delta::Action::RECREATE_OBJECT:
+#ifdef MG_ENTERPRISE
+            // A branch's base-edge delete is only this edge overlay's delete mark; a native edge delete is logged by
+            // the vertex passes.
+            return transaction_.FindBaseEdgeDelete(prev.edge->gid) != nullptr;
+#else
+            return false;
+#endif
           case Delta::Action::DELETE_DESERIALIZED_OBJECT:
           case Delta::Action::DELETE_OBJECT:
-          case Delta::Action::RECREATE_OBJECT:
           case Delta::Action::ADD_LABEL:
           case Delta::Action::REMOVE_LABEL:
           case Delta::Action::ADD_IN_EDGE:
@@ -4787,6 +4802,20 @@ auto InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
         // Connect the edge to the in-vertex and edge type for faster lookup.
         // NOTE: Invalid values will be sent in case the edge was created in this transaction.
         // In that case, we will cache the edge accessor in WalEdgeCreate, so no need for the overhead.
+#ifdef MG_ENTERPRISE
+        if (delta.action == Delta::Action::RECREATE_OBJECT) {
+          auto const *base_edge_delete = transaction_.FindBaseEdgeDelete(static_cast<Edge *>(parent)->gid);
+          DMG_ASSERT(base_edge_delete != nullptr, "an edge RECREATE_OBJECT is only passed for a base-edge delete");
+          commands.data.push_back({.delta = &delta,
+                                   .vertex = nullptr,
+                                   .edge = parent,
+                                   .in_vertex_gid = base_edge_delete->to_gid,
+                                   .edge_type_id = base_edge_delete->edge_type_id,
+                                   .base_edge_from_gid = base_edge_delete->from_gid});
+          commit_args.apply_cb_if_replica_write();
+          return;
+        }
+#endif
         auto edge_set_property_info = transaction_.GetEdgeSetPropertyInfo(static_cast<Edge *>(parent)->gid);
         commands.data.push_back({.delta = &delta,
                                  .vertex = nullptr,
@@ -4827,6 +4856,19 @@ auto InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
           EncodeMetadataDelta(encoder, *md_delta, mem_storage, durability_commit_timestamp);
         }
         for (auto const &cmd : commands.data) {
+#ifdef MG_ENTERPRISE
+          if (cmd.edge != nullptr && cmd.delta->action == Delta::Action::RECREATE_OBJECT) {
+            auto encoder = stream.encoder();
+            durability::EncodeBaseEdgeDelete(&encoder,
+                                             mem_storage,
+                                             cmd.edge->gid,
+                                             cmd.base_edge_from_gid,
+                                             cmd.in_vertex_gid,
+                                             cmd.edge_type_id,
+                                             durability_commit_timestamp);
+            continue;
+          }
+#endif
           if (cmd.edge != nullptr) {
             stream.AppendDelta(
                 *cmd.delta, cmd.edge, durability_commit_timestamp, mem_storage, cmd.in_vertex_gid, cmd.edge_type_id);
@@ -4853,6 +4895,20 @@ auto InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
       commit_args.apply_cb_if_replica_write();
     }
     for (auto const &cmd : commands.data) {
+#ifdef MG_ENTERPRISE
+      if (cmd.edge != nullptr && cmd.delta->action == Delta::Action::RECREATE_OBJECT) {
+        durability::EncodeBaseEdgeDelete(&mem_storage->wal_file_->encoder(),
+                                         mem_storage,
+                                         cmd.edge->gid,
+                                         cmd.base_edge_from_gid,
+                                         cmd.in_vertex_gid,
+                                         cmd.edge_type_id,
+                                         durability_commit_timestamp);
+        mem_storage->wal_file_->UpdateStats(durability_commit_timestamp);
+        commit_args.apply_cb_if_replica_write();
+        continue;
+      }
+#endif
       if (cmd.edge != nullptr) {
         mem_storage->wal_file_->AppendDelta(
             *cmd.delta, cmd.edge, durability_commit_timestamp, mem_storage, cmd.in_vertex_gid, cmd.edge_type_id);

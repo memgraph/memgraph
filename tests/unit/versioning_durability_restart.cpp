@@ -19,6 +19,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <expected>
 #include <filesystem>
 #include <fstream>
 #include <map>
@@ -43,6 +44,7 @@
 #include "utils/file.hpp"
 #include "utils/scheduler.hpp"
 #include "utils/uuid.hpp"
+#include "versioning/branch_engine.hpp"
 #include "versioning/branch_ledger.hpp"
 #include "versioning/version_store.hpp"
 
@@ -597,6 +599,46 @@ TEST_F(VersioningDurabilityRestartTest, SwitchingToOnDiskDropsTheVersionStoreOfT
   EXPECT_EQ(db.version_store(), nullptr);
 }
 
+TEST_F(VersioningDurabilityRestartTest, DroppingABranchDeletesItsDirectory) {
+  Gids gids{};
+  std::filesystem::path branch_directory;
+  {
+    TestDatabase db{MakeConfig(/*recover_on_startup=*/false)};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+    gids = CreateBase(db);
+    auto *store = db.version_store();
+    ASSERT_TRUE(store->CreateBranch("b").has_value());
+    {
+      auto branch = store->Checkout("b");
+      ASSERT_TRUE(branch.has_value());
+      auto const &info = (*branch)->info();
+      branch_directory = kStorageDirectory / "branches" / std::to_string(info.id);
+      auto core = (*branch)->GetOrBuildCore([&]() -> std::expected<std::shared_ptr<mv::BranchCore>, std::string> {
+        auto fresh = mv::BranchCore::Build(*Mem(db), info.fork, (*branch)->fork_ts(), info.id);
+        if (!fresh) return std::unexpected(fresh.error().message);
+        return std::move(*fresh);
+      });
+      ASSERT_TRUE(core.has_value());
+      mv::BranchContext ctx{*core};
+      auto diff_acc = ctx.diff_engine().Access(ms::WRITE);
+      ASSERT_TRUE(ctx.BeginTransaction(diff_acc.get()).has_value());
+      ctx.CreateNativeVertex();
+      ASSERT_TRUE(ctx.CommitTransaction(memgraph::tests::MakeMainCommitArgs()).has_value());
+      ctx.EndTransaction();
+    }
+    ASSERT_TRUE(std::filesystem::exists(branch_directory / "wal"));
+
+    ASSERT_EQ(store->DropBranch("b"), mv::DropResult::kDropped);
+    EXPECT_FALSE(std::filesystem::exists(branch_directory));
+  }
+
+  TestDatabase db{MakeConfig(/*recover_on_startup=*/true)};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+  EXPECT_FALSE(db.version_store()->Exists("b"));
+  EXPECT_FALSE(std::filesystem::exists(branch_directory));
+  EXPECT_TRUE(db.Access(ms::READ)->FindVertex(gids.v1, ms::View::OLD).has_value());
+}
+
 TEST_F(VersioningDurabilityRestartTest, BranchesSurviveRestartAndNewBranchesContinueTheNumbering) {
   {
     TestDatabase db{MakeConfig(/*recover_on_startup=*/false)};
@@ -731,4 +773,87 @@ TEST_F(VersioningDurabilityRestartTest, NarrowingOnAndOffRecoverTheSameBranches)
   EXPECT_LT(on.at("a1").first, on.at("b").first);
   EXPECT_NE(on.at("a1").second, on.at("b").second);
   EXPECT_NE(on.at("b").second, on.at("main").second);
+}
+
+TEST_F(VersioningDurabilityRestartTest, MainRecoveryNeverAbsorbsADiffEnginesWrites) {
+  constexpr auto kBaseLabel = "BaseLabel";
+  constexpr auto kBranchLabel = "BranchOnlyLabel";
+  constexpr auto kBranchProp = "BranchOnlyProp";
+  ms::Gid base_gid;
+
+  {
+    TestDatabase db{MakeConfig(/*recover_on_startup=*/false)};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+    auto *storage = Mem(db);
+    const auto base_label = db.storage()->NameToLabel(kBaseLabel);
+    const auto branch_label = db.storage()->NameToLabel(kBranchLabel);
+    const auto x = db.storage()->NameToProperty("x");
+    const auto branch_prop = db.storage()->NameToProperty(kBranchProp);
+    const auto edge_type = db.storage()->NameToEdgeType("E");
+
+    {
+      auto acc = db.Access(ms::WRITE);
+      auto a = acc->CreateVertex();
+      base_gid = a.Gid();
+      ASSERT_TRUE(a.AddLabel(base_label).has_value());
+      ASSERT_TRUE(a.SetProperty(x, ms::PropertyValue(1)).has_value());
+      auto b = acc->CreateVertex();
+      ASSERT_TRUE(acc->CreateEdge(&a, &b, edge_type).has_value());
+      Commit(*acc);
+    }
+
+    ASSERT_TRUE(db.version_store()->CreateBranch("b1").has_value());
+    auto const listing = db.version_store()->Get("b1");
+    ASSERT_TRUE(listing.has_value());
+    auto ctx = memgraph::versioning::BranchContext::BuildFromFork(*storage, listing->fork_ts, listing->info.id);
+    ASSERT_TRUE(ctx.has_value());
+    {
+      auto diff_acc = (*ctx)->diff_engine().Access(ms::WRITE);
+      ASSERT_TRUE((*ctx)->BeginTransaction(diff_acc.get()).has_value());
+      auto base_vertex = (*ctx)->FindBaseVertex(base_gid);
+      ASSERT_TRUE(base_vertex.has_value());
+      ASSERT_TRUE((*ctx)->AddLabel(*base_vertex, branch_label).has_value());
+      ASSERT_TRUE((*ctx)->SetProperty(*base_vertex, x, ms::PropertyValue(2)).has_value());
+      auto c = (*ctx)->CreateNativeVertex();
+      auto d = (*ctx)->CreateNativeVertex();
+      ASSERT_TRUE(c.AddLabel(branch_label).has_value());
+      ASSERT_TRUE(c.SetProperty(branch_prop, ms::PropertyValue(7)).has_value());
+      ASSERT_TRUE((*ctx)->CreateNativeEdge(c, d, edge_type).has_value());
+      ASSERT_TRUE((*ctx)->CommitTransaction(memgraph::tests::MakeMainCommitArgs()).has_value());
+      (*ctx)->EndTransaction();
+    }
+  }
+
+  TestDatabase db{MakeConfig(/*recover_on_startup=*/true)};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+  EXPECT_TRUE(db.version_store()->Exists("b1"));
+
+  auto acc = db.Access(ms::READ);
+  size_t vertices = 0;
+  size_t edges = 0;
+  for (auto v : acc->Vertices(ms::View::OLD)) {
+    ++vertices;
+    for (auto const label : *v.Labels(ms::View::OLD)) {
+      EXPECT_NE(acc->LabelToName(label), kBranchLabel) << "branch label leaked into main";
+    }
+    for (auto const &[prop, value] : *v.Properties(ms::View::OLD)) {
+      EXPECT_NE(db.storage()->PropertyToName(prop), kBranchProp) << "branch property leaked into main";
+    }
+    edges += v.OutEdges(ms::View::OLD)->edges.size();
+  }
+  EXPECT_EQ(vertices, 2u) << "main must hold exactly its own two vertices (no branch-native vertices)";
+  EXPECT_EQ(edges, 1u) << "main must hold exactly its own edge (no branch-native edge)";
+
+  auto base_vertex = acc->FindVertex(base_gid, ms::View::OLD);
+  ASSERT_TRUE(base_vertex.has_value());
+  auto labels = base_vertex->Labels(ms::View::OLD);
+  ASSERT_TRUE(labels.has_value());
+  ASSERT_EQ(labels->size(), 1u);
+  EXPECT_EQ(acc->LabelToName((*labels)[0]), kBaseLabel);
+  auto x_val = base_vertex->GetProperty(db.storage()->NameToProperty("x"), ms::View::OLD);
+  ASSERT_TRUE(x_val.has_value());
+  EXPECT_EQ(*x_val, ms::PropertyValue(1)) << "the branch's property change must not reach main";
+
+  EXPECT_FALSE(std::filesystem::exists(kStorageDirectory / "versioning_diff_engine"))
+      << "a durable branch lives under branches/, never in a throwaway diff-engine directory";
 }
