@@ -378,8 +378,9 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
       // What its View::NEW readers read since the last barrier; a write that meets it gets a drain first, or the
       // reader would see that write for its earlier rows.
       ReadWriteSet pending_new_reads;
-      // What this UNION part wrote since the last barrier of either kind: an access check barrier covers only this.
-      ReadWriteSet access_pending_writes;
+      // Whether this UNION part relabelled a node since the last barrier of either kind: an access check barrier
+      // covers only this.
+      bool relabel_since_access_barrier = false;
       // The node and edge symbols a CREATE bound since the last barrier: each holds an entity this command created.
       std::unordered_set<Symbol> created_since_barrier;
       const std::unordered_set<Symbol> no_symbols;
@@ -392,7 +393,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
         created_since_barrier.clear();
         pending_writes.Clear();
         pending_new_reads.Clear();
-        access_pending_writes.Clear();
+        relabel_since_access_barrier = false;
       };
       auto forget_pending = [&] {
         forget_reads_and_writes();
@@ -439,7 +440,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
           own_deletes(*barrier);
           forget_reads_and_writes();
           pending_writes.Merge(segment_delete_writes);
-          access_pending_writes.Merge(segment_delete_writes);
+          relabel_since_access_barrier = segment_delete_writes.relabel.Any();
           return;
         }
         forget_pending();
@@ -456,7 +457,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
           own_deletes(*barrier);
           input_op = std::move(barrier);
         }
-        access_pending_writes.Clear();
+        relabel_since_access_barrier = false;
         pending_new_reads.access_check = {};
       };
       // Rows that touch keys only through a variable no two rows share cannot see each other's writes. Root only: a
@@ -477,7 +478,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
         }
         if (!ConflictsOnlyInAccessCheck(reads, pending_writes)) {
           plan_barrier();
-        } else if (Conflicts(reads, access_pending_writes)) {
+        } else if (relabel_since_access_barrier) {
           plan_access_check_barrier();
         }
       };
@@ -705,7 +706,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
           auto const record_writes = utils::OnScopeExit{[&] {
             if (advanced_after) return;
             pending_writes.Merge(access.writes);
-            access_pending_writes.Merge(access.writes);
+            relabel_since_access_barrier = relabel_since_access_barrier || access.writes.relabel.Any();
             if (pattern_bound) pending_writes.symbols.insert(pattern_bound->begin(), pattern_bound->end());
             created_since_barrier.insert(created_here.begin(), created_here.end());
             if (bound_before) {
