@@ -9498,6 +9498,38 @@ TYPED_TEST(TestPlanner, CachePropertiesAProjectionReadsASlotAFilterAlreadyFilled
       planner.plan(), symbol_table, ExpectScanAll(), ExpectCacheProperties("n", 1), ExpectFilter(), ExpectProduce());
 }
 
+// A property a slot below holds counts towards nothing, so what the projection's own pass reads is
+// the other property alone, and the lookup that found a slot still answers from it.
+TYPED_TEST(TestPlanner, CachePropertiesAProjectionPassesOverWhatASlotAlreadyHolds) {
+  CachePropertiesFlagGuard guard{true};
+  FakeDbAccessor dba;
+  auto filtered = PROPERTY_PAIR(dba, "a");
+  auto projected = PROPERTY_PAIR(dba, "b");
+  auto *query =
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                         WHERE(AND(GREATER(PROPERTY_LOOKUP(dba, "n", filtered), LITERAL(0)),
+                                   LESS(PROPERTY_LOOKUP(dba, "n", filtered), LITERAL(10)))),
+                         RETURN(PROPERTY_LOOKUP(dba, "n", filtered),
+                                AS("x"),
+                                ADD(PROPERTY_LOOKUP(dba, "n", projected), PROPERTY_LOOKUP(dba, "n", projected)),
+                                AS("y"))));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+  CheckPlan(planner.plan(),
+            symbol_table,
+            ExpectScanAll(),
+            ExpectCacheProperties("n", 1),
+            ExpectFilter(),
+            ExpectCacheProperties("n", 1),
+            ExpectProduce());
+
+  auto *produce = dynamic_cast<Produce *>(&planner.plan());
+  ASSERT_NE(produce, nullptr) << "expected the projection at the root";
+  ASSERT_EQ(produce->named_expressions_.size(), 2U);
+  EXPECT_STREQ(produce->named_expressions_[0]->expression_->GetTypeInfo().name, memgraph::query::Identifier::kType.name)
+      << "the lookup a slot below holds still reads the record";
+}
+
 // An aggregation keeps no value, so one lookup never earns it a pass. It still reads the slot the
 // filter's pass filled rather than the record.
 TYPED_TEST(TestPlanner, CachePropertiesAnAggregationReadsASlotAFilterAlreadyFilled) {
