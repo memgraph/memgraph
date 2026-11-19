@@ -87,18 +87,13 @@ std::optional<double> FindGauge(std::vector<prometheus::MetricFamily> const &fam
 }  // namespace
 
 TEST(PrometheusMetrics, BuildInfoCarriesTheBuildAsLabels) {
-#ifdef MG_ENTERPRISE
-  constexpr auto const *kEdition = "enterprise";
-#else
-  constexpr auto const *kEdition = "community";
-#endif
   auto const build = memgraph::utils::GetBuildInfo();
   memgraph::metrics::PrometheusMetrics pm;
 
-  EXPECT_EQ(FindGauge(pm.CollectForScrape(),
-                      "memgraph_build_info",
-                      {{"version", build.version}, {"edition", kEdition}, {"build_type", build.build_name}}),
-            1.0);
+  EXPECT_EQ(
+      FindGauge(
+          pm.CollectForScrape(), "memgraph_build_info", {{"version", build.version}, {"build_type", build.build_name}}),
+      1.0);
 }
 
 TEST(PrometheusMetrics, UpdateGaugesReportsTrackedMemoryAndTheEnforcedLimit) {

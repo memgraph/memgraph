@@ -86,12 +86,6 @@ prometheus::Histogram::BucketBoundaries const kLatencyBuckets{
 
 inline prometheus::Histogram::BucketBoundaries const kThroughputBuckets{1e3, 1e4, 1e5, 1e6, 1e7, 1e8, 1e9};
 
-#ifdef MG_ENTERPRISE
-constexpr auto const *kEdition = "enterprise";
-#else
-constexpr auto const *kEdition = "community";
-#endif
-
 void RemoveDurabilityThroughput(std::string_view instance_name,
                                 prometheus::Family<prometheus::Histogram> &throughput_family,
                                 DurabilityThroughput &throughput) {
@@ -814,8 +808,8 @@ PrometheusMetrics::PrometheusMetrics()
                              .Register(registry_)},
       memory_limit_family_{prometheus::BuildGauge()
                                .Name("memgraph_memory_limit_bytes")
-                               .Help("Limit on tracked memory, in bytes, beyond which allocations are refused; 0 if "
-                                     "unlimited")
+                               .Help("Limit on total tracked memory, in bytes; a licence limit lowers it, except an "
+                                     "AI_PLATFORM licence, which limits graph memory instead")
                                .Register(registry_)},
       memory_tracked_family_{prometheus::BuildGauge()
                                  .Name("memgraph_memory_tracked_bytes")
@@ -858,10 +852,10 @@ PrometheusMetrics::PrometheusMetrics()
   global.bolt_messages = &bolt_messages_family_.Add(no_labels);
 
   global.memory_res_bytes = &memory_res_family_.Add(no_labels);
+  global.peak_memory_res_bytes = &peak_memory_res_family_.Add(no_labels);
 
   auto const build = utils::GetBuildInfo();
-  build_info_family_.Add({{"version", build.version}, {"edition", kEdition}, {"build_type", build.build_name}}).Set(1);
-  global.peak_memory_res_bytes = &peak_memory_res_family_.Add(no_labels);
+  build_info_family_.Add({{"version", build.version}, {"build_type", build.build_name}}).Set(1);
 
   global.database_suspends = &database_suspends_family_.Add(no_labels);
   global.database_resumes = &database_resumes_family_.Add(no_labels);
