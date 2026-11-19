@@ -131,6 +131,15 @@ struct Config {
 
   // --experimental-enabled=versioning. Startup-only and per-instance, so deliberately not in SalientConfig.
   bool experimental_versioning{false};
+
+  // A branch's diff engine only: gids below a floor are overlays (owned outside the engine's vertices_/edges_) that a
+  // collection pass unlinks the deltas of but never retires. Per engine and not durable, so not in SalientConfig;
+  // in Config so the InMemoryStorage ctor reads it before its GC thread starts. 0 retains nothing, as on main.
+  struct RetainedGidFloors {
+    uint64_t vertex{0};
+    uint64_t edge{0};
+    friend bool operator==(const RetainedGidFloors &, const RetainedGidFloors &) = default;
+  } retained_gid_floors;
 #endif
 
   struct Transaction {

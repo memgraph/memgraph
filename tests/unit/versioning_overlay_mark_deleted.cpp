@@ -10,9 +10,10 @@
 // licenses/APL.txt.
 
 // MarkVertexDeleted / MarkEdgeDeleted (overlay_mark_deleted.hpp) and the collection pass that keeps a deleted overlay
-// alive (InMemoryStorage::SetRetainedGidFloors). Overlays are heap objects outside vertices_/edges_ with no delta, as a
-// branch creates them.
+// alive (Config::retained_gid_floors). Overlays are heap objects outside vertices_/edges_ with no delta, as a branch
+// creates them.
 
+#include <algorithm>
 #include <memory>
 #include <vector>
 
@@ -41,11 +42,11 @@ constexpr auto kSnapshot = ms::IsolationLevel::SNAPSHOT_ISOLATION;
 std::unique_ptr<ms::InMemoryStorage> MakeStorage(bool floors) {
   ms::Config config;
   config.gc = {.type = ms::Config::Gc::Type::NONE};
+  if (floors) config.retained_gid_floors = {.vertex = kFloor, .edge = kFloor};
   auto storage = std::make_unique<ms::InMemoryStorage>(config);
   if (floors) {
     storage->vertex_id_ = kFloor;
     storage->edge_id_ = kFloor;
-    storage->SetRetainedGidFloors(kFloor, kFloor);
   }
   return storage;
 }
@@ -81,6 +82,26 @@ class MarkDeletedTest : public testing::Test {
                                     acc.GetTransaction(),
                                     ms::View::NEW)
         .has_value();
+  }
+
+  bool DeleteEdge(ms::Storage::Accessor &acc, ms::Vertex *from, ms::Vertex *to, bool *deleted = nullptr,
+                  ms::Error *error = nullptr) {
+    auto const result = overlay::DeleteBaseEdge(acc.GetTransaction(), *storage, edge.get(), from, to, type);
+    if (deleted != nullptr && result.has_value()) *deleted = *result;
+    if (error != nullptr && !result.has_value()) *error = result.error();
+    return result.has_value();
+  }
+
+  ms::Result<ms::PropertyValue> SetEdgeProperty(ms::Storage::Accessor &acc) {
+    return ms::EdgeAccessor{
+        ms::EdgeRef{edge.get()}, type, vertex.get(), other.get(), storage.get(), acc.GetTransaction()}
+        .SetProperty(storage->NameToProperty("p"), ms::PropertyValue{1});
+  }
+
+  static size_t Markers(ms::Vertex const &v, bool out) {
+    auto const &list = out ? v.out_edges : v.in_edges;
+    return static_cast<size_t>(
+        std::ranges::count_if(list, [](auto const &e) { return ms::IsReservedId(std::get<ms::EdgeTypeId>(e)); }));
   }
 
   void Collect() { static_cast<ms::Storage &>(*storage).FreeMemory(); }
@@ -201,6 +222,123 @@ TEST_F(MarkDeletedTest, AVertexMarkDeletedRefusesARealEdgeButNotAMarkerEntry) {
   ASSERT_FALSE(refused.has_value());
   EXPECT_EQ(refused.error(), ms::Error::VERTEX_HAS_EDGES);
   EXPECT_FALSE(vertex->deleted());
+}
+
+TEST_F(MarkDeletedTest, DeleteBaseEdgeMarksTheEdgeDeletedAndEachEndpointOnce) {
+  {
+    auto writer = Writer();
+    bool deleted = false;
+    ASSERT_TRUE(DeleteEdge(*writer, vertex.get(), other.get(), &deleted));
+    EXPECT_TRUE(deleted);
+    EXPECT_TRUE(edge->deleted());
+    EXPECT_EQ(Markers(*vertex, true), 1U);
+    EXPECT_EQ(Markers(*vertex, false), 0U);
+    EXPECT_EQ(Markers(*other, false), 1U);
+    EXPECT_EQ(Markers(*other, true), 0U);
+    Commit(*writer);
+  }
+  Collect();
+  EXPECT_TRUE(edge->deleted()) << "the floor keeps the edge overlay through collection";
+  EXPECT_EQ(Markers(*vertex, true), 1U);
+  EXPECT_EQ(Markers(*other, false), 1U);
+  {
+    auto writer = Writer();
+    bool deleted = true;
+    ASSERT_TRUE(DeleteEdge(*writer, vertex.get(), other.get(), &deleted));
+    EXPECT_FALSE(deleted);
+    EXPECT_EQ(Markers(*vertex, true), 1U) << "an already deleted edge gets no second marker";
+    writer->Abort();
+  }
+}
+
+TEST_F(MarkDeletedTest, DeleteBaseEdgeOnASelfLoopMarksOneEntryPerList) {
+  auto const count = storage->edge_count_.load();
+  auto writer = Writer();
+  ASSERT_TRUE(DeleteEdge(*writer, vertex.get(), vertex.get()));
+  EXPECT_EQ(Markers(*vertex, true), 1U);
+  EXPECT_EQ(Markers(*vertex, false), 1U);
+  writer->Abort();
+  EXPECT_FALSE(edge->deleted());
+  EXPECT_EQ(Markers(*vertex, true), 0U);
+  EXPECT_EQ(Markers(*vertex, false), 0U);
+  EXPECT_EQ(storage->edge_count_.load(), count);
+}
+
+TEST_F(MarkDeletedTest, AnEdgePropertyWriteConflictsWithDeleteBaseEdgeInEitherOrder) {
+  {
+    auto deleter = Writer();
+    auto setter = Writer();
+    ASSERT_TRUE(DeleteEdge(*deleter, vertex.get(), other.get()));
+    auto const lost = SetEdgeProperty(*setter);
+    ASSERT_FALSE(lost.has_value());
+    EXPECT_EQ(lost.error(), ms::Error::SERIALIZATION_ERROR);
+    setter->Abort();
+    deleter->Abort();
+  }
+  {
+    auto deleter = Writer();
+    auto setter = Writer();
+    ASSERT_TRUE(SetEdgeProperty(*setter).has_value());
+    auto error = ms::Error::DELETED_OBJECT;
+    EXPECT_FALSE(DeleteEdge(*deleter, vertex.get(), other.get(), nullptr, &error));
+    EXPECT_EQ(error, ms::Error::SERIALIZATION_ERROR);
+    deleter->Abort();
+    setter->Abort();
+  }
+}
+
+TEST_F(MarkDeletedTest, TwoConcurrentDeleteBaseEdgesConflict) {
+  auto first = Writer();
+  auto second = Writer();
+  ASSERT_TRUE(DeleteEdge(*first, vertex.get(), other.get()));
+  auto error = ms::Error::DELETED_OBJECT;
+  EXPECT_FALSE(DeleteEdge(*second, vertex.get(), other.get(), nullptr, &error));
+  EXPECT_EQ(error, ms::Error::SERIALIZATION_ERROR);
+  second->Abort();
+  first->Abort();
+}
+
+// Real endpoints, so a stock edge creation can run against them; the base edge overlay is the heap one.
+TEST_F(MarkDeletedTest, ANewEdgeOnAnEndpointConflictsWithDeleteBaseEdgeInEitherOrder) {
+  ms::Gid from_gid, to_gid;
+  {
+    auto acc = Writer();
+    from_gid = acc->CreateVertex().Gid();
+    to_gid = acc->CreateVertex().Gid();
+    Commit(*acc);
+  }
+  auto const delete_edge = [&](ms::Storage::Accessor &acc, ms::Error *error) {
+    auto from = acc.FindVertex(from_gid, ms::View::NEW);
+    auto to = acc.FindVertex(to_gid, ms::View::NEW);
+    EXPECT_TRUE(from.has_value() && to.has_value());
+    return DeleteEdge(acc, from->vertex_, to->vertex_, nullptr, error);
+  };
+  auto const create = [&](ms::Storage::Accessor &acc) {
+    auto from = acc.FindVertex(from_gid, ms::View::NEW);
+    auto to = acc.FindVertex(to_gid, ms::View::NEW);
+    EXPECT_TRUE(from.has_value() && to.has_value());
+    return acc.CreateEdge(&*from, &*to, type);
+  };
+  {
+    auto deleter = Writer();
+    auto creator = Writer();
+    ASSERT_TRUE(delete_edge(*deleter, nullptr));
+    auto const lost = create(*creator);
+    ASSERT_FALSE(lost.has_value());
+    EXPECT_EQ(lost.error(), ms::Error::SERIALIZATION_ERROR);
+    creator->Abort();
+    deleter->Abort();
+  }
+  {
+    auto deleter = Writer();
+    auto creator = Writer();
+    ASSERT_TRUE(create(*creator).has_value());
+    auto error = ms::Error::DELETED_OBJECT;
+    EXPECT_FALSE(delete_edge(*deleter, &error));
+    EXPECT_EQ(error, ms::Error::SERIALIZATION_ERROR);
+    deleter->Abort();
+    creator->Abort();
+  }
 }
 
 // With floors, collection retires native objects (gid >= floor) as on main while keeping the overlays.

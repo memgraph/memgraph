@@ -1068,14 +1068,6 @@ class InMemoryStorage final : public Storage {
   /// Files left out of the recovered state by `HistoryBounds::recovery_bound`. Moves them out: the second
   /// call, and any call without a bound, returns nullopt.
   [[nodiscard]] std::optional<durability::RecoveryTail> TakeRecoveryTail() { return std::exchange(recovery_tail_, {}); }
-
-  /// Marks gids below a floor as overlays a collection pass unlinks the deltas of but never retires: a deleted one
-  /// stays in memory (it is owned outside `vertices_`/`edges_`, and adjacency entries hold it). Set once, before any
-  /// transaction; a floor of 0 retains nothing.
-  void SetRetainedGidFloors(uint64_t vertex_floor, uint64_t edge_floor) {
-    retained_vertex_floor_ = vertex_floor;
-    retained_edge_floor_ = edge_floor;
-  }
 #endif
 
 #ifdef MG_ENTERPRISE
@@ -1355,9 +1347,10 @@ class InMemoryStorage final : public Storage {
   utils::Synchronized<BatchedList<Edge *>, utils::SpinLock> deleted_edges_;
 
 #ifdef MG_ENTERPRISE
-  // See SetRetainedGidFloors. Read only by the collection pass.
-  uint64_t retained_vertex_floor_{0};
-  uint64_t retained_edge_floor_{0};
+  // Config::retained_gid_floors, fixed before the GC thread starts. A deleted object below a floor is an overlay: the
+  // collection pass unlinks its deltas but never retires it. A floor of 0 retains nothing.
+  const uint64_t retained_vertex_floor_;
+  const uint64_t retained_edge_floor_;
 #endif
 
   // Deleted light edges awaiting deferred free (see DrainLightEdgeGraveyard).
