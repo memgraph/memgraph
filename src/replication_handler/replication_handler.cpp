@@ -220,6 +220,12 @@ bool ReplicationHandler::SetReplicationRoleMain() { return DoToMainPromotion({},
 bool ReplicationHandler::SetReplicationRoleReplica(const ReplicationServerConfig &config,
                                                    std::optional<utils::UUID> const &maybe_main_uuid) {
   try {
+    // System writes hold no storage accessor, so the read-only access below would not wait for them.
+    if (!system_.MainWrites().CloseAndDrain(2s)) {
+      spdlog::warn("Demotion to replica waited 2s for system writes in progress and will be retried.");
+      return false;
+    }
+
     // Need to take read-only access to all databases so we have a guranteee all write txns are finished before demoting
     // to replica.
     std::vector<std::unique_ptr<storage::Storage::Accessor>> accs;
@@ -333,6 +339,7 @@ bool ReplicationHandler::DoToMainPromotion(const utils::UUID &main_uuid, bool co
       ttl.Resume();
     });
 
+    system_.MainWrites().Open();
     return true;
   } catch (const utils::TryLockException & /* unused */) {
     return false;
