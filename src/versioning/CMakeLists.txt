@@ -9,6 +9,7 @@ target_sources(mg-versioning
         branch_engine.hpp
         branch_info.hpp
         branch_ledger.hpp
+        branch_recovery.hpp
         edge_overlay_index.hpp
         gate.hpp
         overlay_state.hpp
@@ -21,6 +22,7 @@ target_sources(mg-versioning
         branch_engine.cpp
         branch_info.cpp
         branch_ledger.cpp
+        branch_recovery.cpp
         gate.cpp
         version_store.cpp
 )
