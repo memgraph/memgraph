@@ -25,6 +25,7 @@ module;
 #include <aws/s3/model/GetObjectRequest.h>
 #include <aws/transfer/TransferManager.h>
 
+#include "requests/requests.hpp"
 #include "spdlog/spdlog.h"
 #include "utils/counter.hpp"
 
@@ -187,7 +188,15 @@ enum class S3ErrorCode : uint8_t { S3_PREFIX_MISSING, BUCKET_OBJECT_KEY_MISSING,
 struct S3Error {
   S3ErrorCode status_code;
   std::string message;
+  /// Whether making the same request again could produce a different outcome.
+  bool retryable{false};
 };
+
+// A status the SDK could not read, as when no response came back, is a transfer that never
+// completed. Otherwise the server's answer decides.
+[[nodiscard]] auto IsRetryableS3Status(int status) -> bool {
+  return status <= 0 || requests::DownloadError{.kind = requests::ClassifyHttpStatus(status)}.Retryable();
+}
 
 auto ExtractBucketAndObjectKey(std::string_view uri)
     -> std::expected<std::pair<std::string_view, std::string_view>, S3Error> {
@@ -246,7 +255,7 @@ auto GetS3ObjectStreaming(std::string_view uri, S3Config const &s3_config, std::
     auto const &name = error.GetExceptionName();
 
     auto message = std::string{};
-    if (status == 0) {
+    if (status <= 0) {
       message = fmt::format("Failed to get object from S3 {}. {}", uri, error.GetMessage());
     } else if (name.empty()) {
       message = fmt::format("Failed to get object from S3 {}. The server replied {}", uri, status);
@@ -254,7 +263,9 @@ auto GetS3ObjectStreaming(std::string_view uri, S3Config const &s3_config, std::
       message = fmt::format("Failed to get object from S3 {}. The server replied {}: {}", uri, status, name);
     }
 
-    return std::unexpected{S3Error{.status_code = S3ErrorCode::S3_API_ERROR, .message = std::move(message)}};
+    return std::unexpected{S3Error{.status_code = S3ErrorCode::S3_API_ERROR,
+                                   .message = std::move(message),
+                                   .retryable = IsRetryableS3Status(status)}};
   }
 
   return {};
@@ -311,8 +322,10 @@ auto GetS3Object(std::string uri, S3Config const &s3_config, std::string local_f
   transfer_handle->WaitUntilFinished();
 
   if (transfer_handle->GetStatus() != Aws::Transfer::TransferStatus::COMPLETED) {
-    return std::unexpected{
-        S3Error{.status_code = S3ErrorCode::S3_API_ERROR, .message = transfer_handle->GetLastError().GetMessage()}};
+    auto const &error = transfer_handle->GetLastError();
+    return std::unexpected{S3Error{.status_code = S3ErrorCode::S3_API_ERROR,
+                                   .message = error.GetMessage(),
+                                   .retryable = IsRetryableS3Status(static_cast<int>(error.GetResponseCode()))}};
   }
   spdlog::trace("Downloaded {} bytes of the file {}", transfer_handle->GetBytesTotalSize(), uri);
   return {};

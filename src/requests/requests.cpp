@@ -274,7 +274,7 @@ std::expected<void, DownloadError> DownloadToSink(const std::string &url, WriteS
   return std::unexpected{std::move(error)};
 }
 
-auto DownloadToStream(std::string_view url, std::ostream &os) -> bool {
+auto DownloadToStream(std::string_view url, std::ostream &os) -> std::expected<void, DownloadError> {
   constexpr auto WriteCallback = [](char *ptr, size_t size, size_t nmemb, std::ostream *os) -> size_t {
     auto const totalSize = static_cast<std::streamsize>(size * nmemb);
     os->write(ptr, totalSize);
@@ -295,22 +295,28 @@ auto DownloadToStream(std::string_view url, std::ostream &os) -> bool {
 
   if (res != CURLE_OK) {
     SPDLOG_WARN("Couldn't perform request: {}", curl_easy_strerror(res));
-    return false;
+    return std::unexpected{DownloadError{.kind = DownloadFailure::Network, .message = curl_easy_strerror(res)}};
   }
 
   constexpr auto protocol_matcher = ctre::starts_with<"(https?|ftp)://">;
   if (protocol_matcher(url) && response_code != 200) {
     SPDLOG_WARN("Request response code isn't 200 (received {})!", response_code);
-    return false;
+    return std::unexpected{DownloadError{.kind = ClassifyHttpStatus(static_cast<int>(response_code)),
+                                         .http_status = static_cast<int>(response_code),
+                                         .message = fmt::format("the server replied {}", response_code)}};
   }
 
-  return true;
+  return {};
 }
 
 auto UrlToStringStream(std::string_view url) -> std::stringstream {
   auto ss = std::stringstream{};
-  if (!requests::DownloadToStream(url, ss)) {
-    throw utils::RetryableException("CSV was unable to be fetched from {}", url);
+  if (auto const downloaded = requests::DownloadToStream(url, ss); !downloaded) {
+    auto const &error = downloaded.error();
+    if (error.Retryable()) {
+      throw utils::RetryableException("CSV was unable to be fetched from {}: {}", url, error.message);
+    }
+    throw utils::BasicException("CSV was unable to be fetched from {}: {}", url, error.message);
   }
   return ss;
 };

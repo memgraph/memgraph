@@ -271,3 +271,17 @@ TEST(ExtractBucketAndObjectKey, EmptyString) { ASSERT_FALSE(ExtractBucketAndObje
 TEST(ExtractBucketAndObjectKey, OnlyS3Prefix) { ASSERT_FALSE(ExtractBucketAndObjectKey("s3://")); }
 
 TEST(ExtractBucketAndObjectKey, InvalidProtocol) { ASSERT_FALSE(ExtractBucketAndObjectKey("s4://bucket/key")); }
+
+TEST(S3Error, OnlyFailuresThatCouldPassOnAnotherAttemptAreRetryable) {
+  using memgraph::utils::IsRetryableS3Status;
+
+  // No response at all: the SDK reports -1 (or 0) when the request was never answered.
+  EXPECT_TRUE(IsRetryableS3Status(-1));
+  EXPECT_TRUE(IsRetryableS3Status(0));
+  for (auto const status : {500, 502, 503, 504, 429, 408}) {
+    EXPECT_TRUE(IsRetryableS3Status(status)) << status;
+  }
+  for (auto const status : {400, 401, 403, 404, 416}) {
+    EXPECT_FALSE(IsRetryableS3Status(status)) << status;
+  }
+}

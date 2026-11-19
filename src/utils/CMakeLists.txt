@@ -106,7 +106,7 @@ target_sources(mg-aws
     FILE_SET CXX_MODULES FILES
     aws.cppm
 )
-target_link_libraries(mg-aws PUBLIC mg-utils AWS::aws-sdk-cpp-core AWS::aws-sdk-cpp-s3 AWS::aws-sdk-cpp-transfer)
+target_link_libraries(mg-aws PUBLIC mg-utils mg-requests AWS::aws-sdk-cpp-core AWS::aws-sdk-cpp-s3 AWS::aws-sdk-cpp-transfer)
 
 add_library(mg-settings STATIC)
 target_sources(mg-settings
