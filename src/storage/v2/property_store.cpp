@@ -2573,6 +2573,15 @@ struct SafeReader {
 template <typename GetFunc, typename ApplyFunc, typename MissingValue>
 SafeReader(Reader &, GetFunc &&, ApplyFunc &&, MissingValue) -> SafeReader<GetFunc, ApplyFunc, MissingValue>;
 
+std::optional<PropertyValue> PropertyStore::FindProperty(PropertyId property) const {
+  auto find_property = [&](Reader &reader) -> std::optional<PropertyValue> {
+    PropertyValue value;
+    if (FindSpecificProperty(&reader, property, value) != ExpectedPropertyStatus::EQUAL) return std::nullopt;
+    return value;
+  };
+  return WithReader(find_property);
+}
+
 PropertyValue PropertyStore::GetProperty(PropertyId property) const {
   auto get_property = [&](Reader &reader) -> PropertyValue {
     PropertyValue value;
@@ -2829,6 +2838,7 @@ std::map<PropertyId, PropertyValue> PropertyStore::Properties() const {
     while (true) {
       auto prop = DecodeAnyProperty(&reader, value);
       if (!prop) break;
+      if (value.IsNull()) continue;  // explicit null (SetExplicitNull): not a user property
       props.emplace(*prop, std::move(value));
     }
     return props;
@@ -2844,6 +2854,7 @@ std::map<PropertyId, PropertyValue> PropertyStore::Properties(const IndexedPrope
     while (true) {
       auto prop = DecodeAnyProperty(&reader, value);
       if (!prop) break;
+      if (value.IsNull()) continue;  // explicit null (SetExplicitNull): not a user property
       decoder.DecodeProperty(value);
       props.emplace(*prop, std::move(value));
     }
@@ -2885,8 +2896,18 @@ std::vector<PropertyId> PropertyStore::ExtractPropertyIds() const {
 }
 
 bool PropertyStore::SetProperty(PropertyId property, const PropertyValue &value) {
+  return SetPropertyImpl(property, value, /*store_null=*/false);
+}
+
+bool PropertyStore::SetExplicitNull(PropertyId property) {
+  return SetPropertyImpl(property, PropertyValue{}, /*store_null=*/true);
+}
+
+bool PropertyStore::SetPropertyImpl(PropertyId property, const PropertyValue &value, bool store_null) {
+  // A null value erases the key unless the caller asked for it to be stored as an explicit null entry.
+  const bool erase = value.IsNull() && !store_null;
   uint32_t property_size = 0;
-  if (!value.IsNull()) {
+  if (!erase) {
     Writer writer;
     EncodeProperty(&writer, property, value);
     property_size = writer.Written();
@@ -2896,7 +2917,7 @@ bool PropertyStore::SetProperty(PropertyId property, const PropertyValue &value)
 
   bool existed = false;
   if (buffer_info.storage_mode == BufferMode::EMPTY) {
-    if (!value.IsNull()) {
+    if (!erase) {
       // We don't have a data buffer. Setup on for writting
       auto new_buffer_info = SetupBuffer(buffer_, property_size);
       auto new_view = new_buffer_info.view;
@@ -2994,7 +3015,7 @@ bool PropertyStore::SetProperty(PropertyId property, const PropertyValue &value)
       };
     }
 
-    if (!value.IsNull()) {
+    if (!erase) {
       // We need to encode the new value.
       Writer writer(current_view.data() + info.property_begin, property_size);
       MG_ASSERT(EncodeProperty(&writer, property, value), "Invalid database state!");

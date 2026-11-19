@@ -1099,6 +1099,11 @@ add_unit_test(storage_v2_property_store
     CUSTOM_MAIN
 )
 
+add_unit_test(storage_v2_property_store_explicit_null
+    SOURCES storage_v2_property_store_explicit_null.cpp
+    LINK_TARGETS mg::storage
+)
+
 add_unit_test(storage_v2_value_field
     SOURCES storage_v2_value_field.cpp
     LINK_TARGETS mg::storage
