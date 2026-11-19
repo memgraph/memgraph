@@ -70,6 +70,68 @@ class FineGrainedAuthCheckerFixture : public testing::Test {
 using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
 TYPED_TEST_SUITE(FineGrainedAuthCheckerFixture, StorageTypes);
 
+namespace {
+// Drops the license for the duration of a scope and puts back what was there. The fixture turns the
+// license on, so leaving it off would leak into whatever runs next.
+struct UnlicensedScope {
+  UnlicensedScope() : was_valid_{memgraph::license::global_license_checker.IsEnterpriseValidFast()} {
+    memgraph::license::global_license_checker.DisableTesting();
+  }
+
+  ~UnlicensedScope() {
+    if (was_valid_) memgraph::license::global_license_checker.EnableTesting();
+  }
+
+  UnlicensedScope(const UnlicensedScope &) = delete;
+  UnlicensedScope &operator=(const UnlicensedScope &) = delete;
+  UnlicensedScope(UnlicensedScope &&) = delete;
+  UnlicensedScope &operator=(UnlicensedScope &&) = delete;
+
+ private:
+  bool was_valid_;
+};
+}  // namespace
+
+// A license that lapses must not turn a denied label into a readable one.
+TYPED_TEST(FineGrainedAuthCheckerFixture, StoredLabelDenyIsEnforcedWithoutLicense) {
+  const UnlicensedScope unlicensed;
+
+  memgraph::auth::User user{"test"};
+  user.fine_grained_access_handler().label_permissions().GrantGlobal(memgraph::auth::kAllLabelPermissions);
+  user.fine_grained_access_handler().label_permissions().Deny({"l3"}, memgraph::auth::kAllLabelPermissions);
+
+  memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba};
+
+  EXPECT_TRUE(
+      auth_checker.Has(this->v1, memgraph::storage::View::NEW, memgraph::query::AuthQuery::FineGrainedPrivilege::READ));
+  EXPECT_FALSE(
+      auth_checker.Has(this->v3, memgraph::storage::View::NEW, memgraph::query::AuthQuery::FineGrainedPrivilege::READ));
+}
+
+// A global deny carries no per-label rule, so it must not be mistaken for unrestricted access.
+TYPED_TEST(FineGrainedAuthCheckerFixture, GlobalDenyIsEnforcedWithoutLicense) {
+  const UnlicensedScope unlicensed;
+
+  memgraph::auth::User user{"test"};
+  user.fine_grained_access_handler().label_permissions().DenyGlobal(memgraph::auth::FineGrainedPermission::READ);
+
+  memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba};
+
+  EXPECT_FALSE(
+      auth_checker.Has(this->v1, memgraph::storage::View::NEW, memgraph::query::AuthQuery::FineGrainedPrivilege::READ));
+}
+
+TYPED_TEST(FineGrainedAuthCheckerFixture, StoredEdgeTypeDenyIsEnforcedWithoutLicense) {
+  const UnlicensedScope unlicensed;
+
+  memgraph::auth::User user{"test"};
+  user.fine_grained_access_handler().edge_type_permissions().DenyGlobal(memgraph::auth::FineGrainedPermission::READ);
+
+  memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba};
+
+  EXPECT_FALSE(auth_checker.Has(this->r1, memgraph::query::AuthQuery::FineGrainedPrivilege::READ));
+}
+
 TYPED_TEST(FineGrainedAuthCheckerFixture, GrantedAllLabels) {
   memgraph::auth::User user{"test"};
   user.fine_grained_access_handler().label_permissions().GrantGlobal(memgraph::auth::FineGrainedPermission::READ);

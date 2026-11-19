@@ -44,10 +44,6 @@ namespace {
 bool IsAuthorizedLabels(memgraph::auth::FineGrainedAccessPermissions const &permissions,
                         const memgraph::query::DbAccessor *dba, std::span<memgraph::storage::LabelId const> labels,
                         const memgraph::query::AuthQuery::FineGrainedPrivilege fine_grained_privilege) {
-  if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-    return true;
-  }
-
   auto const label_names = labels |
                            rv::transform([dba](memgraph::storage::LabelId label) { return dba->LabelToName(label); }) |
                            r::to_vector;
@@ -77,10 +73,6 @@ bool IsAuthorizedGloballyEdges(memgraph::auth::FineGrainedAccessPermissions cons
 bool IsAuthorizedEdgeType(memgraph::auth::FineGrainedAccessPermissions const &permissions,
                           const memgraph::query::DbAccessor *dba, const memgraph::storage::EdgeTypeId &edgeType,
                           const memgraph::query::AuthQuery::FineGrainedPrivilege fine_grained_privilege) {
-  if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-    return true;
-  }
-
   auto const &edge_type_name = dba->EdgeTypeToName(edgeType);
   return permissions.Has(std::span{&edge_type_name, 1},
                          memgraph::glue::FineGrainedPrivilegeToFineGrainedPermission(
@@ -287,9 +279,6 @@ bool FineGrainedAuthChecker::HasGlobalPrivilegeOnEdges(
 }
 
 bool FineGrainedAuthChecker::HasAllGlobalPrivilegesOnVertices() const {
-  if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-    return true;
-  }
   auto const &permissions = GetCachedLabelPermissions();
   auto const &global_grants = permissions.GetGlobalGrants();
   auto const &global_denies = permissions.GetGlobalDenies();
@@ -300,9 +289,6 @@ bool FineGrainedAuthChecker::HasAllGlobalPrivilegesOnVertices() const {
 }
 
 bool FineGrainedAuthChecker::HasAllGlobalPrivilegesOnEdges() const {
-  if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-    return true;
-  }
   auto const &permissions = GetCachedEdgePermissions();
   auto const &global_grants = permissions.GetGlobalGrants();
   auto const &global_denies = permissions.GetGlobalDenies();
