@@ -81,7 +81,7 @@ inline void TryInsertEdgeTypeIndex(Vertex &from_vertex, EdgeTypeId edge_type, au
   }
 
   for (auto const &[type, to_vertex, edge_ref] : edges) {
-    index_accessor.insert({&from_vertex, to_vertex, edge_ref.ptr, tx.start_timestamp});
+    index_accessor.insert({&from_vertex, to_vertex, edge_ref.ptr, IndexTimestamp(tx.start_timestamp)});
     if (on_progress) on_progress();
   }
 }
@@ -273,7 +273,7 @@ uint64_t InMemoryEdgeTypeIndex::RemoveObsoleteEntries(Storage *storage, uint64_t
           auto next_it = it;
           ++next_it;
 
-          if (preserve_recent_entries && it->timestamp >= oldest_active_start_timestamp) {
+          if (preserve_recent_entries && it->timestamp >= IndexTimestamp(oldest_active_start_timestamp)) {
             it = next_it;
             continue;
           }
@@ -286,7 +286,7 @@ uint64_t InMemoryEdgeTypeIndex::RemoveObsoleteEntries(Storage *storage, uint64_t
           const bool redundant_duplicate =
               has_next && it->from_vertex == next_it->from_vertex && it->to_vertex == next_it->to_vertex &&
               it->edge == next_it->edge &&
-              (!preserve_recent_entries || next_it->timestamp < oldest_active_start_timestamp);
+              (!preserve_recent_entries || next_it->timestamp < IndexTimestamp(oldest_active_start_timestamp));
           if (redundant_duplicate || !AnyVersionIsVisible(it->edge, oldest_active_start_timestamp)) {
             edges_acc.remove(*it);
           }

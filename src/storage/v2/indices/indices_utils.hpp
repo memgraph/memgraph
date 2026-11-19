@@ -351,12 +351,14 @@ inline void PopulateIndexDispatch(TVerticesAccessor &vertices, TSkipListAccessor
   }
 }
 
-/// Where an index scan opened: its batch start, and the index stamp of the command it opened at.
+/// Where an index scan opened: its batch start as an index timestamp, and the stamp of the command it opened at.
 struct ScanStart {
   uint64_t timestamp;
   uint64_t stamp;
 
-  static ScanStart Of(Transaction const &transaction) { return {transaction.start_timestamp, transaction.index_stamp}; }
+  static ScanStart Of(Transaction const &transaction) {
+    return {IndexTimestamp(transaction.start_timestamp), transaction.index_stamp};
+  }
 };
 
 // Whether an index scan may see an entry inserted at `insertion_timestamp`; if so, MVCC decides the version. After a
@@ -364,7 +366,7 @@ struct ScanStart {
 // a View::NEW scan also what its own command wrote, as before the commit.
 inline bool CanSeeEntityWithTimestamp(uint64_t insertion_timestamp, Transaction *transaction, View view,
                                       ScanStart scan) {
-  if (transaction->start_timestamp != scan.timestamp) {
+  if (IndexTimestamp(transaction->start_timestamp) != scan.timestamp) {
     if (insertion_timestamp < scan.timestamp) return true;
     // A later command, a later batch, or another transaction that started after this batch.
     if (insertion_timestamp > scan.stamp) return false;

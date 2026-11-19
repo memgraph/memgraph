@@ -71,7 +71,7 @@ inline void TryInsertVertexPropertyIndex(Vertex &vertex, PropertyId property, au
     return;
   }
 
-  index_accessor.insert({std::move(property_value), &vertex, tx.start_timestamp});
+  index_accessor.insert({std::move(property_value), &vertex, IndexTimestamp(tx.start_timestamp)});
   if (on_progress) on_progress();
 }
 
@@ -317,7 +317,7 @@ uint64_t InMemoryVertexPropertyIndex::RemoveObsoleteEntries(Storage *storage, ui
           auto next_it = it;
           ++next_it;
 
-          if (preserve_recent_entries && it->timestamp >= oldest_active_start_timestamp) {
+          if (preserve_recent_entries && it->timestamp >= IndexTimestamp(oldest_active_start_timestamp)) {
             it = next_it;
             continue;
           }
@@ -328,7 +328,7 @@ uint64_t InMemoryVertexPropertyIndex::RemoveObsoleteEntries(Storage *storage, ui
           // older than it sees neither.
           bool const redundant_duplicate =
               has_next && it->value == next_it->value && it->vertex == next_it->vertex &&
-              (!preserve_recent_entries || next_it->timestamp < oldest_active_start_timestamp);
+              (!preserve_recent_entries || next_it->timestamp < IndexTimestamp(oldest_active_start_timestamp));
           if (redundant_duplicate ||
               !AnyVersionHasProperty(*it->vertex, property_id, it->value, oldest_active_start_timestamp)) {
             acc.remove(*it);

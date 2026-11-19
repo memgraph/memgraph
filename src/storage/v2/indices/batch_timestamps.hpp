@@ -18,6 +18,11 @@
 
 namespace memgraph::storage {
 
+/// An index entry sorts by its batch start; the 2^16 values above it are that batch's stamps.
+inline constexpr uint64_t kIndexStampBits = 16;
+
+constexpr uint64_t IndexTimestamp(uint64_t timestamp) { return timestamp << kIndexStampBits; }
+
 /// The timestamps an aborting batch wrote its index entries at: its start, and the stamps raised since, ascending.
 struct BatchTimestamps {
   uint64_t start;

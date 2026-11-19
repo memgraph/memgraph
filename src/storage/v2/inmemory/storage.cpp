@@ -1452,7 +1452,7 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
 
   auto new_transaction = mem_storage->CreateTransaction(transaction_.isolation_level, transaction_.storage_mode);
   transaction_.start_timestamp = new_transaction.start_timestamp;
-  transaction_.index_stamp = new_transaction.start_timestamp;
+  transaction_.index_stamp = IndexTimestamp(new_transaction.start_timestamp);
   transaction_.transaction_id = new_transaction.transaction_id;
   // So the next batch sees what this one committed. With the experiment OFF snapshot_ts equals
   // start_timestamp, so this is inert to the read path.
@@ -1485,8 +1485,8 @@ void InMemoryStorage::InMemoryAccessor::MintIndexStamp() {
   }
   // No transaction starts at a stamp; the batch start below it keeps the GC horizon while the stamp matters.
   mem_storage->commit_log_->MarkFinished(stamp);
-  transaction_.index_stamps.push_back(stamp);
-  transaction_.index_stamp = stamp;
+  transaction_.index_stamps.push_back(IndexTimestamp(stamp));
+  transaction_.index_stamp = IndexTimestamp(stamp);
 }
 
 void InMemoryStorage::InMemoryAccessor::GCRapidDeltaCleanup(BatchedList<Edge *> &current_deleted_edges,
@@ -1883,11 +1883,11 @@ void InMemoryStorage::InMemoryAccessor::Abort(ProgressCallback const &on_progres
     // Cleanup INDICES
     // The batch's entries carry its start or a stamp raised since; earlier batches' stamps are committed.
     auto const &stamps = transaction_.index_stamps;
-    auto const batch_stamps =
-        std::span<uint64_t const>{std::ranges::upper_bound(stamps, transaction_.start_timestamp), stamps.end()};
+    auto const batch_start = IndexTimestamp(transaction_.start_timestamp);
+    auto const batch_stamps = std::span<uint64_t const>{std::ranges::upper_bound(stamps, batch_start), stamps.end()};
     index_abort_processor.Process(storage_->indices_,
                                   *transaction_.active_indices_,
-                                  transaction_.start_timestamp,
+                                  batch_start,
                                   batch_stamps,
                                   mem_storage->name_id_mapper_.get());
     // Handed to CollectGarbage for the same reason as the edges below: a removal on this thread

@@ -123,7 +123,8 @@ inline void TryInsertEdgePropertyIndex(Vertex &from_vertex, PropertyId property,
       continue;
     }
 
-    index_accessor.insert({property_value, &from_vertex, to_vertex, edge_ref.ptr, edge_type, tx.start_timestamp});
+    index_accessor.insert(
+        {property_value, &from_vertex, to_vertex, edge_ref.ptr, edge_type, IndexTimestamp(tx.start_timestamp)});
     if (on_progress) on_progress();
   }
 }
@@ -338,7 +339,7 @@ uint64_t InMemoryEdgePropertyIndex::RemoveObsoleteEntries(Storage *storage, uint
           auto next_it = it;
           ++next_it;
 
-          if (preserve_recent_entries && it->timestamp >= oldest_active_start_timestamp) {
+          if (preserve_recent_entries && it->timestamp >= IndexTimestamp(oldest_active_start_timestamp)) {
             it = next_it;
             continue;
           }
@@ -350,7 +351,7 @@ uint64_t InMemoryEdgePropertyIndex::RemoveObsoleteEntries(Storage *storage, uint
           const bool redundant_duplicate =
               has_next && it->value == next_it->value && it->from_vertex == next_it->from_vertex &&
               it->to_vertex == next_it->to_vertex && it->edge == next_it->edge &&
-              (!preserve_recent_entries || next_it->timestamp < oldest_active_start_timestamp);
+              (!preserve_recent_entries || next_it->timestamp < IndexTimestamp(oldest_active_start_timestamp));
           if (redundant_duplicate ||
               !AnyVersionHasProperty(*it->edge, property_id, it->value, oldest_active_start_timestamp)) {
             edges_acc.remove(*it);

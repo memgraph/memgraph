@@ -149,7 +149,7 @@ inline void TryInsertLabelIndex(Vertex &vertex, LabelId label, auto &&index_acce
     return;
   }
 
-  index_accessor.insert({&vertex, tx.start_timestamp});
+  index_accessor.insert({&vertex, IndexTimestamp(tx.start_timestamp)});
 }
 
 auto InMemoryLabelIndex::PopulateIndex(
@@ -284,7 +284,7 @@ uint64_t InMemoryLabelIndex::RemoveObsoleteEntries(Storage *storage, uint64_t ol
           auto next_it = it;
           ++next_it;
 
-          if (preserve_recent_entries && it->timestamp >= oldest_active_start_timestamp) {
+          if (preserve_recent_entries && it->timestamp >= IndexTimestamp(oldest_active_start_timestamp)) {
             it = next_it;
             continue;
           }
@@ -292,7 +292,7 @@ uint64_t InMemoryLabelIndex::RemoveObsoleteEntries(Storage *storage, uint64_t ol
           // The older of two entries for a vertex is redundant only once the newer one is visible to
           // every reader; before that a reader older than the newer entry sees neither.
           if ((next_it != vertices_acc.end() && it->vertex == next_it->vertex &&
-               (!preserve_recent_entries || next_it->timestamp < oldest_active_start_timestamp)) ||
+               (!preserve_recent_entries || next_it->timestamp < IndexTimestamp(oldest_active_start_timestamp))) ||
               !AnyVersionHasLabel(*it->vertex, label, oldest_active_start_timestamp)) {
             vertices_acc.remove(*it);
           }

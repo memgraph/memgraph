@@ -37,6 +37,7 @@
 #include "storage/v2/constraints/active_constraints.hpp"
 #include "storage/v2/edge.hpp"
 #include "storage/v2/indices/active_indices.hpp"
+#include "storage/v2/indices/batch_timestamps.hpp"
 #include "storage/v2/indices/point_index.hpp"
 #include "storage/v2/indices/point_index_change_collector.hpp"
 #include "storage/v2/isolation_level.hpp"
@@ -146,7 +147,7 @@ struct Transaction {
         start_timestamp(start_timestamp),
         original_start_timestamp(start_timestamp),
         command_id(0),
-        index_stamp(start_timestamp),
+        index_stamp(IndexTimestamp(start_timestamp)),
         deltas(unreleased_delta_gauge),
         md_deltas(utils::NewDeleteResource()),
         has_serialization_error(false),
@@ -289,7 +290,7 @@ struct Transaction {
   // `commited_transactions_` list for GC.
   std::unique_ptr<CommitInfo> commit_info{};
   uint64_t command_id{};
-  // Written into new index entries: the batch start, or the stamp of the command that raised it.
+  // Written into new index entries: IndexTimestamp of the batch start, or the stamp of the command that raised it.
   uint64_t index_stamp{};
   // Every stamp this transaction raised, ascending; kept across batch commits for scans opened earlier.
   std::vector<uint64_t> index_stamps;
