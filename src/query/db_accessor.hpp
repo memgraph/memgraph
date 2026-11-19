@@ -691,10 +691,6 @@ class DbAccessor final {
 
   void AdvanceCommand() { accessor_->AdvanceCommand(); }
 
-  void ArmIndexStamps() { accessor_->ArmIndexStamps(); }
-
-  void DisarmIndexStamps() { accessor_->DisarmIndexStamps(); }
-
   std::expected<void, storage::StorageManipulationError> Commit(storage::CommitArgs commit_args) {
     return accessor_->PrepareForCommitPhase(std::move(commit_args));
   }

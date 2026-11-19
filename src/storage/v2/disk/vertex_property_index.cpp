@@ -42,7 +42,7 @@ VertexPropertyIndex::AbortProcessor DiskVertexPropertyIndex::ActiveIndices::GetA
 }
 
 void DiskVertexPropertyIndex::ActiveIndices::AbortEntries(VertexPropertyIndex::AbortableInfo const & /*info*/,
-                                                          BatchTimestamps const & /*batch*/) {}
+                                                          uint64_t /*start_timestamp*/) {}
 
 void DiskVertexPropertyIndex::DropGraphClearIndices() {}
 

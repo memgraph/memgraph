@@ -125,7 +125,7 @@ void Indices::UpdateOnSetProperty(PropertyId property, const PropertyValue &old_
     tx.index_arming.note_vertex_property(property);
 
   tx.active_indices_->label_properties_->UpdateOnSetProperty(property, old_value, new_value, vertex, tx);
-  tx.active_indices_->vertex_property_->UpdateOnSetProperty(property, new_value, vertex, tx.index_stamp);
+  tx.active_indices_->vertex_property_->UpdateOnSetProperty(property, new_value, vertex, tx.start_timestamp);
   tx.active_indices_->text_->UpdateOnSetProperty(vertex, tx, property);
   vector_index_.UpdateOnSetProperty(property, new_value, vertex);
 }
@@ -136,9 +136,9 @@ void Indices::UpdateOnSetProperty(EdgeTypeId edge_type, PropertyId property, con
     tx.index_arming.note_edge_property(property);
 
   tx.active_indices_->edge_type_properties_->UpdateOnSetProperty(
-      from_vertex, to_vertex, edge, edge_type, property, value, tx.index_stamp);
+      from_vertex, to_vertex, edge, edge_type, property, value, tx.start_timestamp);
   tx.active_indices_->edge_property_->UpdateOnSetProperty(
-      from_vertex, to_vertex, edge, edge_type, property, value, tx.index_stamp);
+      from_vertex, to_vertex, edge, edge_type, property, value, tx.start_timestamp);
   vector_edge_index_.UpdateOnSetProperty(from_vertex, to_vertex, edge, edge_type, property, value);
   tx.active_indices_->text_edge_->UpdateOnSetProperty(edge, from_vertex, to_vertex, edge_type, tx, property);
 }
@@ -316,14 +316,13 @@ bool Indices::AbortProcessor::IsInterestingEdgeProperty(PropertyId property) con
 }
 
 void Indices::AbortProcessor::Process(Indices &indices, ActiveIndices const &active_indices, uint64_t start_timestamp,
-                                      std::span<uint64_t const> stamps, NameIdMapper *name_id_mapper) {
-  auto const batch = BatchTimestamps{.start = start_timestamp, .stamps = stamps};
-  active_indices.label_->AbortEntries(label_.cleanup_collection_, batch);
-  active_indices.label_properties_->AbortEntries(label_properties_.cleanup_collection, batch);
-  active_indices.edge_type_->AbortEntries(edge_type_.cleanup_collection_, batch);
-  active_indices.edge_type_properties_->AbortEntries(edge_type_property_.cleanup_collection_, batch);
-  active_indices.edge_property_->AbortEntries(edge_property_.cleanup_collection_, batch);
-  active_indices.vertex_property_->AbortEntries(vertex_property_.cleanup_collection_, batch);
+                                      NameIdMapper *name_id_mapper) {
+  active_indices.label_->AbortEntries(label_.cleanup_collection_, start_timestamp);
+  active_indices.label_properties_->AbortEntries(label_properties_.cleanup_collection, start_timestamp);
+  active_indices.edge_type_->AbortEntries(edge_type_.cleanup_collection_, start_timestamp);
+  active_indices.edge_type_properties_->AbortEntries(edge_type_property_.cleanup_collection_, start_timestamp);
+  active_indices.edge_property_->AbortEntries(edge_property_.cleanup_collection_, start_timestamp);
+  active_indices.vertex_property_->AbortEntries(vertex_property_.cleanup_collection_, start_timestamp);
   indices.vector_index_.AbortEntries(&indices, name_id_mapper, vector_.cleanup_collection);
   indices.vector_edge_index_.AbortEntries(vector_edge_.cleanup_collection);
 }

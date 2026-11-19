@@ -123,8 +123,7 @@ inline void TryInsertEdgePropertyIndex(Vertex &from_vertex, PropertyId property,
       continue;
     }
 
-    index_accessor.insert(
-        {property_value, &from_vertex, to_vertex, edge_ref.ptr, edge_type, IndexTimestamp(tx.start_timestamp)});
+    index_accessor.insert({property_value, &from_vertex, to_vertex, edge_ref.ptr, edge_type, tx.start_timestamp});
     if (on_progress) on_progress();
   }
 }
@@ -339,7 +338,7 @@ uint64_t InMemoryEdgePropertyIndex::RemoveObsoleteEntries(Storage *storage, uint
           auto next_it = it;
           ++next_it;
 
-          if (preserve_recent_entries && it->timestamp >= IndexTimestamp(oldest_active_start_timestamp)) {
+          if (preserve_recent_entries && it->timestamp >= oldest_active_start_timestamp) {
             it = next_it;
             continue;
           }
@@ -351,7 +350,7 @@ uint64_t InMemoryEdgePropertyIndex::RemoveObsoleteEntries(Storage *storage, uint
           const bool redundant_duplicate =
               has_next && it->value == next_it->value && it->from_vertex == next_it->from_vertex &&
               it->to_vertex == next_it->to_vertex && it->edge == next_it->edge &&
-              (!preserve_recent_entries || next_it->timestamp < IndexTimestamp(oldest_active_start_timestamp));
+              (!preserve_recent_entries || next_it->timestamp < oldest_active_start_timestamp);
           if (redundant_duplicate ||
               !AnyVersionHasProperty(*it->edge, property_id, it->value, oldest_active_start_timestamp)) {
             edges_acc.remove(*it);
@@ -449,7 +448,7 @@ InMemoryEdgePropertyIndex::Iterable::Iterable(
       storage_(storage),
       transaction_(transaction),
       max_gid_(max_gid),
-      scan_start_(ScanStart::Of(*transaction)) {}
+      scan_start_(ScanStart::Of(*transaction, view)) {}
 
 InMemoryEdgePropertyIndex::Iterable::Iterator::Iterator(
     Iterable *self, utils::SkipListDb<InMemoryEdgePropertyIndex::Entry>::Iterator index_iterator)
@@ -585,7 +584,7 @@ EdgePropertyIndex::AbortProcessor InMemoryEdgePropertyIndex::ActiveIndices::GetA
 }
 
 void InMemoryEdgePropertyIndex::ActiveIndices::AbortEntries(EdgePropertyIndex::AbortableInfo const &info,
-                                                            BatchTimestamps const &batch) {
+                                                            uint64_t start_timestamp) {
   for (auto const &[property, edges] : info) {
     auto const it = index_container_->indices_.find(property);
     DMG_ASSERT(it != index_container_->indices_.end());
@@ -593,8 +592,7 @@ void InMemoryEdgePropertyIndex::ActiveIndices::AbortEntries(EdgePropertyIndex::A
     auto &index_storage = it->second;
     auto acc = index_storage->skip_list_.access();
     for (const auto &[value, from_vertex, to_vertex, edge, type] : edges) {
-      RemoveBatchEntries(
-          acc, batch, [&](uint64_t timestamp) { return Entry{value, from_vertex, to_vertex, edge, type, timestamp}; });
+      acc.remove(Entry{value, from_vertex, to_vertex, edge, type, start_timestamp});
     }
   }
 }
@@ -647,7 +645,7 @@ InMemoryEdgePropertyIndex::ChunkedIterable::ChunkedIterable(
       storage_(storage),
       transaction_(transaction),
       max_gid_(max_gid),
-      scan_start_(ScanStart::Of(*transaction)) {
+      scan_start_(ScanStart::Of(*transaction, view)) {
   if (!bounds_valid_) return;
 
   const auto lower_bound_pv = lower_bound_ ? std::optional<PropertyValue>{lower_bound_->value()} : std::nullopt;

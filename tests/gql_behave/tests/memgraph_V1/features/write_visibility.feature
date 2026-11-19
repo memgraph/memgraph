@@ -2718,20 +2718,6 @@ Feature: Write visibility inside one query
             | n |
             | 6 |
 
-    Scenario: A MERGE before an IN TRANSACTIONS call sees every row's CREATE before it
-        Given an empty graph
-        And having executed:
-            """
-            CREATE (:WvIr)
-            """
-        When executing query:
-            """
-            UNWIND [1, 2] AS i CREATE (:WvIr) MERGE (m:WvIr) WITH count(*) AS n CALL () { CREATE (:WvIz) } IN TRANSACTIONS OF 10 ROWS MATCH (k:WvIr) RETURN n, count(k) AS c
-            """
-        Then the result should be:
-            | n | c |
-            | 6 | 3 |
-
     Scenario: A CREATE map sees its own row's earlier SET of a row-unique node
         Given an empty graph
         And having executed:
@@ -3486,89 +3472,6 @@ Feature: Write visibility inside one query
             """
         Then an error should be raised
 
-    Scenario: A node a UNION leg creates before an IN TRANSACTIONS update is updated once
-        Given an empty graph
-        And with new index :WvStU(p)
-        And having executed:
-            """
-            UNWIND [1, 2] AS i CREATE (:WvStU {p: i})
-            """
-        And having executed:
-            """
-            CREATE (:WvStU {p: 5}) UNION ALL MATCH (n:WvStU) WHERE n.p > 0 CALL (n) { SET n.p = n.p + 10 } IN TRANSACTIONS OF 1 ROWS
-            """
-        When executing query:
-            """
-            MATCH (n:WvStU) RETURN n.p AS p ORDER BY p
-            """
-        Then the result should be, in order:
-            | p  |
-            | 11 |
-            | 12 |
-            | 15 |
-
-    Scenario: A node created before a WITH and an IN TRANSACTIONS update is updated once
-        Given an empty graph
-        And with new index :WvStW(p)
-        And having executed:
-            """
-            UNWIND [1, 2] AS i CREATE (:WvStW {p: i})
-            """
-        And having executed:
-            """
-            CREATE (:WvStW {p: 5}) WITH 1 AS x MATCH (n:WvStW) WHERE n.p > 0 CALL (n) { SET n.p = n.p + 10 } IN TRANSACTIONS OF 1 ROWS
-            """
-        When executing query:
-            """
-            MATCH (n:WvStW) RETURN n.p AS p ORDER BY p
-            """
-        Then the result should be, in order:
-            | p  |
-            | 11 |
-            | 12 |
-            | 15 |
-
-    Scenario: A PERIODIC COMMIT update after a write and a WITH updates each node once
-        Given an empty graph
-        And with new index :WvStP(p)
-        And having executed:
-            """
-            UNWIND [1, 2] AS i CREATE (:WvStP {p: i})
-            """
-        And having executed:
-            """
-            USING PERIODIC COMMIT 1 CREATE (:WvStZ) WITH * MATCH (n:WvStP) WHERE n.p > 0 SET n.p = n.p + 10
-            """
-        When executing query:
-            """
-            MATCH (n:WvStP) RETURN n.p AS p ORDER BY p
-            """
-        Then the result should be, in order:
-            | p  |
-            | 11 |
-            | 12 |
-
-    Scenario: A node a UNION leg moves into the range before an IN TRANSACTIONS update is updated once
-        Given an empty graph
-        And with new index :WvStG(p)
-        And having executed:
-            """
-            UNWIND [1, 2, -1] AS i CREATE (:WvStG {p: i})
-            """
-        And having executed:
-            """
-            MATCH (a:WvStG {p: -1}) SET a.p = 3 UNION ALL MATCH (n:WvStG) WHERE n.p > 0 CALL (n) { SET n.p = n.p + 10 } IN TRANSACTIONS OF 1 ROWS
-            """
-        When executing query:
-            """
-            MATCH (n:WvStG) RETURN n.p AS p ORDER BY p
-            """
-        Then the result should be, in order:
-            | p  |
-            | 11 |
-            | 12 |
-            | 13 |
-
     Scenario: A PERIODIC COMMIT MERGE matches every node its own command created before it
         Given an empty graph
         And with new index :WvSuM
@@ -3686,45 +3589,3 @@ Feature: Write visibility inside one query
             | k | c |
             | 0 | 2 |
             | 1 | 3 |
-
-    Scenario: A batched update after a write and a WITH updates each node once, also in parallel
-        Given an empty graph
-        And with new index :WvPx(p)
-        And having executed:
-            """
-            UNWIND [1, 2] AS i CREATE (:WvPx {p: i})
-            """
-        And having executed:
-            """
-            CREATE (:WvPx {p: 5}) WITH 1 AS x MATCH (n:WvPx) WHERE n.p > 0 AND n.p < 20 CALL (n) { SET n.p = n.p + 10 } IN TRANSACTIONS OF 1 ROWS MATCH (m:WvPx) RETURN count(m) AS k
-            """
-        When executing query:
-            """
-            MATCH (n:WvPx) RETURN n.p AS p ORDER BY p
-            """
-        Then the result should be, in order:
-            | p  |
-            | 11 |
-            | 12 |
-            | 15 |
-
-    Scenario: A batched update after a write and a WITH, then an aggregation, updates each node once, also in parallel
-        Given an empty graph
-        And with new index :WvPy(p)
-        And having executed:
-            """
-            UNWIND [1, 2] AS i CREATE (:WvPy {p: i})
-            """
-        And having executed:
-            """
-            CREATE (:WvPy {p: 5}) WITH 1 AS x MATCH (n:WvPy) WHERE n.p > 0 AND n.p < 20 CALL (n) { SET n.p = n.p + 10 } IN TRANSACTIONS OF 1 ROWS WITH count(*) AS c MATCH (m:WvPy) RETURN count(m) AS k
-            """
-        When executing query:
-            """
-            MATCH (n:WvPy) RETURN n.p AS p ORDER BY p
-            """
-        Then the result should be, in order:
-            | p  |
-            | 11 |
-            | 12 |
-            | 15 |

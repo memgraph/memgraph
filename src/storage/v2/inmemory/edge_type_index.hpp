@@ -214,7 +214,7 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
     void UpdateOnEdgeCreation(Vertex *from, Vertex *to, EdgeRef edge_ref, EdgeTypeId edge_type,
                               const Transaction &tx) override;
 
-    void AbortEntries(AbortableInfo const &info, BatchTimestamps const &batch) override;
+    void AbortEntries(AbortableInfo const &info, uint64_t exact_start_timestamp) override;
     auto GetAbortProcessor() const -> AbortProcessor override;
 
     Iterable Edges(EdgeTypeId edge_type, utils::SkipListDb<Vertex>::ConstAccessor vertex_acc, View view,

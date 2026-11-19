@@ -443,7 +443,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
       return ListIndicesImpl(start_timestamp, order);
     }
 
-    void AbortEntries(AbortableInfo const &info, BatchTimestamps const &batch) override;
+    void AbortEntries(AbortableInfo const &info, uint64_t start_timestamp) override;
 
     auto GetAbortProcessor() const -> AbortProcessor override;
 

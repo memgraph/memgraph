@@ -81,7 +81,7 @@ inline void TryInsertEdgeTypeIndex(Vertex &from_vertex, EdgeTypeId edge_type, au
   }
 
   for (auto const &[type, to_vertex, edge_ref] : edges) {
-    index_accessor.insert({&from_vertex, to_vertex, edge_ref.ptr, IndexTimestamp(tx.start_timestamp)});
+    index_accessor.insert({&from_vertex, to_vertex, edge_ref.ptr, tx.start_timestamp});
     if (on_progress) on_progress();
   }
 }
@@ -273,7 +273,7 @@ uint64_t InMemoryEdgeTypeIndex::RemoveObsoleteEntries(Storage *storage, uint64_t
           auto next_it = it;
           ++next_it;
 
-          if (preserve_recent_entries && it->timestamp >= IndexTimestamp(oldest_active_start_timestamp)) {
+          if (preserve_recent_entries && it->timestamp >= oldest_active_start_timestamp) {
             it = next_it;
             continue;
           }
@@ -286,7 +286,7 @@ uint64_t InMemoryEdgeTypeIndex::RemoveObsoleteEntries(Storage *storage, uint64_t
           const bool redundant_duplicate =
               has_next && it->from_vertex == next_it->from_vertex && it->to_vertex == next_it->to_vertex &&
               it->edge == next_it->edge &&
-              (!preserve_recent_entries || next_it->timestamp < IndexTimestamp(oldest_active_start_timestamp));
+              (!preserve_recent_entries || next_it->timestamp < oldest_active_start_timestamp);
           if (redundant_duplicate || !AnyVersionIsVisible(it->edge, oldest_active_start_timestamp)) {
             edges_acc.remove(*it);
           }
@@ -305,7 +305,7 @@ uint64_t InMemoryEdgeTypeIndex::ActiveIndices::ApproximateEdgeCount(EdgeTypeId e
 }
 
 void InMemoryEdgeTypeIndex::ActiveIndices::AbortEntries(EdgeTypeIndex::AbortableInfo const &info,
-                                                        BatchTimestamps const &batch) {
+                                                        uint64_t exact_start_timestamp) {
   for (auto const &[edge_type, edges] : info) {
     auto const it = index_container_->indices_.find(edge_type);
     DMG_ASSERT(it != index_container_->indices_.end());
@@ -313,9 +313,8 @@ void InMemoryEdgeTypeIndex::ActiveIndices::AbortEntries(EdgeTypeIndex::Abortable
     auto &index_storage = it->second;
     auto acc = index_storage->skip_list_.access();
     for (const auto &[from_vertex, to_vertex, edge] : edges) {
-      RemoveBatchEntries(acc, batch, [&](uint64_t timestamp) {
-        return Entry{.from_vertex = from_vertex, .to_vertex = to_vertex, .edge = edge.ptr, .timestamp = timestamp};
-      });
+      acc.remove(Entry{
+          .from_vertex = from_vertex, .to_vertex = to_vertex, .edge = edge.ptr, .timestamp = exact_start_timestamp});
     }
   }
 }
@@ -327,7 +326,7 @@ void InMemoryEdgeTypeIndex::ActiveIndices::UpdateOnEdgeCreation(Vertex *from, Ve
     return;
   }
   auto acc = it->second->skip_list_.access();
-  acc.insert(Entry{from, to, edge_ref.ptr, tx.index_stamp});
+  acc.insert(Entry{from, to, edge_ref.ptr, tx.start_timestamp});
 }
 
 void InMemoryEdgeTypeIndex::DropGraphClearIndices() {
@@ -349,7 +348,7 @@ InMemoryEdgeTypeIndex::Iterable::Iterable(utils::SkipListDb<InMemoryEdgeTypeInde
       storage_(storage),
       transaction_(transaction),
       max_gid_(max_gid),
-      scan_start_(ScanStart::Of(*transaction)) {}
+      scan_start_(ScanStart::Of(*transaction, view)) {}
 
 InMemoryEdgeTypeIndex::Iterable::Iterator::Iterator(
     Iterable *self, utils::SkipListDb<InMemoryEdgeTypeIndex::Entry>::Iterator index_iterator)
@@ -465,7 +464,7 @@ InMemoryEdgeTypeIndex::ChunkedIterable::ChunkedIterable(
       transaction_(transaction),
       chunks_{index_accessor_.create_chunks(num_chunks)},
       max_gid_(max_gid),
-      scan_start_(ScanStart::Of(*transaction)) {
+      scan_start_(ScanStart::Of(*transaction, view)) {
   // Index can have duplicate entries, we need to make sure each unique entry is inside a single chunk.
   RechunkIndex<utils::SkipListDb<Entry>>(chunks_, [](const auto &a, const auto &b) { return a.edge == b.edge; });
 }

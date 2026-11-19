@@ -477,12 +477,6 @@ class InMemoryStorage final : public Storage {
 
     std::expected<void, StorageManipulationError> PeriodicCommit(CommitArgs commit_args) override;
 
-    void ArmIndexStamps() override;
-
-   protected:
-    void MintIndexStamp() override;
-
-   public:
     // `on_progress` is reported per delta undone. An interrupted 2PC leaves a transaction whose abort is
     // O(deltas), and on a replica that runs inside an RPC handler whose peer is timing it.
     void AbortAndResetCommitTs(ProgressCallback const &on_progress = {});
@@ -823,8 +817,6 @@ class InMemoryStorage final : public Storage {
     // Bookkeeping
     durability::WalTxnDataPos wal_txn_positions_;
     bool needs_wal_update_{false};
-    // Parallel branches can advance this transaction's command at once; one stamp is minted at a time.
-    std::mutex index_stamp_mutex_;
   };
 
   using Storage::Access;
@@ -1187,9 +1179,6 @@ class InMemoryStorage final : public Storage {
   };
 
   std::deque<CommitWindow> commit_windows_;
-
-  // The batch start owning each stamp span a batch ran out into; reset where the clock rewinds.
-  StampSpanOwners stamp_span_owners_;
 
   free_mem_fn free_memory_func_;
 

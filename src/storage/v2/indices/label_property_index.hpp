@@ -12,7 +12,6 @@
 #pragma once
 
 #include "storage/v2/id_types.hpp"
-#include "storage/v2/indices/batch_timestamps.hpp"
 #include "storage/v2/indices/index_order.hpp"
 #include "storage/v2/indices/label_properties_indices_info.hpp"
 #include "storage/v2/indices/label_property_index_entry.hpp"
@@ -446,7 +445,7 @@ struct LabelPropertyIndexActiveIndices {
 
   virtual auto GetAbortProcessor() const -> LabelPropertyIndexAbortProcessor = 0;
 
-  virtual void AbortEntries(LabelPropertyIndexAbortableInfo const &info, BatchTimestamps const &batch) = 0;
+  virtual void AbortEntries(LabelPropertyIndexAbortableInfo const &info, uint64_t start_timestamp) = 0;
 };
 
 }  // namespace memgraph::storage

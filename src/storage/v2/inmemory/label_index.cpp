@@ -149,7 +149,7 @@ inline void TryInsertLabelIndex(Vertex &vertex, LabelId label, auto &&index_acce
     return;
   }
 
-  index_accessor.insert({&vertex, IndexTimestamp(tx.start_timestamp)});
+  index_accessor.insert({&vertex, tx.start_timestamp});
 }
 
 auto InMemoryLabelIndex::PopulateIndex(
@@ -217,7 +217,7 @@ void InMemoryLabelIndex::ActiveIndices::UpdateOnAddLabel(LabelId added_label, Ve
   auto it = index_container_->find(added_label);
   if (it == index_container_->end()) return;
   auto acc = it->second->skiplist.access();
-  acc.insert(Entry{vertex_after_update, tx.index_stamp});
+  acc.insert(Entry{vertex_after_update, tx.start_timestamp});
 }
 
 auto InMemoryLabelIndex::DropIndex(LabelId label, ActiveIndicesUpdater const &updater)
@@ -284,7 +284,7 @@ uint64_t InMemoryLabelIndex::RemoveObsoleteEntries(Storage *storage, uint64_t ol
           auto next_it = it;
           ++next_it;
 
-          if (preserve_recent_entries && it->timestamp >= IndexTimestamp(oldest_active_start_timestamp)) {
+          if (preserve_recent_entries && it->timestamp >= oldest_active_start_timestamp) {
             it = next_it;
             continue;
           }
@@ -292,7 +292,7 @@ uint64_t InMemoryLabelIndex::RemoveObsoleteEntries(Storage *storage, uint64_t ol
           // The older of two entries for a vertex is redundant only once the newer one is visible to
           // every reader; before that a reader older than the newer entry sees neither.
           if ((next_it != vertices_acc.end() && it->vertex == next_it->vertex &&
-               (!preserve_recent_entries || next_it->timestamp < IndexTimestamp(oldest_active_start_timestamp))) ||
+               (!preserve_recent_entries || next_it->timestamp < oldest_active_start_timestamp)) ||
               !AnyVersionHasLabel(*it->vertex, label, oldest_active_start_timestamp)) {
             vertices_acc.remove(*it);
           }
@@ -304,13 +304,13 @@ uint64_t InMemoryLabelIndex::RemoveObsoleteEntries(Storage *storage, uint64_t ol
 }
 
 void InMemoryLabelIndex::ActiveIndices::AbortEntries(LabelIndex::AbortableInfo const &info,
-                                                     BatchTimestamps const &batch) {
+                                                     uint64_t exact_start_timestamp) {
   for (auto const &[label, to_remove] : info) {
     auto it = index_container_->find(label);
     DMG_ASSERT(it != index_container_->end());
     auto acc = it->second->skiplist.access();
     for (auto vertex : to_remove) {
-      RemoveBatchEntries(acc, batch, [&](uint64_t timestamp) { return Entry{vertex, timestamp}; });
+      acc.remove(Entry{vertex, exact_start_timestamp});
     }
   }
 }
@@ -325,7 +325,7 @@ InMemoryLabelIndex::Iterable::Iterable(utils::SkipListDb<InMemoryLabelIndex::Ent
       storage_(storage),
       transaction_(transaction),
       max_gid_(max_gid),
-      scan_start_(ScanStart::Of(*transaction)) {}
+      scan_start_(ScanStart::Of(*transaction, view)) {}
 
 InMemoryLabelIndex::Iterable::Iterator::Iterator(Iterable *self,
                                                  utils::SkipListDb<InMemoryLabelIndex::Entry>::Iterator index_iterator)
@@ -489,7 +489,7 @@ InMemoryLabelIndex::ChunkedIterable::ChunkedIterable(
       transaction_(transaction),
       chunks_{index_accessor_.create_chunks(num_chunks)},
       max_gid_(max_gid),
-      scan_start_(ScanStart::Of(*transaction)) {
+      scan_start_(ScanStart::Of(*transaction, view)) {
   // Index can have duplicate entries, we need to make sure each unique entry is inside a single chunk.
   RechunkIndex<utils::SkipListDb<Entry>>(chunks_, [](const auto &a, const auto &b) { return a.vertex == b.vertex; });
 }

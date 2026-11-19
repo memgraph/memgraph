@@ -71,7 +71,7 @@ inline void TryInsertVertexPropertyIndex(Vertex &vertex, PropertyId property, au
     return;
   }
 
-  index_accessor.insert({std::move(property_value), &vertex, IndexTimestamp(tx.start_timestamp)});
+  index_accessor.insert({std::move(property_value), &vertex, tx.start_timestamp});
   if (on_progress) on_progress();
 }
 
@@ -317,7 +317,7 @@ uint64_t InMemoryVertexPropertyIndex::RemoveObsoleteEntries(Storage *storage, ui
           auto next_it = it;
           ++next_it;
 
-          if (preserve_recent_entries && it->timestamp >= IndexTimestamp(oldest_active_start_timestamp)) {
+          if (preserve_recent_entries && it->timestamp >= oldest_active_start_timestamp) {
             it = next_it;
             continue;
           }
@@ -328,7 +328,7 @@ uint64_t InMemoryVertexPropertyIndex::RemoveObsoleteEntries(Storage *storage, ui
           // older than it sees neither.
           bool const redundant_duplicate =
               has_next && it->value == next_it->value && it->vertex == next_it->vertex &&
-              (!preserve_recent_entries || next_it->timestamp < IndexTimestamp(oldest_active_start_timestamp));
+              (!preserve_recent_entries || next_it->timestamp < oldest_active_start_timestamp);
           if (redundant_duplicate ||
               !AnyVersionHasProperty(*it->vertex, property_id, it->value, oldest_active_start_timestamp)) {
             acc.remove(*it);
@@ -373,7 +373,7 @@ InMemoryVertexPropertyIndex::Iterable::Iterable(
       storage_(storage),
       transaction_(transaction),
       max_gid_(max_gid),
-      scan_start_(ScanStart::Of(*transaction)) {}
+      scan_start_(ScanStart::Of(*transaction, view)) {}
 
 InMemoryVertexPropertyIndex::Iterable::Iterator::Iterator(
     Iterable *self, utils::SkipListDb<InMemoryVertexPropertyIndex::Entry>::Iterator index_iterator)
@@ -473,16 +473,14 @@ VertexPropertyIndex::AbortProcessor InMemoryVertexPropertyIndex::ActiveIndices::
 }
 
 void InMemoryVertexPropertyIndex::ActiveIndices::AbortEntries(VertexPropertyIndex::AbortableInfo const &info,
-                                                              BatchTimestamps const &batch) {
+                                                              uint64_t start_timestamp) {
   for (auto const &[property, vertices] : info) {
     auto const it = index_container_->indices_.find(property);
     DMG_ASSERT(it != index_container_->indices_.end());
 
     auto acc = it->second->skip_list_.access();
     for (auto const &[value, vertex] : vertices) {
-      RemoveBatchEntries(acc, batch, [&](uint64_t timestamp) {
-        return Entry{.value = value, .vertex = vertex, .timestamp = timestamp};
-      });
+      acc.remove(Entry{.value = value, .vertex = vertex, .timestamp = start_timestamp});
     }
   }
 }
@@ -521,7 +519,7 @@ InMemoryVertexPropertyIndex::ChunkedIterable::ChunkedIterable(
       storage_(storage),
       transaction_(transaction),
       max_gid_(max_gid),
-      scan_start_(ScanStart::Of(*transaction)) {
+      scan_start_(ScanStart::Of(*transaction, view)) {
   if (!bounds_valid_) return;
 
   auto const lower_bound_pv = lower_bound_ ? std::optional<PropertyValue>{lower_bound_->value()} : std::nullopt;

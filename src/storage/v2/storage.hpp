@@ -820,11 +820,6 @@ class Accessor {
 
   void AdvanceCommand();
 
-  // For a query that commits in batches: each later advance gives new index entries a fresh stamp.
-  virtual void ArmIndexStamps() {}
-
-  void DisarmIndexStamps() { transaction_.index_stamps_armed = false; }
-
   const std::string &LabelToName(LabelId label) const { return storage_->LabelToName(label); }
 
   const std::string &PropertyToName(PropertyId property) const { return storage_->PropertyToName(property); }
@@ -1399,9 +1394,6 @@ class Accessor {
   virtual storage::ttl::TtlInfo GetTtlConfig() const = 0;
 #endif
  protected:
-  // Takes a new index stamp for the commands that follow; storage without batch commits has none.
-  virtual void MintIndexStamp() {}
-
   Storage *storage_;
   /// One guard for all four ways to hold main_lock_. The mode is mutable state, not a property of
   /// this type: a READ_ONLY hold downgrades to READ, and ReleaseUniqueGuard() leaves nothing held.

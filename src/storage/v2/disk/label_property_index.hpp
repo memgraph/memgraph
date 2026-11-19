@@ -59,7 +59,7 @@ class DiskLabelPropertyIndex : public storage::LabelPropertyIndex {
     auto ApproximateVertexCount(LabelId label, std::span<PropertyPath const> properties,
                                 std::span<PropertyValueRange const> bounds) const -> uint64_t override;
 
-    void AbortEntries(AbortableInfo const &info, BatchTimestamps const &batch) override;
+    void AbortEntries(AbortableInfo const &info, uint64_t start_timestamp) override;
 
     auto GetAbortProcessor() const -> AbortProcessor override;
 

@@ -509,7 +509,7 @@ inline void TryInsertLabelPropertiesIndex(Vertex &vertex, LabelId label, Propert
     return;
   }
 
-  index_accessor.insert({props.ApplyPermutation(std::move(properties)), &vertex, IndexTimestamp(tx.start_timestamp)});
+  index_accessor.insert({props.ApplyPermutation(std::move(properties)), &vertex, tx.start_timestamp});
 }
 
 bool InMemoryLabelPropertyIndex::CreateIndexOnePass(
@@ -726,7 +726,7 @@ void InMemoryLabelPropertyIndex::ActiveIndices::UpdateOnAddLabel(LabelId added_l
         auto values = BuildEntryValues<EntryT>(index.permutations_helper, vertex_after_update->properties);
         if (!values) return;
         auto acc = index.skiplist.access();
-        acc.insert({std::move(*values), vertex_after_update, tx.index_stamp});
+        acc.insert({std::move(*values), vertex_after_update, tx.start_timestamp});
       });
     }
   };
@@ -814,7 +814,7 @@ void InMemoryLabelPropertyIndex::ActiveIndices::UpdateOnSetProperty(PropertyId p
         }
 
         if (auto values = BuildEntryValues<EntryT>(helper, vertex->properties); values) {
-          with_acc().insert({std::move(*values), vertex, tx.index_stamp});
+          with_acc().insert({std::move(*values), vertex, tx.start_timestamp});
         }
       });
     }
@@ -1105,12 +1105,12 @@ uint64_t InMemoryLabelPropertyIndex::RemoveObsoleteEntries(Storage *storage, uin
               ++next_it;
 
               const bool has_next = next_it != end_it;
-              if (!preserve_recent_entries || it->timestamp < IndexTimestamp(oldest_active_start_timestamp)) {
+              if (!preserve_recent_entries || it->timestamp < oldest_active_start_timestamp) {
                 // Redundant only once the newer entry is visible to every reader; before that a reader
                 // older than it sees neither.
                 const bool redundant_duplicate =
                     has_next && it->vertex == next_it->vertex && it->values == next_it->values &&
-                    (!preserve_recent_entries || next_it->timestamp < IndexTimestamp(oldest_active_start_timestamp));
+                    (!preserve_recent_entries || next_it->timestamp < oldest_active_start_timestamp);
                 if (redundant_duplicate || !AnyVersionHasLabelProperties(*it->vertex,
                                                                          label_id,
                                                                          property_paths,
@@ -1212,7 +1212,7 @@ InMemoryLabelPropertyIndex::Iterable<EntryT>::Iterable(typename utils::SkipListD
       storage_(storage),
       transaction_(transaction),
       max_gid_(max_gid),
-      scan_start_(ScanStart::Of(*transaction)) {
+      scan_start_(ScanStart::Of(*transaction, view)) {
   bounds_valid_ = ValidateBounds(ranges, lower_bound_, upper_bound_);  // NOLINT
   predicates_.reserve(ranges.size());
   for (auto const &range : ranges) predicates_.push_back(range.GetValuePredicate());
@@ -1510,7 +1510,7 @@ auto InMemoryLabelPropertyIndex::GetActiveIndices() const -> std::shared_ptr<Lab
   return std::make_shared<ActiveIndices>(index_.ReadCopy());
 }
 
-void InMemoryLabelPropertyIndex::ActiveIndices::AbortEntries(AbortableInfo const &info, BatchTimestamps const &batch) {
+void InMemoryLabelPropertyIndex::ActiveIndices::AbortEntries(AbortableInfo const &info, uint64_t start_timestamp) {
   // AbortableInfo is keyed by label+properties and spans both index orders.
   // An entry to abort may only exist in ASC, DESC, or both — soft lookup is intentional.
   // `info` is const, so entries are always copied into EntryT.
@@ -1526,7 +1526,7 @@ void InMemoryLabelPropertyIndex::ActiveIndices::AbortEntries(AbortableInfo const
           auto acc = index.skiplist.access();
           // NOLINTNEXTLINE(clang-analyzer-core.uninitialized.Assign): to_remove holds fully-constructed pairs.
           for (auto const &[values, vertex] : to_remove) {
-            RemoveBatchEntries(acc, batch, [&](uint64_t timestamp) { return EntryT{values, vertex, timestamp}; });
+            acc.remove(EntryT{values, vertex, start_timestamp});
           }
         });
       }
@@ -1597,7 +1597,7 @@ InMemoryLabelPropertyIndex::ChunkedIterable<EntryT>::ChunkedIterable(
       storage_(storage),
       transaction_(transaction),
       max_gid_(max_gid),
-      scan_start_(ScanStart::Of(*transaction)) {
+      scan_start_(ScanStart::Of(*transaction, view)) {
   bounds_valid_ = ValidateBounds(ranges, lower_bound_, upper_bound_);  // NOLINT
   if (!bounds_valid_) return;
 

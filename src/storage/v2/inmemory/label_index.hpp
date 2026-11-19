@@ -202,7 +202,7 @@ class InMemoryLabelIndex : public LabelIndex {
     uint64_t ApproximateVertexCount(LabelId label) const override;
 
     /// Surgical removal of entries that was inserted this transaction
-    void AbortEntries(AbortableInfo const &, BatchTimestamps const &batch) override;
+    void AbortEntries(AbortableInfo const &, uint64_t start_timestamp) override;
 
     Iterable Vertices(LabelId label, View view, Storage *storage, Transaction *transaction);
 

@@ -248,8 +248,7 @@ auto DiskLabelPropertyIndex::ActiveIndices::RelevantLabelPropertiesIndicesInfo(
   return res;
 }
 
-void DiskLabelPropertyIndex::ActiveIndices::AbortEntries(AbortableInfo const &info, BatchTimestamps const & /*batch*/) {
-}
+void DiskLabelPropertyIndex::ActiveIndices::AbortEntries(AbortableInfo const &info, uint64_t start_timestamp) {}
 
 LabelPropertyIndex::AbortProcessor DiskLabelPropertyIndex::ActiveIndices::GetAbortProcessor() const {
   return AbortProcessor();
