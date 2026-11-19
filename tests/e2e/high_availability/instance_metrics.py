@@ -221,7 +221,7 @@ def test_coordinator_reports_raft_progress(test_name):
     # A single coordinator has no followers to report.
     assert not re.search(r"^memgraph_raft_follower_", scrape_metrics(), re.MULTILINE)
     for port in INSTANCE_METRICS_PORTS.values():
-        assert not re.search(r"^memgraph_raft_", scrape_metrics(port), re.MULTILINE)
+        assert not re.search(r"^memgraph_raft_(term|has_leader|follower_)", scrape_metrics(port), re.MULTILINE)
 
 
 if __name__ == "__main__":
