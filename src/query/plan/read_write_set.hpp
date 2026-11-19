@@ -15,6 +15,7 @@
 #include <optional>
 #include <set>
 #include <string>
+#include <unordered_map>
 #include <unordered_set>
 
 #include "query/frontend/ast/ast_visitor.hpp"
@@ -22,6 +23,7 @@
 
 namespace memgraph::query {
 class CallSubquery;
+class EdgeAtom;
 class Expression;
 class SymbolTable;
 }  // namespace memgraph::query
@@ -57,6 +59,8 @@ struct ReadWriteSet {
   bool any_edge_type{false};
   /// Node existence: an unlabelled node pattern reads it; CREATE and DELETE write it.
   bool nodes{false};
+  /// Reads: a property read through a value that may be an edge. Writes: an edge DELETE's deleted properties.
+  bool edge_properties{false};
   /// A procedure, a DELETE or a graph-reading function: conflicts with any non-empty set.
   bool everything{false};
   /// Reads only: a fine-grained access check reads the node's labels (of every node read or written), through the
@@ -127,9 +131,11 @@ bool CallResultMayBeFresh(CallSubquery &call, const Symbol &result, const Symbol
 /// The reads and writes of @p tree (a clause, an expression or a whole query), subqueries included.
 /// @param bound symbols bound before @p tree; a CREATE atom naming one creates nothing.
 /// @param non_graph symbols that hold no graph entity (a LOAD CSV row), so a lookup on them reads nothing.
+/// @param edge_binders the edge atom that binds each edge variable: a DELETE of one writes only that atom's edges.
 ReadsAndWrites CollectReadsAndWrites(utils::Visitable<HierarchicalTreeVisitor> &tree, const SymbolTable &symbol_table,
                                      const std::unordered_set<Symbol> &bound = {},
-                                     const std::unordered_set<Symbol> &non_graph = {});
+                                     const std::unordered_set<Symbol> &non_graph = {},
+                                     const std::unordered_map<Symbol, EdgeAtom *> *edge_binders = nullptr);
 
 /// The reads of a planned MATCH: its pattern atoms and its filters.
 ReadWriteSet CollectReads(const Matching &matching, const SymbolTable &symbol_table,

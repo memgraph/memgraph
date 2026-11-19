@@ -507,6 +507,15 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
             barrier_before(reads, /*reads_new=*/false);
           }
         }
+        auto const note_edge_binders = [&](const Matching &matching) {
+          for (const auto &expansion : matching.expansions) {
+            if (expansion.edge && expansion.edge->type_ == EdgeAtom::Type::SINGLE) {
+              edge_binders_.emplace(context.symbol_table->at(*expansion.edge->identifier_), expansion.edge);
+            }
+          }
+        };
+        note_edge_binders(single_query_part.matching);
+        for (const auto &optional : single_query_part.optional_matching) note_edge_binders(optional);
         input_op = HandleMatching(std::move(input_op), single_query_part, *context.symbol_table, context.bound_symbols);
 
         uint64_t merge_id = 0;
@@ -641,14 +650,15 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
           auto const access =
               is_projection && !clause_reads_new
                   ? ReadsAndWrites{}
-                  : CollectReadsAndWrites(*clause, *context.symbol_table, context.bound_symbols, non_graph_symbols_);
+                  : CollectReadsAndWrites(
+                        *clause, *context.symbol_table, context.bound_symbols, non_graph_symbols_, &edge_binders_);
           // The items of one SET or REMOVE are one clause: the first item decides for all of them, so no barrier or
           // drain falls between two items.
           if (!clause->continues_previous_) {
             auto group_access = access;
             for (auto next = std::next(clause_it); next != clauses.end() && (*next)->continues_previous_; ++next) {
-              auto const item =
-                  CollectReadsAndWrites(**next, *context.symbol_table, context.bound_symbols, non_graph_symbols_);
+              auto const item = CollectReadsAndWrites(
+                  **next, *context.symbol_table, context.bound_symbols, non_graph_symbols_, &edge_binders_);
               group_access.reads.Merge(item.reads);
               group_access.writes.Merge(item.writes);
             }
@@ -1066,6 +1076,8 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
   /// Symbols that hold data, never a graph entity (`MayHoldEntity` of what binds them: a WITH or RETURN item, an
   /// UNWIND row, a LOAD row): a lookup on them reads nothing from the graph.
   std::unordered_set<Symbol> non_graph_symbols_;
+  /// The single-hop edge atom of a MATCH that binds each edge variable; a pattern cannot rebind one.
+  std::unordered_map<Symbol, EdgeAtom *> edge_binders_;
 
   bool BarriersOn() const { return read_scope_ == ReadScope::kRoot || read_scope_ == ReadScope::kWritingTree; }
 

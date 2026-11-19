@@ -47,8 +47,9 @@ bool SymbolMayHoldEntity(const Symbol &symbol, const std::unordered_set<Symbol> 
 class ReadWriteCollector final : public HierarchicalTreeVisitor {
  public:
   ReadWriteCollector(const SymbolTable &symbol_table, const std::unordered_set<Symbol> &bound,
-                     std::unordered_set<Symbol> non_graph)
-      : symbol_table_(symbol_table), bound_(bound), non_graph_(std::move(non_graph)) {}
+                     std::unordered_set<Symbol> non_graph,
+                     const std::unordered_map<Symbol, EdgeAtom *> *edge_binders = nullptr)
+      : symbol_table_(symbol_table), bound_(bound), non_graph_(std::move(non_graph)), edge_binders_(edge_binders) {}
 
   using HierarchicalTreeVisitor::PostVisit;
   using HierarchicalTreeVisitor::PreVisit;
@@ -73,6 +74,7 @@ class ReadWriteCollector final : public HierarchicalTreeVisitor {
   bool PreVisit(PropertyLookup &lookup) override {
     if (ReadsGraph(lookup.expression_)) {
       result.reads.NoteProperty(lookup.property_path_.front().name, KeySymbolOf(lookup.expression_));
+      ReadEdgePropertiesThrough(lookup.expression_);
       // A node's property permission depends on its labels.
       ReadNodeLabelsForAccessCheck(lookup.expression_);
     }
@@ -82,6 +84,7 @@ class ReadWriteCollector final : public HierarchicalTreeVisitor {
   bool PreVisit(AllPropertiesLookup &lookup) override {
     if (ReadsGraph(lookup.expression_)) {
       ReadNodeLabelsForAccessCheck(lookup.expression_);
+      ReadEdgePropertiesThrough(lookup.expression_);
       result.reads.NoteAnyProperty(KeySymbolOf(lookup.expression_));
     }
     return true;
@@ -91,6 +94,7 @@ class ReadWriteCollector final : public HierarchicalTreeVisitor {
     if (!ReadsGraph(op.expression1_) || utils::Downcast<ListLiteral>(op.expression1_)) return true;
     // A subscript on a node is a property read, whose permission depends on the node's labels.
     ReadNodeLabelsForAccessCheck(op.expression1_);
+    ReadEdgePropertiesThrough(op.expression1_);
     if (auto *key = utils::Downcast<PrimitiveLiteral>(op.expression2_)) {
       if (key->value_.IsString()) {
         std::string name{key->value_.ValueString()};
@@ -148,14 +152,7 @@ class ReadWriteCollector final : public HierarchicalTreeVisitor {
 
   bool PreVisit(EdgeAtom &edge) override {
     result.reads.symbols.insert(symbol_table_.at(*edge.identifier_));
-    if (edge.edge_types_.empty()) result.reads.any_edge_type = true;
-    for (const auto &type : edge.edge_types_) {
-      if (const auto *name = std::get_if<EdgeTypeIx>(&type)) {
-        result.reads.edge_types.insert(name->name);
-      } else {
-        result.reads.any_edge_type = true;
-      }
-    }
+    NoteEdgeTypes(edge, result.reads);
     ReadPropertyKeys(edge.properties_, edge.identifier_);
     // EdgeAtom::Accept does not walk the lambdas.
     for (auto *lambda : {&edge.filter_lambda_, &edge.weight_lambda_}) {
@@ -193,8 +190,8 @@ class ReadWriteCollector final : public HierarchicalTreeVisitor {
   }
 
   bool PreVisit(Delete &del) override {
-    result.writes.everything = true;
     for (auto *expression : del.expressions_) {
+      if (!WriteDeletedEdge(expression)) result.writes.everything = true;
       // A DELETE checks the labels of its node, or of both end nodes of an edge.
       if (MayHoldEntity(expression)) {
         auto *ident = utils::Downcast<Identifier>(expression);
@@ -219,6 +216,7 @@ class ReadWriteCollector final : public HierarchicalTreeVisitor {
     if (!utils::Downcast<MapLiteral>(set.expression_) && !utils::Downcast<ParameterLookup>(set.expression_) &&
         ReadsGraph(set.expression_)) {
       result.reads.NoteAnyProperty(std::nullopt);
+      ReadEdgePropertiesThrough(set.expression_);
       // Its properties are masked by its labels.
       ReadNodeLabelsForAccessCheck(set.expression_);
     }
@@ -271,6 +269,34 @@ class ReadWriteCollector final : public HierarchicalTreeVisitor {
     if (!ident) return true;
     auto const type = symbol_table_.at(*ident).type();
     return type == Symbol::Type::ANY || type == Symbol::Type::VERTEX || type == Symbol::Type::EDGE;
+  }
+
+  static void NoteEdgeTypes(const EdgeAtom &edge, ReadWriteSet &set) {
+    if (edge.edge_types_.empty()) set.any_edge_type = true;
+    for (const auto &type : edge.edge_types_) {
+      if (const auto *name = std::get_if<EdgeTypeIx>(&type)) {
+        set.edge_types.insert(name->name);
+      } else {
+        set.any_edge_type = true;
+      }
+    }
+  }
+
+  /// A DELETE of a variable an edge atom binds deletes only edges of that atom's types, and their properties.
+  bool WriteDeletedEdge(Expression *expression) {
+    auto *ident = utils::Downcast<Identifier>(expression);
+    if (!ident || ident->symbol_pos_ < 0 || !edge_binders_) return false;
+    auto const it = edge_binders_->find(symbol_table_.at(*ident));
+    if (it == edge_binders_->end()) return false;
+    NoteEdgeTypes(*it->second, result.writes);
+    result.writes.edge_properties = true;
+    return true;
+  }
+
+  /// A property read through any value but a node variable may read a deleted edge's properties.
+  void ReadEdgePropertiesThrough(Expression *object) {
+    auto *ident = utils::Downcast<Identifier>(object);
+    if (!ident || symbol_table_.at(*ident).type() != Symbol::Type::VERTEX) result.reads.edge_properties = true;
   }
 
   /// Whether a lookup's object is an edge variable, whose access check reads its type, not labels.
@@ -405,13 +431,14 @@ class ReadWriteCollector final : public HierarchicalTreeVisitor {
   const SymbolTable &symbol_table_;
   const std::unordered_set<Symbol> &bound_;
   std::unordered_set<Symbol> non_graph_;
+  const std::unordered_map<Symbol, EdgeAtom *> *edge_binders_;
 };
 
 }  // namespace
 
 bool ReadWriteSet::Empty() const {
   return properties.empty() && !any_property && labels.empty() && !any_label && edge_types.empty() && !any_edge_type &&
-         !nodes && !everything && symbols.empty();
+         !nodes && !edge_properties && !everything && symbols.empty();
 }
 
 void ReadWriteSet::KeyReach::Note(const std::optional<Symbol> &through) {
@@ -442,6 +469,7 @@ void ReadWriteSet::Merge(const ReadWriteSet &other) {
   edge_types.insert(other.edge_types.begin(), other.edge_types.end());
   any_edge_type |= other.any_edge_type;
   nodes |= other.nodes;
+  edge_properties |= other.edge_properties;
   everything |= other.everything;
   access_check.Merge(other.access_check);
   relabel.Merge(other.relabel);
@@ -462,7 +490,7 @@ bool Conflicts(const ReadWriteSet &reads, const ReadWriteSet &writes) {
   return KeysConflict(reads.properties, reads.any_property, writes.properties, writes.any_property) ||
          KeysConflict(reads.labels, reads.any_label, writes.labels, writes.any_label) ||
          KeysConflict(reads.edge_types, reads.any_edge_type, writes.edge_types, writes.any_edge_type) ||
-         (reads.nodes && writes.nodes);
+         (reads.nodes && writes.nodes) || (reads.edge_properties && writes.edge_properties);
 }
 
 namespace {
@@ -648,8 +676,9 @@ bool CallResultMayBeFresh(CallSubquery &call, const Symbol &result, const Symbol
 
 ReadsAndWrites CollectReadsAndWrites(utils::Visitable<HierarchicalTreeVisitor> &tree, const SymbolTable &symbol_table,
                                      const std::unordered_set<Symbol> &bound,
-                                     const std::unordered_set<Symbol> &non_graph) {
-  ReadWriteCollector collector(symbol_table, bound, non_graph);
+                                     const std::unordered_set<Symbol> &non_graph,
+                                     const std::unordered_map<Symbol, EdgeAtom *> *edge_binders) {
+  ReadWriteCollector collector(symbol_table, bound, non_graph, edge_binders);
   tree.Accept(collector);
   return std::move(collector.result);
 }
