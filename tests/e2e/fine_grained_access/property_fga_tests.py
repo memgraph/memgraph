@@ -492,6 +492,40 @@ def test_a_delete_checks_its_permission_before_a_later_label_removal():
         common.execute_and_fetch_all(admin, "DROP USER wv_del;")
 
 
+def test_a_delete_checks_its_permission_on_the_labels_its_clause_sees():
+    # Each node has only :WvDel when its DELETE runs; the label a later clause adds does not count.
+    admin = admin_cursor()
+    common.execute_and_fetch_all(admin, "CREATE (:WvDel {id: 1}), (:WvDel {id: 2});")
+    try:
+        cursor = _wv_delete_user(
+            "wv_del",
+            "GRANT CREATE, READ, UPDATE ON NODES CONTAINING LABELS :WvDel, :WvDelSecret MATCHING EXACTLY TO {name};",
+            "DENY DELETE ON NODES CONTAINING LABELS :WvDel, :WvDelSecret MATCHING EXACTLY TO {name};",
+        )
+        common.execute_and_fetch_all(cursor, WV_PAIRS + "DELETE b SET a:WvDelSecret")
+        assert common.execute_and_fetch_all(admin, "MATCH (n:WvDel) RETURN count(n);") == [(0,)]
+    finally:
+        common.execute_and_fetch_all(admin, "MATCH (n:WvDel) DETACH DELETE n;")
+        common.execute_and_fetch_all(admin, "DROP USER wv_del;")
+
+
+def test_a_property_read_of_a_deleted_node_raises_for_a_user_with_property_rules():
+    # Row a=2 reads node 2 after row a=1 deleted it: the read raises, as it does for admin, and nothing commits.
+    admin = admin_cursor()
+    common.execute_and_fetch_all(admin, "CREATE (:WvDel {id: 1}), (:WvDel {id: 2});")
+    try:
+        cursor = _wv_delete_user(
+            "wv_del", "DENY SET PROPERTY {{x}} ON NODES CONTAINING LABELS :WvDelUnrelated TO {name};"
+        )
+        with pytest.raises(Exception, match="deleted"):
+            common.execute_and_fetch_all(cursor, WV_PAIRS + "DETACH DELETE b CREATE (:WvDelOut {v: a.id})")
+        assert common.execute_and_fetch_all(admin, "MATCH (n:WvDel) RETURN count(n);") == [(2,)]
+        assert common.execute_and_fetch_all(admin, "MATCH (n:WvDelOut) RETURN count(n);") == [(0,)]
+    finally:
+        common.execute_and_fetch_all(admin, "MATCH (n) WHERE n:WvDel OR n:WvDelOut DETACH DELETE n;")
+        common.execute_and_fetch_all(admin, "DROP USER wv_del;")
+
+
 def test_a_with_ends_what_a_later_drain_may_defer():
     # The WITH applies the deletes, so the later label write meets a deleted node.
     admin = admin_cursor()

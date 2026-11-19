@@ -3568,3 +3568,30 @@ Feature: Write visibility inside one query
             | 11 |
             | 12 |
             | 13 |
+
+    Scenario: A PERIODIC COMMIT MERGE matches every node its own command created before it
+        Given an empty graph
+        And with new index :WvSuM
+        When executing query:
+            """
+            USING PERIODIC COMMIT 1 FOREACH (i IN range(1, 3) | CREATE (:WvSuM {i: i})) MERGE (n:WvSuM) ON MATCH SET n.seen = true RETURN n.i AS i
+            """
+        Then the result should be:
+            | i |
+            | 1 |
+            | 2 |
+            | 3 |
+
+    Scenario: A PERIODIC COMMIT MERGE after a WITH matches every node its own command created before it
+        Given an empty graph
+        And with new index :WvSuA
+        When executing query:
+            """
+            USING PERIODIC COMMIT 1 CREATE (:WvSuA {i: 0}) WITH 1 AS x FOREACH (i IN range(1, 3) | CREATE (:WvSuA {i: i})) MERGE (n:WvSuA) ON MATCH SET n.seen = true RETURN n.i AS i
+            """
+        Then the result should be:
+            | i |
+            | 0 |
+            | 1 |
+            | 2 |
+            | 3 |

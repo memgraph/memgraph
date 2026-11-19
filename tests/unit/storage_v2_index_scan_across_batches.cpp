@@ -16,12 +16,19 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <array>
 #include <memory>
+#include <optional>
+#include <set>
 #include <vector>
 
+#include <fmt/format.h>
+
 #include "storage/v2/inmemory/storage.hpp"
+#include "storage/v2/isolation_level.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/storage_mode.hpp"
 #include "storage/v2/view.hpp"
 #include "tests/test_commit_args_helper.hpp"
 #include "utils/bound.hpp"
@@ -273,6 +280,31 @@ class OwnBatchWrite : public ::testing::Test {
   auto LabelPropertyScan(ms::Storage::Accessor &acc) {
     return acc.Vertices(
         label, std::array{ms::PropertyPath{property}}, std::array{ms::PropertyValueRange::IsNotNull()}, ms::View::OLD);
+  }
+
+  /// A5-B1: a writer that started before the reader adds a label after a stamp raised after the reader started, and
+  /// commits. Returns how many vertices the reader's label scan at command 0 returns.
+  uint64_t ReaderCountAfterAStampedWrite(ms::StorageMode mode, std::optional<ms::IsolationLevel> isolation) {
+    Open(mode);
+    Index([&](auto &acc) { return acc.CreateIndex(label).has_value(); });
+    ms::Gid target;
+    {
+      auto acc = storage->Access(ms::WRITE);
+      target = acc->CreateVertex().Gid();
+      Commit(acc);
+    }
+    auto writer = Armed();
+    writer->CreateVertex();
+    auto reader = storage->Access(ms::WRITE, isolation, std::nullopt);
+    writer->AdvanceCommand();
+    EXPECT_TRUE(writer->FindVertex(target, ms::View::NEW)->AddLabel(label).has_value());
+    Commit(writer);
+    uint64_t count = 0;
+    for (auto const &vertex : reader->Vertices(label, ms::View::OLD)) {
+      EXPECT_EQ(vertex.Gid(), target);
+      ++count;
+    }
+    return count;
   }
 
   std::unique_ptr<ms::Storage> storage;
@@ -556,6 +588,81 @@ TEST_F(OwnBatchWrite, ArmingAtCommandZeroRaisesNoStamp) {
   EXPECT_EQ(seen, gids);
 }
 
+TEST_F(OwnBatchWrite, AReadCommittedReaderSeesAStampedWritersCommittedEntry) {
+  EXPECT_EQ(ReaderCountAfterAStampedWrite(ms::StorageMode::IN_MEMORY_TRANSACTIONAL, ms::IsolationLevel::READ_COMMITTED),
+            1);
+}
+
+TEST_F(OwnBatchWrite, AnAnalyticalReaderSeesAStampedWritersEntry) {
+  EXPECT_EQ(ReaderCountAfterAStampedWrite(ms::StorageMode::IN_MEMORY_ANALYTICAL, std::nullopt), 1);
+}
+
+// Guard for A5-B1: a snapshot reader does not see a writer that commits after it started.
+TEST_F(OwnBatchWrite, ASnapshotReaderDoesNotSeeAStampedWritersLaterCommit) {
+  EXPECT_EQ(
+      ReaderCountAfterAStampedWrite(ms::StorageMode::IN_MEMORY_TRANSACTIONAL, ms::IsolationLevel::SNAPSHOT_ISOLATION),
+      0);
+}
+
+// Guard for A5-B1: where an index scan reads the current values (analytical mode, read uncommitted), a View::OLD
+// scan at command 0 still hides the entries its own command writes, so it does not return an element twice.
+TEST_F(OwnBatchWrite, AnOldScanAtCommandZeroHidesItsOwnNewEntries) {
+  for (auto const [mode, isolation] :
+       {std::pair{ms::StorageMode::IN_MEMORY_ANALYTICAL, std::optional<ms::IsolationLevel>{}},
+        std::pair{ms::StorageMode::IN_MEMORY_TRANSACTIONAL,
+                  std::optional<ms::IsolationLevel>{ms::IsolationLevel::READ_UNCOMMITTED}}}) {
+    SCOPED_TRACE(static_cast<int>(mode));
+    Open(mode);
+    Index([&](auto &acc) { return acc.CreateIndex(label, {ms::PropertyPath{property}}).has_value(); });
+    auto const gids = Vertices();
+    auto acc = storage->Access(ms::WRITE, isolation, std::nullopt);
+    auto iterable = LabelPropertyScan(*acc);
+    std::vector<ms::Gid> seen;
+    for (auto it = iterable.begin(); it != iterable.end() && seen.size() <= gids.size(); ++it) {
+      auto element = *it;
+      seen.push_back(element.Gid());
+      auto const value = element.GetProperty(property, ms::View::NEW)->ValueInt();
+      ASSERT_TRUE(element.SetProperty(property, ms::PropertyValue{value + 10}).has_value());
+    }
+    acc->Abort();
+    EXPECT_EQ(seen, gids);
+  }
+}
+
+// A5-M1: one abort removes the entries a batch wrote at its start and at each stamp, for one element and for several,
+// and keeps the entry of a transaction that started between two stamps.
+TEST_F(OwnBatchWrite, AnAbortRemovesEveryOwnEntryOfAnElementAndKeepsAForeignOne) {
+  Index([&](auto &acc) { return acc.CreateIndex(label, {ms::PropertyPath{property}}).has_value(); });
+  auto const gids = Vertices();
+  auto const foreign = LabelledVertex(3);
+  auto count = [&] {
+    auto acc = storage->Access(ms::WRITE);
+    return acc->ApproximateVertexCount(label, std::array{ms::PropertyPath{property}});
+  };
+  auto const before = count();
+  {
+    auto acc = Armed();
+    auto first = *acc->FindVertex(gids[0], ms::View::NEW);
+    auto second = *acc->FindVertex(gids[1], ms::View::NEW);
+    auto const set = [&](auto &vertex, int value) {
+      ASSERT_TRUE(vertex.SetProperty(property, ms::PropertyValue{value}).has_value());
+    };
+    set(first, 5);
+    set(second, 5);
+    acc->AdvanceCommand();
+    set(first, 6);
+    auto other_transaction = storage->Access(ms::WRITE);
+    acc->AdvanceCommand();
+    set(first, 5);
+    set(second, 7);
+    ASSERT_TRUE(
+        other_transaction->FindVertex(foreign, ms::View::NEW)->SetProperty(property, ms::PropertyValue{8}).has_value());
+    Commit(other_transaction);
+    acc->Abort();
+  }
+  EXPECT_EQ(count(), before + 1);
+}
+
 // One case per index insert site, each through the index it feeds. `Setup` commits one element the scan returns
 // and two targets without an entry; `Write` gives a target one (for the edge-type index, a new edge from it).
 struct Ids {
@@ -594,9 +701,9 @@ Gids SetupEdges(Accessor &acc, Ids ids) {
   return gids;
 }
 
-auto LabelPropertyScanOf(Accessor &acc, Ids ids) {
+auto LabelPropertyScanOf(Accessor &acc, Ids ids, ms::View view) {
   return acc.Vertices(
-      ids.label, std::array{ms::PropertyPath{ids.p}}, std::array{ms::PropertyValueRange::IsNotNull()}, ms::View::OLD);
+      ids.label, std::array{ms::PropertyPath{ids.p}}, std::array{ms::PropertyValueRange::IsNotNull()}, view);
 }
 
 struct LabelSite {
@@ -612,7 +719,7 @@ struct LabelSite {
     ASSERT_TRUE(acc.FindVertex(target, ms::View::NEW)->AddLabel(ids.label).has_value());
   }
 
-  static auto Open(Accessor &acc, Ids ids) { return acc.Vertices(ids.label, ms::View::OLD); }
+  static auto Open(Accessor &acc, Ids ids, ms::View view) { return acc.Vertices(ids.label, view); }
 
   static uint64_t Count(Accessor &acc, Ids ids) { return acc.ApproximateVertexCount(ids.label); }
 };
@@ -638,7 +745,7 @@ struct LabelPropertySetSite {
     ASSERT_TRUE(acc.FindVertex(target, ms::View::NEW)->SetProperty(ids.p, ms::PropertyValue{2}).has_value());
   }
 
-  static auto Open(Accessor &acc, Ids ids) { return LabelPropertyScanOf(acc, ids); }
+  static auto Open(Accessor &acc, Ids ids, ms::View view) { return LabelPropertyScanOf(acc, ids, view); }
 
   static uint64_t Count(Accessor &acc, Ids ids) {
     return acc.ApproximateVertexCount(ids.label, std::array{ms::PropertyPath{ids.p}});
@@ -686,11 +793,11 @@ struct CompositeSite {
     ASSERT_TRUE(acc.FindVertex(target, ms::View::NEW)->SetProperty(ids.q, ms::PropertyValue{2}).has_value());
   }
 
-  static auto Open(Accessor &acc, Ids ids) {
+  static auto Open(Accessor &acc, Ids ids, ms::View view) {
     return acc.Vertices(ids.label,
                         std::array{ms::PropertyPath{ids.p}, ms::PropertyPath{ids.q}},
                         std::array{ms::PropertyValueRange::IsNotNull(), ms::PropertyValueRange::IsNotNull()},
-                        ms::View::OLD);
+                        view);
   }
 
   static uint64_t Count(Accessor &acc, Ids ids) {
@@ -712,7 +819,7 @@ struct VertexPropertySite {
     ASSERT_TRUE(acc.FindVertex(target, ms::View::NEW)->SetProperty(ids.p, ms::PropertyValue{2}).has_value());
   }
 
-  static auto Open(Accessor &acc, Ids ids) { return acc.Vertices(ids.p, ms::View::OLD); }
+  static auto Open(Accessor &acc, Ids ids, ms::View view) { return acc.Vertices(ids.p, view); }
 
   static uint64_t Count(Accessor &acc, Ids ids) { return acc.ApproximateVertexCount(ids.p); }
 };
@@ -728,7 +835,7 @@ struct EdgeTypePropertySite {
     ASSERT_TRUE(acc.FindEdge(target, ms::View::NEW)->SetProperty(ids.p, ms::PropertyValue{2}).has_value());
   }
 
-  static auto Open(Accessor &acc, Ids ids) { return acc.Edges(ids.type, ids.p, ms::View::OLD); }
+  static auto Open(Accessor &acc, Ids ids, ms::View view) { return acc.Edges(ids.type, ids.p, view); }
 
   static uint64_t Count(Accessor &acc, Ids ids) { return acc.ApproximateEdgeCount(ids.type, ids.p); }
 };
@@ -736,7 +843,7 @@ struct EdgeTypePropertySite {
 struct EdgePropertySite : EdgeTypePropertySite {
   static bool Index(Accessor &acc, Ids ids) { return acc.CreateGlobalEdgeIndex(ids.p).has_value(); }
 
-  static auto Open(Accessor &acc, Ids ids) { return acc.Edges(ids.p, ms::View::OLD); }
+  static auto Open(Accessor &acc, Ids ids, ms::View view) { return acc.Edges(ids.p, view); }
 
   static uint64_t Count(Accessor &acc, Ids ids) { return acc.ApproximateEdgeCount(ids.p); }
 };
@@ -761,7 +868,7 @@ struct EdgeTypeSite {
     ASSERT_TRUE(acc.CreateEdge(&*vertex, &*vertex, ids.type).has_value());
   }
 
-  static auto Open(Accessor &acc, Ids ids) { return acc.Edges(ids.type, ms::View::OLD); }
+  static auto Open(Accessor &acc, Ids ids, ms::View view) { return acc.Edges(ids.type, view); }
 
   static uint64_t Count(Accessor &acc, Ids ids) { return acc.ApproximateEdgeCount(ids.type); }
 };
@@ -784,7 +891,41 @@ class EachInsertSite : public OwnBatchWrite {
     auto acc = storage->Access(ms::WRITE);
     return TSite::Count(*acc, ids());
   }
+
+  struct Scanned {
+    ms::Gid kept;
+    std::vector<ms::Gid> seen;
+  };
+
+  /// Writes both targets at the scan's command, then opens the scan at `view` and commits the batch after each
+  /// element it returns.
+  Scanned ScanAfterItsCommandsWrites(ms::StorageMode mode, bool advance, ms::View view) {
+    Open(mode);
+    auto const [kept, first, second] = Prepare();
+    auto acc = Armed();
+    if (advance) acc->AdvanceCommand();
+    TSite::Write(*acc, ids(), first);
+    TSite::Write(*acc, ids(), second);
+    auto iterable = TSite::Open(*acc, ids(), view);
+    std::vector<ms::Gid> seen;
+    for (auto it = iterable.begin(); it != iterable.end(); ++it) {
+      seen.push_back((*it).Gid());
+      EXPECT_TRUE(acc->PeriodicCommit(memgraph::tests::MakeMainCommitArgs()).has_value());
+    }
+    acc->Abort();
+    return {kept, std::move(seen)};
+  }
 };
+
+// The command the scan opens at: command 0 or after an advance, and command 0 in analytical mode.
+struct ScanCommand {
+  ms::StorageMode mode;
+  bool advance;
+};
+
+constexpr std::array kScanCommands{ScanCommand{ms::StorageMode::IN_MEMORY_TRANSACTIONAL, false},
+                                   ScanCommand{ms::StorageMode::IN_MEMORY_TRANSACTIONAL, true},
+                                   ScanCommand{ms::StorageMode::IN_MEMORY_ANALYTICAL, false}};
 
 using Sites = ::testing::Types<LabelSite, LabelPropertySetSite, LabelPropertyAddLabelSite, CompositeSite,
                                VertexPropertySite, EdgeTypePropertySite, EdgePropertySite, EdgeTypeSite>;
@@ -797,13 +938,34 @@ TYPED_TEST(EachInsertSite, AnEntryOfTheScansCommandIsNotSeenAfterACommit) {
   acc->CreateVertex();
   acc->AdvanceCommand();
   if constexpr (TypeParam::kWritesBeforeOpen) TypeParam::Write(*acc, this->ids(), target);
-  auto iterable = TypeParam::Open(*acc, this->ids());
+  auto iterable = TypeParam::Open(*acc, this->ids(), ms::View::OLD);
   if constexpr (!TypeParam::kWritesBeforeOpen) TypeParam::Write(*acc, this->ids(), target);
   ASSERT_TRUE(acc->PeriodicCommit(memgraph::tests::MakeMainCommitArgs()).has_value());
   std::vector<ms::Gid> seen;
   for (auto const &element : iterable) seen.push_back(element.Gid());
   acc->Abort();
   EXPECT_EQ(seen, (std::vector{kept}));
+}
+
+// F1 per site: a View::NEW scan keeps, after a commit, the entries its own command wrote before it opened, as it
+// does before the commit (a MERGE after a write in a periodic commit).
+TYPED_TEST(EachInsertSite, ANewScanKeepsItsCommandsEarlierEntriesAfterACommit) {
+  for (auto const command : kScanCommands) {
+    SCOPED_TRACE(fmt::format("mode {} advance {}", static_cast<int>(command.mode), command.advance));
+    auto const [kept, seen] = this->ScanAfterItsCommandsWrites(command.mode, command.advance, ms::View::NEW);
+    EXPECT_EQ(seen.size(), 3);
+    EXPECT_EQ(std::set(seen.begin(), seen.end()).size(), seen.size());
+    EXPECT_NE(std::ranges::find(seen, kept), seen.end());
+  }
+}
+
+// Guard for F1: a View::OLD scan still hides its own command's entries after a commit.
+TYPED_TEST(EachInsertSite, AnOldScanHidesItsCommandsEarlierEntriesAfterACommit) {
+  for (auto const command : kScanCommands) {
+    SCOPED_TRACE(fmt::format("mode {} advance {}", static_cast<int>(command.mode), command.advance));
+    auto const [kept, seen] = this->ScanAfterItsCommandsWrites(command.mode, command.advance, ms::View::OLD);
+    EXPECT_EQ(seen, (std::vector{kept}));
+  }
 }
 
 // T5 per site: an abort removes the entries of every command of the batch.
