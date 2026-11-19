@@ -18,7 +18,11 @@
 #include "communication/bolt/v1/session.hpp"
 #include "communication/exceptions.hpp"
 #include "query/exceptions.hpp"
+#include "rpc/exceptions.hpp"
+#include "storage/v2/storage.hpp"
 #include "utils/logging.hpp"
+#include "utils/memory_tracker.hpp"
+#include "utils/temporal.hpp"
 
 using memgraph::communication::bolt::ChunkedEncoderBuffer;
 using memgraph::communication::bolt::ClientError;
@@ -1441,6 +1445,24 @@ TEST(BoltSession, PipelinedBurstBatchesIntoOneWrite) {
   EXPECT_EQ(messages[1][1], 0x71);  // RECORD
   ASSERT_GE(messages[2].size(), 2u);
   EXPECT_EQ(messages[2][1], 0x70);  // SUCCESS (PULL summary)
+}
+
+TEST(BoltSession, ExceptionToErrorMessageRetryability) {
+  using memgraph::communication::bolt::ExceptionToErrorMessage;
+  const auto code = [](const std::exception &e) { return ExceptionToErrorMessage(e, nullptr).first; };
+  constexpr std::string_view client = "Memgraph.ClientError.MemgraphError.MemgraphError";
+  constexpr std::string_view transient = "Memgraph.TransientError.MemgraphError.MemgraphError";
+
+  const memgraph::utils::temporal::InvalidArgumentException invalid_arg("Invalid duration literal");
+  EXPECT_EQ(code(memgraph::utils::BasicException("plain")), client);
+  EXPECT_EQ(code(invalid_arg), client);
+  EXPECT_EQ(ExceptionToErrorMessage(invalid_arg, nullptr).second, "Invalid duration literal");
+
+  EXPECT_EQ(code(memgraph::utils::RetryableException("retry")), transient);
+  EXPECT_EQ(code(memgraph::query::TransactionSerializationException()), transient);
+  EXPECT_EQ(code(memgraph::storage::UniqueAccessTimeout()), transient);
+  EXPECT_EQ(code(memgraph::utils::OutOfMemoryException("oom")), transient);
+  EXPECT_EQ(code(memgraph::rpc::RpcFailedException("rpc")), transient);
 }
 
 TEST(BoltSession, DeferredResponseFlushedBeforeGoodbye) {

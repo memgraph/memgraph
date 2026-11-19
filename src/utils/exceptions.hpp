@@ -102,6 +102,16 @@ class BasicException : public std::exception {
 };
 
 /**
+ * @brief Marker base for transient failures where retrying the same query may succeed.
+ * Bolt reports only these as `TransientError`; other @c BasicException types map to `ClientError`.
+ */
+class RetryableException : public BasicException {
+ public:
+  using BasicException::BasicException;
+  SPECIALIZE_GET_EXCEPTION_NAME(RetryableException)
+};
+
+/**
  * @brief Base class for all exceptions which need to store the stack trace.
  *
  * When you need to store the stack trace from the place this exception is
