@@ -1105,6 +1105,16 @@ TYPED_TEST(TestPlanner, MatchOptionalMatchWhereReturn) {
   DeleteListContent(&optional);
 }
 
+TYPED_TEST(TestPlanner, OptionalMatchThenMatch) {
+  // OPTIONAL MATCH (n) MATCH (n)-[r]->(m) RETURN m: the MATCH expands on the optional's rows, above the Optional.
+  auto *query = QUERY(SINGLE_QUERY(OPTIONAL_MATCH(PATTERN(NODE("n"))),
+                                   MATCH(PATTERN(NODE("n"), EDGE("r", Direction::OUT), NODE("m"))),
+                                   RETURN("m")));
+  std::list<BaseOpChecker *> optional{new ExpectScanAll()};
+  CheckPlan<TypeParam>(query, this->storage, ExpectOptional(optional), ExpectExpand(), ExpectProduce());
+  DeleteListContent(&optional);
+}
+
 TYPED_TEST(TestPlanner, MatchOptionalMatchNodePropertyWithIndex) {
   // Test MATCH (n:Label) OPTIONAL MATCH (m:Label) WHERE n.prop = m.prop RETURN n
   FakeDbAccessor dba;

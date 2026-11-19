@@ -698,16 +698,12 @@ struct PatternComprehensionMatching : Matching {
   std::unordered_set<Symbol> external_symbols;
 };
 
-/// @brief Represents a read (+ write) part of a query. Parts are split on
-/// `WITH` clauses.
+/// @brief Represents a read (+ write) part of a query. Each clause goes to one list, in written order: `MATCH` to
+/// `matching`, `OPTIONAL MATCH` to `optional_matching`, and any other clause to `remaining_clauses`.
 ///
-/// Each part ends with either:
-///
-///  * `RETURN` clause;
-///  * `WITH` clause;
-///  * `UNWIND` clause;
-///  * `CALL` clause or
-///  * any of the write clauses.
+/// `CollectSingleQueryParts` reads the clauses in order. On a `MATCH` or `OPTIONAL MATCH` it starts a new part if
+/// the current part has `remaining_clauses`; on a plain `MATCH` it also starts one if the current part has
+/// `optional_matching`. So within a part every `MATCH` is written before every `OPTIONAL MATCH`.
 ///
 /// For a query `MATCH (n) MERGE (n) -[e]- (m) SET n.x = 42 MERGE (l)` the
 /// generated SingleQueryPart will have `matching` generated for the `MATCH`.
@@ -722,9 +718,9 @@ struct PatternComprehensionMatching : Matching {
 /// violated because the update clauses of the foreach are immediately processed in
 /// the `RuleBasedPlanner` as if as they were pushed into the `remaining_clauses`.
 struct SingleQueryPart {
-  /// @brief All `MATCH` clauses merged into one @c Matching.
+  /// @brief All `MATCH` clauses merged into one @c Matching; the planner may expand its patterns in any order.
   Matching matching;
-  /// @brief Each `OPTIONAL MATCH` converted to @c Matching.
+  /// @brief Each `OPTIONAL MATCH` converted to @c Matching, planned after `matching`, in written order.
   std::vector<Matching> optional_matching{};
   /// @brief @c Matching for each `MERGE` clause.
   ///
@@ -753,7 +749,7 @@ struct SingleQueryPart {
   /// A MATCH's WHERE keeps its EXISTS on the owning @c FilterInfo instead; these need a forced fold on the chain.
   std::vector<SubqueryMatching> subquery_matchings;
 
-  /// @brief All the remaining clauses (without @c Match).
+  /// @brief All the remaining clauses (without @c Match), planned after `optional_matching`, in written order.
   std::vector<Clause *> remaining_clauses{};
   /// The subqueries vector are all the subqueries in this query part ordered in a list by
   /// the order of calling.
