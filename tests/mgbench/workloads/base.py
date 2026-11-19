@@ -16,6 +16,20 @@ from benchmark_context import BenchmarkContext
 from constants import DatabaseLanguage, GraphVendors
 
 
+def fixed_executions(count: int):
+    """
+    Marks a benchmark whose queries consume the dataset, such as deletions, so that repeating it measures less
+    work each time. Such a benchmark runs exactly `count` queries, one at a time, against a freshly loaded
+    dataset: its query count is not calibrated or extrapolated, and a warm-up that would replay it is skipped.
+    """
+
+    def mark(func):
+        func.fixed_executions = count
+        return func
+
+    return mark
+
+
 # Base dataset class used as a template to create each individual dataset. All
 # common logic is handled here.
 # This dataset is used also for disk storage. In that case, we have two dataset files, one for nodes
@@ -363,6 +377,12 @@ class Workload(ABC):
     def custom_import(self, client) -> bool:
         print("Workload does not have a custom import")
         return False
+
+    def reset_generators(self) -> None:
+        """
+        Called before every batch of queries is generated, right after the generator is reseeded. Each batch runs
+        against a freshly loaded dataset, so a generator that tracks what earlier queries used resets it here.
+        """
 
     def dataset_generator(self) -> list:
         """

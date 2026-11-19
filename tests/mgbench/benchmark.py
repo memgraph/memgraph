@@ -441,6 +441,9 @@ def modify_query_for_parallel_execution(query_tuple, benchmark_context):
 
 def get_queries(gen, count, benchmark_context=None):
     random.seed(gen.__name__)
+    workload = getattr(gen, "__self__", None)
+    if isinstance(workload, Workload):
+        workload.reset_generators()
     ret = []
     for _ in range(count):
         query_tuple = gen()
@@ -723,6 +726,34 @@ def get_query_cache_count(
     return count
 
 
+def get_execution_plan(vendor_runner, client, benchmark_context, workload, group, query, func):
+    """
+    Returns how many queries to run, on how many workers, and under which warm-up condition. A benchmark marked
+    with fixed_executions consumes its dataset, so it runs its declared count serially, without calibration and
+    without a warm-up that would replay its queries.
+    """
+    fixed = getattr(func, "fixed_executions", None)
+    if fixed is None:
+        count = get_query_cache_count(
+            vendor_runner,
+            client,
+            get_queries(func, 1, benchmark_context),
+            benchmark_context,
+            workload,
+            group,
+            query,
+            func,
+        )
+        return count, benchmark_context.num_workers_for_benchmark, benchmark_context.warm_up, True
+
+    log.log("Running a fixed {} queries on one worker, since the benchmark consumes its dataset.".format(fixed))
+    warm_up = benchmark_context.warm_up
+    if warm_up == DATABASE_CONDITION_VULCANIC:
+        log.log("Skipping the vulcanic warm-up, which would replay the benchmark's queries.")
+        warm_up = DATABASE_CONDITION_COLD
+    return fixed, 1, warm_up, False
+
+
 def check_benchmark_requirements(benchmark_context):
     if setup.check_requirements(benchmark_context):
         log.success("Requirements for starting benchmark satisfied!")
@@ -792,24 +823,17 @@ def run_isolated_workload_with_authorization(
     for query, funcname in queries[group]:
         log.init("Running query:" + "{}/{}/{}/{}".format(group, query, funcname, WITH_FINE_GRAINED_AUTHORIZATION))
         func = getattr(workload, funcname)
-        count = get_query_cache_count(
-            vendor_runner,
-            client,
-            get_queries(func, 1, benchmark_context),
-            benchmark_context,
-            workload,
-            group,
-            query,
-            func,
+        count, num_workers, warm_up, _ = get_execution_plan(
+            vendor_runner, client, benchmark_context, workload, group, query, func
         )
 
         vendor_runner.start_db(VENDOR_RUNNER_AUTHORIZATION)
         start_time = time.time()
-        warmup(condition=benchmark_context.warm_up, client=client, queries=get_queries(func, count, benchmark_context))
+        warmup(condition=warm_up, client=client, queries=get_queries(func, count, benchmark_context))
 
         ret = client.execute(
             queries=get_queries(func, count, benchmark_context),
-            num_workers=benchmark_context.num_workers_for_benchmark,
+            num_workers=num_workers,
             log_args=True,
         )[0]
         usage = vendor_runner.stop_db(VENDOR_RUNNER_AUTHORIZATION)
@@ -838,15 +862,8 @@ def run_isolated_workload_without_authorization(
             "Running query:" + "{}/{}/{}/{}".format(group, query, funcname, WITHOUT_FINE_GRAINED_AUTHORIZATION),
         )
         func = getattr(workload, funcname)
-        count = get_query_cache_count(
-            vendor_runner,
-            client,
-            get_queries(func, 1, benchmark_context),
-            benchmark_context,
-            workload,
-            group,
-            query,
-            func,
+        count, num_workers, warm_up, repeatable = get_execution_plan(
+            vendor_runner, client, benchmark_context, workload, group, query, func
         )
 
         # Benchmark run.
@@ -857,17 +874,18 @@ def run_isolated_workload_without_authorization(
                 count, benchmark_context.single_threaded_runtime_sec
             )
         )
-        log.log("Queries are executed using {} concurrent clients".format(benchmark_context.num_workers_for_benchmark))
+        log.log("Queries are executed using {} concurrent clients".format(num_workers))
 
         start_time = time.time()
         rss_db = workload.NAME + workload.get_variant() + "_" + "_" + benchmark_context.mode + "_" + query
         vendor_runner.start_db(rss_db)
-        warmup(condition=benchmark_context.warm_up, client=client, queries=get_queries(func, count, benchmark_context))
+        warmup(condition=warm_up, client=client, queries=get_queries(func, count, benchmark_context))
         log.init("Executing benchmark queries...")
         ret = client.execute(
             queries=get_queries(func, count, benchmark_context),
-            num_workers=benchmark_context.num_workers_for_benchmark,
-            time_dependent_execution=benchmark_context.time_dependent_execution,
+            num_workers=num_workers,
+            # Time-dependent execution loops over the queries until the time runs out, which would replay them.
+            time_dependent_execution=benchmark_context.time_dependent_execution if repeatable else 0,
             log_args=True,
         )[0]
 
