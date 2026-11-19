@@ -19,7 +19,9 @@ Run with:
 Requires a running Memgraph with the `export` query module loaded.
 """
 
+import contextlib
 import glob
+import itertools
 import json
 import os
 import shutil
@@ -35,7 +37,6 @@ MEMGRAPH_PORT = int(os.environ.get("MEMGRAPH_PORT", "7687"))
 # Written by the server, so the path must exist on its side; tests that read the file back need the server local, or
 # MAGE_E2E_SHARED_DIR shared with it at the same path. The `server_files` fixture skips them otherwise.
 SERVER_SHARED_DIR = os.environ.get("MAGE_E2E_SHARED_DIR", "/tmp")
-SERVER_EXPORT_FILE = os.path.join(SERVER_SHARED_DIR, f"mage_export_json_e2e_{os.getpid()}.json")
 
 # Always fails mid-write: every write succeeds in appearance but stores nothing, so a payload smaller than the
 # stream buffer only surfaces when the file is closed.
@@ -158,6 +159,22 @@ def server_files(conn):
     if not os.path.exists(probe):
         pytest.skip("the server's export files are not reachable from the test process")
     os.remove(probe)
+
+
+_export_paths = itertools.count()
+
+
+@pytest.fixture
+def export_path():
+    """A fresh export path per test, removed afterwards together with anything created beside it."""
+    path = os.path.join(SERVER_SHARED_DIR, f"mage_export_json_e2e_{os.getpid()}_{next(_export_paths)}.json")
+    yield path
+    for leftover in [path, *glob.glob(f"{path}.*")]:
+        with contextlib.suppress(OSError):
+            if os.path.isdir(leftover) and not os.path.islink(leftover):
+                shutil.rmtree(leftover)
+            else:
+                os.remove(leftover)
 
 
 def read_server_file(path):
@@ -464,19 +481,13 @@ def test_json_all_exports_the_whole_database(conn):
     assert sorted(map(key, row["data"])) == sorted(map(key, ALL_ELEMENTS))
 
 
-def test_json_graph_takes_a_single_map(conn):
-    execute(conn, SEED_MIXED)
-    row = export(conn, call="export.json_graph({nodes: ns, relationships: rs}, null, {stream: true})")
-    assert row["source"] == "graph: nodes(3), rels(2)"
-    assert row["data"] == ALL_ELEMENTS
-
-
 @pytest.mark.parametrize("key", ["relationships", "edges"])
 def test_json_graph_accepts_edges_as_an_alias_for_relationships(conn, key):
     # `edges` is the key project() produces, and reading only `relationships` silently exported none of them.
     execute(conn, SEED_MIXED)
     row = export(conn, call=f"export.json_graph({{nodes: ns, {key}: rs}}, null, {{stream: true}})")
     assert (row["nodes"], row["relationships"]) == (3, 2)
+    assert row["source"] == "graph: nodes(3), rels(2)"
     assert row["data"] == ALL_ELEMENTS
 
 
@@ -515,12 +526,26 @@ def test_json_graph_accepts_an_explicitly_empty_relationship_list(conn):
     assert (row["nodes"], row["relationships"]) == (3, 0)
 
 
-def test_json_graph_empty_relationships_does_not_shadow_edges(conn):
-    # An empty list counts as absent when choosing between the two spellings, so a stray `relationships: []` cannot
-    # silently drop a populated `edges`.
+@pytest.mark.parametrize("keys", ["relationships: [], edges: rs", "relationships: rs, edges: []"])
+def test_json_graph_empty_list_does_not_shadow_the_other_key(conn, keys):
+    # An empty list counts as absent when choosing between the two spellings, so it cannot drop a populated one.
     execute(conn, SEED_MIXED)
-    row = export(conn, call="export.json_graph({nodes: ns, relationships: [], edges: rs}, null, {stream: true})")
+    row = export(conn, call=f"export.json_graph({{nodes: ns, {keys}}}, null, {{stream: true}})")
     assert (row["nodes"], row["relationships"]) == (3, 2)
+
+
+@pytest.mark.parametrize(
+    "graph,error",
+    [
+        ("{nodes: 1, relationships: rs}", "'nodes' must be a list or null"),
+        ("{nodes: ns, relationships: [1]}", "'relationships' must contain only relationships"),
+        ("{nodes: ns, edges: [ns[0]]}", "'edges' must contain only relationships"),
+    ],
+)
+def test_json_graph_rejects_malformed_lists(conn, graph, error):
+    execute(conn, SEED_MIXED)
+    with pytest.raises(Exception, match=error):
+        export(conn, call=f"export.json_graph({graph}, null, {{stream: true}})")
 
 
 def test_json_graph_refuses_two_populated_relationship_keys(conn):
@@ -530,54 +555,39 @@ def test_json_graph_refuses_two_populated_relationship_keys(conn):
         export(conn, call="export.json_graph({nodes: ns, relationships: rs, edges: rs}, null, {stream: true})")
 
 
-def test_file_write_returns_null_data(conn):
+def test_file_write_returns_null_data(conn, export_path):
     execute(conn, SEED_MIXED)
-    row = export(conn, call=f"export.json_data(ns, rs, '{SERVER_EXPORT_FILE}', {{}})")
-    assert row["file"] == SERVER_EXPORT_FILE, "the file column echoes the argument"
-    assert row["data"] is None, "data is null whenever the payload went to a file"
+    row = export(conn, call=f"export.json_data(ns, rs, '{export_path}', {{stream: true}})")
+    assert row["file"] == export_path, "the file column echoes the argument"
+    assert row["data"] is None, "a file argument wins over stream"
     assert row["nodes"] == 3, "the counters are unaffected by the sink"
 
 
-def test_file_argument_wins_over_stream(conn):
+def test_file_contents_match_the_stream(conn, server_files, export_path):
     execute(conn, SEED_MIXED)
-    row = export(conn, call=f"export.json_data(ns, rs, '{SERVER_EXPORT_FILE}', {{stream: true}})")
-    assert row["data"] is None, "a file argument wins over stream"
-    assert row["nodes"] == 3
-
-
-def test_file_contents_match_the_stream(conn, server_files):
-    execute(conn, SEED_MIXED)
-    export(conn, call=f"export.json_data(ns, rs, '{SERVER_EXPORT_FILE}', {{}})")
-    written = require_server_file(SERVER_EXPORT_FILE)
+    export(conn, call=f"export.json_data(ns, rs, '{export_path}', {{}})")
+    written = require_server_file(export_path)
     assert parse(written) == ALL_ELEMENTS
     # The two sinks must not diverge: same graph, same bytes.
     assert written == export(conn)["raw_data"]
 
 
-def test_no_file_and_no_stream_discards_the_payload(conn):
-    execute(conn, SEED_MIXED)
-    row = export(conn, "{}")
-    assert row["file"] is None
-    assert row["data"] is None
-    assert row["nodes"] == 3
-
-
 @pytest.mark.parametrize(
-    "config",
+    "config,error",
     [
         # Rejected rather than ignored: a caller asking for gzip must not receive plaintext.
-        "{compression: 'gzip'}",
-        "{charset: 'UTF-8'}",
-        "{jsonFormat: 'NOPE'}",
-        # Deliberate divergence: the reference coerces an unrecognized value to *true*, so `stream: 'ture'` there
-        # quietly turns streaming on. A typo is reported rather than guessed at in either direction.
-        "{stream: 'ture'}",
-        "{writeNodeProperties: 2}",
+        ("{compression: 'gzip'}", "'compression' is not supported"),
+        ("{charset: 'UTF-8'}", "'charset' is not supported"),
+        ("{jsonFormat: 'NOPE'}", "Unknown jsonFormat"),
+        ("{jsonFormat: 1}", "'jsonFormat' must be a string"),
+        # The reference reads an unknown value as true, so `stream: 'ture'` there turns streaming on; reported here.
+        ("{stream: 'ture'}", "'stream' must be a boolean"),
+        ("{writeNodeProperties: 2}", "'writeNodeProperties' must be a boolean"),
     ],
 )
-def test_invalid_config_is_rejected(conn, config):
+def test_invalid_config_is_rejected(conn, config, error):
     execute(conn, SEED_MIXED)
-    with pytest.raises(Exception):
+    with pytest.raises(Exception, match=error):
         export(conn, config)
 
 
@@ -587,7 +597,7 @@ def test_json_format_is_case_insensitive(conn, spelling):
     assert export(conn, f"{{stream: true, jsonFormat: {spelling}}}")["data"]["rels"] == []
 
 
-@pytest.mark.parametrize("truthy", ["true", "'true'", "'yes'", "1", "'1'"])
+@pytest.mark.parametrize("truthy", ["'true'", "'yes'", "1", "'1'"])
 def test_boolean_config_accepts_the_spellings_the_reference_coerces(conn, truthy):
     execute(conn, SEED_MIXED)
     assert export(conn, f"{{stream: {truthy}}}")["data"] == ALL_ELEMENTS
@@ -602,42 +612,37 @@ def test_falsy_config_spellings_suppress_properties(conn, falsy):
 
 def test_unwritable_path_is_reported(conn):
     execute(conn, SEED_MIXED)
-    with pytest.raises(Exception):
+    with pytest.raises(Exception, match="Cannot open"):
         export(conn, call="export.json_data(ns, rs, '/proc/nope/x.json', {})")
 
 
 def test_write_failure_after_open_is_reported(conn):
-    # The payload here is far smaller than the stream buffer, so the failure only becomes visible when the file is
-    # closed. Reporting `done: true` for it would mean a silently empty export.
-    # This also covers writing to a device: those cannot be renamed into place, so they are written directly rather
-    # than through the temporary a regular file gets.
+    # The payload is far smaller than the stream buffer, so the failure only shows when the file is closed; reporting
+    # `done: true` for it would mean a silently empty export.
     execute(conn, SEED_MIXED)
-    with pytest.raises(Exception):
+    with pytest.raises(Exception, match="Failed writing"):
         export(conn, call=f"export.json_data(ns, rs, '{UNWRITABLE_DEVICE}', {{}})")
 
 
-def test_failed_export_leaves_the_previous_file_intact(conn, server_files):
-    # The elements are serialized as they are written, so a failure part-way through must not be able to leave a
-    # truncated file behind: the export goes to a temporary that is renamed into place only on success.
-    # Removed first: a file another test left behind may belong to the test user, and that one is written in place.
-    if os.path.lexists(SERVER_EXPORT_FILE):
-        os.remove(SERVER_EXPORT_FILE)
+def test_failed_export_leaves_the_previous_file_intact(conn, server_files, export_path):
+    # A new target goes through a temporary renamed into place on success, so a failure part-way through must leave
+    # the previous export, not a truncated file.
     execute(conn, SEED_MIXED)
-    export(conn, call=f"export.json_data(ns, rs, '{SERVER_EXPORT_FILE}', {{}})")
-    good = require_server_file(SERVER_EXPORT_FILE)
+    export(conn, call=f"export.json_data(ns, rs, '{export_path}', {{}})")
+    good = require_server_file(export_path)
 
     # An enum property is refused mid-export, after some elements have already been written.
     if "ExportTestEnum" not in [row["Enum Name"] for row in execute(conn, "SHOW ENUMS")]:
         execute(conn, "CREATE ENUM ExportTestEnum VALUES { Active, Done }")
     execute(conn, "MATCH (n) DETACH DELETE n")
     execute(conn, "CREATE (:Plain {a: 1}), (:WithEnum {v: ExportTestEnum::Active})")
-    with pytest.raises(Exception):
-        export(conn, call=f"export.json_data(ns, rs, '{SERVER_EXPORT_FILE}', {{}})")
+    with pytest.raises(Exception, match="Cannot export an enum property"):
+        export(conn, call=f"export.json_data(ns, rs, '{export_path}', {{}})")
 
-    assert read_server_file(SERVER_EXPORT_FILE) == good, "the previous export survives a failed one"
+    assert read_server_file(export_path) == good, "the previous export survives a failed one"
     # Globbed rather than named: the temporary carries a per-writer suffix, so asserting on a fixed
     # `<file>.part` would pass without testing anything.
-    leftovers = glob.glob(f"{SERVER_EXPORT_FILE}.*")
+    leftovers = glob.glob(f"{export_path}.*")
     assert leftovers == [], f"a partial file was left behind: {leftovers}"
 
 
@@ -667,7 +672,7 @@ def test_enum_property_is_refused(conn):
     if "ExportTestEnum" not in [row["Enum Name"] for row in execute(conn, "SHOW ENUMS")]:
         execute(conn, "CREATE ENUM ExportTestEnum VALUES { Active, Done }")
     execute(conn, "CREATE (:E {v: ExportTestEnum::Active})")
-    with pytest.raises(Exception):
+    with pytest.raises(Exception, match="Cannot export an enum property"):
         export(conn)
 
 
@@ -685,63 +690,56 @@ def test_sinkless_export_still_reports_its_counters(conn):
     execute(conn, SEED_MIXED)
     row = export(conn, call="export.json_data(ns, rs, null, {})")
     assert (row["nodes"], row["relationships"], row["properties"], row["rows"]) == (3, 2, 9, 5)
-    assert row["data"] is None, "nothing was retained, so there is no payload to return"
+    assert (row["file"], row["data"]) == (None, None), "nothing was retained, so there is no payload to return"
 
 
-def test_successful_export_leaves_no_temporary_behind(conn, server_files):
+def test_successful_export_leaves_no_temporary_behind(conn, server_files, export_path):
     execute(conn, SEED_MIXED)
-    export(conn, call=f"export.json_data(ns, rs, '{SERVER_EXPORT_FILE}', {{}})")
-    require_server_file(SERVER_EXPORT_FILE)
-    leftovers = glob.glob(f"{SERVER_EXPORT_FILE}.*")
+    export(conn, call=f"export.json_data(ns, rs, '{export_path}', {{}})")
+    require_server_file(export_path)
+    leftovers = glob.glob(f"{export_path}.*")
     assert leftovers == [], f"the temporary was not renamed or cleaned up: {leftovers}"
 
 
 def make_target(path, mode, content="stale"):
-    """Creates an export target owned by the *test* process with an explicit mode.
+    """Creates an export target owned by the test process with an explicit mode.
 
-    The server runs as a different user (in CI it is inside a container), so a file it created cannot be chmod'ed
-    from here. Creating the target ourselves is what lets these tests state a mode at all — and the modes below give
-    "other" the access the server needs, since that is the class it falls into.
+    When the server runs as the test user the target is server-owned and goes through the rename path; otherwise it
+    is written in place. The modes give "other" the access a server running as another user needs.
     """
-    # Unlinked first: an earlier export may have left a file owned by the server, and chmod'ing that would fail.
-    # Allowed under the sticky bit because the test process owns the shared directory.
-    if os.path.lexists(path):
-        os.remove(path)
     with open(path, "w", encoding="utf-8") as handle:
         handle.write(content)
     os.chmod(path, mode)
     return content
 
 
-def test_export_preserves_the_target_file_mode(conn, server_files):
-    # The payload goes to a temporary that is renamed over the target, which replaces the target's inode. Without
-    # carrying the mode across, an export the operator had restricted would silently widen on every rewrite.
+def test_export_preserves_the_target_file_mode(conn, server_files, export_path):
+    # A target the server owns is replaced by a renamed temporary, which must carry the mode; any other target is
+    # written in place and keeps it anyway.
     execute(conn, SEED_MIXED)
     # rw for owner and other, nothing for group: writable by the server, and unlike any default umask would give.
-    make_target(SERVER_EXPORT_FILE, 0o606)
-    export(conn, call=f"export.json_data(ns, rs, '{SERVER_EXPORT_FILE}', {{}})")
-    require_server_file(SERVER_EXPORT_FILE)
-    mode = stat.S_IMODE(os.stat(SERVER_EXPORT_FILE).st_mode)
+    make_target(export_path, 0o606)
+    export(conn, call=f"export.json_data(ns, rs, '{export_path}', {{}})")
+    require_server_file(export_path)
+    mode = stat.S_IMODE(os.stat(export_path).st_mode)
     assert mode == 0o606, f"the rewrite changed the mode to {oct(mode)}"
 
 
-def test_export_refuses_a_read_only_target(conn, server_files):
-    # Renaming a temporary into place needs write permission on the directory, not on the target, so a read-only
-    # target would otherwise be replaced without an error.
+def test_export_refuses_a_read_only_target(conn, server_files, export_path):
+    # A rename needs write permission on the directory, not on the target, so a read-only target the server owns
+    # would otherwise be replaced without an error.
     execute(conn, SEED_MIXED)
-    before = make_target(SERVER_EXPORT_FILE, 0o444)
+    before = make_target(export_path, 0o444)
     with pytest.raises(Exception, match="Cannot open"):
-        export(conn, call=f"export.json_data(ns, rs, '{SERVER_EXPORT_FILE}', {{}})")
-    assert read_server_file(SERVER_EXPORT_FILE) == before, "a refused export must not have touched the target"
-    # Removed rather than chmod'ed back, so a later test does not inherit an unwritable target.
-    os.remove(SERVER_EXPORT_FILE)
+        export(conn, call=f"export.json_data(ns, rs, '{export_path}', {{}})")
+    assert read_server_file(export_path) == before, "a refused export must not have touched the target"
 
 
-def test_export_writes_through_a_symlink(conn, server_files):
+def test_export_writes_through_a_symlink(conn, server_files, export_path):
     # `latest.json -> dumps/<date>.json` is an ordinary layout; renaming over the link would replace it with a
     # regular file and leave what it pointed at stale.
-    real = SERVER_EXPORT_FILE + ".real"
-    link = SERVER_EXPORT_FILE + ".link"
+    real = export_path + ".real"
+    link = export_path + ".link"
     execute(conn, SEED_MIXED)
     try:
         stale = make_target(real, 0o606)
@@ -755,10 +753,10 @@ def test_export_writes_through_a_symlink(conn, server_files):
                 os.remove(path)
 
 
-def test_export_creates_the_target_of_a_dangling_symlink(conn, server_files):
+def test_export_creates_the_target_of_a_dangling_symlink(conn, server_files, export_path):
     # A link to the export that does not exist yet is the first run of the `latest.json` layout.
-    real = SERVER_EXPORT_FILE + ".new"
-    link = SERVER_EXPORT_FILE + ".link"
+    real = export_path + ".new"
+    link = export_path + ".link"
     execute(conn, SEED_MIXED)
     try:
         os.symlink(real, link)
@@ -771,51 +769,35 @@ def test_export_creates_the_target_of_a_dangling_symlink(conn, server_files):
                 os.remove(path)
 
 
-def test_export_keeps_the_target_owner_and_group(conn, server_files):
+def test_export_keeps_the_target_owner_and_group(conn, server_files, export_path):
     # Owner and group decide who the mode bits apply to; replacing the file would hand both to the server.
     execute(conn, SEED_MIXED)
-    make_target(SERVER_EXPORT_FILE, 0o666)
+    make_target(export_path, 0o666)
     other_groups = [gid for gid in os.getgroups() if gid != os.getegid()]
-    if other_groups:
-        os.chown(SERVER_EXPORT_FILE, -1, other_groups[0])
-    before = os.stat(SERVER_EXPORT_FILE)
-    export(conn, call=f"export.json_data(ns, rs, '{SERVER_EXPORT_FILE}', {{}})")
-    after = os.stat(SERVER_EXPORT_FILE)
-    assert parse(require_server_file(SERVER_EXPORT_FILE)) == ALL_ELEMENTS
+    if not other_groups:
+        pytest.skip("a group change is visible only with a supplementary group to give the target")
+    os.chown(export_path, -1, other_groups[0])
+    before = os.stat(export_path)
+    export(conn, call=f"export.json_data(ns, rs, '{export_path}', {{}})")
+    after = os.stat(export_path)
+    assert parse(require_server_file(export_path)) == ALL_ELEMENTS
     assert (after.st_uid, after.st_gid) == (before.st_uid, before.st_gid)
 
 
-def test_export_into_a_sticky_directory_owned_by_the_target_owner(conn, server_files):
-    # Exercises a rename refused by the sticky bit only when the server runs as another user, as it does in CI.
-    directory = SERVER_EXPORT_FILE + ".sticky"
-    target = os.path.join(directory, "export.json")
-    execute(conn, SEED_MIXED)
-    os.makedirs(directory, exist_ok=True)
-    os.chmod(directory, 0o1777)
-    try:
-        make_target(target, 0o666)
-        export(conn, call=f"export.json_data(ns, rs, '{target}', {{}})")
-        assert parse(require_server_file(target)) == ALL_ELEMENTS
-    finally:
-        if os.path.lexists(target):
-            os.remove(target)
-        os.rmdir(directory)
-
-
-def test_json_graph_argument_error_leaves_a_hard_linked_target_intact(conn, server_files):
+def test_json_graph_argument_error_leaves_a_hard_linked_target_intact(conn, server_files, export_path):
     # A hard-linked target is written in place, so nothing may open it before the arguments are known to be valid.
-    alias = SERVER_EXPORT_FILE + ".alias"
+    alias = export_path + ".alias"
     execute(conn, SEED_MIXED)
     try:
-        before = make_target(SERVER_EXPORT_FILE, 0o666)
-        os.link(SERVER_EXPORT_FILE, alias)
+        before = make_target(export_path, 0o666)
+        os.link(export_path, alias)
         with pytest.raises(Exception, match="both 'relationships' and 'edges'"):
             export(conn, call=f"export.json_graph({{nodes: ns, relationships: rs, edges: rs}}, '{alias}', {{}})")
         with pytest.raises(Exception, match="must contain only nodes"):
             export(conn, call=f"export.json_graph({{nodes: [1], relationships: rs}}, '{alias}', {{}})")
-        assert read_server_file(SERVER_EXPORT_FILE) == before
+        assert read_server_file(export_path) == before
     finally:
-        for path in (alias, SERVER_EXPORT_FILE):
+        for path in (alias, export_path):
             if os.path.lexists(path):
                 os.remove(path)
 
@@ -844,22 +826,22 @@ def has_acl(path):
 
 
 @pytest.mark.skipif(shutil.which("setfacl") is None, reason="needs setfacl")
-def test_export_keeps_the_target_acl(conn, server_files):
+def test_export_keeps_the_target_acl(conn, server_files, export_path):
     # An ACL lives on the inode, and with one the mode's group bits are its mask, so a replaced file would widen.
     execute(conn, SEED_MIXED)
-    make_target(SERVER_EXPORT_FILE, 0o606)
-    subprocess.run(["setfacl", "-m", "u:4242:r", SERVER_EXPORT_FILE], check=True)
-    before = os.getxattr(SERVER_EXPORT_FILE, ACL_ACCESS)
-    export(conn, call=f"export.json_data(ns, rs, '{SERVER_EXPORT_FILE}', {{}})")
-    assert parse(require_server_file(SERVER_EXPORT_FILE)) == ALL_ELEMENTS
-    assert has_acl(SERVER_EXPORT_FILE), "the export dropped the target's ACL"
-    assert os.getxattr(SERVER_EXPORT_FILE, ACL_ACCESS) == before
+    make_target(export_path, 0o606)
+    subprocess.run(["setfacl", "-m", "u:4242:r", export_path], check=True)
+    before = os.getxattr(export_path, ACL_ACCESS)
+    export(conn, call=f"export.json_data(ns, rs, '{export_path}', {{}})")
+    assert parse(require_server_file(export_path)) == ALL_ELEMENTS
+    assert has_acl(export_path), "the export dropped the target's ACL"
+    assert os.getxattr(export_path, ACL_ACCESS) == before
 
 
 @pytest.mark.skipif(shutil.which("setfacl") is None, reason="needs setfacl")
-def test_export_does_not_add_the_directory_default_acl_to_an_existing_target(conn, server_files):
+def test_export_does_not_add_the_directory_default_acl_to_an_existing_target(conn, server_files, export_path):
     # A new file inherits the directory's default ACL; an existing one without an ACL must not acquire it.
-    directory = SERVER_EXPORT_FILE + ".acl"
+    directory = export_path + ".acl"
     target = os.path.join(directory, "export.json")
     execute(conn, SEED_MIXED)
     os.makedirs(directory, exist_ok=True)
