@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <atomic>
 #include <cstdint>
 #include <expected>
 #include <functional>
@@ -24,6 +25,7 @@
 #include <vector>
 
 #include "memory/db_arena_fwd.hpp"
+#include "storage/v2/commit_args.hpp"
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/edge_direction.hpp"
 #include "storage/v2/id_types.hpp"
@@ -93,6 +95,18 @@ class BranchCore {
   storage::EdgeTypeId NameToEdgeType(std::string_view name) { return main_->NameToEdgeType(name); }
 
   const ForkPoint &fork() const { return fork_; }
+
+  // The base vertices and edges deleted by the committed branch transactions so far.
+  ObjectCounts BaseDeletes() const noexcept {
+    return {.vertices = deleted_base_vertices_.load(std::memory_order_relaxed),
+            .edges = deleted_base_edges_.load(std::memory_order_relaxed)};
+  }
+
+  // Adds what a committed branch transaction deleted.
+  void AddBaseDeletes(ObjectCounts deleted) noexcept {
+    deleted_base_vertices_.fetch_add(deleted.vertices, std::memory_order_relaxed);
+    deleted_base_edges_.fetch_add(deleted.edges, std::memory_order_relaxed);
+  }
 
   // Gids below are base objects, gids at or above are branch-native.
   uint64_t vertex_gid_floor() const { return fork_.vertex_gid_floor; }
@@ -172,6 +186,9 @@ class BranchCore {
   uint64_t fork_ts_;
   std::unique_ptr<storage::InMemoryStorage> diff_engine_;
 
+  std::atomic<uint64_t> deleted_base_vertices_{0};
+  std::atomic<uint64_t> deleted_base_edges_{0};
+
   BranchChangeFilters change_filters_;
 
   // Own the overlays the diff engine's deltas and indexes point at. Declared after diff_engine_ and teardown_scope_, so
@@ -225,6 +242,13 @@ class BranchContext {
 
   // Idempotent; the caller ends the diff-engine accessor itself.
   void EndTransaction() noexcept { txn_.reset(); }
+
+  // Commits the diff transaction; once committed, the base vertices and edges it deleted join the core's counts. Same
+  // results as Accessor::PrepareForCommitPhase.
+  std::expected<void, storage::StorageManipulationError> CommitTransaction(storage::CommitArgs commit_args);
+
+  // As Accessor::PeriodicCommit: each batch publishes only the deletes made since the previous one.
+  std::expected<void, storage::StorageManipulationError> PeriodicCommitTransaction(storage::CommitArgs commit_args);
 
   bool in_transaction() const { return txn_.has_value(); }
 
@@ -291,8 +315,29 @@ class BranchContext {
   // vertex. Without `detach`, as stock DeleteVertex: VERTEX_HAS_EDGES, before anything is written, if a visible base
   // edge or a native edge is attached. With `detach`, each visible base edge is deleted first (DeleteBaseEdgeOnBranch),
   // then the native edges, as stock DetachDeleteVertex. SERIALIZATION_ERROR (poisoning the transaction) if the vertex
-  // or an edge is held by a transaction this one cannot write over.
+  // or an edge is held by a transaction this one cannot write over. The deleted vertex and the edges it hid count as
+  // deleted at commit.
   storage::Result<bool> DeleteBaseVertex(storage::Gid gid, bool detach);
+
+  // ---- Writes of an edge accessor
+  //
+  // `edge` is a base edge (main at fork_ts) or a branch-native one: a native edge takes the stock mutator, a base edge
+  // is written through its overlay (created on first touch, with its endpoints' overlays) with the vertex writes'
+  // contract. DELETED_OBJECT for a base edge hidden on the branch; PROPERTIES_DISABLED if MAIN has no edge properties
+  // (the diff engine always has them, so only main's config says).
+  storage::Result<storage::PropertyValue> SetProperty(storage::EdgeAccessor &edge, storage::PropertyId key,
+                                                      const storage::PropertyValue &value);
+  storage::Result<bool> InitProperties(storage::EdgeAccessor &edge,
+                                       std::map<storage::PropertyId, storage::PropertyValue> &properties);
+  storage::Result<std::vector<std::tuple<storage::PropertyId, storage::PropertyValue, storage::PropertyValue>>>
+  UpdateProperties(const storage::EdgeAccessor &edge,
+                   std::map<storage::PropertyId, storage::PropertyValue> &properties);
+  storage::Result<std::map<storage::PropertyId, storage::PropertyValue>> ClearProperties(storage::EdgeAccessor &edge);
+
+  // Deletes base edge `base_edge` on the branch: false if it was already hidden. Only the edge overlay is written, so
+  // it conflicts with a concurrent write of the same edge and not with one of an endpoint or of another edge at it.
+  // Counts as deleted at commit.
+  storage::Result<bool> DeleteBaseEdge(const storage::EdgeAccessor &base_edge);
 
   // A refusal to write that the user is told about.
   struct BranchWriteError {
@@ -307,6 +352,13 @@ class BranchContext {
   // Creates a branch-native vertex in the diff engine at a gid taken from main's counter; the diff engine's own counter
   // is raised past it.
   storage::VertexAccessor CreateNativeVertex();
+
+  // Creates a branch-native edge at a gid taken from main's counter; the endpoints are native vertices or overlays from
+  // EnsureDiffVertex. The stock refusals apply: DELETED_OBJECT for a marked-deleted endpoint, SERIALIZATION_ERROR
+  // (poisoning the transaction) against a writer of an endpoint.
+  storage::Result<storage::EdgeAccessor> CreateNativeEdge(storage::VertexAccessor &from, storage::VertexAccessor &to,
+                                                          storage::EdgeTypeId edge_type);
+
   // A base gid resolves to the base accessor unless the branch deleted it, a native gid to the diff engine's vertex.
   std::optional<storage::VertexAccessor> ResolveVertex(storage::Gid gid, storage::View view);
 
@@ -400,6 +452,8 @@ class BranchContext {
 
     HistoricalAccessor historical;     // Owned, non-null.
     storage::Storage::Accessor *diff;  // Not owned, non-null.
+    // Base vertices and edges deleted since the last periodic commit; published by CommitTransaction.
+    ObjectCounts base_deletes;
   };
 
   Txn &txn() {
@@ -425,6 +479,18 @@ class BranchContext {
 
   bool IsNative(const storage::VertexAccessor &vertex) const { return vertex.storage_ == &diff_engine(); }
 
+  bool IsNative(const storage::EdgeAccessor &edge) const { return edge.storage_ == &diff_engine(); }
+
+  // Whether a property write on `object` is refused: an edge's is when MAIN keeps no edge properties (the diff engine
+  // always does, so a native edge would take them), a vertex's never.
+  bool PropertyWritesDisabled(const storage::VertexAccessor & /*vertex*/) const { return false; }
+
+  bool PropertyWritesDisabled(const storage::EdgeAccessor & /*edge*/) const {
+    return !main().config_.salient.items.properties_on_edges;
+  }
+
+  void PublishBaseDeletes();
+
   // Main's base vertex `gid` at View::OLD, looked up in the historical accessor.
   std::optional<storage::VertexAccessor> BaseAccessorByGid(storage::Gid gid);
 
@@ -443,13 +509,31 @@ class BranchContext {
   // MaterializeOverlay for a writer: DELETED_OBJECT if the branch deleted the vertex.
   storage::Result<storage::VertexAccessor> OverlayForWrite(const storage::VertexAccessor &base_vertex);
 
+  // A base edge's overlay with the diff-engine overlays of its endpoints: what overlay::WriteProperty takes.
+  struct EdgeOverlay {
+    storage::Edge *edge;
+    storage::Vertex *from;
+    storage::Vertex *to;
+    storage::EdgeTypeId type;
+  };
+
+  // Sets main's Edge branched bit (when main has edge objects), then returns the edge's overlay and its endpoints'
+  // overlays, each created on first touch. @throw OutOfMemoryException with the overlays already published (a retry
+  // finds them). For property writes only: a delete goes through DeleteBaseEdgeOnBranch and creates no endpoint
+  // overlay.
+  storage::Result<EdgeOverlay> MaterializeEdgeOverlay(const storage::EdgeAccessor &base_edge);
+
+  // MaterializeEdgeOverlay for a property writer: PROPERTIES_DISABLED if main has no edge properties, DELETED_OBJECT if
+  // the branch hid the edge.
+  storage::Result<EdgeOverlay> OverlayForWrite(const storage::EdgeAccessor &base_edge);
+
   // Marks the base edge's overlay deleted (ListBaseEdgeDelete first), creating the edge overlay and its endpoints'
   // candidate-list entries on first touch. No endpoint overlay is created or written and no labels are read. Filters
   // and branched bits are set before the writes. `sides` are the endpoint lists to add the edge to; a caller that omits
-  // one must cover it itself (DeleteBaseVertex, for its own side). SERIALIZATION_ERROR (poisoning the transaction) if
-  // the edge is held by a transaction this one cannot write over, which includes one that already deleted this edge
-  // since this transaction began.
-  storage::Result<void> DeleteBaseEdgeOnBranch(const storage::EdgeAccessor &base_edge, ListSide sides = kBothSides);
+  // one must cover it itself (DeleteBaseVertex, for its own side). False if the edge was already deleted on the branch.
+  // SERIALIZATION_ERROR (poisoning the transaction) if the edge is held by a transaction this one cannot write over,
+  // which includes one that already deleted this edge since this transaction began.
+  storage::Result<bool> DeleteBaseEdgeOnBranch(const storage::EdgeAccessor &base_edge, ListSide sides = kBothSides);
 
   // The base edges of `base_vertex` the branch still shows at NEW: its base-state edges minus those whose edge overlay
   // is marked deleted, a self-loop once.
@@ -457,13 +541,44 @@ class BranchContext {
 
   // PrepareForWrite on the overlay under its shared lock; false (poisoning the transaction) on a conflict.
   bool PrepareOverlayForWrite(const storage::VertexAccessor &overlay);
+  bool PrepareOverlayForWrite(const EdgeOverlay &overlay);
 
-  // Writes one base vertex property through its overlay (overlay::WriteProperty). Returns the old merged value: the
-  // overlay's entry, else the base's.
+  // Writes one base vertex or edge property through its overlay (overlay::WriteProperty). Returns the old merged value:
+  // the overlay's entry, else the base's.
   storage::Result<storage::PropertyValue> WriteOverlayProperty(const storage::VertexAccessor &base_vertex,
                                                                storage::VertexAccessor &overlay,
                                                                storage::PropertyId key,
                                                                const storage::PropertyValue &value);
+  storage::Result<storage::PropertyValue> WriteOverlayProperty(const storage::EdgeAccessor &base_edge,
+                                                               const EdgeOverlay &overlay, storage::PropertyId key,
+                                                               const storage::PropertyValue &value);
+
+  // What a write of `key` feeds the change filters, recorded before the overlay is written. `RecordPropertiesWrite` is
+  // the vertex-wide part, recorded once per primitive; a base edge has only the per-key filters.
+  void RecordPropertyWrite(const storage::VertexAccessor &vertex, storage::PropertyId key) {
+    core_->RecordPropertyFieldChange(vertex.Gid(), key);
+  }
+
+  void RecordPropertyWrite(const storage::EdgeAccessor &edge, storage::PropertyId key) {
+    core_->RecordBaseEdgeProperty(edge.Gid(), key);
+  }
+
+  void RecordPropertiesWrite(const storage::VertexAccessor &vertex) { core_->RecordPropertyChange(vertex.Gid()); }
+
+  void RecordPropertiesWrite(const storage::EdgeAccessor & /*edge*/) {}
+
+  // Property writes shared by vertices and edges; `Object` is a base or native accessor (const where stock's is).
+  template <typename Object>
+  storage::Result<storage::PropertyValue> SetPropertyAt(Object &object, storage::PropertyId key,
+                                                        const storage::PropertyValue &value);
+  template <typename Object>
+  storage::Result<bool> InitPropertiesAt(Object &object,
+                                         std::map<storage::PropertyId, storage::PropertyValue> &properties);
+  template <typename Object>
+  storage::Result<std::vector<std::tuple<storage::PropertyId, storage::PropertyValue, storage::PropertyValue>>>
+  UpdatePropertiesAt(Object &object, std::map<storage::PropertyId, storage::PropertyValue> &properties);
+  template <typename Object>
+  storage::Result<std::map<storage::PropertyId, storage::PropertyValue>> ClearPropertiesAt(Object &object);
 
   std::optional<storage::VertexAccessor> ReadOverlay(storage::Gid gid);
 
