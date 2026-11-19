@@ -113,9 +113,6 @@ std::shared_ptr<query::QueryUserOrRole> AuthChecker::GenEmptyUser() const {
 std::unique_ptr<memgraph::query::FineGrainedAuthChecker> AuthChecker::GetFineGrainedAuthChecker(
     const query::QueryUserOrRole &user_or_role, const memgraph::query::DbAccessor *dba) const {
 #ifdef MG_ENTERPRISE
-  if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-    return {};
-  }
   if (!user_or_role) {
     throw query::QueryRuntimeException("No user specified for fine grained authorization!");
   }
@@ -332,10 +329,20 @@ bool FineGrainedAuthChecker::NeedsFineGrainedAuthChecker() const {
   auto const is_unconfigured = [](auth::PropertyAccessPermissions const &perms) {
     return perms.GetRules().empty() && perms.GetGlobalRules().empty();
   };
-  auto const vertex_props_ok =
-      HasUnrestrictedAccessToVertexProperties() || is_unconfigured(GetCachedPropertyLabelPermissions());
-  auto const edge_props_ok =
-      HasUnrestrictedAccessToEdgeTypeProperties() || is_unconfigured(GetCachedPropertyEdgeTypePermissions());
+  auto const vertex_props_unconfigured = is_unconfigured(GetCachedPropertyLabelPermissions());
+  auto const edge_props_unconfigured = is_unconfigured(GetCachedPropertyEdgeTypePermissions());
+
+  // A principal with nothing configured is unrestricted while unlicensed, so there is nothing for the
+  // checker to answer and every per-row question can be skipped. Licensed, the same principal is denied
+  // everything, which the checker has to be present to say.
+  if (GetCachedLabelPermissions().IsUnconfigured() && GetCachedEdgePermissions().IsUnconfigured() &&
+      vertex_props_unconfigured && edge_props_unconfigured &&
+      !memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
+    return false;
+  }
+
+  auto const vertex_props_ok = HasUnrestrictedAccessToVertexProperties() || vertex_props_unconfigured;
+  auto const edge_props_ok = HasUnrestrictedAccessToEdgeTypeProperties() || edge_props_unconfigured;
   return !(HasUnrestrictedAccessToVertices() && HasUnrestrictedAccessToEdges() && vertex_props_ok && edge_props_ok);
 }
 

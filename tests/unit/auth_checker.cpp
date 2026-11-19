@@ -720,7 +720,35 @@ TYPED_TEST(FineGrainedAuthCheckerFixture, PropertyFGAGlobalGrantDeniedOnUnlabele
                                                  memgraph::query::AuthQuery::PropertyPermissionType::READ));
 }
 
-TYPED_TEST(FineGrainedAuthCheckerFixture, CachedCheckerRebuildsOnLicenseActivation) {
+// An unlicensed principal with nothing configured is unrestricted, so the cache must report no
+// checker at all and spare every row the question.
+TYPED_TEST(FineGrainedAuthCheckerFixture, UnconfiguredUserNeedsNoCheckerWithoutLicense) {
+  namespace auth = memgraph::auth;
+  namespace query = memgraph::query;
+
+  std::filesystem::path auth_dir{std::filesystem::temp_directory_path() / "MG_unconfigured_fga_test"};
+  memgraph::utils::OnScopeExit clean([&]() {
+    if (std::filesystem::exists(auth_dir)) std::filesystem::remove_all(auth_dir);
+  });
+
+  auth::SynchedAuth synched_auth(auth_dir, auth::Auth::Config{});
+  memgraph::glue::AuthChecker auth_checker(&synched_auth);
+
+  auto user = *AddUser(*synched_auth.Lock(), "plain_user");
+  synched_auth->SaveUser(user);
+
+  auto query_user = auth_checker.GenQueryUser("plain_user", {});
+  ASSERT_TRUE(query_user && *query_user);
+
+  const UnlicensedScope unlicensed;
+  query::CachedFineGrainedAuth cache;
+  cache.Refresh(auth_checker, *query_user, &this->dba, this->dba.DatabaseName());
+  EXPECT_EQ(cache.get(), nullptr);
+}
+
+// The cache is what the interpreter consults per query, so it must hand back an enforcing checker
+// whether or not a license is present, and keep enforcing across a license change.
+TYPED_TEST(FineGrainedAuthCheckerFixture, CachedCheckerEnforcesStoredRulesWithoutLicense) {
   namespace auth = memgraph::auth;
   namespace query = memgraph::query;
 
@@ -740,18 +768,19 @@ TYPED_TEST(FineGrainedAuthCheckerFixture, CachedCheckerRebuildsOnLicenseActivati
   auto query_user = auth_checker.GenQueryUser("test_user", {});
   ASSERT_TRUE(query_user && *query_user);
 
-  memgraph::license::global_license_checker.DisableTesting();
-
   query::CachedFineGrainedAuth cache;
-  cache.Refresh(auth_checker, *query_user, &this->dba, this->dba.DatabaseName());
-  EXPECT_EQ(cache.get(), nullptr);
 
-  memgraph::license::global_license_checker.EnableTesting();
+  {
+    const UnlicensedScope unlicensed;
+    cache.Refresh(auth_checker, *query_user, &this->dba, this->dba.DatabaseName());
+    ASSERT_NE(cache.get(), nullptr);
+    EXPECT_TRUE(cache.get()->Has(this->v1, memgraph::storage::View::NEW, query::AuthQuery::FineGrainedPrivilege::READ));
+    EXPECT_FALSE(
+        cache.get()->Has(this->v3, memgraph::storage::View::NEW, query::AuthQuery::FineGrainedPrivilege::READ));
+  }
 
-  // Refresh should detect the license change and rebuild
   cache.Refresh(auth_checker, *query_user, &this->dba, this->dba.DatabaseName());
   ASSERT_NE(cache.get(), nullptr);
-
   EXPECT_TRUE(cache.get()->Has(this->v1, memgraph::storage::View::NEW, query::AuthQuery::FineGrainedPrivilege::READ));
   EXPECT_FALSE(cache.get()->Has(this->v3, memgraph::storage::View::NEW, query::AuthQuery::FineGrainedPrivilege::READ));
 }
