@@ -19,6 +19,7 @@
 #include <algorithm>
 #include <array>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <set>
 #include <vector>
@@ -839,6 +840,40 @@ TEST_F(OwnBatchWrite, ASnapshotReaderThatBeganInsideABatchPastItsStampSpanDoesNo
   auto const [expected, seen] =
       ScanAfterABatchPastItsStampSpan(ms::StorageMode::IN_MEMORY_TRANSACTIONAL, ms::IsolationLevel::SNAPSHOT_ISOLATION);
   EXPECT_EQ(seen, expected);
+}
+
+// Clear rewinds the clock, so a span recorded before it can become a younger writer's start. A reader at command 0
+// hides that writer's entry, as it does any younger writer's, not counting it as the old batch's.
+TEST_F(OwnBatchWrite, AReaderHidesAYoungerWritersEntryInASpanRecordedBeforeAClear) {
+  uint64_t owner = 0;
+  uint64_t span = 0;
+  {
+    auto batch = Armed();
+    owner = *batch->GetStartTimestamp();
+    for (int i = 0; i < 16; ++i) auto const skipped = storage->Access(ms::WRITE);
+    AdvancePastTheStampSpan(*batch);
+    span = *storage->Access(ms::WRITE)->GetStartTimestamp() - 1;
+    batch->Abort();
+  }
+  {
+    auto const guard = std::lock_guard{storage->main_lock_};
+    static_cast<ms::InMemoryStorage *>(storage.get())->Clear();
+  }
+  Index([&](auto &acc) { return acc.CreateIndex(label, {ms::PropertyPath{property}}).has_value(); });
+  auto const gids = Vertices();
+  auto reader = storage->Access(ms::WRITE, ms::IsolationLevel::READ_COMMITTED, std::nullopt);
+  ASSERT_LT(owner, *reader->GetStartTimestamp());
+  ASSERT_LT(*reader->GetStartTimestamp(), span);
+  auto writer = storage->Access(ms::WRITE);
+  while (*writer->GetStartTimestamp() < span) writer = storage->Access(ms::WRITE);
+  ASSERT_EQ(*writer->GetStartTimestamp(), span);
+  AddOtherToTheIndex(*writer);
+  Commit(writer);
+  std::vector<ms::Gid> seen;
+  auto iterable = LabelPropertyScan(*reader);
+  auto it = iterable.begin();
+  ReadOn(it, iterable.end(), seen, gids.size() + 1);
+  EXPECT_EQ(seen, gids);
 }
 
 // Guard: an abort removes the entries a batch wrote before and after it ran past its stamp span.
