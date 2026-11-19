@@ -1900,7 +1900,6 @@ std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfoForJson() {
   int64_t total_successful_query = 0;
   int64_t total_write_write_conflicts = 0;
   int64_t total_transient_errors = 0;
-  std::array<int64_t, kReplicationFailureOutcomes.size()> total_replication_failures{};
   int64_t total_read_query = 0;
   int64_t total_write_query = 0;
   int64_t total_read_write_query = 0;
@@ -1999,9 +1998,6 @@ std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfoForJson() {
       total_successful_query += static_cast<int64_t>(h.successful_query.Value());
       total_write_write_conflicts += static_cast<int64_t>(h.write_write_conflicts.Value());
       total_transient_errors += static_cast<int64_t>(h.transient_errors.Value());
-      for (auto const &[total, outcome] : rv::zip(total_replication_failures, kReplicationFailureOutcomes)) {
-        total += h.replication_failures.Total(outcome.label);
-      }
       total_read_query += static_cast<int64_t>(h.read_query.Value());
       total_write_query += static_cast<int64_t>(h.write_query.Value());
       total_read_write_query += static_cast<int64_t>(h.read_write_query.Value());
@@ -2121,12 +2117,6 @@ std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfoForJson() {
                  "Transaction",
                  "Counter",
                  total_transient_errors + static_cast<int64_t>(global.transient_errors->Value())});
-  for (auto const &[total, outcome] : rv::zip(total_replication_failures, kReplicationFailureOutcomes)) {
-    out.push_back({std::string{outcome.info_name},
-                   "Transaction",
-                   "Counter",
-                   total + global.replication_failures.Total(outcome.label)});
-  }
   out.push_back({"FailedQuery",
                  "Transaction",
                  "Counter",
