@@ -364,12 +364,6 @@ class DbmsHandler {
   void SetOnResume(std::function<void(DatabaseAccess)> cb) { on_resume_ = std::move(cb); }
 
   /**
-   * @brief Set the post-publish resume arm (runs on the DatabaseAccess AFTER the tenant is published
-   *        HOT). Used for work that may commit, such as re-enabling TTL. Best-effort: a throw only logs.
-   */
-  void SetOnPublished(std::function<void(DatabaseAccess)> cb) { on_published_ = std::move(cb); }
-
-  /**
    * @brief Reconfigure Resume_'s retry/timeout knobs (see ResumeRetryPolicy) on a live handler. The
    *        constructor also accepts a ResumeRetryPolicy for construction-time injection; this setter
    *        exists for callers that need to mutate the policy mid-flight (e.g. a test that shrinks the
@@ -819,6 +813,20 @@ class DbmsHandler {
   }
 
   /**
+   * @brief Set the check each database's TTL runs before deleting, and apply it to every database. Databases
+   *        created or resumed later get it too. Called once at startup, before any database is resumed, so
+   *        Resume_ reads ttl_user_check_ without holding lock_.
+   */
+  void SetTtlUserCheck(std::function<bool()> check) {
+#ifdef MG_ENTERPRISE
+    auto wr = std::unique_lock{lock_};
+#endif
+    MG_ASSERT(!ttl_user_check_, "The TTL user check is set once, at startup");
+    ttl_user_check_ = std::move(check);
+    ForEachLocked_([this](DatabaseAccess db_acc) { db_acc->storage()->ttl_.SetUserCheck(ttl_user_check_); });
+  }
+
+  /**
    * @brief Iterates over all DBs only if the handler lock can be taken without waiting.
    *        Returns false, without invoking f, when a database is being created, dropped or updated.
    *
@@ -1169,11 +1177,10 @@ class DbmsHandler {
   // std::string key and could throw bad_alloc inside the noexcept window.
   std::map<std::string, SuspendedEntry, std::less<>> suspended_;
   // TODO: move to be common
-  std::unique_ptr<kvstore::KVStore> durability_;      //!< list of active dbs (pointer so we can postpone its creation)
-  std::unique_ptr<TenantProfiles> tenant_profiles_;   //!< per-DB resource profiles (created after durability_)
-  std::function<void(DatabaseAccess)> on_resume_;     //!< pre-publish resume arm (triggers/streams); empty default
-  std::function<void(DatabaseAccess)> on_published_;  //!< post-publish resume arm (TTL); empty default
-  std::function<void(DatabaseAccess)> on_suspend_;    //!< pre-teardown suspend arm (stop streams); empty default
+  std::unique_ptr<kvstore::KVStore> durability_;     //!< list of active dbs (pointer so we can postpone its creation)
+  std::unique_ptr<TenantProfiles> tenant_profiles_;  //!< per-DB resource profiles (created after durability_)
+  std::function<void(DatabaseAccess)> on_resume_;    //!< pre-publish resume arm (triggers/streams); empty default
+  std::function<void(DatabaseAccess)> on_suspend_;   //!< pre-teardown suspend arm (stop streams); empty default
   std::function<void(DatabaseAccess)>
       restore_streams_;  //!< streams-only restore (undo a stopped suspend); empty default
   std::function<void(utils::UUID const &)> on_uuid_retired_;  //!< discards a retired uuid's parameters; empty default
@@ -1182,6 +1189,7 @@ class DbmsHandler {
 #ifndef MG_ENTERPRISE
   mutable utils::Gatekeeper<Database> db_gatekeeper_;  //!< Single databases gatekeeper
 #endif
+  std::function<bool()> ttl_user_check_;  //!< applied to each database's TTL; empty until SetTtlUserCheck
 };  // namespace memgraph::dbms
 
 }  // namespace memgraph::dbms

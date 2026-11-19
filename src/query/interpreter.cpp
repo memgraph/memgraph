@@ -5948,6 +5948,9 @@ PreparedQuery PrepareTtlQuery(ParsedQuery parsed_query, bool in_explicit_transac
 
   MG_ASSERT(current_db.db_acc_, "Time to live query expects a current DB");
   auto db_acc = *current_db.db_acc_;
+  if (db_acc->GetStorageMode() == storage::StorageMode::ON_DISK_TRANSACTIONAL) {
+    throw DisabledForOnDisk("TTL");
+  }
 
   MG_ASSERT(current_db.db_transactional_accessor_, "Time to live query expects a current DB transaction");
   auto *dba = &*current_db.execution_db_accessor_;
@@ -8898,10 +8901,6 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
               }
             } else {
               res = "Successfully created database " + db_name;
-              db_handler->Get(db_name)->storage()->ttl_.SetUserCheck([interpreter_context]() {
-                const auto locked_repl_state = interpreter_context->repl_state->ReadLock();
-                return locked_repl_state->IsMainWriteable();
-              });
             }
             status.emplace_back(std::vector<TypedValue>{TypedValue(res)});
             auto pull_plan = std::make_shared<PullPlanVector>(std::move(status));
