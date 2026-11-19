@@ -1511,6 +1511,11 @@ TYPED_TEST(TestSymbolGenerator, StandaloneOrderByRefusesAggregation) {
                       "Aggregation functions are only allowed in WITH and RETURN.");
 }
 
+TYPED_TEST(TestSymbolGenerator, StandaloneOrderByCannotReadDroppedVariable) {
+  ExpectSemanticError(ParseCypherQuery(this->storage, "UNWIND [1] AS a WITH a AS b WHERE b > 0 ORDER BY a RETURN b"),
+                      "Unbound variable: a.");
+}
+
 TYPED_TEST(TestSymbolGenerator, ConditionalCallPredicateKeepsPredefinedIdentifierInside) {
   auto const query = [&](bool read_after) {
     // CALL () { WHEN first_op = 1 THEN RETURN 1 AS r ELSE RETURN 2 AS r } RETURN r[, first_op AS f]

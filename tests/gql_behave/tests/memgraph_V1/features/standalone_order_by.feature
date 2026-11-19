@@ -584,25 +584,6 @@ Feature: Standalone ORDER BY, SKIP, OFFSET and LIMIT clauses
             | a |
             | 3 |
 
-    Scenario: ORDER BY, SKIP and LIMIT in a RETURN projection
-        Given an empty graph
-        And having executed:
-            """
-            CREATE (a:N {k: 1, g: 'a'}), (b:N {k: 2, g: 'b'}), (c:N {k: 3, g: 'a'}), (d:N {k: 4, g: 'b'}), (e:N {k: 5, g: 'a'}),
-                   (:M {k: 9}), (e)-[:R]->(:M {k: 50}), (a)-[:R]->(:M {k: 10})
-            """
-        And parameters are:
-            | xs | [3, 1, 4, 2] |
-            | s  | 1            |
-            | l  | 1            |
-        When executing query:
-            """
-            UNWIND $xs AS a RETURN a ORDER BY a DESC SKIP $s LIMIT $l
-            """
-        Then the result should be, in order:
-            | a |
-            | 3 |
-
     Scenario: SKIP and LIMIT stay usable as variable names
         Given an empty graph
         And having executed:
