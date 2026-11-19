@@ -13,6 +13,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <iterator>
 #include <span>
 
 namespace memgraph::storage {
@@ -29,11 +30,16 @@ struct BatchTimestamps {
   }
 };
 
-/// Removes every entry the batch wrote for one key; `entry_at(ts)` is that key's entry at `ts`.
+/// Removes every entry the batch wrote for one key; `entry_at(ts)` is that key's entry at `ts`. Entries order by
+/// timestamp after the key, so one walk from the start to the last stamp finds them all.
 template <typename TAccessor, typename TEntryAt>
 void RemoveBatchEntries(TAccessor &acc, BatchTimestamps const &batch, TEntryAt const &entry_at) {
-  acc.remove(entry_at(batch.start));
-  for (auto const stamp : batch.stamps) acc.remove(entry_at(stamp));
+  auto last = entry_at(batch.Last());
+  for (auto it = acc.find_equal_or_greater(entry_at(batch.start)); it != acc.end() && !(last < *it);) {
+    auto const next = std::next(it);
+    if (batch.Contains(it->timestamp)) acc.remove(*it);
+    it = next;
+  }
 }
 
 }  // namespace memgraph::storage

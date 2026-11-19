@@ -360,22 +360,29 @@ struct ScanStart {
 };
 
 // Whether an index scan may see an entry inserted at `insertion_timestamp`; if so, MVCC decides the version. After a
-// batch commit the scan sees what was committed before its batch and what its batch wrote at an earlier command.
+// batch commit the scan sees what was committed before its batch and what its batch wrote at an earlier command, and
+// a View::NEW scan also what its own command wrote, as before the commit.
 inline bool CanSeeEntityWithTimestamp(uint64_t insertion_timestamp, Transaction *transaction, View view,
                                       ScanStart scan) {
   if (transaction->start_timestamp != scan.timestamp) {
     if (insertion_timestamp < scan.timestamp) return true;
-    // The scan's own command or later, a later batch, or another transaction that started after this batch.
-    if (insertion_timestamp >= scan.stamp) return false;
+    // A later command, a later batch, or another transaction that started after this batch.
+    if (insertion_timestamp > scan.stamp) return false;
+    // Stamps are unique timestamps, so this is the scan's own command.
+    if (insertion_timestamp == scan.stamp) return view == View::NEW;
     return insertion_timestamp == scan.timestamp ||
            std::ranges::binary_search(transaction->index_stamps, insertion_timestamp);
   }
   // Not enough information, need to rely on MVCC to fully check entry
   if (transaction->command_id != 0) return true;
-  if (view == View::OLD) {
+  // Command 0 raises no stamp, so this is the scan's own entry; it guards modes that read current values.
+  if (insertion_timestamp == scan.timestamp) return view == View::NEW;
+  // A stamped writer that started before the scan writes later timestamps; only a snapshot hides those anyway.
+  if (transaction->isolation_level == IsolationLevel::SNAPSHOT_ISOLATION &&
+      transaction->storage_mode != StorageMode::IN_MEMORY_ANALYTICAL) {
     return insertion_timestamp < scan.timestamp;
   }
-  return insertion_timestamp <= scan.timestamp;
+  return true;
 }
 
 // Two bounds a range may be read from: either the value types can be compared, or the pair is the

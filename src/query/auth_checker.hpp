@@ -23,6 +23,7 @@
 #include "query/read_created.hpp"
 #include "query/vertex_accessor.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/result.hpp"
 
 namespace memgraph::query {
 
@@ -139,7 +140,8 @@ inline bool PropertyReadAllowed(FineGrainedAuthChecker const *auth_checker, Vert
                                 storage::View view, storage::PropertyId property) {
   if (!auth_checker || !auth_checker->HasPropertyRestrictions()) return true;
   const auto maybe_labels = ReadSeeingCreated(view, [&](storage::View at) { return vertex.Labels(at); });
-  if (!maybe_labels) return false;
+  // A deleted vertex: the read itself raises, as it does for a user without property rules.
+  if (!maybe_labels) return maybe_labels.error() == storage::Error::DELETED_OBJECT;
   return PropertyReadAllowed(auth_checker, *maybe_labels, property);
 }
 

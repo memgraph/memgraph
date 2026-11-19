@@ -5937,7 +5937,8 @@ auto CacheProperties::CachePropertiesCursor::AnyPropertyReadable(CachedPropertyG
   // A vertex's permissions are decided from its labels, and reading those takes the record's lock,
   // so the whole group is decided from one read of them.
   auto const labels = input.ValueVertex().Labels(self_.view_);
-  if (!labels) return false;
+  // A deleted vertex: the read itself raises, as it does for a user without property rules.
+  if (!labels) return labels.error() == storage::Error::DELETED_OBJECT;
   return mark([&](storage::PropertyId property) { return PropertyReadAllowed(checker, *labels, property); });
 }
 #endif
