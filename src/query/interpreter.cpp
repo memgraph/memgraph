@@ -110,6 +110,7 @@
 #include "query/typed_value.hpp"
 #include "replication/config.hpp"
 #include "replication/state.hpp"
+#include "replication_coordination_glue/mode.hpp"
 #include "spdlog/spdlog.h"
 #include "storage/v2/constraints/constraint_violation.hpp"
 #include "storage/v2/constraints/type_constraints_kind.hpp"
@@ -2419,16 +2420,7 @@ Callback HandleReplicationInfoQuery(ReplicationInfoQuery *repl_query,
       callback.fn =
           [handler = ReplQueryHandler{replication_query_handler}, replica_nfields = callback.header.size(), full_info] {
             auto const sync_mode_to_tv = [](replication_coordination_glue::ReplicationMode sync_mode) {
-              using namespace std::string_view_literals;
-              switch (sync_mode) {
-                using enum replication_coordination_glue::ReplicationMode;
-                case SYNC:
-                  return TypedValue{"sync"sv};
-                case ASYNC:
-                  return TypedValue{"async"sv};
-                case STRICT_SYNC:
-                  return TypedValue{"strict_sync"sv};
-              }
+              return TypedValue{replication_coordination_glue::ReplicationModeName(sync_mode)};
             };
 
             auto const replica_sys_state_to_tv = [](replication::ReplicationClient::State state) {
