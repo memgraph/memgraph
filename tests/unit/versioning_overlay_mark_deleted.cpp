@@ -159,14 +159,15 @@ TEST_F(MarkDeletedTest, AMarkDeletedConflictsWithAConcurrentWriterOfTheSameOverl
     auto const lost = overlay::MarkVertexDeleted(second->GetTransaction(), *storage, vertex.get());
     ASSERT_FALSE(lost.has_value());
     EXPECT_EQ(lost.error(), ms::Error::SERIALIZATION_ERROR);
-    EXPECT_FALSE(ms::VertexAccessor{vertex.get(), storage.get(), second->GetTransaction()}.AddLabel(label).has_value());
+    EXPECT_FALSE(
+        (ms::VertexAccessor{vertex.get(), storage.get(), second->GetTransaction()}.AddLabel(label).has_value()));
     second->Abort();
     first->Abort();
   }
   {
     auto first = Writer();
     auto second = Writer();
-    ASSERT_TRUE(ms::VertexAccessor{vertex.get(), storage.get(), first->GetTransaction()}.AddLabel(label).has_value());
+    ASSERT_TRUE((ms::VertexAccessor{vertex.get(), storage.get(), first->GetTransaction()}.AddLabel(label).has_value()));
     auto const lost = overlay::MarkVertexDeleted(second->GetTransaction(), *storage, vertex.get());
     ASSERT_FALSE(lost.has_value());
     EXPECT_EQ(lost.error(), ms::Error::SERIALIZATION_ERROR);
