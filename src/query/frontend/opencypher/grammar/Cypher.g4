@@ -368,6 +368,7 @@ extractExpression : idInColl '|' expression ;
 existsExpression : forcePatternPart | .* ;
 
 subqueryBody : pattern where?
+             | conditionalQuery
              | cypherQuery
              ;
 

@@ -217,6 +217,7 @@ bool SymbolGenerator::PreVisit(CypherUnion &) {
   // Currently only CALL and EXISTS subqueries can contain complete queries with UNION.
   next_scope.in_call_subquery = prev_scope.in_call_subquery;
   next_scope.in_subquery_body = prev_scope.in_subquery_body;
+  next_scope.subquery_fold = prev_scope.subquery_fold;
   next_scope.call_subquery_base = prev_scope.call_subquery_base;
   // Carry over explicit `CALL (v1, v2) { ... }` imports so each UNION branch
   // within the subquery still sees the imported variables.
@@ -380,6 +381,7 @@ bool SymbolGenerator::PreVisit(ConditionalBranches &branches) {
   auto const push_imports_scope = [&] {
     auto const &outer = scopes_[call_scope];
     scopes_.push_back(Scope{.in_subquery_body = outer.in_subquery_body,
+                            .subquery_fold = outer.subquery_fold,
                             .in_call_subquery = outer.in_call_subquery,
                             .symbols = outer.call_subquery_imports,
                             .call_subquery_imports = outer.call_subquery_imports,
