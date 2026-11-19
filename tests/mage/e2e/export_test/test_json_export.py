@@ -22,7 +22,9 @@ Requires a running Memgraph with the `export` query module loaded.
 import glob
 import json
 import os
+import shutil
 import stat
+import subprocess
 
 import mgclient
 import pytest
@@ -616,6 +618,9 @@ def test_write_failure_after_open_is_reported(conn):
 def test_failed_export_leaves_the_previous_file_intact(conn):
     # The elements are serialized as they are written, so a failure part-way through must not be able to leave a
     # truncated file behind: the export goes to a temporary that is renamed into place only on success.
+    # Removed first: a file another test left behind may belong to the test user, and that one is written in place.
+    if os.path.lexists(SERVER_EXPORT_FILE):
+        os.remove(SERVER_EXPORT_FILE)
     execute(conn, SEED_MIXED)
     export(conn, call=f"export.json_data(ns, rs, '{SERVER_EXPORT_FILE}', {{}})")
     good = require_server_file(SERVER_EXPORT_FILE)
@@ -812,3 +817,52 @@ def test_json_graph_argument_error_leaves_a_hard_linked_target_intact(conn):
         for path in (alias, SERVER_EXPORT_FILE):
             if os.path.lexists(path):
                 os.remove(path)
+
+
+def test_whole_database_export_keeps_no_per_relationship_state(conn):
+    # The graph yields each relationship once, so json_all needs no record of the ones it has written.
+    execute(conn, "UNWIND range(1, 100000) AS i CREATE (:M)-[:R]->(:M)")
+    rows = execute(conn, "CALL export.json_all(null, {}) PROCEDURE MEMORY LIMIT 1 MB YIELD relationships RETURN *")
+    assert rows == [{"relationships": 100000}]
+
+
+ACL_ACCESS = "system.posix_acl_access"
+
+
+def has_acl(path):
+    try:
+        os.getxattr(path, ACL_ACCESS)
+        return True
+    except OSError:
+        return False
+
+
+@pytest.mark.skipif(shutil.which("setfacl") is None, reason="needs setfacl")
+def test_export_keeps_the_target_acl(conn):
+    # An ACL lives on the inode, and with one the mode's group bits are its mask, so a replaced file would widen.
+    execute(conn, SEED_MIXED)
+    make_target(SERVER_EXPORT_FILE, 0o606)
+    subprocess.run(["setfacl", "-m", "u:4242:r", SERVER_EXPORT_FILE], check=True)
+    before = os.getxattr(SERVER_EXPORT_FILE, ACL_ACCESS)
+    export(conn, call=f"export.json_data(ns, rs, '{SERVER_EXPORT_FILE}', {{}})")
+    assert parse(require_server_file(SERVER_EXPORT_FILE)) == ALL_ELEMENTS
+    assert has_acl(SERVER_EXPORT_FILE), "the export dropped the target's ACL"
+    assert os.getxattr(SERVER_EXPORT_FILE, ACL_ACCESS) == before
+
+
+@pytest.mark.skipif(shutil.which("setfacl") is None, reason="needs setfacl")
+def test_export_does_not_add_the_directory_default_acl_to_an_existing_target(conn):
+    # A new file inherits the directory's default ACL; an existing one without an ACL must not acquire it.
+    directory = SERVER_EXPORT_FILE + ".acl"
+    target = os.path.join(directory, "export.json")
+    execute(conn, SEED_MIXED)
+    os.makedirs(directory, exist_ok=True)
+    try:
+        make_target(target, 0o666)
+        subprocess.run(["setfacl", "-d", "-m", "u:4242:rw", directory], check=True)
+        assert not has_acl(target)
+        export(conn, call=f"export.json_data(ns, rs, '{target}', {{}})")
+        assert parse(require_server_file(target)) == ALL_ELEMENTS
+        assert not has_acl(target), "the export gave the target the directory's default ACL"
+    finally:
+        shutil.rmtree(directory)
