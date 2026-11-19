@@ -2075,7 +2075,7 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(MemgraphCypher::SingleQueryCon
     }
   };
 
-  for (auto const [clause, standalone_tail] : std::views::zip(single_query->clauses_, is_standalone_tail)) {
+  for (auto const &[clause, standalone_tail] : std::views::zip(single_query->clauses_, is_standalone_tail)) {
     const auto &clause_type = clause->GetTypeInfo();
     // Cache so I don't have to evaluate multiple times in the if-else loop
     bool const is_load_csv = utils::IsSubtype(clause_type, LoadCsv::kType);
@@ -2159,7 +2159,7 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(MemgraphCypher::SingleQueryCon
   }
   bool is_standalone_call_procedure = has_call_procedure && single_query->clauses_.size() == 1U;
   if (!has_update && !subquery_has_update && !has_return && !is_standalone_call_procedure && !parsing_subquery_body_) {
-    if (!is_standalone_tail.empty() && is_standalone_tail.back()) {
+    if (is_standalone_tail.back()) {
       throw SemanticException("A query cannot end with ORDER BY, SKIP or LIMIT; add a RETURN clause.");
     }
     throw SemanticException("Query should either create or update something, or return results!");
