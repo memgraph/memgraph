@@ -109,6 +109,11 @@ privilege; the same label or edge-type rule (same symbols and matching mode); or
 the same property under the same rule. A grant on `*` overrides a weak deny on
 `*`, and nothing else.
 
+An override applies per permission. `UPDATE` on labels stands for `SET LABEL`,
+`REMOVE LABEL`, `SET PROPERTY`, `CREATE EDGE`, and `DELETE EDGE`, so a
+`GRANT SET LABEL` on another role lifts only that part of a `WEAK DENY UPDATE`.
+`SHOW PRIVILEGES` for the role still lists the whole deny.
+
 This is how a user's permissions are already combined. The user's own
 permissions and those of every role they hold on the database are merged into
 one set, keyed by exactly these targets, and today a deny at a key beats a grant
