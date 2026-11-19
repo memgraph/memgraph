@@ -3589,3 +3589,21 @@ Feature: Write visibility inside one query
             | k | c |
             | 0 | 2 |
             | 1 | 3 |
+
+    Scenario: A read-only CALL after a switched CREATE does not see a later clause's writes
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:WvSk {id: 1}), (:WvSk {id: 2}), (:WvSk {id: 3})
+            """
+        When executing query:
+            """
+            MATCH (a:WvSk) SET a.x = 1 CREATE (:WvSm {v: a.x})
+            CALL () { MATCH (k:WvSn) RETURN count(k) AS c } CREATE (:WvSn)
+            RETURN a.id AS id, c ORDER BY id
+            """
+        Then the result should be, in order:
+            | id | c |
+            | 1  | 0 |
+            | 2  | 0 |
+            | 3  | 0 |

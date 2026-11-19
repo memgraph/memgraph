@@ -881,6 +881,30 @@ TEST_F(WriteVisibilityPlan, ASwitchedCreateDrainsBeforeAWriteOfItsKeyThroughAnot
             (Names{"EmptyResult", "SetProperty", "Accumulate+", "CreateNode", "SetProperty"}));
 }
 
+// A switch is per clause: a later read-only CALL body in the part reads View::OLD and misses a later CREATE.
+TEST_F(WriteVisibilityPlan, ASwitchReadsNewForItsOwnClauseOnly) {
+  // The CREATE itself switched (top first: the later CREATE (:K) reads OLD).
+  EXPECT_EQ(Views<CreateNode>(Plan("MATCH (a:L) SET a.x = 1 CREATE (:M {v: a.x}) CALL () { MATCH (k:K) RETURN "
+                                   "count(k) AS c } CREATE (:K) RETURN c")),
+            (std::vector{View::OLD, View::NEW}));
+  for (auto const *query : {
+           "MATCH (a:L) SET a.x = 1 CREATE (:M {v: a.x}) CALL () { MATCH (k:K) RETURN count(k) AS c } CREATE (:K) "
+           "RETURN c",
+           "MATCH (a:L) SET a.x = 1 CALL (a) { RETURN a.x AS v } CALL () { MATCH (k:K) RETURN count(k) AS c } "
+           "CREATE (:K) RETURN v, c",
+       }) {
+    auto applies = Collect<Apply>(Plan(query));  // top first: the later CALL
+    ASSERT_FALSE(applies.empty()) << query;
+    EXPECT_EQ(Views<ScanAll>(*applies.front()->subquery_), (std::vector{View::OLD})) << query;
+    EXPECT_EQ(Views<Filter>(*applies.front()->subquery_), (std::vector{View::OLD})) << query;
+  }
+  // The switched CALL itself still reads View::NEW.
+  auto applies = Collect<Apply>(Plan(
+      "MATCH (a:L) SET a.x = 1 CALL (a) { RETURN a.x AS v } CALL () { MATCH (k:K) RETURN count(k) AS c } RETURN v, c"));
+  ASSERT_EQ(applies.size(), 2);
+  EXPECT_EQ(Views<Produce>(*applies.back()->subquery_), (std::vector{View::NEW}));
+}
+
 // A MERGE reads its own pattern key through its own variable: only the keys the earlier write reached decide.
 TEST_F(WriteVisibilityPlan, AMergeReadsARowUniqueKeyWithoutABarrier) {
   for (auto const *query : {
