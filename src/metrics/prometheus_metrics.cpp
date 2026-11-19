@@ -1711,6 +1711,9 @@ std::expected<std::vector<MetricInfo>, std::string> PrometheusMetrics::GetDbMetr
   out.push_back(
       {"WriteWriteConflicts", "Transaction", "Counter", static_cast<int64_t>(h.write_write_conflicts.Value())});
   out.push_back({"TransientErrors", "Transaction", "Counter", static_cast<int64_t>(h.transient_errors.Value())});
+  AppendHistogramPercentiles(out, "TransactionBeginLatency", "Transaction", *h.transaction_begin_seconds.get());
+  AppendHistogramPercentiles(out, "CommitLockWaitLatency", "Transaction", *h.commit_lock_wait_seconds.get());
+  AppendHistogramPercentiles(out, "CommitLatency", "Transaction", *h.commit_seconds.get());
 
   // QueryType
   out.push_back({"ReadQuery", "QueryType", "Counter", static_cast<int64_t>(h.read_query.Value())});
