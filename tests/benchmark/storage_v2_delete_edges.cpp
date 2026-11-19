@@ -217,8 +217,12 @@ void DeleteRandomEdge(benchmark::State &state) {
     MG_ASSERT(next_edge != graph.edges.end(), "Ran out of edges; lower the iteration count");
     auto const [edge_gid, from_gid] = *next_edge++;
     auto acc = graph.storage->Access(memgraph::storage::WRITE);
-    auto edge = acc->FindEdge(edge_gid, from_gid, View::OLD);
-    MG_ASSERT(edge);
+    // FindEdge reads the edge skip list, which is empty without properties on edges, so go through the source.
+    auto from = acc->FindVertex(from_gid, View::OLD);
+    MG_ASSERT(from);
+    auto edges = OutEdges(*from);
+    auto edge = std::ranges::find_if(edges, [&](auto const &e) { return e.Gid() == edge_gid; });
+    MG_ASSERT(edge != edges.end());
     TimedDetachDelete(state, *acc, {}, {&*edge}, false);
     Commit(*acc);
   }
