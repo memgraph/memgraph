@@ -198,7 +198,7 @@ PYG_LIB="$BASE_URL/pyg_lib-0.10.0-cp311-abi3-${PLAT}.whl"
 if [ "$ARCH" = "arm64" ]; then
   if [ "$CACHE_PRESENT" = "true" ]; then
     echo "Using cached torch packages"
-    pip_install --no-index --find-links=$WHEEL_CACHE_DIR torch-sparse torch-cluster torch-spline-conv torch-geometric torch-scatter dgl
+    pip_install --no-index --find-links=$WHEEL_CACHE_DIR torch-sparse torch-cluster torch-spline-conv torch-geometric torch-scatter pyg-lib dgl
   else
     # Attempt to install from S3 first, if that fails, fallback to pulling from PyG and building from source, if necessary
     {
@@ -211,7 +211,7 @@ if [ "$ARCH" = "arm64" ]; then
 else
   if [ "$CACHE_PRESENT" = "true" ]; then
       echo "Using cached torch packages"
-      pip_install --no-index --find-links=$WHEEL_CACHE_DIR torch-sparse torch-cluster torch-spline-conv torch-geometric torch-scatter dgl
+      pip_install --no-index --find-links=$WHEEL_CACHE_DIR torch-sparse torch-cluster torch-spline-conv torch-geometric torch-scatter pyg-lib dgl
   else
     # Attempt to install from S3 first, if that fails, fallback to pulling from PyG and building from source, if necessary
     {

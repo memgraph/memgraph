@@ -39,7 +39,7 @@ message(STATUS "MAGE cuGraph build enabled: ${MG_ENABLE_CUGRAPH}")
 
 if (MG_ENABLE_CUGRAPH)
   # Version of cuGraph for local build
-  set(MG_CUGRAPH_TAG "v22.02.00" CACHE STRING "cuGraph GIT tag to checkout" )
+  set(MG_CUGRAPH_TAG "v26.10.00" CACHE STRING "cuGraph GIT tag to checkout" )
   set(MG_CUGRAPH_REPO "https://github.com/rapidsai/cugraph.git" CACHE STRING "cuGraph GIT repo URL")
   # Custom MG_CUGRAPH_BUILD_TYPE.
   set(MG_CUGRAPH_BUILD_TYPE "Release" CACHE STRING "Passed to cuGraph as CMAKE_BUILD_TYPE")
