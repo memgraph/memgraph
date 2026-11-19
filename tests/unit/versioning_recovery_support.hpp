@@ -9,9 +9,11 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-// What the branch-recovery tests share: a durable database with a base graph and branches, and a dump of what a session
-// reads on a branch together with its bookkeeping.
+// What the branch-recovery tests share: a durable database with a base graph and branches, a dump of what a session
+// reads on a branch (and its bookkeeping), and WAL files as bytes. Each executable uses its own storage directory.
 #pragma once
+
+#include <errno.h>  // program_invocation_short_name
 
 #include <gtest/gtest.h>
 
@@ -22,6 +24,7 @@
 #include <filesystem>
 #include <fstream>
 #include <functional>
+#include <iterator>
 #include <map>
 #include <memory>
 #include <optional>
@@ -35,16 +38,18 @@
 #include "dbms/database.hpp"
 #include "kvstore/kvstore.hpp"
 #include "memory/db_arena.hpp"
+#include "storage/v2/durability/serialization.hpp"
 #include "storage/v2/durability/wal.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/view.hpp"
 #include "tests/test_commit_args_helper.hpp"
 #include "tests/versioning_ledger_kv.hpp"
+#include "utils/file.hpp"
 #include "utils/scheduler.hpp"
 #include "utils/uuid.hpp"
 #include "versioning/branch_engine.hpp"
-#include "versioning/branch_recovery.hpp"
+#include "versioning/branch_ledger.hpp"
 #include "versioning/version_store.hpp"
 
 import memgraph.storage.property_value;
@@ -53,13 +58,16 @@ namespace memgraph::tests::versioning_recovery {
 
 namespace ms = memgraph::storage;
 namespace mv = memgraph::versioning;
+namespace dur = memgraph::storage::durability;
+namespace fs = std::filesystem;
 
 inline const std::filesystem::path kStorageDirectory{std::filesystem::temp_directory_path() /
-                                                     "versioning_branch_recovery"};
+                                                     program_invocation_short_name};
 inline const std::filesystem::path kOtherStorageDirectory{std::filesystem::temp_directory_path() /
-                                                          "versioning_branch_recovery_other"};
+                                                          (std::string{program_invocation_short_name} + "_other")};
+
 inline const std::filesystem::path kKvDirectory{std::filesystem::temp_directory_path() /
-                                                "versioning_branch_recovery_kv"};
+                                                (std::string{program_invocation_short_name} + "_kv")};
 
 // One DBMS durability KVStore holds the branch ledgers; each database has its own uuid, hence its own ledger key.
 inline const memgraph::utils::UUID kDbUuid;
@@ -67,10 +75,22 @@ inline const memgraph::utils::UUID kOtherDbUuid;
 
 inline memgraph::tests::LedgerKv ledger_kv{kKvDirectory};
 
+inline std::optional<std::string> ReadLedger() { return ledger_kv.Get()->Get(ledger_kv.Key(kDbUuid)); }
+
+inline void WriteLedger(const std::string &value) { ASSERT_TRUE(ledger_kv.Get()->Put(ledger_kv.Key(kDbUuid), value)); }
+
+// A fresh database directory with a fresh ledger; no Database may be alive.
+inline void ResetStorage() {
+  ledger_kv.Reset();
+  std::filesystem::remove_all(kStorageDirectory);
+}
+
 struct Options {
   bool properties_on_edges{true};
   bool auto_index{false};
-  bool light_edges{false};  // forces properties_on_edges
+  bool light_edges{false};     // forces properties_on_edges
+  bool edges_metadata{false};  // needs properties_on_edges
+  bool versioning{true};
 };
 
 inline ms::Config MakeConfig(bool recover_on_startup, Options options = {},
@@ -81,10 +101,11 @@ inline ms::Config MakeConfig(bool recover_on_startup, Options options = {},
                      .snapshot_wal_mode = ms::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
                      // Effectively disable periodic snapshotting so recovery is WAL-only.
                      .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::hours(24)}},
-      .experimental_versioning = true,
+      .experimental_versioning = options.versioning,
   };
   config.salient.items.properties_on_edges = options.properties_on_edges || options.light_edges;
   config.salient.items.storage_light_edge = options.light_edges;
+  config.salient.items.enable_edges_metadata = options.edges_metadata && config.salient.items.properties_on_edges;
   config.salient.items.enable_label_index_auto_creation = options.auto_index;
   config.salient.items.enable_edge_type_index_auto_creation = options.auto_index;
   config.salient.uuid = directory == kOtherStorageDirectory ? kOtherDbUuid : kDbUuid;
@@ -102,19 +123,64 @@ inline void Commit(ms::Storage::Accessor &acc) {
   ASSERT_TRUE(acc.PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
 }
 
+inline std::optional<ms::Gid> NewMainVertex(memgraph::dbms::Database &db) {
+  auto acc = db.Access(ms::WRITE);
+  const auto gid = acc->CreateVertex().Gid();
+  if (!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value()) return std::nullopt;
+  return gid;
+}
+
+inline std::map<std::string, std::string> FileContents(const std::filesystem::path &directory) {
+  std::map<std::string, std::string> files;
+  for (const auto &entry : std::filesystem::recursive_directory_iterator(directory)) {
+    if (!entry.is_regular_file()) continue;
+    std::ifstream in{entry.path(), std::ios::binary};
+    files.emplace(std::filesystem::relative(entry.path(), directory).string(),
+                  std::string{std::istreambuf_iterator<char>{in}, {}});
+  }
+  return files;
+}
+
+// Starts the database over kStorageDirectory and returns why each branch it set aside is unavailable, by name. A start
+// that throws fails the test: a damaged branch is set aside, never a reason to refuse startup.
+inline std::map<std::string, std::string> UnavailableAfterAStart() {
+  std::map<std::string, std::string> unavailable;
+  try {
+    TestDatabase db{MakeConfig(/*recover_on_startup=*/true)};
+    for (const auto &listing : db.version_store()->List()) {
+      if (listing.unavailable_reason) unavailable.emplace(listing.name, *listing.unavailable_reason);
+    }
+  } catch (const std::exception &e) {
+    ADD_FAILURE() << "the start must not fail over a damaged branch: " << e.what();
+  }
+  return unavailable;
+}
+
+// Everything a start that sets a branch aside must leave alone: main's snapshots and WAL and every branch file. The
+// trigger and stream stores are opened by every start.
+inline std::map<std::string, std::string> DurableFiles() {
+  auto files = FileContents(kStorageDirectory);
+  std::erase_if(files, [](const auto &file) {
+    return file.first.starts_with("triggers/") || file.first.starts_with("streams/");
+  });
+  return files;
+}
+
 inline std::filesystem::path BranchWalDir(uint64_t id, const std::filesystem::path &directory = kStorageDirectory) {
   return directory / "branches" / std::to_string(id) / "wal";
 }
 
-inline std::vector<std::filesystem::path> WalFiles(uint64_t id) {
+inline std::vector<std::filesystem::path> WalFilesIn(const std::filesystem::path &dir) {
   std::vector<std::filesystem::path> files;
-  if (!std::filesystem::exists(BranchWalDir(id))) return files;
-  for (const auto &entry : std::filesystem::directory_iterator(BranchWalDir(id))) {
+  if (!std::filesystem::exists(dir)) return files;
+  for (const auto &entry : std::filesystem::directory_iterator(dir)) {
     if (entry.is_regular_file()) files.push_back(entry.path());
   }
   std::ranges::sort(files);
   return files;
 }
+
+inline std::vector<std::filesystem::path> WalFiles(uint64_t id) { return WalFilesIn(BranchWalDir(id)); }
 
 // v1(:L:M {p:1, q:5}) -e1[:T {w:1}]-> v2(:M);  v3(:L) -e2[:T {w:2}]-> v1;  v4 -e3[:T {w:3}]-> v4.
 struct Base {
@@ -148,7 +214,6 @@ inline Base CreateBase(memgraph::dbms::Database &db, bool properties_on_edges = 
   return base;
 }
 
-// What a session reads of the branch, as plain data by names, plus what the branch's bookkeeping says about it.
 struct EdgeDump {
   uint64_t gid;
   std::string type;
@@ -172,7 +237,6 @@ struct Captured {
     return it == vertices.end() ? nullptr : &*it;
   }
 
-  // The vertex a test expects to exist; a missing one fails the test and yields an empty dump.
   const VertexDump &At(ms::Gid gid) const {
     static const VertexDump kMissing{};
     const auto *found = Find(gid);
@@ -213,8 +277,8 @@ inline std::map<std::string, std::string> Named(ms::Storage &st,
   return named;
 }
 
-// Base-delete counts, touched gates of every name the workloads use, and change filters of every base object. Replay
-// records only logged changes, so it must leave the same traces as the live run.
+// Base-delete counts, touched gates of the labels and properties the workloads name, and change filters of every base
+// object. Replay records only logged changes, so it must leave the same traces as the live run.
 inline std::string Bookkeeping(memgraph::dbms::Database &db, mv::BranchCore &core, const Base &base) {
   auto &st = *db.storage();
   std::ostringstream out;
@@ -240,11 +304,9 @@ inline std::string Bookkeeping(memgraph::dbms::Database &db, mv::BranchCore &cor
   return out.str();
 }
 
-inline Captured Capture(memgraph::dbms::Database &db, mv::BranchContext &ctx, const Base &base) {
+inline std::vector<VertexDump> ReadVertices(memgraph::dbms::Database &db, mv::BranchContext &ctx) {
   auto &st = *db.storage();
-  Captured captured;
-  auto diff_acc = ctx.diff_engine().Access(ms::READ);
-  EXPECT_TRUE(ctx.BeginTransaction(diff_acc.get()).has_value());
+  std::vector<VertexDump> vertices;
   for (auto v : ctx.Vertices(ms::View::NEW)) {
     VertexDump d;
     d.gid = v.Gid().AsUint();
@@ -259,10 +321,18 @@ inline Captured Capture(memgraph::dbms::Database &db, mv::BranchContext &ctx, co
                        .props = Named(st, *ctx.Properties(e, ms::View::NEW))});
     }
     std::ranges::sort(d.out, {}, &EdgeDump::gid);
-    captured.vertices.push_back(std::move(d));
+    vertices.push_back(std::move(d));
   }
+  std::ranges::sort(vertices, {}, &VertexDump::gid);
+  return vertices;
+}
+
+inline Captured Capture(memgraph::dbms::Database &db, mv::BranchContext &ctx, const Base &base) {
+  Captured captured;
+  auto diff_acc = ctx.diff_engine().Access(ms::READ);
+  EXPECT_TRUE(ctx.BeginTransaction(diff_acc.get()).has_value());
+  captured.vertices = ReadVertices(db, ctx);
   ctx.EndTransaction();
-  std::ranges::sort(captured.vertices, {}, &VertexDump::gid);
   captured.bookkeeping = Bookkeeping(db, *ctx.core(), base);
   return captured;
 }
@@ -304,13 +374,6 @@ inline std::unique_ptr<mv::BranchContext> Checkout(memgraph::dbms::Database &db,
   return std::make_unique<mv::BranchContext>(*core);
 }
 
-// Why Database startup set `name` aside, nullopt when it recovered.
-inline std::optional<std::string> UnavailableReason(memgraph::dbms::Database &db, std::string_view name) {
-  const auto listing = db.version_store()->Get(name);
-  EXPECT_TRUE(listing.has_value());
-  return listing ? listing->unavailable_reason : std::nullopt;
-}
-
 struct Env {
   memgraph::dbms::Database &db;
   mv::BranchContext &ctx;
@@ -350,20 +413,12 @@ struct Env {
   }
 };
 
-class RecoveryTest : public ::testing::Test {
- protected:
-  void SetUp() override {
-    ledger_kv.Reset();
-    std::filesystem::remove_all(kStorageDirectory);
-    std::filesystem::remove_all(kOtherStorageDirectory);
-  }
-
-  void TearDown() override {
-    ledger_kv.Reset();
-    std::filesystem::remove_all(kStorageDirectory);
-    std::filesystem::remove_all(kOtherStorageDirectory);
-  }
-};
+// Why Database startup set `name` aside, nullopt when it recovered.
+inline std::optional<std::string> UnavailableReason(memgraph::dbms::Database &db, std::string_view name) {
+  const auto listing = db.version_store()->Get(name);
+  EXPECT_TRUE(listing.has_value());
+  return listing ? listing->unavailable_reason : std::nullopt;
+}
 
 struct RoundTrip {
   Captured live;
@@ -402,6 +457,115 @@ inline RoundTrip RunRoundTrip(const std::function<void(Env &)> &workload, Option
   EXPECT_EQ(out.replayed.Render(), out.live.Render());
   EXPECT_EQ(DumpMain(db), main_before) << "branch writes must not reach main";
   return out;
+}
+
+class RecoveryTest : public ::testing::Test {
+ protected:
+  void SetUp() override {
+    ResetStorage();
+    std::filesystem::remove_all(kOtherStorageDirectory);
+  }
+
+  void TearDown() override {
+    ResetStorage();
+    std::filesystem::remove_all(kOtherStorageDirectory);
+  }
+};
+
+inline std::string ReadFile(const fs::path &path) {
+  std::ifstream in(path, std::ios::binary);
+  return {std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()};
+}
+
+inline void WriteFile(const fs::path &path, std::string_view data) {
+  std::ofstream out(path, std::ios::binary | std::ios::trunc);
+  out.write(data.data(), static_cast<std::streamsize>(data.size()));
+}
+
+struct DeltaSpan {
+  uint64_t begin{0};
+  uint64_t end{0};
+  bool on_base{false};
+};
+
+struct TxnSpan {
+  uint64_t begin{0};
+  uint64_t end{0};
+  std::vector<DeltaSpan> deltas;
+};
+
+// The byte range of every transaction of a cleanly finalized WAL, or of an unfinalized one with whole transactions;
+// `on_base` classifies each record.
+inline std::vector<TxnSpan> ReadWalSpans(
+    const fs::path &wal,
+    const std::function<bool(const dur::WalDeltaData &)> &on_base = [](const auto &) { return false; }) {
+  std::vector<TxnSpan> txns;
+  const auto header = dur::ReadWalHeader(wal);
+  dur::Decoder decoder;
+  const auto version = decoder.Initialize(wal, dur::kWalMagic);
+  if (!version || !decoder.SetPosition(header.offset_deltas)) {
+    ADD_FAILURE() << "cannot open " << wal;
+    return txns;
+  }
+  const uint64_t size = decoder.GetSize();
+  bool in_txn = false;
+  while (decoder.GetPosition() < size) {
+    const uint64_t begin = decoder.GetPosition();
+    static_cast<void>(dur::ReadWalDeltaHeader(&decoder));
+    const auto delta = dur::ReadWalDeltaData(&decoder, *version);
+    const uint64_t end = decoder.GetPosition();
+    if (!in_txn) {
+      txns.push_back({.begin = begin});
+      in_txn = true;
+    }
+    txns.back().deltas.push_back({.begin = begin, .end = end, .on_base = on_base(delta)});
+    if (dur::IsWalDeltaDataTransactionEnd(delta, *version)) {
+      txns.back().end = end;
+      in_txn = false;
+    }
+  }
+  EXPECT_FALSE(in_txn) << "the file ends inside a transaction";
+  return txns;
+}
+
+// The summary region of a never-finalized file: three zero values and their CRC trailer, as WalFile's constructor
+// writes them. Produced by the same encoder so the CRC is right by construction.
+inline std::string SummaryPlaceholder() {
+  const fs::path scratch{kStorageDirectory.string() + "_summary"};
+  {
+    dur::Encoder<memgraph::utils::OutputFile> encoder;
+    EXPECT_TRUE(encoder.Initialize(scratch));
+    encoder.ResetCrcAcc();
+    encoder.WriteUint(0);
+    encoder.WriteUint(0);
+    encoder.WriteUint(0);
+    encoder.WriteCrc();
+    encoder.Close();
+  }
+  auto bytes = ReadFile(scratch);
+  fs::remove(scratch);
+  return bytes;
+}
+
+// Leaves `wal` as a crash would have: only its first `keep` bytes, without the summary FinalizeWal wrote, and still
+// named as being written (`_current`; the new path goes to `crashed`). `wal` must be a cleanly finalized file.
+inline void CrashAt(const fs::path &wal, uint64_t keep, fs::path *crashed = nullptr) {
+  const auto header = dur::ReadWalHeader(wal);
+  constexpr uint64_t kSummaryBytes = 4 * (sizeof(dur::Marker) + sizeof(uint64_t));
+  const auto placeholder = SummaryPlaceholder();
+  ASSERT_EQ(placeholder.size(), kSummaryBytes);
+  ASSERT_GE(header.offset_deltas, kSummaryBytes);
+  auto bytes = ReadFile(wal);
+  bytes.replace(header.offset_deltas - kSummaryBytes, kSummaryBytes, placeholder);
+  bytes.resize(std::min<uint64_t>(keep, bytes.size()));
+  WriteFile(wal, bytes);
+  if (keep >= header.offset_deltas) {
+    ASSERT_FALSE(dur::ReadWalHeader(wal).summary.has_value()) << "the crash image must read as unfinalized";
+  }
+  const auto name = wal.filename().string();
+  const auto current = wal.parent_path() / (name.substr(0, name.find("_from_")) + "_current");
+  fs::rename(wal, current);
+  if (crashed != nullptr) *crashed = current;
 }
 
 }  // namespace memgraph::tests::versioning_recovery
