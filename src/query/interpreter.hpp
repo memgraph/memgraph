@@ -430,6 +430,11 @@ class Interpreter final {
   std::shared_ptr<utils::UserResources> user_resource_;
 #endif
   std::unique_ptr<CachedFineGrainedAuth> cached_fga_;
+#ifdef MG_ENTERPRISE
+  // Whether this session has already been told that its principal's fine-grained rules are not being
+  // applied. Tagging every result would bury the warning that matters in one per row-returning query.
+  bool unlicensed_fga_warned_{false};
+#endif
   SessionInfo session_info_;
   // Leaf lock for session_info_; only the foreign GetActiveUsersInfo reader locks (owning-thread reads serialized).
   mutable std::mutex session_info_mutex_;
@@ -647,6 +652,10 @@ class Interpreter final {
   // fixed at login; an SSO session recomputes it from its role names against the leader's committed role set on
   // every check, so REVOKE/DROP ROLE downgrades long-lived sessions without a reconnect.
   uint64_t EffectiveCoordinatorPermissions() const;
+
+  // True the first time it is asked in a session, so the warning that this principal's fine-grained
+  // rules are not being applied is raised once rather than on every query.
+  bool TakeUnlicensedFgaWarning() { return !std::exchange(unlicensed_fga_warned_, true); }
 #else
   void SetUser(std::shared_ptr<QueryUserOrRole> user);
 #endif

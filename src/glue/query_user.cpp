@@ -105,6 +105,29 @@ std::string QueryUserOrRole::GetDefaultDB() const {
   if (roles_) return roles_->GetMain();
   return std::string{dbms::kDefaultDB};
 }
+
+bool QueryUserOrRole::HasFineGrainedConfiguration() const {
+  // Read straight from the stored handlers: the merged getters answer for a database, while this
+  // question is about whether anything is configured at all.
+  auto const configured = [](auto const &fine_grained, auto const &properties) {
+    return !fine_grained.label_permissions().IsUnconfigured() ||
+           !fine_grained.edge_type_permissions().IsUnconfigured() || !properties.label_properties().IsUnconfigured() ||
+           !properties.edge_type_properties().IsUnconfigured();
+  };
+
+  if (user_ && configured(user_->fine_grained_access_handler(), user_->property_access_handler())) return true;
+  if (roles_) {
+    for (auto const &role : *roles_) {
+      if (configured(role.fine_grained_access_handler(), role.property_access_handler())) return true;
+    }
+  }
+  if (user_) {
+    for (auto const &role : user_->roles()) {
+      if (configured(role.fine_grained_access_handler(), role.property_access_handler())) return true;
+    }
+  }
+  return false;
+}
 #endif
 
 QueryUserOrRole::QueryUserOrRole(auth::SynchedAuth *auth, auth::UserOrRole user_or_role)

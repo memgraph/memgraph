@@ -4185,6 +4185,19 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
     memgraph::logging::EmitSessionTraceEvent(hint);
   }
 
+#ifdef MG_ENTERPRISE
+  // This principal's rules exist and are not being applied, so the rows this query returns may be
+  // ones it is denied. Said once in the session, on a query that could have been filtered.
+  if (!license::global_license_checker.IsEnterpriseValidFast() && user_or_role && *user_or_role &&
+      user_or_role->HasFineGrainedConfiguration() && interpreter.TakeUnlicensedFgaWarning()) {
+    notifications->emplace_back(SeverityLevel::WARNING,
+                                NotificationCode::UNLICENSED_ENTERPRISE_FEATURE,
+                                "Fine-grained access control is not enforced without a valid enterprise license, so "
+                                "the rules granted to this user or role are not being applied and results are not "
+                                "filtered by them. Check your license status by running SHOW LICENSE INFO.");
+  }
+#endif
+
   if (memgraph::logging::IsSessionTraceEnabled()) {
     std::stringstream printed_plan;
     plan::PrettyPrint(dba, &plan->plan(), &printed_plan);

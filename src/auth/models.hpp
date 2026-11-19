@@ -398,6 +398,9 @@ class FineGrainedAccessPermissions final {
 
   std::vector<FineGrainedAccessRule> const &GetRules() const { return rules_; }
 
+  /// True when nothing has ever been granted or denied here, so there is no rule to apply.
+  bool IsUnconfigured() const { return rules_.empty() && !global_grants_.has_value() && !global_denies_.has_value(); }
+
  private:
   std::optional<uint64_t> global_grants_;
   std::optional<uint64_t> global_denies_;
@@ -506,6 +509,9 @@ class PropertyAccessPermissions final {
   auto const &GetRules() const { return rules_; }
 
   auto const &GetGlobalRules() const { return global_; }
+
+  /// True when nothing has ever been granted or denied here, so there is no rule to apply.
+  bool IsUnconfigured() const { return rules_.empty() && global_.empty(); }
 
   bool HasUnrestrictedAccess() const;
 

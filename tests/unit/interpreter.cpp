@@ -31,6 +31,7 @@
 #include "disk_test_utils.hpp"
 #include "flags/experimental.hpp"
 #include "flags/run_time_configurable.hpp"
+#include "glue/auth_checker.hpp"
 #include "glue/communication.hpp"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
@@ -3095,6 +3096,45 @@ TYPED_TEST(InterpreterTest, CreatingAUserWithoutLicenseWarnsItWillBeDenied) {
 
   memgraph::license::global_license_checker.EnableTesting();
   EXPECT_THAT(notifications("CREATE USER carol"), ::testing::Not(::testing::Contains(unlicensed_warning)));
+}
+
+// The one warning that reports the exposure itself: this user's rules exist and are not being
+// applied, so the rows just returned may be ones they are denied. Once per session, not per query.
+TYPED_TEST(InterpreterTest, AQueryWarnsOnceWhenThisUsersRulesAreNotApplied) {
+  memgraph::license::global_license_checker.EnableTesting();
+  AuthQueryHandlerFixture auth{this->data_directory / "auth_ignored_rules"};
+  memgraph::glue::AuthChecker checker{&auth.auth};
+  this->interpreter_context.auth = &auth.handler;
+  this->interpreter_context.auth_checker = &checker;
+
+  auto user = *memgraph::auth::AddUser(*auth.auth.Lock(), "alice");
+  user.permissions().Grant(memgraph::auth::Permission::MATCH);
+  user.fine_grained_access_handler().label_permissions().GrantGlobal(memgraph::auth::kAllLabelPermissions);
+  user.fine_grained_access_handler().label_permissions().Deny({"Secret"}, memgraph::auth::kAllLabelPermissions);
+  auth.auth->SaveUser(user);
+  this->default_interpreter.interpreter.SetUser(checker.GenQueryUser("alice", {}));
+
+  using CodeAndSeverity = std::pair<std::string, std::string>;
+  auto const notifications = [this](std::string const &query) {
+    auto [stream, qid] = this->Prepare(query);
+    this->Pull(&stream);
+    std::vector<CodeAndSeverity> result;
+    if (stream.GetSummary().contains("notifications")) {
+      for (auto const &notification : stream.GetSummary().at("notifications").ValueList()) {
+        auto const &map = notification.ValueMap();
+        result.emplace_back(map.at("code").ValueString(), map.at("severity").ValueString());
+      }
+    }
+    return result;
+  };
+
+  auto const unlicensed_warning = CodeAndSeverity{"UnlicensedEnterpriseFeature", "WARNING"};
+
+  EXPECT_THAT(notifications("MATCH (n) RETURN n"), ::testing::Not(::testing::Contains(unlicensed_warning)));
+
+  const UnlicensedScope unlicensed;
+  EXPECT_THAT(notifications("MATCH (n) RETURN n"), ::testing::Contains(unlicensed_warning));
+  EXPECT_THAT(notifications("MATCH (n) RETURN n"), ::testing::Not(::testing::Contains(unlicensed_warning)));
 }
 
 TYPED_TEST(InterpreterTest, DenyDatabaseFromWarnsItIsDeprecated) {
