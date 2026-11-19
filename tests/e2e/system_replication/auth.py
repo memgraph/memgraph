@@ -1058,6 +1058,27 @@ def test_auth_replication(connection, test_name):
     except mgclient.DatabaseError:
         pass  # Expected
 
+    # A role's grant overrides a user's weak deny on the replicas too
+    execute_and_fetch_all(cursor_main, "CREATE USER weak_reader")
+    execute_and_fetch_all(cursor_main, "WEAK DENY MATCH TO weak_reader")
+    execute_and_fetch_all(cursor_main, "CREATE ROLE matcher")
+    execute_and_fetch_all(cursor_main, "GRANT MATCH TO matcher")
+    execute_and_fetch_all(cursor_main, "GRANT DATABASE * TO matcher")
+    execute_and_fetch_all(cursor_main, "SET ROLE FOR weak_reader TO matcher")
+
+    def match_as_weak_reader(port):
+        def run():
+            try:
+                cursor = connect(host="localhost", port=port, username="weak_reader", password="").cursor()
+                return execute_and_fetch_all(cursor, "MATCH (n) RETURN count(n) >= 0")
+            except mgclient.DatabaseError as e:
+                return str(e)
+
+        return run
+
+    for replica in ("replica_1", "replica_2"):
+        mg_sleep_and_assert([(True,)], match_as_weak_reader(BOLT_PORTS[replica]))
+
     # Clean up
     interactive_mg_runner.stop_all(keep_directories=False)
 

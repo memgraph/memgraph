@@ -1279,6 +1279,8 @@ TEST(AuthWithoutStorage, PermissionsWeakDeny) {
   ASSERT_EQ(permissions.weak_denies(), 0);
 
   permissions.Deny(Permission::MATCH, DenyStrength::WEAK);
+  ASSERT_EQ(permissions.strong_denies(), 0);
+  ASSERT_EQ(permissions.weak_denies(), match);
   permissions.Grant(Permission::MATCH);
   ASSERT_EQ(permissions.Has(Permission::MATCH), PermissionLevel::GRANT);
   ASSERT_EQ(permissions.weak_denies(), 0);
@@ -1326,6 +1328,9 @@ TEST(AuthWithoutStorage, PermissionsSerializeWeakDeny) {
   auto const weak_only = Permissions::Deserialize(
       {{"grants", uint64_t{0}}, {"denies", uint64_t{0}}, {"weak_denies", std::to_underlying(Permission::MATCH)}});
   ASSERT_EQ(weak_only.Has(Permission::MATCH), PermissionLevel::DENY);
+
+  ASSERT_THROW(Permissions::Deserialize({{"grants", uint64_t{0}}, {"denies", uint64_t{0}}, {"weak_denies", "MATCH"}}),
+               AuthException);
 }
 
 TEST(AuthWithoutStorage, UserRolePermissionsWeakDeny) {
@@ -1346,6 +1351,17 @@ TEST(AuthWithoutStorage, UserRolePermissionsWeakDeny) {
   user_roles.AddRole(Role{"engineer", weak});
   user_roles.AddRole(Role{"hr", grant});
   ASSERT_EQ(user_roles.GetPermissions().Has(Permission::MATCH), PermissionLevel::GRANT);
+
+  Role worker{"worker", weak};
+  worker.db_access().Grant("db1");
+  worker.db_access().Grant("db2");
+  Role ceo{"ceo", grant};
+  ceo.db_access().Grant("db1");
+  User user_scoped{"dave"};
+  user_scoped.AddRole(worker);
+  user_scoped.AddRole(ceo);
+  ASSERT_EQ(user_scoped.GetPermissions("db1").Has(Permission::MATCH), PermissionLevel::GRANT);
+  ASSERT_EQ(user_scoped.GetPermissions("db2").Has(Permission::MATCH), PermissionLevel::DENY);
 }
 
 #ifdef MG_ENTERPRISE
@@ -2262,6 +2278,10 @@ TEST(AuthWithoutStorage, PropertyAccessPermissionsWeakDeny) {
   EXPECT_EQ(Merge(Merge(weak, grant), strong).Has(emp, "salary", read), PermissionLevel::DENY);
   EXPECT_EQ(Merge(strong, Merge(weak, grant)).Has(emp, "salary", read), PermissionLevel::DENY);
 
+  PropertyAccessPermissions other_rule;
+  other_rule.Grant({"Employee", "Contractor"}, "salary", read);
+  EXPECT_EQ(Merge(weak, other_rule).Has(emp, "salary", read), PermissionLevel::DENY);
+
   PropertyAccessPermissions wildcard;
   wildcard.Grant({"Employee"}, "*", read);
   auto const with_wildcard = Merge(weak, wildcard);
@@ -2271,6 +2291,13 @@ TEST(AuthWithoutStorage, PropertyAccessPermissionsWeakDeny) {
   PropertyAccessPermissions regranted = weak;
   regranted.Grant({"Employee"}, "salary", read);
   EXPECT_EQ(regranted, grant);
+
+  PropertyAccessPermissions weakened = strong;
+  weakened.Deny({"Employee"}, "salary", read, MatchingMode::ANY, DenyStrength::WEAK);
+  EXPECT_EQ(weakened, weak);
+  PropertyAccessPermissions strengthened = weak;
+  strengthened.Deny({"Employee"}, "salary", read);
+  EXPECT_EQ(strengthened, strong);
 
   PropertyAccessPermissions weak_wildcard_after_strong = strong;
   weak_wildcard_after_strong.Deny({"Employee"}, "*", read, MatchingMode::ANY, DenyStrength::WEAK);
@@ -2626,6 +2653,26 @@ TEST(AuthWithFineGrainedTest, WeakDeny) {
   FineGrainedAccessPermissions regranted = weak;
   regranted.Grant({"Person"}, read);
   ASSERT_EQ(regranted, grant);
+
+  FineGrainedAccessPermissions weakened = strong;
+  weakened.Deny({"Person"}, read, MatchingMode::ANY, DenyStrength::WEAK);
+  ASSERT_EQ(weakened, weak);
+  FineGrainedAccessPermissions strengthened = weak;
+  strengthened.Deny({"Person"}, read);
+  ASSERT_EQ(strengthened, strong);
+
+  Role worker{"worker"};
+  worker.db_access().Grant("db1");
+  worker.db_access().Grant("db2");
+  worker.fine_grained_access_handler().label_permissions() = weak;
+  Role ceo{"ceo"};
+  ceo.db_access().Grant("db1");
+  ceo.fine_grained_access_handler().label_permissions() = grant;
+  User user{"alice"};
+  user.AddRole(worker);
+  user.AddRole(ceo);
+  ASSERT_EQ(user.GetFineGrainedAccessLabelPermissions("db1").Has(person, read), PermissionLevel::GRANT);
+  ASSERT_EQ(user.GetFineGrainedAccessLabelPermissions("db2").Has(person, read), PermissionLevel::DENY);
 }
 
 TEST(AuthWithFineGrainedTest, GlobalWeakDeny) {
