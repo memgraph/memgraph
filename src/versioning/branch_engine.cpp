@@ -82,6 +82,8 @@ storage::Config DiffEngineConfig(const storage::Config &main_config, storage::St
   config.salient.items.properties_on_edges = true;
   // Overlays and native edges are all heavy, so teardown frees nothing by hand.
   config.salient.items.storage_light_edge = false;
+  // Main's telemetry label counts are not the diff engine's.
+  config.track_label_counts = false;
   // Narrowing is unbenched on the diff engine, so branch commits keep the full commit lock.
   config.experimental_commit_lock_narrowing = false;
   // config.gc stays main's: the diff engine needs its own GC or committed branch deltas are never freed while another
@@ -99,8 +101,9 @@ storage::Config DiffEngineConfig(const storage::Config &main_config, storage::St
   return config;
 }
 
-std::expected<std::shared_ptr<BranchCore>, BranchCore::BuildError> BranchCore::Build(
-    storage::InMemoryStorage &main, uint64_t fork_ts, std::optional<RecordedFloors> recorded) {
+std::expected<std::shared_ptr<BranchCore>, BranchCore::BuildError> BranchCore::Build(storage::InMemoryStorage &main,
+                                                                                     const ForkPoint &fork,
+                                                                                     uint64_t fork_ts) {
   const memory::DbArenaScope db_arena_scope{main.DbArenaPool()};
 
   // Pinned first so an unpinned fork fails before the diff engine is built; the accessor's shared hold also keeps
@@ -116,53 +119,36 @@ std::expected<std::shared_ptr<BranchCore>, BranchCore::BuildError> BranchCore::B
   // Only the unreleased-delta gauge is shared, so branch memory shows up under the tenant.
   metrics::DatabaseMetricHandles metric_handles{};
   metric_handles.unreleased_delta_objects = main.metric_handles_.unreleased_delta_objects;
-  auto diff_engine = std::make_unique<storage::InMemoryStorage>(config,
-                                                                std::nullopt,
-                                                                std::make_unique<storage::PlanInvalidatorDefault>(),
-                                                                metric_handles,
-                                                                nullptr,
-                                                                main.DbArenaPool(),
-                                                                nullptr,
-                                                                storage::durability::HistoryBounds{},
-                                                                main.GetSharedNameIdMapper());
+  auto diff_engine = std::make_unique<storage::InMemoryStorage>(
+      config,
+      std::nullopt,
+      std::make_unique<storage::PlanInvalidatorDefault>(),
+      metric_handles,
+      nullptr,
+      main.DbArenaPool(),
+      nullptr,
+      main.GetSharedNameIdMapper(),
+      storage::durability::HistoryBounds{},
+      storage::RetainedGidFloors{.vertex = fork.vertex_gid_floor, .edge = fork.edge_gid_floor});
   diff_engine->ReportNameOf(main);
 
   // Done before the core is visible to any session, so the diff engine never needs UNIQUE access afterwards.
   MirrorMainEnumsIntoDiffEngine(*diff_engine, historical->GetEnumStoreShared());
 
-  // Read after the fork pin: gids visible at fork_ts are below the floors, every later allocation is at or above.
-  return std::shared_ptr<BranchCore>(
-      new BranchCore(&main,
-                     fork_ts,
-                     std::move(diff_engine),
-                     recorded ? recorded->vertex_gid_floor : main.vertex_id_.load(std::memory_order_acquire),
-                     recorded ? recorded->edge_gid_floor : main.edge_id_.load(std::memory_order_acquire)));
+  return std::shared_ptr<BranchCore>(new BranchCore(&main, fork, fork_ts, std::move(diff_engine)));
 }
 
-BranchCore::BranchCore(storage::InMemoryStorage *main, uint64_t fork_ts,
-                       std::unique_ptr<storage::InMemoryStorage> diff_engine, uint64_t vertex_gid_floor,
-                       uint64_t edge_gid_floor)
+BranchCore::BranchCore(storage::InMemoryStorage *main, const ForkPoint &fork, uint64_t fork_ts,
+                       std::unique_ptr<storage::InMemoryStorage> diff_engine)
     : main_(main),
+      fork_(fork),
       fork_ts_(fork_ts),
-      vertex_gid_floor_(vertex_gid_floor),
-      edge_gid_floor_(edge_gid_floor),
-      vertex_gid_ceiling_(vertex_gid_floor),
-      edge_gid_ceiling_(edge_gid_floor),
-      diff_engine_(std::move(diff_engine)) {
+      diff_engine_(std::move(diff_engine)),
+      overlay_index_(fork.vertex_gid_floor) {
   // Overlays keep base gids and the diff engine's index scans skip entries at or above its own counters, so the
   // counters start at the floors; native gids come from main's counters and raise these again by fetch_max.
-  atomic_fetch_max_explicit(&diff_engine_->vertex_id_, vertex_gid_floor_, std::memory_order_acq_rel);
-  atomic_fetch_max_explicit(&diff_engine_->edge_id_, edge_gid_floor_, std::memory_order_acq_rel);
-}
-
-void BranchCore::ReserveNativeGid(GidKind kind, uint64_t gid) {
-  auto &known = kind == GidKind::kVertex ? vertex_gid_ceiling_ : edge_gid_ceiling_;
-  if (gid < known.load(std::memory_order_acquire)) [[likely]]
-    return;
-  if (!gid_reserver_) return;
-  const auto ceiling = gid_reserver_(kind, gid + 1);
-  if (!ceiling) throw utils::BasicException("{}", ceiling.error());
-  atomic_fetch_max_explicit(&known, *ceiling, std::memory_order_release);
+  atomic_fetch_max_explicit(&diff_engine_->vertex_id_, fork_.vertex_gid_floor, std::memory_order_acq_rel);
+  atomic_fetch_max_explicit(&diff_engine_->edge_id_, fork_.edge_gid_floor, std::memory_order_acq_rel);
 }
 
 // Reset first: the diff engine's deltas and indexes point at overlays owned by the overlay indexes.

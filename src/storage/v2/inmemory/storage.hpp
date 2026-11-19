@@ -170,11 +170,11 @@ class InMemoryStorage final : public Storage {
                            metrics::DatabaseMetricHandles metric_handles = {},
                            std::function<storage::DatabaseProtectorPtr()> database_protector_factory = nullptr,
                            memgraph::memory::ArenaPool *db_arena = nullptr,
-                           utils::MemoryTracker *db_embedding_memory_tracker = nullptr
+                           utils::MemoryTracker *db_embedding_memory_tracker = nullptr,
+                           std::shared_ptr<storage::NameIdMapper> shared_name_id_mapper = nullptr
 #ifdef MG_ENTERPRISE
                            ,
-                           durability::HistoryBounds history_bounds = {}, RetainedGidFloors retained_gid_floors = {},
-                           std::shared_ptr<storage::NameIdMapper> shared_name_id_mapper = nullptr
+                           durability::HistoryBounds history_bounds = {}, RetainedGidFloors retained_gid_floors = {}
 #endif
   );
 
@@ -978,6 +978,10 @@ class InMemoryStorage final : public Storage {
 
   // Oldest live fork pin, or kNoForkPin if none; the bound GC and fast-discard clamp to.
   uint64_t OldestForkPin() const;
+
+  RetainedGidFloors retained_gid_floors() const {
+    return {.vertex = retained_vertex_floor_, .edge = retained_edge_floor_};
+  }
 
   enum class HistoricalAccessError : uint8_t {
     // `fork_ts` is not a live pin: never registered, or already released.

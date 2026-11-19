@@ -61,6 +61,7 @@ std::unique_ptr<ms::InMemoryStorage> MakeStorage(bool floors) {
                                                                 nullptr,
                                                                 nullptr,
                                                                 nullptr,
+                                                                nullptr,
                                                                 memgraph::storage::durability::HistoryBounds{},
                                                                 ms::RetainedGidFloors{.vertex = kFloor, .edge = kFloor})
                         : std::make_unique<ms::InMemoryStorage>(config);

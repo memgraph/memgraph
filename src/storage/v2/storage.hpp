@@ -277,13 +277,9 @@ class Storage {
   Storage(Config config, StorageMode storage_mode, PlanInvalidatorPtr invalidator,
           metrics::DatabaseMetricHandles metric_handles = {}, memory::ArenaPool *db_arena_pool = nullptr,
           utils::MemoryTracker *db_embedding_memory_tracker = nullptr,
-          std::function<std::unique_ptr<DatabaseProtector>()> database_protector_factory = nullptr
-#ifdef MG_ENTERPRISE
-          ,
+          std::function<std::unique_ptr<DatabaseProtector>()> database_protector_factory = nullptr,
           // Non-null: shared instead of constructing this storage's own.
-          std::shared_ptr<NameIdMapper> shared_name_id_mapper = nullptr
-#endif
-  );
+          std::shared_ptr<NameIdMapper> shared_name_id_mapper = nullptr);
 
   Storage(const Storage &) = delete;
   Storage(Storage &&) = delete;
@@ -480,11 +476,7 @@ class Storage {
   // Set when durability recovery failed and the storage was brought up empty.
   std::atomic<bool> broken_{false};
 
-#ifdef MG_ENTERPRISE
   std::shared_ptr<NameIdMapper> name_id_mapper_;
-#else
-  std::unique_ptr<NameIdMapper> name_id_mapper_;
-#endif
   Config config_;
 #ifdef MG_ENTERPRISE
   const Storage *name_source_{nullptr};
