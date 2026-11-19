@@ -46,7 +46,7 @@ struct GaugeHandle {
   }
 };
 
-// A value of a counter's label, and the name its counter has in SHOW METRICS INFO and the JSON endpoint.
+// A value of a metric's label, and the name its series has in SHOW METRICS INFO.
 struct CounterLabelValue {
   std::string_view label;
   std::string_view info_name;
@@ -65,7 +65,11 @@ inline constexpr std::array<CounterLabelValue, 4> kAbortedQueryReasons{{
 enum class QueryOutcome : uint8_t { SUCCESS, FAILURE, ABORTED };
 
 // Indexed by QueryOutcome.
-inline constexpr std::array<std::string_view, 3> kQueryOutcomes{"success", "failure", "aborted"};
+inline constexpr std::array<CounterLabelValue, 3> kQueryOutcomes{{
+    {.label = "success", .info_name = "QueryDurationSuccess"},
+    {.label = "failure", .info_name = "QueryDurationFailure"},
+    {.label = "aborted", .info_name = "QueryDurationAborted"},
+}};
 
 struct CounterHandle {
   prometheus::Counter *counter{nullptr};

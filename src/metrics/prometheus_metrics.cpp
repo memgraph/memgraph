@@ -97,7 +97,7 @@ auto AddQueryDurations(prometheus::Family<prometheus::Histogram> &family, promet
     -> std::array<HistogramHandle, kQueryOutcomes.size()> {
   std::array<HistogramHandle, kQueryOutcomes.size()> histograms;
   for (auto const &[histogram, outcome] : rv::zip(histograms, kQueryOutcomes)) {
-    labels.insert_or_assign("outcome", std::string{outcome});
+    labels.insert_or_assign("outcome", std::string{outcome.label});
     histogram.histogram = &family.Add(labels, kLatencyBuckets);
   }
   return histograms;
@@ -523,10 +523,11 @@ PrometheusMetrics::PrometheusMetrics()
                                    .Name("memgraph_transient_errors_total")
                                    .Help("Total number of transient errors")
                                    .Register(registry_)},
-      aborted_queries_family_{prometheus::BuildCounter()
-                                  .Name("memgraph_aborted_queries_total")
-                                  .Help("Number of queries aborted, by reason")
-                                  .Register(registry_)},
+      aborted_queries_family_{
+          prometheus::BuildCounter()
+              .Name("memgraph_aborted_queries_total")
+              .Help("Number of queries aborted, by reason. A memory limit hit inside a procedure counts as a failure.")
+              .Register(registry_)},
       unreleased_delta_objects_family_{prometheus::BuildGauge()
                                            .Name("memgraph_unreleased_delta_objects")
                                            .Help("Total number of unreleased delta objects in memory")
@@ -1750,11 +1751,8 @@ std::expected<std::vector<MetricInfo>, std::string> PrometheusMetrics::GetDbMetr
 
   // Query
   AppendHistogramPercentiles(out, "QueryExecutionLatency", "Query", *h.query_execution_latency_seconds.get());
-  // Indexed by QueryOutcome, as kQueryOutcomes.
-  static constexpr std::array kQueryDurationInfoNames{
-      "QueryDurationSuccess", "QueryDurationFailure", "QueryDurationAborted"};
-  for (auto const &[histogram, name] : rv::zip(h.query_duration_seconds, kQueryDurationInfoNames)) {
-    AppendHistogramPercentiles(out, name, "Query", *histogram.get());
+  for (auto const &[histogram, outcome] : rv::zip(h.query_duration_seconds, kQueryOutcomes)) {
+    AppendHistogramPercentiles(out, std::string{outcome.info_name}, "Query", *histogram.get());
   }
 
   // Snapshot

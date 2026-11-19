@@ -9264,6 +9264,7 @@ class CallProcedureCursor : public Cursor {
 
       if (result_.error_msg) {
         memgraph::utils::MemoryTracker::OutOfMemoryExceptionBlocker blocker;
+        ThrowIfAborting(context.stopping_context);
         throw QueryRuntimeException("{}: {}", self_->procedure_name_, *result_.error_msg);
       }
 

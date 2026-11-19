@@ -25,6 +25,7 @@
 #include "dbms/database_protector.hpp"
 #include "flags/run_time_configurable.hpp"
 #include "memory/db_arena_fwd.hpp"
+#include "metrics/metric_handles.hpp"
 #include "query/context.hpp"
 #include "query/cypher_query_interpreter.hpp"
 #include "query/db_accessor.hpp"
@@ -44,7 +45,6 @@
 #include "coordination/instance_status.hpp"
 #include "coordination/replication_lag_info.hpp"
 #include "coordination/utils.hpp"
-#include "metrics/metric_handles.hpp"
 #include "metrics/scoped_gauge.hpp"
 #include "utils/resource_monitoring.hpp"
 #endif
@@ -963,6 +963,7 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
   } catch (const ExplicitTransactionUsageException &e) {
     memgraph::logging::EmitSessionTraceEvent(e.what());
     MaybeEmitFailedQueryLog(FailedQueryText(captured_query_string, query_execution), e.what());
+    ObserveQueryDuration(query_seconds(), metrics::QueryOutcome::FAILURE);
     query_execution.reset(nullptr);
     throw;
   } catch (const utils::BasicException &e) {
