@@ -455,16 +455,13 @@ void JsonWriter::EnterGroup(Group group) {
   }
   group_ = group;
   group_has_elements_ = false;
-  emitted_ids_.clear();
 }
 
 void JsonWriter::EmitElement(const Json &element) {
   const auto text = DumpElement(element);
   if (config_.format == JsonFormat::kJsonIdAsKeys) {
-    auto id = element.at(kKeyId).get<std::string>();
-    if (!emitted_ids_.insert(id).second) return;
     if (group_has_elements_) Emit(",");
-    Emit(Json(id).dump());
+    Emit(element.at(kKeyId).dump());
     Emit(":");
   } else if (config_.format == JsonFormat::kJson) {
     if (group_has_elements_) Emit(",");
@@ -487,6 +484,11 @@ void JsonWriter::AddNode(const mgp::Node &node) {
   // path, and skipping it made a sink-less call report success for a graph the very same call cannot export.
   EnterGroup(Group::kNodes);
   EmitElement(NodeToJson(node, config_.write_node_properties ? &properties : nullptr));
+}
+
+void JsonWriter::CountNode(const mgp::Node &node) {
+  property_count_ += node.Properties().size();
+  ++node_count_;
 }
 
 void JsonWriter::AddRelationship(const mgp::Relationship &relationship) {

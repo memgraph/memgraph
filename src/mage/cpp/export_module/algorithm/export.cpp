@@ -155,12 +155,19 @@ void RequireElements(mgp_list *list, mgp::Type type, const char *name, std::stri
   }
 }
 
-void AddNodes(JsonWriter &writer, const mgp::Graph &graph, mgp_list *nodes) {
+// Under JSON_ID_AS_KEYS ids are object keys, so a node the caller repeats is written once and still counted.
+void AddNodes(JsonWriter &writer, const mgp::Graph &graph, mgp_list *nodes, JsonFormat format) {
   if (nodes == nullptr) return;
   const auto size = mgp::list_size(nodes);
+  std::unordered_set<std::int64_t> written;
   for (size_t i = 0; i < size; ++i) {
     graph.CheckMustAbort();
-    writer.AddNode(mgp::Value(mgp::ref_type, mgp::list_at(nodes, i)).ValueNode());
+    const auto node = mgp::Value(mgp::ref_type, mgp::list_at(nodes, i)).ValueNode();
+    if (format != JsonFormat::kJsonIdAsKeys || written.insert(node.Id().AsInt()).second) {
+      writer.AddNode(node);
+    } else {
+      writer.CountNode(node);
+    }
   }
 }
 
@@ -267,7 +274,7 @@ void JsonData(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp
     const auto options = ParseOptions(Argument(args, 2), Argument(args, 3));
     const mgp::Graph graph{memgraph_graph};
     JsonWriter writer(options.write, options.file, Streaming(options));
-    AddNodes(writer, graph, OptionalList(Argument(args, 0), kArgumentNodes));
+    AddNodes(writer, graph, OptionalList(Argument(args, 0), kArgumentNodes), options.write.format);
     AddRelationships(writer, graph, OptionalList(Argument(args, 1), kArgumentRelationships));
     EmitResult(result, std::move(writer), options, kSourcePrefixData, started_at);
   } catch (const std::exception &e) {
@@ -321,7 +328,7 @@ void JsonGraph(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mg
     RequireElements(relationship_list, mgp::Type::Relationship, relationships_key, "relationships");
     const mgp::Graph graph{memgraph_graph};
     JsonWriter writer(options.write, options.file, Streaming(options));
-    AddNodes(writer, graph, nodes);
+    AddNodes(writer, graph, nodes, options.write.format);
     AddRelationships(writer, graph, relationship_list);
     EmitResult(result, std::move(writer), options, kSourcePrefixGraph, started_at);
   } catch (const std::exception &e) {
