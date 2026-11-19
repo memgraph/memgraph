@@ -8075,7 +8075,7 @@ RecoveredSnapshot LoadSnapshotVersion30(Decoder &snapshot, std::filesystem::path
 
       // Create TtlInfo and store it in recovery_info;
       ttl->Enable();
-      ttl->Configure(*should_run_edge_ttl);
+      if (!ttl->Running()) ttl->Configure(*should_run_edge_ttl);
       ttl->SetInterval(period, start_time);
       if (ttl_running.value()) {
         ttl->Resume();
@@ -8824,7 +8824,7 @@ RecoveredSnapshot LoadSnapshotVersion31(Decoder &snapshot, std::filesystem::path
 
       // Create TtlInfo and store it in recovery_info;
       ttl->Enable();
-      ttl->Configure(*should_run_edge_ttl);
+      if (!ttl->Running()) ttl->Configure(*should_run_edge_ttl);
       ttl->SetInterval(period, start_time);
       if (ttl_running.value()) {
         ttl->Resume();
@@ -9583,7 +9583,7 @@ RecoveredSnapshot LoadSnapshotVersion33(Decoder &snapshot, std::filesystem::path
 
       // Create TtlInfo and store it in recovery_info;
       ttl->Enable();
-      ttl->Configure(*should_run_edge_ttl);
+      if (!ttl->Running()) ttl->Configure(*should_run_edge_ttl);
       ttl->SetInterval(period, start_time);
       if (ttl_running.value()) {
         ttl->Resume();
@@ -10515,7 +10515,7 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
 
       // Create TtlInfo and store it in recovery_info;
       ttl->Enable();
-      ttl->Configure(*should_run_edge_ttl);
+      if (!ttl->Running()) ttl->Configure(*should_run_edge_ttl);
       ttl->SetInterval(period, start_time);
       if (ttl_running.value()) {
         ttl->Resume();
@@ -11334,7 +11334,7 @@ RecoveredSnapshot LoadSnapshotVersion36(Decoder &snapshot, std::filesystem::path
 
       // Create TtlInfo and store it in recovery_info;
       ttl->Enable();
-      ttl->Configure(*should_run_edge_ttl);
+      if (!ttl->Running()) ttl->Configure(*should_run_edge_ttl);
       ttl->SetInterval(period, start_time);
       if (ttl_running.value()) {
         ttl->Resume();
@@ -12135,7 +12135,7 @@ RecoveredSnapshot LoadSnapshotVersion34(Decoder &snapshot, std::filesystem::path
 
       // Create TtlInfo and store it in recovery_info;
       ttl->Enable();
-      ttl->Configure(*should_run_edge_ttl);
+      if (!ttl->Running()) ttl->Configure(*should_run_edge_ttl);
       ttl->SetInterval(period, start_time);
       if (ttl_running.value()) {
         ttl->Resume();
@@ -12953,7 +12953,7 @@ RecoveredSnapshot LoadSnapshotVersion35(Decoder &snapshot, std::filesystem::path
 
       // Create TtlInfo and store it in recovery_info;
       ttl->Enable();
-      ttl->Configure(*should_run_edge_ttl);
+      if (!ttl->Running()) ttl->Configure(*should_run_edge_ttl);
       ttl->SetInterval(period, start_time);
       if (ttl_running.value()) {
         ttl->Resume();
