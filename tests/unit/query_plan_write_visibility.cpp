@@ -315,6 +315,12 @@ TEST_F(WriteVisibilityPlan, RootProjectionAndCreateReadOld) {
   EXPECT_EQ(Views<CreateExpand>(plan), (std::vector{View::OLD}));
 }
 
+// A RETURN ends its leg, so after a write its subqueries read View::NEW, as on master; without a write, View::OLD.
+TEST_F(WriteVisibilityPlan, RootReturnSubqueryReadsNewAfterWrite) {
+  EXPECT_EQ(Views<ScanAll>(Plan("CREATE (:L) RETURN COUNT { MATCH (n:L) } AS c")), (std::vector{View::NEW}));
+  EXPECT_EQ(Views<ScanAll>(Plan("MATCH (m:L) RETURN COUNT { MATCH (n:L) } AS c")), (std::vector{View::OLD, View::OLD}));
+}
+
 // An entity created since the last barrier is not there at View::OLD, so a read of it falls back to View::NEW
 // (`ReadSeeingCreated`). A CREATE that reads only such entities reads View::NEW and skips the failed read.
 TEST_F(WriteVisibilityPlan, CreateReadingOnlyCreatedEntitiesReadsNew) {

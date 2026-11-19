@@ -668,6 +668,10 @@ TYPED_TEST(InterpreterTest, AnalyticalModeSkipsTheWriteVisibilityAdvances) {
         "CREATE (:L {p: 5}) CALL () { MATCH (n:L) WHERE n.p > 0 RETURN count(*) AS c } WITH c MATCH (m:L) WHERE m.p > "
         "0 "
         "RETURN c, count(m) AS d";
+    constexpr auto kC1 = "CREATE (:L {p: 5}) RETURN COUNT { MATCH (n:L) WHERE n.p > 0 } AS c";
+    constexpr auto kN2 =
+        "CREATE (:L {p: 5}) RETURN COUNT { MATCH (n:L) WHERE n.p > 0 } AS c UNION ALL MATCH (n:L) WHERE n.p > 0 AND "
+        "n.p < 30 SET n.p = n.p + 10 RETURN n.p AS c";
     using Rows = std::vector<std::vector<int64_t>>;
 
     struct Case {
@@ -704,7 +708,24 @@ TYPED_TEST(InterpreterTest, AnalyticalModeSkipsTheWriteVisibilityAdvances) {
          "CREATE (:Z) WITH 1 AS x MATCH (n:L) WHERE n.p > 0 AND n.p < 100 SET n.p = n.p + 10",
          true,
          {101, 102, 103, 104}},
+        // A root RETURN's subqueries read View::NEW after a write, as on master: they see the query's writes without
+        // the skipped advance. N2's writing leg still meets none of its own writes.
+        {"C1", kC1, true, {1, 2, 3, 4, 5}, {{5}}},
+        {"C2",
+         "MATCH (n:L) SET n.p = n.p + 10 RETURN n.p AS p, COUNT { MATCH (m:L) WHERE m.p > 10 } AS c ORDER BY p",
+         true,
+         {11, 12, 13, 14},
+         {{11, 4}, {12, 4}, {13, 4}, {14, 4}}},
+        {"N2", kN2, true, {5, 11, 12, 13, 14}, {{5}, {11}, {12}, {13}, {14}}},
+        {"B5",
+         "CREATE (:L {p: 5}) CALL () { MATCH (n:L) WHERE n.p > 0 RETURN count(n) AS c } RETURN c, COUNT { MATCH (m:L) "
+         "WHERE m.p > 0 } AS d",
+         true,
+         {1, 2, 3, 4, 5},
+         {{4, 5}}},
         {"X1 tx", kX1, false, {11, 12, 13, 14}},
+        {"C1 tx", kC1, false, {1, 2, 3, 4, 5}, {{5}}},
+        {"N2 tx", kN2, false, {11, 12, 13, 14, 15}, {{5}, {11}, {12}, {13}, {14}, {15}}},
         {"A1b tx", kA1b, false, {11, 12, 13, 14, 15}},
         {"V1 tx", kV1, false, {1, 2, 3, 4, 5}, {{0}, {5}}},
         {"D2 tx", kD2, false, {1, 2, 3, 4, 5}, {{5, 5}}},
@@ -750,8 +771,16 @@ TYPED_TEST(InterpreterTest, AnalyticalModeSkipsTheWriteVisibilityAdvances) {
       EXPECT_EQ(values("MATCH (n:L) RETURN n.p AS p ORDER BY p"), c.values);
     }
 
+    // A point-index subquery after a write plans Filter + ScanAll at View::NEW, as on master, and sees the new point.
+    this->Interpret("CREATE POINT INDEX ON :P(loc)");
+    setup(true);
+    EXPECT_EQ(values("CREATE (:P {loc: point({x: 1, y: 1})}) RETURN COUNT { MATCH (n:P) WHERE "
+                     "point.distance(n.loc, point({x: 0, y: 0})) < 5 } AS c"),
+              (std::vector<int64_t>{1}));
+
     this->Interpret("STORAGE MODE IN_MEMORY_TRANSACTIONAL");
     this->Interpret("MATCH (n) DETACH DELETE n");
+    this->Interpret("DROP POINT INDEX ON :P(loc)");
     this->Interpret("DROP INDEX ON :L(p)");
   }
 }
