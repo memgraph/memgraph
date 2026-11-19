@@ -5947,6 +5947,9 @@ PreparedQuery PrepareTtlQuery(ParsedQuery parsed_query, bool in_explicit_transac
 
   MG_ASSERT(current_db.db_acc_, "Time to live query expects a current DB");
   auto db_acc = *current_db.db_acc_;
+  if (db_acc->GetStorageMode() == storage::StorageMode::ON_DISK_TRANSACTIONAL) {
+    throw DisabledForOnDisk("TTL");
+  }
 
   MG_ASSERT(current_db.db_transactional_accessor_, "Time to live query expects a current DB transaction");
   auto *dba = &*current_db.execution_db_accessor_;

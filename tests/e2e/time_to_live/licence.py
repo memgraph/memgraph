@@ -45,10 +45,10 @@ def cleanup_after_test():
     interactive_mg_runner.kill_all(keep_directories=False)
 
 
-def start_licensed_by_settings(test_name):
+def start_licensed_by_settings(test_name, extra_args=()):
     description = {
         "main": {
-            "args": ["--bolt-port=7687", "--log-level=TRACE"],
+            "args": ["--bolt-port=7687", "--log-level=TRACE", *extra_args],
             "log_file": f"time_to_live/licence/{test_name}/main.log",
             "data_directory": f"time_to_live/licence/{test_name}/main",
         }
@@ -84,13 +84,34 @@ def test_ttl_deletes_nothing_without_licence(request):
     mg_sleep_and_assert(0, partial(ttl_nodes, cursor))
 
 
-def test_on_disk_ttl_deletes_nothing_without_licence(request):
+def test_ttl_on_resumed_tenant_deletes_nothing_without_licence(request):
     cursor = start_licensed_by_settings(request.node.name)
-    execute_and_fetch_all(cursor, "STORAGE MODE ON_DISK_TRANSACTIONAL;")
-    with pytest.raises(Exception):
-        execute_and_fetch_all(cursor, 'ENABLE TTL EVERY "1s";')
+    execute_and_fetch_all(cursor, "CREATE DATABASE tenant;")
+    execute_and_fetch_all(cursor, "USE DATABASE tenant;")
+    execute_and_fetch_all(cursor, 'ENABLE TTL EVERY "1s";')
+    execute_and_fetch_all(cursor, "USE DATABASE memgraph;")
+    execute_and_fetch_all(cursor, "SUSPEND DATABASE tenant;")
+    execute_and_fetch_all(cursor, "RESUME DATABASE tenant;")
+    execute_and_fetch_all(cursor, "USE DATABASE tenant;")
 
     set_organization_name(cursor, ORGANIZATION_NAME + "-invalid")
+    execute_and_fetch_all(cursor, "UNWIND range(1, 10) AS i CREATE (:TTL {ttl: 0});")
+    time.sleep(3)
+    assert ttl_nodes(cursor) == 10
+
+    set_organization_name(cursor, ORGANIZATION_NAME)
+    mg_sleep_and_assert(0, partial(ttl_nodes, cursor))
+
+
+@pytest.mark.parametrize("on_disk_at_startup", [False, True])
+def test_enable_ttl_refused_on_disk(request, on_disk_at_startup):
+    extra_args = ["--storage-mode=ON_DISK_TRANSACTIONAL"] if on_disk_at_startup else []
+    cursor = start_licensed_by_settings(request.node.name, extra_args)
+    if not on_disk_at_startup:
+        execute_and_fetch_all(cursor, "STORAGE MODE ON_DISK_TRANSACTIONAL;")
+    with pytest.raises(Exception, match="TTL is not supported for the OnDisk storage mode"):
+        execute_and_fetch_all(cursor, 'ENABLE TTL EVERY "1s";')
+
     execute_and_fetch_all(cursor, "UNWIND range(1, 10) AS i CREATE (:TTL {ttl: 0});")
     time.sleep(3)
     assert ttl_nodes(cursor) == 10
