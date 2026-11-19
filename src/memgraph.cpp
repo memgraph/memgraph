@@ -246,21 +246,35 @@ void WaitForShutdownSignal(const std::function<void()> &shutdown_fun) {
   shutdown_fun();
 }
 
+// The Bolt URI for reaching this server from the same machine (or container). A wildcard bind address is reached
+// through localhost; with TLS on, bolt+ssc accepts the server's certificate even when it is self-signed.
+std::string LocalBoltUri() {
+  std::string_view const address = FLAGS_bolt_address;
+  std::string host = "localhost";
+  if (!address.empty() && address != "0.0.0.0" && address != "::") {
+    host = address.contains(':') ? fmt::format("[{}]", address) : std::string{address};
+  }
+  auto const *scheme = FLAGS_bolt_cert_file.empty() ? "bolt" : "bolt+ssc";
+  return fmt::format("{}://{}:{}", scheme, host, FLAGS_bolt_port);
+}
+
 // Points users at Memgraph Agent: how to run it when it is installed (the Docker images ship it), otherwise where to
-// get it. Matches the hint mgconsole shows on startup.
+// get it. Matches the hint mgconsole shows on startup. mgagent doesn't connect to anything by default, so the command
+// includes --connect for this server.
 std::string MgAgentStartupMessage() {
   constexpr std::string_view kDescription = "Memgraph Agent (mgagent), an AI-powered terminal assistant for Memgraph";
   auto const *path = std::getenv("PATH");
   if (!memgraph::utils::FindExecutableInPath("mgagent", path ? path : "")) {
     return fmt::format("Try {}: https://memgraph.com/download#memgraph-agent", kDescription);
   }
+  auto const command = fmt::format("mgagent --connect {}", LocalBoltUri());
   // The images set this for telemetry; there mgagent runs inside the container, next to this server.
   auto const *telemetry_id = std::getenv("MEMGRAPH_TELEMETRY_ID");
   if (telemetry_id && std::string_view{telemetry_id} == "DOCKER") {
-    return fmt::format("{}, is installed in this image. Try it with: docker exec -it <container> mgagent",
-                       kDescription);
+    return fmt::format(
+        "{}, is installed in this image. Try it with: docker exec -it <container> {}", kDescription, command);
   }
-  return fmt::format("{}, is installed. Try it by running: mgagent", kDescription);
+  return fmt::format("{}, is installed. Try it by running: {}", kDescription, command);
 }
 
 // Cleans all folders and files that aren't necessary anymore
