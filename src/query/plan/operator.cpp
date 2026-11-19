@@ -6180,8 +6180,8 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
   if (!has_more || (buffer_size_.has_value() && pulled_ >= *buffer_size_)) {
     // Only the drain that owns this Delete takes its deletes; with any other on top they apply now.
     auto const &owners = context.delete_owners;
-    if (!has_more && self_.deferred_to_ != 0 && !owners.empty() && owners.back().first == self_.deferred_to_) {
-      owners.back().second->buffers.emplace_back(std::exchange(buffer_, {}), self_.detach_);
+    if (!has_more && self_.deferred_to_ != 0 && !owners.empty() && owners.back().drain_id == self_.deferred_to_) {
+      owners.back().list->buffers.emplace_back(std::exchange(buffer_, {}), self_.detach_);
     } else {
       ApplyDeleteBuffer(std::exchange(buffer_, {}), self_.detach_, context);
     }

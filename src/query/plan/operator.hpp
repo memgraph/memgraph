@@ -1463,7 +1463,12 @@ struct DeleteBuffer {
 
 /// The deletes a drain applies after its replay, in the order their Deletes ran out of input.
 struct DeferredDeletes {
-  std::vector<std::pair<DeleteBuffer, bool>> buffers;  // {what to delete, detach}
+  struct Pending {
+    DeleteBuffer buffer;
+    bool detach;
+  };
+
+  std::vector<Pending> buffers;
 };
 
 /// Deletes, maps the error and records the stats and the trigger objects, as a Delete does when its input ends.
