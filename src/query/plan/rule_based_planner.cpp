@@ -897,8 +897,7 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
     if (it == pending.end()) {
       return;
     }
-    auto op =
-        subquery_ctx_->planner->Plan(it->second, ViewAfterWrite(subquery_ctx_->write_occurred), BranchBoundSymbols());
+    auto op = subquery_ctx_->planner->Plan(it->second, ViewAfterWrite(subquery_ctx_->reads_new), BranchBoundSymbols());
     Bucket(position_).comprehensions.emplace_back(std::move(op), result_sym, it->second.expansion_symbols);
     pending.erase(it);
   }
@@ -914,8 +913,7 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
     if (it == subquery_ctx_->pending_subqueries.end()) {
       return;
     }
-    auto op =
-        subquery_ctx_->planner->PlanSubqueryBranch(it->second, subquery_ctx_->write_occurred, BranchBoundSymbols());
+    auto op = subquery_ctx_->planner->PlanSubqueryBranch(it->second, subquery_ctx_->reads_new, BranchBoundSymbols());
     auto const fold = impl::ToOperatorFold(it->second.fold);
     // Read before the operator is moved out, and only for the fold that has a column to read.
     auto const collected_column =
@@ -1431,7 +1429,7 @@ std::unordered_set<Symbol> GetSubqueryBoundSymbols(const std::vector<SingleQuery
     SubqueryContext subquery_ctx{.pending_comprehensions = empty_pending_pc,
                                  .pending_subqueries = empty_pending_subqueries,
                                  .planner = nullptr,
-                                 .write_occurred = false};
+                                 .reads_new = false};
     // No planning context here, hence no scoped `CALL` imports either.
     auto input_op = impl::GenWith(*with,
                                   nullptr,

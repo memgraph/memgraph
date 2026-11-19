@@ -64,16 +64,14 @@ struct SubqueryBranchPlanner {
   virtual std::unique_ptr<LogicalOperator> Plan(const PatternComprehensionMatching &matching, storage::View view,
                                                 const std::unordered_set<Symbol> &bound_symbols) = 0;
   /// Builds an EXISTS branch for a forced bool fold, i.e. without the deferred fold's `EvaluatePatternFilter` tail.
-  /// Takes @p write_occurred rather than a view, because the branch has to pass the fact itself down to its own body,
+  /// Takes @p reads_new rather than a view, because the branch has to pass the fact itself down to its own body,
   /// not just the view it resolves to here.
-  virtual std::unique_ptr<LogicalOperator> PlanSubqueryBranch(const SubqueryMatching &matching, bool write_occurred,
+  virtual std::unique_ptr<LogicalOperator> PlanSubqueryBranch(const SubqueryMatching &matching, bool reads_new,
                                                               const std::unordered_set<Symbol> &bound_symbols) = 0;
 };
 
 /// The view of a fold or comprehension branch that must, or need not, see earlier writes (`ClauseReadsNew`).
-inline storage::View ViewAfterWrite(bool write_occurred) {
-  return write_occurred ? storage::View::NEW : storage::View::OLD;
-}
+inline storage::View ViewAfterWrite(bool reads_new) { return reads_new ? storage::View::NEW : storage::View::OLD; }
 
 /// Context for on-demand planning of correlated subqueries in RETURN/WITH bodies.
 struct SubqueryContext {
@@ -83,7 +81,7 @@ struct SubqueryContext {
   std::unordered_map<Symbol, SubqueryMatching> &pending_subqueries;
   SubqueryBranchPlanner *planner;
   /// Whether the clause's fold branches read View::NEW (`ClauseReadsNew`); feeds @c ViewAfterWrite.
-  bool write_occurred;
+  bool reads_new;
 };
 
 /// @brief Context which contains variables commonly used during planning.
@@ -325,9 +323,9 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
   }
 
   /// Implements SubqueryBranchPlanner interface
-  std::unique_ptr<LogicalOperator> PlanSubqueryBranch(const SubqueryMatching &matching, bool write_occurred,
+  std::unique_ptr<LogicalOperator> PlanSubqueryBranch(const SubqueryMatching &matching, bool reads_new,
                                                       const std::unordered_set<Symbol> &bound_symbols) override {
-    return MakeSubqueryBranch(matching, *context_->symbol_table, *context_->ast_storage, bound_symbols, write_occurred);
+    return MakeSubqueryBranch(matching, *context_->symbol_table, *context_->ast_storage, bound_symbols, reads_new);
   }
 
   /// @brief The result of plan generation is the root of the generated operator
@@ -638,7 +636,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
           SubqueryContext subquery_ctx{.pending_comprehensions = pending_comprehensions,
                                        .pending_subqueries = pending_subqueries,
                                        .planner = this,
-                                       .write_occurred = subqueries_read_new};
+                                       .reads_new = subqueries_read_new};
 
           // With and Return drain in their own Accumulate.
           auto const is_projection = utils::Downcast<Return>(clause) || utils::Downcast<query::With>(clause);
@@ -1608,7 +1606,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
       // ON MATCH binds the MERGE pattern into its own copy, so a branch comprehension correlating to one plans
       // against that copy rather than re-scanning.
       return SpliceSatisfiedComprehensions(
-          std::move(branch), pending_comprehensions, branch_bound_symbols, /*write_occurred=*/true, eligible);
+          std::move(branch), pending_comprehensions, branch_bound_symbols, /*reads_new=*/true, eligible);
     };
 
     on_match = splice_branch_comprehensions(std::move(on_match), merge.on_match_, bound_symbols_copy);
@@ -2135,15 +2133,14 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
   std::unique_ptr<LogicalOperator> SpliceSatisfiedComprehensions(
       std::unique_ptr<LogicalOperator> chain,
       std::unordered_map<Symbol, PatternComprehensionMatching> &pending_comprehensions,
-      const std::unordered_set<Symbol> &bound_symbols, bool write_occurred,
-      const std::unordered_set<Symbol> &eligible) {
+      const std::unordered_set<Symbol> &bound_symbols, bool reads_new, const std::unordered_set<Symbol> &eligible) {
     for (auto it = pending_comprehensions.begin(); it != pending_comprehensions.end();) {
       const auto &[sym, pc] = *it;
       if (!eligible.contains(sym) || !DepsSatisfied(pc, bound_symbols)) {
         ++it;
         continue;
       }
-      auto pc_op = Plan(pc, ViewAfterWrite(write_occurred), bound_symbols);
+      auto pc_op = Plan(pc, ViewAfterWrite(reads_new), bound_symbols);
       auto symbols = pc_op->ModifiedSymbols(*context_->symbol_table);
       chain = std::make_unique<RollUpApply>(std::move(chain), std::move(pc_op), symbols, sym);
       it = pending_comprehensions.erase(it);
@@ -2313,8 +2310,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
   /// form gets one from `Plan`, which seeds each query part of a body with it.
   std::unique_ptr<LogicalOperator> MakeSubqueryBranch(const SubqueryMatching &matching, const SymbolTable &symbol_table,
                                                       AstStorage &storage,
-                                                      const std::unordered_set<Symbol> &bound_symbols,
-                                                      bool write_occurred) {
+                                                      const std::unordered_set<Symbol> &bound_symbols, bool reads_new) {
     if (matching.type == SubqueryKind::kSubquery) {
       // Copy first: bound_symbols may alias context_->bound_symbols, and moving out of it would empty the very set
       // the branch has to correlate against.
@@ -2330,13 +2326,13 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
         context_->bound_symbols = std::move(outer_bound);
       }};
       context_->in_subquery_body = true;
-      subquery_branch_after_write_ = write_occurred;
+      subquery_branch_after_write_ = reads_new;
       context_->bound_symbols = std::move(branch_bound_symbols);
 
       // Every query part of a body is seeded with an Once, so this never comes back null.
       auto branch = Plan(*matching.subquery);
       // After a write every reader of the body reads View::NEW, as its MATCH does: ORDER BY, WHERE and UNWIND too.
-      if (write_occurred) impl::ReadNewThroughout(*branch);
+      if (reads_new) impl::ReadNewThroughout(*branch);
       return branch;
     }
 
@@ -2358,7 +2354,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
                             new_symbols,
                             named_paths,
                             filters,
-                            ViewAfterWrite(write_occurred));
+                            ViewAfterWrite(reads_new));
   }
 
   /// The deferred fold: the branch plus the tail that installs a closure into the frame. Only usable as a
