@@ -350,6 +350,37 @@ TEST_F(OwnBatchWrite, AnEarlierBatchsWriteDoesNotCount) {
 
 // An element the batch created before the scan opened is the scan's to see, after a commit too. Analytical mode
 // keeps no deltas, so there every advance counts as an earlier write.
+// An element the batch created in the scan's own command stays hidden at View::OLD after a batch commit.
+TEST_F(OwnBatchWrite, ALabelIndexScanHidesAnElementOfItsOwnCommand) {
+  Index([&](auto &acc) { return acc.CreateIndex(label).has_value(); });
+  auto const gids = Vertices();
+  auto acc = storage->Access(ms::WRITE);
+  ASSERT_TRUE(acc->CreateVertex().AddLabel(label).has_value());
+  std::vector<ms::Gid> seen;
+  for (auto vertex : acc->Vertices(label, ms::View::OLD)) {
+    seen.push_back(vertex.Gid());
+    ASSERT_TRUE(acc->PeriodicCommit(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+  acc->Abort();
+  EXPECT_EQ(seen, gids);
+}
+
+TEST_F(OwnBatchWrite, AnEdgeTypeIndexScanHidesAnElementOfItsOwnCommand) {
+  Index([&](auto &acc) { return acc.CreateIndex(edge_type).has_value(); });
+  auto const gids = Edges();
+  auto acc = storage->Access(ms::WRITE);
+  auto from = acc->CreateVertex();
+  auto to = acc->CreateVertex();
+  ASSERT_TRUE(acc->CreateEdge(&from, &to, edge_type).has_value());
+  std::vector<ms::Gid> seen;
+  for (auto edge : acc->Edges(edge_type, ms::View::OLD)) {
+    seen.push_back(edge.Gid());
+    ASSERT_TRUE(acc->PeriodicCommit(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+  acc->Abort();
+  EXPECT_EQ(seen, gids);
+}
+
 TEST_F(OwnBatchWrite, AnElementTheBatchCreatedBeforeTheScanStaysVisible) {
   for (auto mode : {ms::StorageMode::IN_MEMORY_TRANSACTIONAL, ms::StorageMode::IN_MEMORY_ANALYTICAL}) {
     SCOPED_TRACE(static_cast<int>(mode));

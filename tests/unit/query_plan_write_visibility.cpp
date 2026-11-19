@@ -559,6 +559,18 @@ TEST_F(WriteVisibilityPlan, ACloneKeepsTheAccessCheckFlag) {
             (Names{"EmptyResult", "SetLabels", "Accumulate+(access)", "SetLabels"}));
 }
 
+TEST_F(WriteVisibilityPlan, ACloneKeepsTheAnalyticalSkipFlag) {
+  auto const skips = [](LogicalOperator &root) {
+    return Collect<Accumulate>(root) |
+           std::views::transform([](auto const *acc) { return acc->skip_advance_in_analytical_; }) |
+           std::ranges::to<std::vector<bool>>();
+  };
+  auto &plan = Plan("MATCH (a:P), (b:P) SET a.x = b.x SET b.x = 0");
+  auto const original = skips(plan);
+  ASSERT_TRUE(std::ranges::any_of(original, std::identity{}));
+  EXPECT_EQ(skips(*plan.Clone(&storage_)), original);
+}
+
 // A subscript reads a node property as a lookup does, so its permission check waits for the label write.
 TEST_F(WriteVisibilityPlan, ASubscriptOnANodeReadsItsLabelsForTheAccessCheck) {
   EXPECT_TRUE(Access("MATCH (a) RETURN a['x'] AS v").reads.access_check.Any());
