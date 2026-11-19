@@ -7041,6 +7041,31 @@ void CheckParsedCallProcedure(const CypherQuery &query, Base &ast_generator,
 };
 }  // namespace
 
+TEST_P(CypherMainVisitorTest, StandaloneClauseAfterReturn) {
+  auto &ast_generator = *GetParam();
+  for (const auto *query :
+       {"UNWIND [1] AS a RETURN a LIMIT 1 ORDER BY a", "UNWIND [1] AS a RETURN a LIMIT 1 LIMIT 1"}) {
+    SCOPED_TRACE(query);
+    TestInvalidQueryWithMessage<SemanticException>(
+        query,
+        ast_generator,
+        "RETURN takes ORDER BY, SKIP and LIMIT once each, in that order: RETURN … ORDER BY … SKIP … LIMIT ….");
+  }
+  TestInvalidQueryWithMessage<SemanticException>(
+      "UNWIND [1] AS a RETURN a WITH a RETURN a", ast_generator, "RETURN can't be put before WITH.");
+}
+
+TEST_P(CypherMainVisitorTest, StandaloneClauseEndsQuery) {
+  auto &ast_generator = *GetParam();
+  for (const auto *query : {"UNWIND [1] AS a ORDER BY a", "UNWIND [1] AS a CREATE (:T {v: a}) LIMIT 1"}) {
+    SCOPED_TRACE(query);
+    TestInvalidQueryWithMessage<SemanticException>(
+        query, ast_generator, "A query cannot end with ORDER BY, SKIP or LIMIT; add a RETURN clause.");
+  }
+  TestInvalidQueryWithMessage<SemanticException>(
+      "UNWIND [1] AS a WITH a", ast_generator, "Query should either create or update something, or return results!");
+}
+
 TEST_P(CypherMainVisitorTest, CallProcedureMultipleQueryPartsAfter) {
   auto &ast_generator = *GetParam();
   static constexpr std::string_view fst{"fst"};
@@ -7069,6 +7094,14 @@ TEST_P(CypherMainVisitorTest, CallProcedureMultipleQueryPartsAfter) {
             query_str,
             ast_generator,
             "WITH can't be put after calling a writeable procedure, only RETURN clause can be put after.");
+      }
+      {
+        SCOPED_TRACE("Write proc, standalone ORDER BY");
+        TestInvalidQueryWithMessage<SemanticException>(
+            fmt::format("CALL {}() YIELD {},{} ORDER BY {} RETURN {}", write_proc, fst, snd, fst, fst),
+            ast_generator,
+            "ORDER BY, SKIP and LIMIT can't be put after calling a writeable procedure, only RETURN clause can be put "
+            "after.");
       }
       {
         SCOPED_TRACE("Read proc");
