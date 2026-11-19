@@ -537,7 +537,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
 
         // Compute all symbols that will be bound by this query part (from MATCH, CREATE, MERGE, etc.)
         // This is used to determine which comprehension symbols are external references vs. internal.
-        auto &symbols_bound_by_query_part = query_part_symbols_.all;
+        auto &symbols_bound_by_query_part = query_part_symbols_;
         // Add symbols from MATCH
         symbols_bound_by_query_part.insert(single_query_part.matching.expansion_symbols.begin(),
                                            single_query_part.matching.expansion_symbols.end());
@@ -823,7 +823,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
             }
             // Arguments and YIELD ... WHERE need opposite splice points, so this clause drains twice with the same
             // set and lets DepsSatisfied choose: a comprehension reading a YIELD symbol is refused below, where that
-            // symbol is registered in query_part_symbols_.all but not yet bound, and accepted above once it is.
+            // symbol is registered in query_part_symbols_ but not yet bound, and accepted above once it is.
             auto const eligible = impl::OriginatingIn(clause, pending_comprehensions);
             plan_and_apply_comprehensions(eligible);
             for (const auto &sym : result_symbols) {
@@ -1127,14 +1127,9 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
   /// on demand through `branch_sees_write`, and a body MATCH's WHERE reaches `MakeSubqueryFilter`.
   bool subquery_branch_after_write_{false};
 
-  /// What the query part being planned binds. Scoped to one query part and saved/restored around it, because a
-  /// subquery re-enters `PlanQueryPart` on this same object.
-  struct QueryPartSymbols {
-    /// Everything the part binds, wherever in it. A comprehension waits for these - see `DepsSatisfied`.
-    std::unordered_set<Symbol> all;
-  };
-
-  QueryPartSymbols query_part_symbols_;
+  /// Everything the query part being planned binds, wherever in it: a comprehension waits for these (`DepsSatisfied`).
+  /// Saved and restored around each part, because a subquery re-enters `Plan` on this same object.
+  std::unordered_set<Symbol> query_part_symbols_;
 
   storage::LabelId GetLabel(const LabelIx &label) { return context_->db->NameToLabel(label.name); }
 
@@ -2112,7 +2107,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
   /// an earlier part are not waited for. Every *early* drain must use this. The on-demand path in `ReturnBodyContext`
   /// needs no check, because a WITH/RETURN is the last clause of its query part.
   bool DepsSatisfied(const PatternComprehensionMatching &pc, const std::unordered_set<Symbol> &bound_symbols) const {
-    const auto &symbols_bound_by_query_part = query_part_symbols_.all;
+    const auto &symbols_bound_by_query_part = query_part_symbols_;
     // A symbol this part binds elsewhere must be bound already; one from an earlier part never waits.
     auto ready = [&](const Symbol &sym) {
       return !symbols_bound_by_query_part.contains(sym) || bound_symbols.contains(sym);
