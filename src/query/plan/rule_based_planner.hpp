@@ -345,10 +345,12 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
     bool const has_periodic_commit = query_parts.commit_frequency != nullptr;
     bool const is_root_query = !query_parts.is_subquery;
     auto const restore_scope = utils::OnScopeExit{[this, saved = read_scope_] { read_scope_ = saved; }};
-    // Batching is per level: USING PERIODIC COMMIT batches the whole query, an IN TRANSACTIONS call only its body
-    // (HandleSubquery). Each index scan hides what a later batch inserted, so a root barrier may still advance.
+    auto const restore_batches = utils::OnScopeExit{[this, saved = batches_] { batches_ = saved; }};
+    // A query that commits in batches plans its root as on master: no barrier, no UNION-leg or RETURN advance.
+    // A batch commit gives the query a new transaction, which a scan opened before an advance does not follow.
     if (is_root_query && !context.in_subquery_body) {
-      read_scope_ = has_periodic_commit ? ReadScope::kBatching : ReadScope::kRoot;
+      batches_ = batches_ || has_periodic_commit || CommitsInBatches(query_parts);
+      read_scope_ = batches_ ? ReadScope::kBatching : ReadScope::kRoot;
     }
 
     // in CALL with scoped variables, we immediately have some bound variables to work with
@@ -731,7 +733,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
                                        *context.ast_storage,
                                        subquery_ctx,
                                        query_parts.commit_frequency,
-                                       is_root_query,
+                                       is_root_query && !batches_,
                                        ScopeView());
           } else if (auto *merge = utils::Downcast<query::Merge>(clause)) {
             // ON CREATE / ON MATCH comprehensions originate here too; GenMerge splices each onto the branch that
@@ -1058,9 +1060,11 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
     kRoot,          ///< the root query: reads use View::OLD behind a barrier
     kReadOnlyTree,  ///< a CALL body tree that writes nothing: View::OLD, it runs before any later write
     kWritingTree,   ///< a root-level CALL body tree that writes: View::NEW, to see its own earlier rows
-    kBatching,      ///< periodic commit, or a read-only IN TRANSACTIONS body: no barriers, reads use View::NEW
+    kBatching,      ///< a batched query's root, or a read-only IN TRANSACTIONS body: no barriers, View::NEW reads
   };
   ReadScope read_scope_{ReadScope::kRoot};
+  /// The query being planned commits in batches: a periodic commit, or an IN TRANSACTIONS call anywhere in it.
+  bool batches_{false};
   /// The last id a drain that owns Deletes took: one counter for the root and every CALL body planned under it.
   uint64_t last_drain_id_{0};
   /// Symbols that hold data, never a graph entity (`MayHoldEntity` of what binds them: a WITH or RETURN item, an
@@ -1068,6 +1072,19 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
   std::unordered_set<Symbol> non_graph_symbols_;
 
   bool BarriersOn() const { return read_scope_ == ReadScope::kRoot || read_scope_ == ReadScope::kWritingTree; }
+
+  /// Whether `parts` commits in batches: a periodic commit, or an IN TRANSACTIONS call in any leg, branch or body.
+  static bool CommitsInBatches(const QueryParts &parts) {
+    auto const single_batches = [](const SingleQueryPart &single) {
+      return std::ranges::any_of(single.subqueries, [](const auto &body) { return CommitsInBatches(*body); });
+    };
+    return parts.commit_frequency != nullptr || std::ranges::any_of(parts.query_parts, [&](const QueryPart &part) {
+             return std::ranges::any_of(part.single_query_parts, single_batches) ||
+                    (part.conditional && std::ranges::any_of(part.conditional->branches, [](const auto &branch) {
+                       return CommitsInBatches(branch.body);
+                     }));
+           });
+  }
 
   /// A CALL body that writes nothing and runs once per input row, not in batches.
   static bool IsReadOnlyCall(const Clause &clause, const std::vector<std::shared_ptr<QueryParts>> &subqueries,
