@@ -590,6 +590,17 @@ bool EdgeAccessor::GetVectorInto(PropertyId property, View view, std::vector<flo
 
 Result<void> EdgeAccessor::ReadPropertyValues(OrderedPropertyPaths const &ordered_properties,
                                               std::span<PropertyValue> out, View view) const {
+  return ReadPropertyValuesImpl<false>(ordered_properties, out, view);
+}
+
+Result<void> EdgeAccessor::ReadPropertyValuesCompact(OrderedPropertyPaths const &ordered_properties,
+                                                     std::span<PropertyValue> out, View view) const {
+  return ReadPropertyValuesImpl<true>(ordered_properties, out, view);
+}
+
+template <bool kCompact>
+Result<void> EdgeAccessor::ReadPropertyValuesImpl(OrderedPropertyPaths const &ordered_properties,
+                                                  std::span<PropertyValue> out, View view) const {
   MG_ASSERT(out.size() == ordered_properties.size(), "One value slot per property is required");
   MG_ASSERT(std::ranges::all_of(ordered_properties.paths(), [](PropertyPath const &path) { return path.size() == 1; }),
             "Replaying a property delta over a set of paths handles only single-property paths");
@@ -609,10 +620,14 @@ Result<void> EdgeAccessor::ReadPropertyValues(OrderedPropertyPaths const &ordere
     auto guard = std::shared_lock{edge_.ptr->lock};
     deleted = edge_.ptr->deleted();
     edge_.ptr->properties.ExtractPropertyValuesMissingAsNull(ordered_properties, out);
-    // Reading one property at a time decodes, so reading a set of them has to as well.
-    auto const decoder = IndexedPropertyDecoder<Edge>{
-        .indices = &storage_->indices_, .name_id_mapper = storage_->name_id_mapper_.get(), .entity = edge_.ptr};
-    for (auto &value : out) decoder.DecodeProperty(value);
+    // Reading one property at a time decodes, so reading a set of them has to as well. The index is
+    // read here, under the lock, because only the live value may be read from it: a value a delta
+    // carries below brings its own floats.
+    if constexpr (!kCompact) {
+      auto const decoder = IndexedPropertyDecoder<Edge>{
+          .indices = &storage_->indices_, .name_id_mapper = storage_->name_id_mapper_.get(), .entity = edge_.ptr};
+      for (auto &value : out) decoder.DecodeProperty(value);
+    }
     delta = edge_.ptr->delta();
   }
 
