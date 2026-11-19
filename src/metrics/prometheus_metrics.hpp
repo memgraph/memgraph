@@ -335,6 +335,7 @@ class PrometheusMetrics {
   prometheus::Gauge *workers_{nullptr};
   prometheus::Gauge *workers_busy_{nullptr};
   prometheus::Gauge *worker_queue_length_{nullptr};
+  prometheus::Gauge *process_start_time_{nullptr};
   std::optional<utils::UUID> default_db_uuid_;
 #ifdef MG_ENTERPRISE
   InstanceStatusResolver instance_status_resolver_;

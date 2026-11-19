@@ -862,8 +862,8 @@ PrometheusMetrics::PrometheusMetrics()
   // Populate GlobalMetricHandles — only session, memory, and HA metrics
   prometheus::Labels const no_labels{};
 
-  process_start_time_family_.Add(no_labels).Set(
-      std::chrono::duration<double>(std::chrono::system_clock::now().time_since_epoch()).count());
+  process_start_time_ = &process_start_time_family_.Add(no_labels);
+  process_start_time_->Set(std::chrono::duration<double>(std::chrono::system_clock::now().time_since_epoch()).count());
   global.active_sessions = &active_sessions_family_.Add(no_labels);
   global.active_bolt_sessions = &active_bolt_sessions_family_.Add(no_labels);
   global.active_tcp_sessions = &active_tcp_sessions_family_.Add(no_labels);
@@ -1796,6 +1796,12 @@ std::expected<std::vector<MetricInfo>, std::string> PrometheusMetrics::GetDbMetr
   // Snapshot
   AppendHistogramPercentiles(out, "SnapshotCreationLatency", "Snapshot", *h.snapshot_creation_latency_seconds.get());
   AppendHistogramPercentiles(out, "SnapshotRecoveryLatency", "Snapshot", *h.snapshot_recovery_latency_seconds.get());
+  out.push_back(
+      {"SnapshotFailuresNoSpace", "Snapshot", "Counter", static_cast<int64_t>(h.snapshot_failures_no_space.Value())});
+  out.push_back({"SnapshotFailuresWriteError",
+                 "Snapshot",
+                 "Counter",
+                 static_cast<int64_t>(h.snapshot_failures_write_error.Value())});
 
   return out;
 }
@@ -2190,6 +2196,15 @@ std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfoForJson() {
 
 std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfo() const {
   std::vector<MetricInfo> out;
+
+  // General (global only)
+  out.push_back({"ProcessStartTime", "General", "Gauge", static_cast<int64_t>(process_start_time_->Value())});
+  if (worker_pool_resolver_) {
+    auto const pool = worker_pool_resolver_();
+    out.push_back({"Workers", "General", "Gauge", static_cast<int64_t>(pool.workers)});
+    out.push_back({"WorkersBusy", "General", "Gauge", static_cast<int64_t>(pool.busy)});
+    out.push_back({"WorkerQueueLength", "General", "Gauge", static_cast<int64_t>(pool.queued)});
+  }
 
   // Memory (global only)
   auto const memory_res = utils::GetMemoryRES();
