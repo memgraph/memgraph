@@ -2973,6 +2973,31 @@ TYPED_TEST(InterpreterTest, QueryLogRedactsCredentialsWithoutLicense) {
   EXPECT_THAT(log.str(), ::testing::Not(::testing::HasSubstr("topsecret")));
 }
 
+// An operator must be able to read the access-control configuration that a returning license will
+// start enforcing, even though no query may change it while unlicensed.
+TYPED_TEST(InterpreterTest, ShowPrivilegesReadsFineGrainedRulesWithoutLicense) {
+  memgraph::license::global_license_checker.EnableTesting();
+  AuthQueryHandlerFixture auth{this->data_directory / "auth"};
+  this->interpreter_context.auth = &auth.handler;
+
+  this->default_interpreter.Interpret("CREATE USER alice");
+  this->default_interpreter.Interpret("DENY READ ON NODES CONTAINING LABELS :Secret TO alice");
+
+  const UnlicensedScope unlicensed;
+
+  auto [stream, qid] = this->Prepare("SHOW PRIVILEGES FOR alice");
+  this->Pull(&stream);
+
+  auto const mentions = [&stream](std::string_view const text) {
+    return std::ranges::any_of(stream.GetResults(), [text](auto const &row) {
+      return std::ranges::any_of(row, [text](auto const &value) {
+        return value.IsString() && value.ValueString().find(text) != std::string::npos;
+      });
+    });
+  };
+  EXPECT_TRUE(mentions("Secret"));
+}
+
 TYPED_TEST(InterpreterTest, DenyDatabaseFromWarnsItIsDeprecated) {
   memgraph::license::global_license_checker.EnableTesting();
   AuthQueryHandlerFixture auth{this->data_directory / "auth"};
