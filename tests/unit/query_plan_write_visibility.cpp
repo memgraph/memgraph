@@ -2402,7 +2402,7 @@ class ViewOracle {
   void Walk(LogicalOperator &op, bool reads_new, bool consumer_reads_new = false, bool under_set_values = false,
             Tail tail = Tail::kNone) {
     auto const create_reads = CreateReads(op);
-    auto const expected = reads_new || IsSetGroupProduce(op) || (Is<plan::CacheProperties>(op) && under_set_values) ||
+    auto const expected = reads_new || IsSetRunProduce(op) || (Is<plan::CacheProperties>(op) && under_set_values) ||
                                   create_reads == CreateRead::kOnlyCreated
                               ? View::NEW
                               : View::OLD;
@@ -2425,8 +2425,8 @@ class ViewOracle {
                reads_new,
                // A property cache passes its consumer on, as a comprehension's list does.
                is_rollup || Is<plan::CacheProperties>(op) ? consumer_reads_new
-                                                          : ReadsNewClause(op) || IsSetGroupProduce(op) || switched,
-               IsSetGroupProduce(op),
+                                                          : ReadsNewClause(op) || IsSetRunProduce(op) || switched,
+               IsSetRunProduce(op),
                InputTail(op, tail));
           break;
         case Edge::kBody:
@@ -2571,7 +2571,7 @@ class ViewOracle {
 
   /// The Produce of one SET's right-hand sides is part of that SET, which reads NEW: the planner names each value
   /// with an anonymous symbol that a SET item reads.
-  bool IsSetGroupProduce(LogicalOperator &op) const {
+  bool IsSetRunProduce(LogicalOperator &op) const {
     auto *produce = memgraph::utils::Downcast<plan::Produce>(&op);
     return produce && produce->keeps_input_symbols_ && !produce->named_expressions_.empty() &&
            std::ranges::all_of(produce->named_expressions_, [this](auto const *named) {

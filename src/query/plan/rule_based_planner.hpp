@@ -772,12 +772,13 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
             auto const index = static_cast<size_t>(std::distance(clauses.begin(), clause_it));
             auto eligible = impl::OriginatingIn(clause, pending_comprehensions);
             // A SET run evaluates every value before its first write, its comprehensions included.
-            if (auto const end = SnapshotRunEnd(clauses, index)) {
-              for (auto i = index + 1; i < *end; ++i)
+            auto const run_end = SetRunEnd(clauses, index);
+            if (run_end) {
+              for (auto i = index + 1; i < *run_end; ++i)
                 eligible.merge(impl::OriginatingIn(clauses[i], pending_comprehensions));
             }
             plan_and_apply_comprehensions(eligible);
-            input_op = PreEvaluateSetGroup(clauses, index, std::move(input_op));
+            input_op = PreEvaluateSetRun(clauses, index, run_end, std::move(input_op));
             // A CREATE that reads only created entities reads them at View::NEW anyway (`ReadSeeingCreated`).
             auto const created = [&](const Symbol &symbol) {
               return created_since_barrier.contains(symbol) || created_here.contains(symbol);
@@ -1367,7 +1368,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
   /// The end of the run of consecutive SET items on one variable that starts at @p first, when an item reads a key an
   /// earlier item of the run writes; nullopt otherwise. The run reads the variable as of its start.
   // TODO: two textually equal non-variable targets (`(CASE ... END).x`) could form a run too; it needs AST equality.
-  std::optional<size_t> SnapshotRunEnd(const std::vector<Clause *> &clauses, size_t first) const {
+  std::optional<size_t> SetRunEnd(const std::vector<Clause *> &clauses, size_t first) const {
     auto &symbol_table = *context_->symbol_table;
     auto const target_of = [&](Clause *clause) -> std::optional<Symbol> {
       auto *set = utils::Downcast<query::SetProperty>(clause);
@@ -1402,10 +1403,11 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
   /// reads a key an earlier one wrote, a Produce evaluates the run's values first. Its comprehensions are planned
   /// below the Produce by the caller.
   // TODO: EXISTS and COUNT in a run's value must be planned below the Produce too, once a SET value accepts them.
-  std::unique_ptr<LogicalOperator> PreEvaluateSetGroup(const std::vector<Clause *> &clauses, size_t first,
-                                                       std::unique_ptr<LogicalOperator> input_op) {
+  /// @p last is `SetRunEnd(clauses, first)`.
+  std::unique_ptr<LogicalOperator> PreEvaluateSetRun(const std::vector<Clause *> &clauses, size_t first,
+                                                     std::optional<size_t> last,
+                                                     std::unique_ptr<LogicalOperator> input_op) {
     auto &symbol_table = *context_->symbol_table;
-    auto const last = SnapshotRunEnd(clauses, first);
     if (!last) return input_op;
 
     auto &storage = *context_->ast_storage;
@@ -1422,11 +1424,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
       item->continues_previous_ = set->continues_previous_;
       pre_evaluated_items_[clauses[i]] = item;
     }
-    auto produce = std::make_unique<Produce>(std::move(input_op), values);
-    produce->view_ = storage::View::NEW;
-    // An operator above that lists the symbols below (a barrier, the index rewriter) keeps them.
-    produce->keeps_input_symbols_ = true;
-    return produce;
+    return Produce::SetRunValues(std::move(input_op), values);
   }
 
   /// The patterns a CREATE or MERGE binds, or nullopt for any other clause.
@@ -1436,7 +1434,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
     return std::nullopt;
   }
 
-  /// The rewritten item of each SET item a Produce pre-evaluated (`PreEvaluateSetGroup`). The AST stays as it is,
+  /// The rewritten item of each SET item a Produce pre-evaluated (`PreEvaluateSetRun`). The AST stays as it is,
   /// since a query is planned more than once.
   std::unordered_map<Clause const *, Clause *> pre_evaluated_items_;
 
@@ -1612,12 +1610,12 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
         *merge.pattern_, std::move(once_with_symbols), *context_->symbol_table, context_->bound_symbols);
     on_create = splice_branch_comprehensions(std::move(on_create), merge.on_create_, context_->bound_symbols);
     for (size_t i = 0; i < merge.on_create_.size(); ++i) {
-      on_create = PreEvaluateSetGroup(merge.on_create_, i, std::move(on_create));
+      on_create = PreEvaluateSetRun(merge.on_create_, i, SetRunEnd(merge.on_create_, i), std::move(on_create));
       on_create = HandleWriteClause(merge.on_create_[i], on_create, *context_->symbol_table, context_->bound_symbols);
       MG_ASSERT(on_create, "Expected SET in MERGE ... ON CREATE");
     }
     for (size_t i = 0; i < merge.on_match_.size(); ++i) {
-      on_match = PreEvaluateSetGroup(merge.on_match_, i, std::move(on_match));
+      on_match = PreEvaluateSetRun(merge.on_match_, i, SetRunEnd(merge.on_match_, i), std::move(on_match));
       on_match = HandleWriteClause(merge.on_match_[i], on_match, *context_->symbol_table, context_->bound_symbols);
       MG_ASSERT(on_match, "Expected SET in MERGE ... ON MATCH");
     }
@@ -2181,7 +2179,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
       } else if (auto *merge = utils::Downcast<query::Merge>(clause)) {
         op = GenMerge(*merge, std::move(op), query_part.merge_matching[merge_id++], pending_comprehensions);
       } else {
-        op = PreEvaluateSetGroup(foreach->clauses_, i, std::move(op));
+        op = PreEvaluateSetRun(foreach->clauses_, i, SetRunEnd(foreach->clauses_, i), std::move(op));
         op = HandleWriteClause(clause, op, symbol_table, bound_symbols);
       }
       // A body clause can bind the symbol a pending comprehension expands from, so drain after each one, as the main

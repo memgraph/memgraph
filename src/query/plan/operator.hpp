@@ -325,7 +325,7 @@ class LogicalOperator : public utils::Visitable<HierarchicalLogicalOperatorVisit
    * nor `m` after Produce. On the other hand, modified symbols from Expand
    * contain `e` and `m`, as well as `n`, while output symbols are empty.
    * Modified symbols from ScanAll contain only `n`, while output symbols are
-   * also empty. The exception is the Produce that evaluates a SET run's values: it keeps its input's symbols too.
+   * also empty. The exception is Produce::keeps_input_symbols_.
    */
   virtual std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const = 0;
 
@@ -1292,7 +1292,6 @@ class Filter : public memgraph::query::plan::LogicalOperator {
 /// every input Pull (typically a MATCH/RETURN query).
 /// When the input is not provided (typically a standalone
 /// RETURN clause) the Produce's pull succeeds exactly once.
-/// A Produce ends the scope of the symbols below it, except one that evaluates a SET run's values.
 class Produce : public memgraph::query::plan::LogicalOperator {
  public:
   static const utils::TypeInfo kType;
@@ -1302,6 +1301,9 @@ class Produce : public memgraph::query::plan::LogicalOperator {
   Produce() = default;
 
   Produce(const std::shared_ptr<LogicalOperator> &input, const std::vector<NamedExpression *> &named_expressions);
+  /// Evaluates a SET run's @p values at View::NEW, before the run's first write.
+  static std::unique_ptr<Produce> SetRunValues(const std::shared_ptr<LogicalOperator> &input,
+                                               const std::vector<NamedExpression *> &values);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
   std::vector<Symbol> OutputSymbols(const SymbolTable &) const override;
@@ -1317,7 +1319,8 @@ class Produce : public memgraph::query::plan::LogicalOperator {
   std::vector<NamedExpression *> named_expressions_;
   /// The view its expressions read; the planner sets it.
   storage::View view_{storage::View::NEW};
-  /// A SET run's values: the symbols below stay listed in ModifiedSymbols without being evaluated again.
+  /// A SET run's values: unlike any other Produce, it keeps the symbols below in ModifiedSymbols, so an operator
+  /// above that lists them (a barrier, the index rewriter) keeps them too.
   bool keeps_input_symbols_{false};
 
   std::optional<storage::View> ReadView() const override { return view_; }

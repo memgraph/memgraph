@@ -5788,6 +5788,14 @@ void EvaluatePatternFilter::EvaluatePatternFilterCursor::Reset() { input_cursor_
 Produce::Produce(const std::shared_ptr<LogicalOperator> &input, const std::vector<NamedExpression *> &named_expressions)
     : input_(input ? input : std::make_shared<Once>()), named_expressions_(named_expressions) {}
 
+std::unique_ptr<Produce> Produce::SetRunValues(const std::shared_ptr<LogicalOperator> &input,
+                                               const std::vector<NamedExpression *> &values) {
+  auto produce = std::make_unique<Produce>(input, values);
+  produce->view_ = storage::View::NEW;
+  produce->keeps_input_symbols_ = true;
+  return produce;
+}
+
 ACCEPT_WITH_INPUT(Produce)
 
 UniqueCursorPtr Produce::MakeCursor(utils::MemoryResource *mem, metrics::DatabaseMetricHandles &metric_handles) const {
