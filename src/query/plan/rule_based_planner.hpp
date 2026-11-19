@@ -678,19 +678,19 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
               access.reads.referenced, [&](const auto &sym) { return pending_writes.symbols.contains(sym); });
           // A CREATE or MERGE binds the new atoms its write set names, and its named paths; any other clause is
           // diffed against a copy of the bound symbols. The copy per clause made planning quadratic in a long chain.
-          std::optional<std::vector<Symbol>> pattern_bound;
-          if (auto const patterns = PatternsOf(*clause)) {
-            pattern_bound.emplace(access.writes.symbols.begin(), access.writes.symbols.end());
-            for (auto *pattern : *patterns) {
-              if (pattern->identifier_) AddIfUnbound(*pattern->identifier_, context.bound_symbols, *pattern_bound);
-            }
+          auto const patterns = PatternsOf(*clause);
+          std::vector<Symbol> new_paths;
+          for (auto *pattern : patterns.value_or(std::vector<Pattern *>{})) {
+            if (!pattern->identifier_) continue;
+            auto const &symbol = context.symbol_table->at(*pattern->identifier_);
+            if (!context.bound_symbols.contains(symbol)) new_paths.push_back(symbol);
           }
           // The atoms a CREATE binds; a path symbol is not one.
           auto const &created_here = utils::Downcast<Create>(clause) ? access.writes.symbols : no_symbols;
           // A symbol bound by a clause that creates or reads such an entity may hold it: a path through it, a CALL
           // result whose RETURN expression may.
           std::optional<std::unordered_set<Symbol>> bound_before;
-          if (!pattern_bound && (reads_fresh || !access.writes.symbols.empty())) bound_before = context.bound_symbols;
+          if (!patterns && (reads_fresh || !access.writes.symbols.empty())) bound_before = context.bound_symbols;
           // Set by an arm that drains and advances after its own writes.
           bool advanced_after = false;
           // Set by a CREATE that reads View::NEW because it reads only created entities, unless every one is a node
@@ -700,7 +700,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
             if (advanced_after) return;
             pending_writes.Merge(access.writes);
             relabel_since_access_barrier = relabel_since_access_barrier || access.writes.relabel.Any();
-            if (pattern_bound) pending_writes.symbols.insert(pattern_bound->begin(), pattern_bound->end());
+            pending_writes.symbols.insert(new_paths.begin(), new_paths.end());
             created_since_barrier.insert(created_here.begin(), created_here.end());
             if (bound_before) {
               auto *call = utils::Downcast<query::CallSubquery>(clause);
@@ -1441,11 +1441,6 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
     if (auto *create = utils::Downcast<Create>(&clause)) return create->patterns_;
     if (auto *merge = utils::Downcast<query::Merge>(&clause)) return std::vector<Pattern *>{merge->pattern_};
     return std::nullopt;
-  }
-
-  void AddIfUnbound(Identifier &ident, const std::unordered_set<Symbol> &bound, std::vector<Symbol> &out) const {
-    auto const &symbol = context_->symbol_table->at(ident);
-    if (!bound.contains(symbol)) out.push_back(symbol);
   }
 
   /// The rewritten item of each SET item a Produce pre-evaluated (`PreEvaluateSetGroup`). The AST stays as it is,
