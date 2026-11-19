@@ -1137,6 +1137,17 @@ TEST_F(WriteVisibilityPlan, OnMatchThatCannotReachAnotherMatchIsNotBuffered) {
       Plan("MATCH (a:N {k: 1}), (b:N {k: 2}) MERGE (a)-[r:R {id: 1}]->(b) ON MATCH SET r += {id: 1, c: 1}")));
 }
 
+TEST_F(WriteVisibilityPlan, OnMatchOfALabelThePatternGivesTheNodeIsNotBuffered) {
+  EXPECT_FALSE(BuffersMatches(Plan("MERGE (n:P) ON MATCH SET n:P")));
+  EXPECT_FALSE(BuffersMatches(Plan("MERGE (n:P:Q {id: 1}) ON MATCH SET n:Q, n.c = 1")));
+}
+
+TEST_F(WriteVisibilityPlan, OnMatchOfALabelAnotherVariableReadsIsBuffered) {
+  // Row 1's write gives n2 the label m's filter reads for row 1's next match.
+  EXPECT_TRUE(
+      BuffersMatches(Plan("MATCH (m:P {id: 1}) MERGE (n:P {f: CASE WHEN m:Q THEN 1 ELSE 0 END}) ON MATCH SET n:Q")));
+}
+
 #ifdef MG_ENTERPRISE
 TEST_F(WriteVisibilityPlan, OnMatchRelabelOfAnotherNodeBuffersOnlyForTheAccessCheck) {
   EXPECT_EQ(MatchBranch(Plan("MATCH (m:M) MERGE (n:L) ON MATCH SET m:X")),
