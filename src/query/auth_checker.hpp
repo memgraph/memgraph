@@ -20,7 +20,6 @@
 #include "dbms/constants.hpp"
 #include "query/edge_accessor.hpp"
 #include "query/query_user.hpp"
-#include "query/read_created.hpp"
 #include "query/vertex_accessor.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/result.hpp"
@@ -136,11 +135,22 @@ inline bool PropertyReadAllowed(FineGrainedAuthChecker const *auth_checker, std:
   return auth_checker->HasPropertyPermission(labels, property, AuthQuery::PropertyPermissionType::READ);
 }
 
+// The labels a vertex's permissions are decided from. A vertex this command created or deleted has labels in one
+// view only, and that view answers: a denied read then stays denied, and an allowed one reads.
+inline auto PermissionLabels(VertexAccessor const &vertex, storage::View view) {
+  auto labels = vertex.Labels(view);
+  if (!labels &&
+      (labels.error() == storage::Error::NONEXISTENT_OBJECT || labels.error() == storage::Error::DELETED_OBJECT)) {
+    labels = vertex.Labels(view == storage::View::OLD ? storage::View::NEW : storage::View::OLD);
+  }
+  return labels;
+}
+
 inline bool PropertyReadAllowed(FineGrainedAuthChecker const *auth_checker, VertexAccessor const &vertex,
                                 storage::View view, storage::PropertyId property) {
   if (!auth_checker || !auth_checker->HasPropertyRestrictions()) return true;
-  const auto maybe_labels = ReadSeeingCreated(view, [&](storage::View at) { return vertex.Labels(at); });
-  // A deleted vertex: the read itself raises, as it does for a user without property rules.
+  const auto maybe_labels = PermissionLabels(vertex, view);
+  // Deleted in an earlier command: the read itself raises, as it does for a user without property rules.
   if (!maybe_labels) return maybe_labels.error() == storage::Error::DELETED_OBJECT;
   return PropertyReadAllowed(auth_checker, *maybe_labels, property);
 }
