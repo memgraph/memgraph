@@ -1038,6 +1038,11 @@ add_unit_test(versioning_overlay_mvcc
     SOURCES versioning_overlay_mvcc.cpp
     LINK_TARGETS mg::versioning mg::storage
 )
+
+add_unit_test(versioning_overlay_mark_deleted
+    SOURCES versioning_overlay_mark_deleted.cpp
+    LINK_TARGETS mg::versioning mg::storage
+)
 endif ()
 
 add_unit_test(storage_v2_non_sequential_isolation

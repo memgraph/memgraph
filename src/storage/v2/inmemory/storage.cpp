@@ -3827,6 +3827,23 @@ void InMemoryStorage::CollectGarbage(utils::ResourceLockGuard main_guard, bool p
   // On object deletion, theses indexes MUST be cleaned for functional correctness, their entries with raw pointers to
   // the actual objects need removing before the object is removed itself. Also moving from IN_MEMORY_ANALYTICAL to
   // IN_MEMORY_TRANSACTIONAL any object could have been deleted so also index cleanup is required for correctness.
+#ifdef MG_ENTERPRISE
+  // Overlays are never retired, so they must not reach index cleanup or retirement, which assume the object is in
+  // `vertices_`/`edges_`. An overlay is in no index of this storage, so there is nothing to sweep for it.
+  if (retained_vertex_floor_ != 0 || retained_edge_floor_ != 0) [[unlikely]] {
+    BatchedList<Gid> kept_vertices;
+    for (auto const gid : current_deleted_vertices.elements()) {
+      if (gid.AsUint() >= retained_vertex_floor_) kept_vertices.push_back(gid);
+    }
+    current_deleted_vertices.swap(kept_vertices);
+    BatchedList<Edge *> kept_edges;
+    for (auto *const edge : current_deleted_edges.elements()) {
+      if (edge->gid.AsUint() >= retained_edge_floor_) kept_edges.push_back(edge);
+    }
+    current_deleted_edges.swap(kept_edges);
+  }
+#endif
+
   bool const index_cleanup_vertex_needed = need_full_scan_vertices || !current_deleted_vertices.empty();
   bool const index_cleanup_edge_needed = need_full_scan_edges || !current_deleted_edges.empty();
 
