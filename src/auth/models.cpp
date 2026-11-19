@@ -863,8 +863,7 @@ bool PropertyAccessPermissions::HasUnrestrictedAccess() const {
   if (global_.size() != 1) return false;
   auto it = global_.find("*");
   if (it == global_.end()) return false;
-  return it->second.grants == kAllPropertyPermissionTypes && it->second.strong_denies == PropertyPermissionType::NONE &&
-         it->second.weak_denies == PropertyPermissionType::NONE;
+  return it->second.grants == kAllPropertyPermissionTypes && it->second.strong_denies == PropertyPermissionType::NONE;
 }
 
 nlohmann::json PropertyAccessPermissions::Serialize() const {

@@ -2362,6 +2362,14 @@ TEST(AuthWithoutStorage, PropertyAccessPermissionsHasUnrestrictedAccess) {
     perms.DenyGlobal("ssn", PropertyPermissionType::READ);
     EXPECT_FALSE(perms.HasUnrestrictedAccess());
   }
+  {
+    // Global * weak deny overridden by a global * grant from another role, unrestricted
+    PropertyAccessPermissions weak;
+    weak.DenyGlobal("*", PropertyPermissionType::READ, DenyStrength::WEAK);
+    PropertyAccessPermissions grant;
+    grant.GrantGlobal("*", kAllPropertyPermissionTypes);
+    EXPECT_TRUE(Merge(weak, grant).HasUnrestrictedAccess());
+  }
 }
 
 TEST_F(AuthWithStorage, FineGrainedAccessCheckerMerge) {
