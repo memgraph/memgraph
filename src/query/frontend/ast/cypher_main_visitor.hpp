@@ -889,6 +889,11 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitReturnBody(MemgraphCypher::ReturnBodyContext *ctx) override;
 
   /**
+   * @return ReturnBody holding only the ORDER BY, SKIP and LIMIT tail.
+   */
+  antlrcpp::Any visitOrderSkipLimit(MemgraphCypher::OrderSkipLimitContext *ctx) override;
+
+  /**
    * @return pair<bool, vector<NamedExpression*>> first member is true if
    * asterisk was found in return
    * expressions.

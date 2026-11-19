@@ -3101,22 +3101,30 @@ antlrcpp::Any CypherMainVisitor::visitCypherReturn(MemgraphCypher::CypherReturnC
 
 antlrcpp::Any CypherMainVisitor::visitReturnBody(MemgraphCypher::ReturnBodyContext *ctx) {
   ReturnBody body;
-  if (ctx->order()) {
-    body.order_by = std::any_cast<std::vector<SortItem>>(ctx->order()->accept(this));
-  }
-  if (ctx->skip()) {
-    body.skip = static_cast<Expression *>(std::any_cast<Expression *>(ctx->skip()->accept(this)));
-  }
-  if (ctx->limit()) {
-    if (ctx->limit()->expression()) {
-      body.limit = std::any_cast<Expression *>(ctx->limit()->accept(this));
-    } else {
-      body.limit = std::any_cast<ParameterLookup *>(ctx->limit()->accept(this));
-    }
+  if (ctx->orderSkipLimit()) {
+    body = std::any_cast<ReturnBody>(ctx->orderSkipLimit()->accept(this));
   }
   std::tie(body.all_identifiers, body.named_expressions) =
       std::any_cast<std::pair<bool, std::vector<NamedExpression *>>>(ctx->returnItems()->accept(this));
   return body;
+}
+
+antlrcpp::Any CypherMainVisitor::visitOrderSkipLimit(MemgraphCypher::OrderSkipLimitContext *ctx) {
+  ReturnBody tail;
+  if (ctx->order()) {
+    tail.order_by = std::any_cast<std::vector<SortItem>>(ctx->order()->accept(this));
+  }
+  if (ctx->skip()) {
+    tail.skip = std::any_cast<Expression *>(ctx->skip()->accept(this));
+  }
+  if (ctx->limit()) {
+    if (ctx->limit()->expression()) {
+      tail.limit = std::any_cast<Expression *>(ctx->limit()->accept(this));
+    } else {
+      tail.limit = std::any_cast<ParameterLookup *>(ctx->limit()->accept(this));
+    }
+  }
+  return tail;
 }
 
 antlrcpp::Any CypherMainVisitor::visitReturnItems(MemgraphCypher::ReturnItemsContext *ctx) {
