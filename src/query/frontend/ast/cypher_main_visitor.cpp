@@ -2039,13 +2039,17 @@ antlrcpp::Any CypherMainVisitor::visitCypherUnion(MemgraphCypher::CypherUnionCon
 
 antlrcpp::Any CypherMainVisitor::visitSingleQuery(MemgraphCypher::SingleQueryContext *ctx) {
   auto *single_query = storage_->Create<SingleQuery>();
+  // Parallel to `clauses_`: true for a `WITH *` parsed from a standalone ORDER BY, SKIP or LIMIT, so refusals name it.
+  std::vector<bool> is_standalone_tail;
   for (auto *child : ctx->clause()) {
     antlrcpp::Any got = child->accept(this);
     if (got.type() == typeid(Clause *)) {
       single_query->clauses_.push_back(std::any_cast<Clause *>(got));
+      is_standalone_tail.push_back(child->orderSkipLimit() != nullptr);
     } else {
       auto child_clauses = std::any_cast<std::vector<Clause *>>(got);
       single_query->clauses_.insert(single_query->clauses_.end(), child_clauses.begin(), child_clauses.end());
+      is_standalone_tail.insert(is_standalone_tail.end(), child_clauses.size(), false);
     }
   }
 
@@ -2071,7 +2075,7 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(MemgraphCypher::SingleQueryCon
     }
   };
 
-  for (Clause *clause : single_query->clauses_) {
+  for (auto const &[clause, standalone_tail] : std::views::zip(single_query->clauses_, is_standalone_tail)) {
     const auto &clause_type = clause->GetTypeInfo();
     // Cache so I don't have to evaluate multiple times in the if-else loop
     bool const is_load_csv = utils::IsSubtype(clause_type, LoadCsv::kType);
@@ -2143,9 +2147,11 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(MemgraphCypher::SingleQueryCon
       has_return = true;
     } else if (utils::IsSubtype(clause_type, With::kType)) {
       if (has_return) {
-        throw SemanticException("RETURN can't be put before WITH.");
+        throw SemanticException(standalone_tail ? "RETURN takes ORDER BY, SKIP and LIMIT once each, in that order: "
+                                                  "RETURN … ORDER BY … SKIP … LIMIT …."
+                                                : "RETURN can't be put before WITH.");
       }
-      check_write_procedure("WITH");
+      check_write_procedure(standalone_tail ? "ORDER BY, SKIP and LIMIT" : "WITH");
       has_update = has_return = false;
     } else {
       DLOG_FATAL("Can't happen");
@@ -2153,6 +2159,9 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(MemgraphCypher::SingleQueryCon
   }
   bool is_standalone_call_procedure = has_call_procedure && single_query->clauses_.size() == 1U;
   if (!has_update && !subquery_has_update && !has_return && !is_standalone_call_procedure && !parsing_subquery_body_) {
+    if (is_standalone_tail.back()) {
+      throw SemanticException("A query cannot end with ORDER BY, SKIP or LIMIT; add a RETURN clause.");
+    }
     throw SemanticException("Query should either create or update something, or return results!");
   }
 
@@ -2222,6 +2231,13 @@ antlrcpp::Any CypherMainVisitor::visitClause(MemgraphCypher::ClauseContext *ctx)
   }
   if (ctx->callSubquery()) {
     return static_cast<Clause *>(std::any_cast<CallSubquery *>(ctx->callSubquery()->accept(this)));
+  }
+  if (ctx->orderSkipLimit()) {
+    // A standalone ORDER BY, SKIP or LIMIT is `WITH *` with that tail.
+    auto *with = storage_->Create<With>();
+    with->body_ = std::any_cast<ReturnBody>(ctx->orderSkipLimit()->accept(this));
+    with->body_.all_identifiers = true;
+    return static_cast<Clause *>(with);
   }
   // TODO: implement other clauses.
   throw utils::NotYetImplemented("clause '{}'", ctx->getText());
@@ -3101,22 +3117,30 @@ antlrcpp::Any CypherMainVisitor::visitCypherReturn(MemgraphCypher::CypherReturnC
 
 antlrcpp::Any CypherMainVisitor::visitReturnBody(MemgraphCypher::ReturnBodyContext *ctx) {
   ReturnBody body;
-  if (ctx->order()) {
-    body.order_by = std::any_cast<std::vector<SortItem>>(ctx->order()->accept(this));
-  }
-  if (ctx->skip()) {
-    body.skip = static_cast<Expression *>(std::any_cast<Expression *>(ctx->skip()->accept(this)));
-  }
-  if (ctx->limit()) {
-    if (ctx->limit()->expression()) {
-      body.limit = std::any_cast<Expression *>(ctx->limit()->accept(this));
-    } else {
-      body.limit = std::any_cast<ParameterLookup *>(ctx->limit()->accept(this));
-    }
+  if (ctx->orderSkipLimit()) {
+    body = std::any_cast<ReturnBody>(ctx->orderSkipLimit()->accept(this));
   }
   std::tie(body.all_identifiers, body.named_expressions) =
       std::any_cast<std::pair<bool, std::vector<NamedExpression *>>>(ctx->returnItems()->accept(this));
   return body;
+}
+
+antlrcpp::Any CypherMainVisitor::visitOrderSkipLimit(MemgraphCypher::OrderSkipLimitContext *ctx) {
+  ReturnBody tail;
+  if (ctx->order()) {
+    tail.order_by = std::any_cast<std::vector<SortItem>>(ctx->order()->accept(this));
+  }
+  if (ctx->skip()) {
+    tail.skip = std::any_cast<Expression *>(ctx->skip()->accept(this));
+  }
+  if (ctx->limit()) {
+    if (ctx->limit()->expression()) {
+      tail.limit = std::any_cast<Expression *>(ctx->limit()->accept(this));
+    } else {
+      tail.limit = std::any_cast<ParameterLookup *>(ctx->limit()->accept(this));
+    }
+  }
+  return tail;
 }
 
 antlrcpp::Any CypherMainVisitor::visitReturnItems(MemgraphCypher::ReturnItemsContext *ctx) {

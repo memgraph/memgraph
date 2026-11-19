@@ -25,8 +25,11 @@
 
 #include "query/exceptions.hpp"
 #include "query/frontend/ast/ast.hpp"
+#include "query/frontend/ast/cypher_main_visitor.hpp"
+#include "query/frontend/opencypher/parser.hpp"
 #include "query/frontend/semantic/symbol_generator.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
+#include "query/parameters.hpp"
 #include "query/plan/preprocess.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
@@ -1430,6 +1433,15 @@ void ExpectSemanticError(CypherQuery *query, std::string_view message,
     EXPECT_EQ(std::string_view{e.what()}, message);
   }
 }
+
+CypherQuery *ParseCypherQuery(AstStorage &storage, const std::string &text) {
+  ::frontend::opencypher::Parser parser{text};
+  Parameters parameters;
+  memgraph::query::frontend::CypherMainVisitor visitor{
+      memgraph::query::frontend::ParsingContext{}, &storage, &parameters};
+  visitor.visit(parser.tree());
+  return memgraph::utils::Downcast<CypherQuery>(visitor.query());
+}
 }  // namespace
 
 TYPED_TEST(TestSymbolGenerator, ConditionalCallBranchesMustAgree) {
@@ -1492,6 +1504,16 @@ TYPED_TEST(TestSymbolGenerator, ConditionalCallPredicateSeesOnlyImports) {
               {"n"}),
           RETURN("x"))),
       "Unbounded variables are not allowed in EXISTS!");
+}
+
+TYPED_TEST(TestSymbolGenerator, StandaloneOrderByRefusesAggregation) {
+  ExpectSemanticError(ParseCypherQuery(this->storage, "UNWIND [1] AS a ORDER BY count(*) RETURN a"),
+                      "Aggregation functions are only allowed in WITH and RETURN.");
+}
+
+TYPED_TEST(TestSymbolGenerator, StandaloneOrderByCannotReadDroppedVariable) {
+  ExpectSemanticError(ParseCypherQuery(this->storage, "UNWIND [1] AS a WITH a AS b WHERE b > 0 ORDER BY a RETURN b"),
+                      "Unbound variable: a.");
 }
 
 TYPED_TEST(TestSymbolGenerator, ConditionalCallPredicateKeepsPredefinedIdentifierInside) {
