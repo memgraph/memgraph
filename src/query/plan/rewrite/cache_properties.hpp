@@ -24,16 +24,18 @@
 
 namespace memgraph::query::plan {
 
-/// The frame slots a one-pass read writes into, for the length of one query's planning.
+/// What one query's planning settles once, which every candidate plan it weighs then takes as it
+/// stands: the frame slots a pass reads into, and the rewrites made with them.
 ///
-/// Candidate plans for one query share the symbol table that sizes a frame, and only the chosen
-/// plan runs. Giving each operator a pool of its own keeps the frame as wide as that plan needs
-/// rather than as wide as every plan weighed.
-class CachedPropertySlots {
+/// Candidates share the symbol table that sizes a frame and the expressions they were planned
+/// from, and all but one is thrown away. Giving each operator slots of its own keeps the frame as
+/// wide as the chosen plan needs rather than as wide as every plan weighed, and keeping what was
+/// rewritten with them leaves one copy of it rather than one per candidate.
+class PassPlanning {
  public:
-  class Pool {
+  class SlotPool {
    public:
-    explicit Pool(std::vector<Symbol> *slots) : slots_{slots} {}
+    explicit SlotPool(std::vector<Symbol> *slots) : slots_{slots} {}
 
     [[nodiscard]] auto NextSlot(SymbolTable &symbol_table) -> Symbol {
       if (assigned_ == slots_->size()) slots_->push_back(symbol_table.CreateAnonymousSymbol());
@@ -47,8 +49,8 @@ class CachedPropertySlots {
 
   /// Keyed on the expressions because a plan holds its own copy of the pointers, so two plans for
   /// one query name the same operator. Taken before any is copied, which is what makes them agree.
-  [[nodiscard]] auto PoolFor(std::vector<Tree const *> const &expressions) -> Pool {
-    return Pool{&slots_[expressions]};
+  [[nodiscard]] auto SlotsFor(std::vector<Tree const *> const &expressions) -> SlotPool {
+    return SlotPool{&slots_[expressions]};
   }
 
   /// One slot a pass reads into, named by position alone so that comparing two plans does not
@@ -130,7 +132,7 @@ class PropertyLookupCacher final : public ExpressionVisitor<void> {
   };
 
   /// The frame slots a pass reads into, by the symbol and the property each holds.
-  class CachedSlots {
+  class AssignedSlots {
    public:
     void Add(Symbol const &symbol, AstPropertyIndex property, Symbol const &slot) {
       auto found = std::ranges::find(by_symbol_, symbol, &SymbolSlots::symbol);
@@ -143,11 +145,11 @@ class PropertyLookupCacher final : public ExpressionVisitor<void> {
 
     /// Whether the pass reads anything of this symbol, which is all that looking for a lookup to
     /// replace asks: it decides only whether an expression needs a copy of its own.
-    [[nodiscard]] auto Signature() const -> CachedPropertySlots::SlotSignature {
-      auto signature = CachedPropertySlots::SlotSignature{};
+    [[nodiscard]] auto Signature() const -> PassPlanning::SlotSignature {
+      auto signature = PassPlanning::SlotSignature{};
       for (auto const &group : by_symbol_) {
         for (auto const &[property, slot] : group.slots) {
-          signature.push_back(CachedPropertySlots::FilledSlot{
+          signature.push_back(PassPlanning::FilledSlot{
               .symbol = group.symbol.position(), .property = property.Position(), .slot = slot.position()});
         }
       }
@@ -233,10 +235,10 @@ class PropertyLookupCacher final : public ExpressionVisitor<void> {
     return worthwhile;
   }
 
-  void SetCachedSlots(CachedSlots cached) { cached_ = std::move(cached); }
+  void SetAssignedSlots(AssignedSlots cached) { assigned_ = std::move(cached); }
 
   /// What two plans must agree on before one can read the other's rewrite of an expression.
-  [[nodiscard]] auto SlotSignature() const -> CachedPropertySlots::SlotSignature { return cached_.Signature(); }
+  [[nodiscard]] auto SlotSignature() const -> PassPlanning::SlotSignature { return assigned_.Signature(); }
 
   /// Whether this expression holds a lookup replacing would swap, asked before it writes. Only an
   /// expression it would change needs a copy of its own.
@@ -283,11 +285,11 @@ class PropertyLookupCacher final : public ExpressionVisitor<void> {
         return;
       }
       case Phase::FIND: {
-        if (cached_.Holds(symbol_table_->at(*identifier))) found_one_to_replace_ = true;
+        if (assigned_.Holds(symbol_table_->at(*identifier))) found_one_to_replace_ = true;
         return;
       }
       case Phase::REPLACE: {
-        auto const slot = cached_.SlotFor(symbol_table_->at(*identifier), AstPropertyIndex{op.property_});
+        auto const slot = assigned_.SlotFor(symbol_table_->at(*identifier), AstPropertyIndex{op.property_});
         if (!slot) return;
         auto *replacement = ast_storage_->Create<Identifier>(slot->name(), false);
         replacement->MapTo(*slot);
@@ -411,16 +413,15 @@ class PropertyLookupCacher final : public ExpressionVisitor<void> {
   Phase phase_{Phase::GATHER};
   std::vector<Expression *> prev_expressions_;
   std::vector<Gathered> gathered_;
-  CachedSlots cached_;
+  AssignedSlots assigned_;
   bool found_one_to_replace_{false};
 };
 
 template <class TDbAccessor>
 class CachePropertiesRewriter final : public HierarchicalLogicalOperatorVisitor {
  public:
-  CachePropertiesRewriter(SymbolTable *symbol_table, AstStorage *ast_storage, TDbAccessor *db,
-                          CachedPropertySlots *slots)
-      : symbol_table_(symbol_table), ast_storage_(ast_storage), db_(db), slots_(slots) {}
+  CachePropertiesRewriter(SymbolTable *symbol_table, AstStorage *ast_storage, TDbAccessor *db, PassPlanning *planning)
+      : symbol_table_(symbol_table), ast_storage_(ast_storage), db_(db), planning_(planning) {}
 
   ~CachePropertiesRewriter() override = default;
 
@@ -479,7 +480,7 @@ class CachePropertiesRewriter final : public HierarchicalLogicalOperatorVisitor 
     auto pool_key = std::vector<Tree const *>{};
     for_each_expression([&pool_key](auto &expression) { pool_key.push_back(expression); });
 
-    auto pool = slots_->PoolFor(pool_key);
+    auto pool = planning_->SlotsFor(pool_key);
     auto groups = MakeGroups(cacher, worthwhile, *input, pool);
     if (groups.empty()) return;
 
@@ -489,14 +490,14 @@ class CachePropertiesRewriter final : public HierarchicalLogicalOperatorVisitor 
     auto const signature = cacher.SlotSignature();
     for_each_expression([this, &cacher, &signature](auto &expression) {
       if (!cacher.HasALookupToReplace(expression)) return;
-      if (auto *rewritten = slots_->RewrittenFor(expression, signature)) {
+      if (auto *rewritten = planning_->RewrittenFor(expression, signature)) {
         expression = rewritten;
         return;
       }
       auto *original = expression;
       expression = original->Clone(ast_storage_);
       cacher.Replace(expression);
-      slots_->Remember(original, signature, expression);
+      planning_->Remember(original, signature, expression);
     });
 
     op.set_input(std::make_shared<CacheProperties>(input, std::move(groups)));
@@ -506,9 +507,9 @@ class CachePropertiesRewriter final : public HierarchicalLogicalOperatorVisitor 
   /// telling the cacher which slot each property was given, and answering with the groups the pass
   /// reads into them.
   auto MakeGroups(PropertyLookupCacher &cacher, std::vector<PropertyLookupCacher::Gathered> const &worthwhile,
-                  LogicalOperator const &input, CachedPropertySlots::Pool &pool) -> std::vector<CachedPropertyGroup> {
+                  LogicalOperator const &input, PassPlanning::SlotPool &pool) -> std::vector<CachedPropertyGroup> {
     auto const modified = input.ModifiedSymbols(*symbol_table_);
-    auto slots = PropertyLookupCacher::CachedSlots{};
+    auto slots = PropertyLookupCacher::AssignedSlots{};
     auto groups = std::vector<CachedPropertyGroup>{};
 
     for (auto const &pass : worthwhile) {
@@ -526,14 +527,14 @@ class CachePropertiesRewriter final : public HierarchicalLogicalOperatorVisitor 
       groups.emplace_back(pass.symbol, std::move(cached_properties));
     }
 
-    if (!groups.empty()) cacher.SetCachedSlots(std::move(slots));
+    if (!groups.empty()) cacher.SetAssignedSlots(std::move(slots));
     return groups;
   }
 
   SymbolTable *symbol_table_;
   AstStorage *ast_storage_;
   TDbAccessor *db_;
-  CachedPropertySlots *slots_;
+  PassPlanning *planning_;
 };
 
 }  // namespace impl
@@ -541,9 +542,9 @@ class CachePropertiesRewriter final : public HierarchicalLogicalOperatorVisitor 
 template <class TDbAccessor>
 std::unique_ptr<LogicalOperator> RewriteCacheProperties(std::unique_ptr<LogicalOperator> root_op,
                                                         SymbolTable *symbol_table, AstStorage *ast_storage,
-                                                        TDbAccessor *db, CachedPropertySlots *slots) {
+                                                        TDbAccessor *db, PassPlanning *planning) {
   if (!FLAGS_query_cache_properties) return root_op;
-  auto rewriter = impl::CachePropertiesRewriter<TDbAccessor>{symbol_table, ast_storage, db, slots};
+  auto rewriter = impl::CachePropertiesRewriter<TDbAccessor>{symbol_table, ast_storage, db, planning};
   root_op->Accept(rewriter);
   return root_op;
 }
