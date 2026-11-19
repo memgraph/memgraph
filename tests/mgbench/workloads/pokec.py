@@ -13,7 +13,7 @@ import random
 
 from benchmark_context import BenchmarkContext
 from constants import GraphVendors
-from workloads.base import Workload, fixed_executions
+from workloads.base import Workload
 from workloads.importers.importer_pokec import ImporterPokec
 
 
@@ -57,10 +57,6 @@ class Pokec(Workload):
 
     def __init__(self, variant: str = None, benchmark_context: BenchmarkContext = None):
         super().__init__(variant, benchmark_context=benchmark_context)
-        self._edge_ids_left = None
-
-    def reset_generators(self) -> None:
-        self._edge_ids_left = None
 
     def custom_import(self, client) -> bool:
         importer = ImporterPokec(
@@ -78,29 +74,6 @@ class Pokec(Workload):
         # All vertices in the Pokec dataset have an ID in the range
         # [1, _num_vertices].
         return random.randint(1, self._num_vertices)
-
-    def _take_random_edge_ids(self, count):
-        # Pokec edges have ids 1..num_edges (checked on the medium snapshot). Ids are drawn without replacement
-        # across a batch, so every query of a deletion benchmark deletes edges that are still there. The counts
-        # are sized for medium; on a smaller variant the last queries delete whatever edges are left.
-        if self._edge_ids_left is None:
-            self._edge_ids_left = list(range(1, self._num_edges + 1))
-            random.shuffle(self._edge_ids_left)
-        count = min(count, len(self._edge_ids_left))
-        taken = self._edge_ids_left[len(self._edge_ids_left) - count :]
-        del self._edge_ids_left[len(self._edge_ids_left) - count :]
-        return taken
-
-    def _delete_random_edges(self, count):
-        match self._vendor:
-            case GraphVendors.MEMGRAPH:
-                # Resolved through ScanAllByEdgeId, so the query costs the deletions rather than an edge scan.
-                query = "UNWIND $ids AS eid MATCH ()-[e]->() WHERE id(e) = eid DELETE e"
-                params = {"ids": self._take_random_edge_ids(count)}
-            case _:
-                raise Exception(f"Edge deletion benchmarks address edges by Memgraph edge ids, not {self._vendor}")
-
-        return query, params
 
     def _get_random_from_to(self):
         vertex_from = self._get_random_vertex()
@@ -709,29 +682,6 @@ class Pokec(Workload):
                 raise Exception(f"Unknown vendor {self._vendor}")
 
         return query, params
-
-    # Each benchmark deletes edges picked uniformly at random. The counts keep every batch within the dataset's
-    # edges, so no query runs out of edges to delete.
-
-    @fixed_executions(1000)
-    def benchmark__delete__random_edges_1(self):
-        return self._delete_random_edges(1)
-
-    @fixed_executions(100)
-    def benchmark__delete__random_edges_100(self):
-        return self._delete_random_edges(100)
-
-    @fixed_executions(10)
-    def benchmark__delete__random_edges_10k(self):
-        return self._delete_random_edges(10_000)
-
-    @fixed_executions(3)
-    def benchmark__delete__random_edges_100k(self):
-        return self._delete_random_edges(100_000)
-
-    @fixed_executions(1)
-    def benchmark__delete__random_edges_1m(self):
-        return self._delete_random_edges(1_000_000)
 
     def benchmark__aggregation__count(self):
         match self._vendor:
