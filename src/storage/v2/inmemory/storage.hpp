@@ -1068,6 +1068,14 @@ class InMemoryStorage final : public Storage {
   /// Files left out of the recovered state by `HistoryBounds::recover_only_to_floor`. Moves them out: the
   /// second call, and any call without a bound, returns nullopt.
   [[nodiscard]] std::optional<durability::RecoveryTail> TakeRecoveryTail() { return std::exchange(recovery_tail_, {}); }
+
+  /// Marks gids below a floor as overlays a collection pass unlinks the deltas of but never retires: a deleted one
+  /// stays in memory (it is owned outside `vertices_`/`edges_`, and adjacency entries hold it). Set once, before any
+  /// transaction; a floor of 0 retains nothing.
+  void SetRetainedGidFloors(uint64_t vertex_floor, uint64_t edge_floor) {
+    retained_vertex_floor_ = vertex_floor;
+    retained_edge_floor_ = edge_floor;
+  }
 #endif
 
 #ifdef MG_ENTERPRISE
@@ -1345,6 +1353,12 @@ class InMemoryStorage final : public Storage {
   // splice: the FastDiscard/Abort critical sections must not do O(batch) work
   // while holding this SpinLock. The GC consume side runs off the lock.
   utils::Synchronized<BatchedList<Edge *>, utils::SpinLock> deleted_edges_;
+
+#ifdef MG_ENTERPRISE
+  // See SetRetainedGidFloors. Read only by the collection pass.
+  uint64_t retained_vertex_floor_{0};
+  uint64_t retained_edge_floor_{0};
+#endif
 
   // Deleted light edges awaiting deferred free (see DrainLightEdgeGraveyard).
   utils::Synchronized<std::list<LightEdgeGraveyardEntry, memory::DbAwareAllocator<LightEdgeGraveyardEntry>>,
