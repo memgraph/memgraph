@@ -1388,9 +1388,10 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
     const auto &node1_symbol = symbol_table.at(*expansion.node1->identifier_);
     const bool is_unseen_node = bound_symbols.insert(node1_symbol).second;
 
-    // we can just perform scanning from an edge if it's a simple edge
-    // we don't take into consideration path expansion as part of edge scanning
-    if (is_unseen_node && expansion.expand_from_edge && expansion.edge->type_ == EdgeAtom::Type::SINGLE) {
+    // Scan from a single-hop edge into a free node2 only; node1 is bound by now, so a self-loop's node2 is bound.
+    // TODO: a self-loop check in ScanAllByEdgeCursor would let (a)-[:T]->(a) keep the edge index.
+    if (is_unseen_node && expansion.expand_from_edge && expansion.edge->type_ == EdgeAtom::Type::SINGLE &&
+        !bound_symbols.contains(symbol_table.at(*expansion.node2->identifier_))) {
       const auto &node2_symbol = symbol_table.at(*expansion.node2->identifier_);
       const auto &edge_symbol = symbol_table.at(*expansion.edge->identifier_);
       auto edge_types = GetEdgeTypes(expansion.edge->edge_types_);

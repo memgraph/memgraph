@@ -159,8 +159,7 @@ StrippedQuery::StrippedQuery(std::string query) : original_(std::move(query)) {
     token_strings.push_back(new_value);
   };
 
-  // Copy original tokens because we need to use original case in named
-  // expressions and keywords in tokens will be lowercased in the next loop.
+  // Source of the text for unaliased named expressions.
   auto original_tokens = tokens;
   // For every token in original query remember token index in stripped query.
   std::vector<int> position_mapping(tokens.size(), -1);
@@ -177,12 +176,12 @@ StrippedQuery::StrippedQuery(std::string query) : original_(std::move(query)) {
       case Token::UNMATCHED:
         LOG_FATAL("Shouldn't happen");
       case Token::KEYWORD: {
-        // We don't strip NULL, since it can appear in special expressions
-        // like IS NULL and IS NOT NULL, but we strip true and false keywords.
+        // NULL is not stripped (IS NULL / IS NOT NULL). true/false are also valid names, so the stripped
+        // text keeps their spelling; the value is still recorded in literals_.
         if (utils::IEquals(token.second, "true")) {
-          replace_stripped(token_index, true, kStrippedBooleanToken);
+          replace_stripped(token_index, true, token.second);
         } else if (utils::IEquals(token.second, "false")) {
-          replace_stripped(token_index, false, kStrippedBooleanToken);
+          replace_stripped(token_index, false, token.second);
         } else {
           token_strings.push_back(token.second);
         }
