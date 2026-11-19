@@ -425,16 +425,19 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
         std::ranges::sort(symbols, std::less<>{}, &Symbol::position);
         return symbols;
       };
+      // Puts the barrier @p make builds over the plan so far; null when nothing is planned yet.
+      auto push_barrier = [&](auto make) -> Accumulate * {
+        if (!input_op) return nullptr;
+        auto symbols = barrier_symbols();
+        auto barrier = make(std::move(input_op), symbols, read_scope_ == ReadScope::kRoot);
+        auto *raw = barrier.get();
+        input_op = std::move(barrier);
+        return raw;
+      };
       // Ends the command here: drains every row through the clauses so far, so a read above sees all their writes.
       // A drain (`drain`) over Deletes owns them instead: they have not landed, so their writes stay pending.
       auto plan_barrier = [&](bool drain = false) {
-        Accumulate *barrier = nullptr;
-        if (input_op) {
-          auto symbols = barrier_symbols();
-          auto accumulate = Accumulate::Barrier(std::move(input_op), symbols, read_scope_ == ReadScope::kRoot);
-          barrier = accumulate.get();
-          input_op = std::move(accumulate);
-        }
+        auto *barrier = push_barrier(&Accumulate::Barrier);
         if (drain && barrier && !segment_deletes.empty()) {
           own_deletes(*barrier);
           forget_reads_and_writes();
@@ -448,12 +451,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
       // A barrier only a fine-grained access check needs passes rows through when no check runs, so it ends nothing:
       // the writes stay pending for a later read that conflicts for real.
       auto plan_access_check_barrier = [&]() {
-        if (input_op) {
-          auto barrier =
-              Accumulate::AccessCheckBarrier(std::move(input_op), barrier_symbols(), read_scope_ == ReadScope::kRoot);
-          own_deletes(*barrier);
-          input_op = std::move(barrier);
-        }
+        if (auto *barrier = push_barrier(&Accumulate::AccessCheckBarrier)) own_deletes(*barrier);
         relabel_since_access_barrier = false;
         pending_new_reads.access_check = {};
       };
