@@ -1750,6 +1750,12 @@ std::expected<std::vector<MetricInfo>, std::string> PrometheusMetrics::GetDbMetr
 
   // Query
   AppendHistogramPercentiles(out, "QueryExecutionLatency", "Query", *h.query_execution_latency_seconds.get());
+  // Indexed by QueryOutcome, as kQueryOutcomes.
+  static constexpr std::array kQueryDurationInfoNames{
+      "QueryDurationSuccess", "QueryDurationFailure", "QueryDurationAborted"};
+  for (auto const &[histogram, name] : rv::zip(h.query_duration_seconds, kQueryDurationInfoNames)) {
+    AppendHistogramPercentiles(out, name, "Query", *histogram.get());
+  }
 
   // Snapshot
   AppendHistogramPercentiles(out, "SnapshotCreationLatency", "Snapshot", *h.snapshot_creation_latency_seconds.get());
@@ -1855,7 +1861,6 @@ std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfoForJson() {
   int64_t total_successful_query = 0;
   int64_t total_write_write_conflicts = 0;
   int64_t total_transient_errors = 0;
-  std::array<int64_t, kAbortedQueryReasons.size()> total_aborted_queries{};
   int64_t total_read_query = 0;
   int64_t total_write_query = 0;
   int64_t total_read_write_query = 0;
@@ -1954,9 +1959,6 @@ std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfoForJson() {
       total_successful_query += static_cast<int64_t>(h.successful_query.Value());
       total_write_write_conflicts += static_cast<int64_t>(h.write_write_conflicts.Value());
       total_transient_errors += static_cast<int64_t>(h.transient_errors.Value());
-      for (auto const &[total, counter] : rv::zip(total_aborted_queries, h.aborted_queries)) {
-        total += static_cast<int64_t>(counter.Value());
-      }
       total_read_query += static_cast<int64_t>(h.read_query.Value());
       total_write_query += static_cast<int64_t>(h.write_query.Value());
       total_read_write_query += static_cast<int64_t>(h.read_write_query.Value());
@@ -2076,11 +2078,6 @@ std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfoForJson() {
                  "Transaction",
                  "Counter",
                  total_transient_errors + static_cast<int64_t>(global.transient_errors->Value())});
-  for (auto const &[total, counter, reason] :
-       rv::zip(total_aborted_queries, global.aborted_queries, kAbortedQueryReasons)) {
-    out.push_back(
-        {std::string{reason.info_name}, "Transaction", "Counter", total + static_cast<int64_t>(counter.Value())});
-  }
   out.push_back({"FailedQuery",
                  "Transaction",
                  "Counter",
