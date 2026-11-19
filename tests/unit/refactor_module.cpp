@@ -9,9 +9,6 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-// The refactor module's sources are compiled into this target, so these tests
-// observe the registration and bodies a module build ships.
-
 #include <gtest/gtest.h>
 #include <cstdint>
 #include <list>
@@ -65,11 +62,6 @@ void ExpectInt(const mgp_result &result, std::string_view name, int64_t value) {
   EXPECT_EQ(Field(result, name).ValueInt(), value) << name;
 }
 
-void ExpectNonNullString(const mgp_result &result, std::string_view name) {
-  EXPECT_TRUE(Field(result, name).IsString()) << name;
-  EXPECT_FALSE(Field(result, name).ValueString().empty()) << name;
-}
-
 void ExpectResults(const mgp_proc &proc, Fields fields) {
   EXPECT_EQ(proc.results.size(), fields.size()) << proc.name;
   for (auto [name, type] : fields) {
@@ -85,18 +77,14 @@ void ExpectResults(mgp_module &module, std::string_view name, Fields fields) {
   ExpectResults(*proc, fields);
 }
 
-void ExpectArg(const mgp_proc &proc, size_t index, std::string_view name, std::string_view type) {
-  ASSERT_LT(index, proc.args.size()) << proc.name;
-  EXPECT_EQ(proc.args[index].first, name) << proc.name;
-  EXPECT_EQ(proc.args[index].second->GetPresentableName(), type) << proc.name;
-}
-
 void ExpectFromToSignature(mgp_module &module, std::string_view name, std::string_view second_arg) {
   const auto *proc = FindProc(module, name);
   ASSERT_NE(proc, nullptr);
   ASSERT_EQ(proc->args.size(), 2U);
-  ExpectArg(*proc, 0, "relationship", "RELATIONSHIP");
-  ExpectArg(*proc, 1, second_arg, "NODE");
+  EXPECT_EQ(proc->args[0].first, "relationship");
+  EXPECT_EQ(proc->args[0].second->GetPresentableName(), "RELATIONSHIP");
+  EXPECT_EQ(proc->args[1].first, second_arg);
+  EXPECT_EQ(proc->args[1].second->GetPresentableName(), "NODE");
   ASSERT_EQ(proc->opt_args.size(), 1U);
   EXPECT_EQ(std::get<0>(proc->opt_args[0]), "config");
   EXPECT_EQ(std::get<1>(proc->opt_args[0])->GetPresentableName(), "MAP");
@@ -114,37 +102,24 @@ class RefactorModuleTest : public ::testing::Test {
  protected:
   void SetUp() override {
     storage_ = std::make_unique<memgraph::storage::InMemoryStorage>(config_);
-    acc_ = &Access();
-    guard_.emplace(&memory_);
+    Open(View::NEW);
   }
 
-  void TearDown() override {
+  /// Reopens the graph a procedure runs on; a View::OLD graph is immutable, so mutating bodies fail after reading args.
+  void Open(View view) {
     graph_.reset();
-    guard_.reset();
-    db_accessors_.clear();
-    accessors_.clear();
-    storage_.reset();
-  }
-
-  memgraph::query::DbAccessor &Access() {
+    if (acc_ != nullptr) ASSERT_TRUE(acc_->Commit(memgraph::tests::MakeMainCommitArgs()).has_value());
     accessors_.push_back(storage_->Access(memgraph::storage::StorageAccessType::WRITE,
                                           memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION,
                                           std::nullopt));
     db_accessors_.emplace_back(accessors_.back().get());
-    return db_accessors_.back();
-  }
-
-  /// Commits the setup and reopens the graph the procedure runs on. A View::OLD
-  /// graph is immutable, so the mutating bodies fail after reading their arguments.
-  void Open(View view) {
-    ASSERT_TRUE(acc_->Commit(memgraph::tests::MakeMainCommitArgs()).has_value());
-    acc_ = &Access();
-    graph_.emplace(&*acc_, view, ctx_.get(), memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL);
+    acc_ = &db_accessors_.back();
+    graph_.emplace(acc_, view, ctx_.get(), memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL);
   }
 
   mgp_graph &Graph() { return *graph_; }
 
-  int64_t InsertNode() { return static_cast<int64_t>(acc_->InsertVertex().Gid().AsInt()); }
+  int64_t InsertNode() { return acc_->InsertVertex().Gid().AsInt(); }
 
   int64_t InsertEdge(int64_t from, int64_t to, const std::string &type) {
     auto from_vertex = acc_->FindVertex(memgraph::storage::Gid::FromInt(from), View::NEW);
@@ -153,18 +128,13 @@ class RefactorModuleTest : public ::testing::Test {
     EXPECT_TRUE(to_vertex.has_value());
     auto edge = acc_->InsertEdge(&*from_vertex, &*to_vertex, acc_->NameToEdgeType(type));
     EXPECT_TRUE(edge.has_value());
-    return static_cast<int64_t>(edge->Gid().AsInt());
+    return edge->Gid().AsInt();
   }
 
-  void AddLabel(int64_t node, const std::string &label) {
+  void AddLabelAndProperty(int64_t node, const std::string &label, const std::string &name, int64_t value) {
     auto vertex = acc_->FindVertex(memgraph::storage::Gid::FromInt(node), View::NEW);
     ASSERT_TRUE(vertex.has_value());
     ASSERT_TRUE(vertex->AddLabel(acc_->NameToLabel(label)).has_value());
-  }
-
-  void SetNodeProperty(int64_t node, const std::string &name, int64_t value) {
-    auto vertex = acc_->FindVertex(memgraph::storage::Gid::FromInt(node), View::NEW);
-    ASSERT_TRUE(vertex.has_value());
     ASSERT_TRUE(vertex->SetProperty(acc_->NameToProperty(name), memgraph::storage::PropertyValue{value}).has_value());
   }
 
@@ -202,7 +172,7 @@ class RefactorModuleTest : public ::testing::Test {
   memgraph::query::DbAccessor *acc_{nullptr};
   std::unique_ptr<memgraph::query::ExecutionContext> ctx_ = std::make_unique<memgraph::query::ExecutionContext>();
   std::optional<mgp_graph> graph_;
-  std::optional<mgp::MemoryDispatcherGuard> guard_;
+  std::optional<mgp::MemoryDispatcherGuard> guard_{std::in_place, &memory_};
 };
 }  // namespace
 
@@ -226,14 +196,18 @@ TEST_F(RefactorModuleTest, Signatures) {
 TEST_F(RefactorModuleTest, FromToSuccessRow) {
   const auto a = InsertNode(), b = InsertNode(), c = InsertNode();
   const auto edge_ab = InsertEdge(a, b, "TYPE"), edge_bc = InsertEdge(b, c, "TYPE");
-  Open(View::NEW);
+  const auto n0 = InsertNode(), n1 = InsertNode(), n2 = InsertNode(), n3 = InsertNode();
+  const auto n4 = InsertNode(), n5 = InsertNode();
+  InsertEdge(n0, n1, "CHAIN");
+  InsertEdge(n1, n2, "CHAIN");
+  SetEdgeProperty(InsertEdge(n3, n4, "OldType"), "old_edge", 1);
+  SetEdgeProperty(InsertEdge(n4, n5, "OldType"), "old_edge", 1);
+  for (const auto node : {n0, n2, n3}) AddLabelAndProperty(node, "OLD", "old_prop", 1);
   auto module = InitializedModule(memory_);
   auto check = [&](std::string_view name, int64_t rel_from, int64_t new_node, int64_t original) {
     const auto *proc = FindProc(*module, name);
     ASSERT_NE(proc, nullptr);
-    auto rel = FirstOut(rel_from);
-    auto target = By(new_node);
-    mgp::List args{mgp::Value(rel), mgp::Value(target), mgp::Value(mgp::Map{})};
+    mgp::List args{mgp::Value(FirstOut(rel_from)), mgp::Value(By(new_node)), mgp::Value(mgp::Map{})};
     auto result = MakeResult(*proc);
     Call(*proc, args, result);
     ASSERT_FALSE(result.error_msg.has_value()) << *result.error_msg;
@@ -248,58 +222,9 @@ TEST_F(RefactorModuleTest, FromToSuccessRow) {
   };
   check("from", a, c, edge_ab);
   check("to", b, a, edge_bc);
-}
 
-TEST_F(RefactorModuleTest, FromToFailureChannels) {
-  const auto a = InsertNode(), b = InsertNode();
-  const auto edge_ab = InsertEdge(a, b, "TYPE");
-  Open(View::OLD);
-  auto module = InitializedModule(memory_);
-  const auto *from = FindProc(*module, "from");
-  ASSERT_NE(from, nullptr);
-  auto call = [&](mgp::Value rel, const mgp::Map &config) {
-    mgp::List args{std::move(rel), mgp::Value(By(b)), mgp::Value(config)};
-    auto result = MakeResult(*from);
-    Call(*from, args, result);
-    return result;
-  };
-  auto expect_soft = [&](const mgp_result &result, bool has_input) {
-    EXPECT_FALSE(result.error_msg.has_value()) << *result.error_msg;
-    ASSERT_EQ(result.rows.size(), 1U);
-    if (has_input) ExpectInt(result, "input", edge_ab);
-    ExpectNonNullString(result, "error");
-    EXPECT_TRUE(Field(result, "output").IsNull());
-  };
-  auto hard = call(mgp::Value(FirstOut(a)), mgp::Map{{"failOnErrors", mgp::Value(true)}});
-  EXPECT_TRUE(hard.error_msg.has_value());
-  EXPECT_TRUE(hard.rows.empty());
-  expect_soft(call(mgp::Value(FirstOut(a)), mgp::Map{{"failOnErrors", mgp::Value(false)}}), true);
-  expect_soft(call(mgp::Value(FirstOut(a)), mgp::Map{}), true);
-  expect_soft(call(mgp::Value(FirstOut(a)), mgp::Map{{"failOnErrors", mgp::Value(int64_t{1})}}), true);
-  expect_soft(call(mgp::Value(FirstOut(a)), mgp::Map{{"unknownKey", mgp::Value("ignored")}}), true);
-  // A null relationship is a soft error row, never a hard failure or empty stream.
-  expect_soft(call(mgp::Value(), mgp::Map{}), false);
-}
-
-TEST_F(RefactorModuleTest, SiblingBodies) {
-  // n0 -> n1 -> n2 for collapse_node; n3 -> n4 -> n5 for the rename_type calls.
-  const auto n0 = InsertNode(), n1 = InsertNode(), n2 = InsertNode();
-  const auto n3 = InsertNode(), n4 = InsertNode(), n5 = InsertNode();
-  InsertEdge(n0, n1, "CHAIN");
-  InsertEdge(n1, n2, "CHAIN");
-  const auto e34 = InsertEdge(n3, n4, "OldType");
-  const auto e45 = InsertEdge(n4, n5, "OldType");
-  SetEdgeProperty(e34, "old_edge", 1);
-  SetEdgeProperty(e45, "old_edge", 1);
-  for (const auto node : {n0, n2, n3}) {
-    AddLabel(node, "OLD");
-    SetNodeProperty(node, "old_prop", 1);
-  }
-  Open(View::NEW);
-  auto module = InitializedModule(memory_);
   auto run = [&](std::string_view name, mgp::List &args) {
     const auto *proc = FindProc(*module, name);
-    EXPECT_NE(proc, nullptr);
     if (proc == nullptr) throw std::logic_error{"procedure is not registered"};
     auto result = MakeResult(*proc);
     Call(*proc, args, result);
@@ -334,4 +259,36 @@ TEST_F(RefactorModuleTest, SiblingBodies) {
   EXPECT_EQ(Field(collapse, "output").ValueEdge().Gid().AsInt(),
             Field(collapse, "new_relationship").ValueEdge().Gid().AsInt());
   EXPECT_TRUE(Field(collapse, "error").IsNull());
+}
+
+TEST_F(RefactorModuleTest, FromToFailureChannels) {
+  const auto a = InsertNode(), b = InsertNode();
+  const auto edge_ab = InsertEdge(a, b, "TYPE");
+  Open(View::OLD);
+  auto module = InitializedModule(memory_);
+  const auto *from = FindProc(*module, "from");
+  ASSERT_NE(from, nullptr);
+  auto call = [&](mgp::Value rel, const mgp::Map &config) {
+    mgp::List args{std::move(rel), mgp::Value(By(b)), mgp::Value(config)};
+    auto result = MakeResult(*from);
+    Call(*from, args, result);
+    return result;
+  };
+  auto expect_soft = [&](const mgp_result &result, bool has_input) {
+    EXPECT_FALSE(result.error_msg.has_value()) << *result.error_msg;
+    ASSERT_EQ(result.rows.size(), 1U);
+    if (has_input) ExpectInt(result, "input", edge_ab);
+    ASSERT_TRUE(Field(result, "error").IsString());
+    EXPECT_FALSE(Field(result, "error").ValueString().empty());
+    EXPECT_TRUE(Field(result, "output").IsNull());
+  };
+  auto hard = call(mgp::Value(FirstOut(a)), mgp::Map{{"failOnErrors", mgp::Value(true)}});
+  EXPECT_TRUE(hard.error_msg.has_value());
+  EXPECT_TRUE(hard.rows.empty());
+  expect_soft(call(mgp::Value(FirstOut(a)), mgp::Map{{"failOnErrors", mgp::Value(false)}}), true);
+  expect_soft(call(mgp::Value(FirstOut(a)), mgp::Map{}), true);
+  expect_soft(call(mgp::Value(FirstOut(a)), mgp::Map{{"failOnErrors", mgp::Value(int64_t{1})}}), true);
+  expect_soft(call(mgp::Value(FirstOut(a)), mgp::Map{{"unknownKey", mgp::Value("ignored")}}), true);
+  // A null relationship is a soft error row, never a hard failure or empty stream.
+  expect_soft(call(mgp::Value(), mgp::Map{}), false);
 }

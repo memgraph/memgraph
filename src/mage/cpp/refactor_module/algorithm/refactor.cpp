@@ -38,9 +38,8 @@ void CopyRelProperties(mgp::Relationship &to, mgp::Relationship const &from) {
 }  // namespace
 
 namespace {
-// The optional trailing config map of from/to. Only a literal boolean true asks
-// for the call to fail; an omitted map, a missing key or any non-boolean value
-// leaves the failure on the produced row.
+// Only a literal boolean true in the optional trailing config map fails the call;
+// an omitted map, a missing key or any non-boolean value leaves the failure on the row.
 bool FailOnErrorsRequested(const mgp::List &arguments) {
   if (arguments.Size() <= 2) return false;
   const mgp::Value config = arguments[2];
