@@ -2952,7 +2952,7 @@ TYPED_TEST(InterpreterTest, ExecutionStatsValuesPropertiesSet) {
 TYPED_TEST(InterpreterTest, QueryLogRedactsCredentialsWithoutLicense) {
   const UnlicensedScope unlicensed;
 
-  AuthQueryHandlerFixture auth{this->data_directory / "auth"};
+  AuthQueryHandlerFixture auth{this->data_directory / "auth_query_log"};
   this->interpreter_context.auth = &auth.handler;
 
   std::ostringstream log;
@@ -2977,7 +2977,7 @@ TYPED_TEST(InterpreterTest, QueryLogRedactsCredentialsWithoutLicense) {
 // start enforcing, even though no query may change it while unlicensed.
 TYPED_TEST(InterpreterTest, ShowPrivilegesReadsFineGrainedRulesWithoutLicense) {
   memgraph::license::global_license_checker.EnableTesting();
-  AuthQueryHandlerFixture auth{this->data_directory / "auth"};
+  AuthQueryHandlerFixture auth{this->data_directory / "auth_show_privileges"};
   this->interpreter_context.auth = &auth.handler;
 
   this->default_interpreter.Interpret("CREATE USER alice");
@@ -3002,7 +3002,7 @@ TYPED_TEST(InterpreterTest, ShowPrivilegesReadsFineGrainedRulesWithoutLicense) {
 // rule: readable while unlicensed, not changeable.
 TYPED_TEST(InterpreterTest, ShowRoleForUserReadsTheAssignmentWithoutLicense) {
   memgraph::license::global_license_checker.EnableTesting();
-  AuthQueryHandlerFixture auth{this->data_directory / "auth"};
+  AuthQueryHandlerFixture auth{this->data_directory / "auth_show_role"};
   this->interpreter_context.auth = &auth.handler;
 
   this->default_interpreter.Interpret("CREATE ROLE analyst");
@@ -3022,7 +3022,7 @@ TYPED_TEST(InterpreterTest, ShowRoleForUserReadsTheAssignmentWithoutLicense) {
 
 TYPED_TEST(InterpreterTest, ShowDatabasePrivilegesReadsTheGrantsWithoutLicense) {
   memgraph::license::global_license_checker.EnableTesting();
-  AuthQueryHandlerFixture auth{this->data_directory / "auth"};
+  AuthQueryHandlerFixture auth{this->data_directory / "auth_show_db_privileges"};
   this->interpreter_context.auth = &auth.handler;
 
   // The first user is granted access to every database, so there is something to report.
@@ -3034,6 +3034,67 @@ TYPED_TEST(InterpreterTest, ShowDatabasePrivilegesReadsTheGrantsWithoutLicense) 
   this->Pull(&stream);
 
   EXPECT_FALSE(stream.GetResults().empty());
+}
+
+// The policy leans on a warning at the point of use: a show reports configuration that is not being
+// applied, and the operator learns that from the query they just ran.
+TYPED_TEST(InterpreterTest, AnAccessControlShowWarnsItIsNotEnforcedWithoutLicense) {
+  memgraph::license::global_license_checker.EnableTesting();
+  AuthQueryHandlerFixture auth{this->data_directory / "auth_show_warning"};
+  this->interpreter_context.auth = &auth.handler;
+  this->default_interpreter.Interpret("CREATE USER alice");
+
+  using CodeAndSeverity = std::pair<std::string, std::string>;
+  auto const notifications = [this](std::string const &query) {
+    auto [stream, qid] = this->Prepare(query);
+    this->Pull(&stream);
+    std::vector<CodeAndSeverity> result;
+    if (stream.GetSummary().contains("notifications")) {
+      for (auto const &notification : stream.GetSummary().at("notifications").ValueList()) {
+        auto const &map = notification.ValueMap();
+        result.emplace_back(map.at("code").ValueString(), map.at("severity").ValueString());
+      }
+    }
+    return result;
+  };
+
+  EXPECT_TRUE(notifications("SHOW ROLE FOR alice").empty());
+
+  const UnlicensedScope unlicensed;
+  EXPECT_EQ(notifications("SHOW ROLE FOR alice"),
+            (std::vector<CodeAndSeverity>{{"UnlicensedEnterpriseFeature", "WARNING"}}));
+}
+
+// A user created while unlicensed carries no fine-grained configuration, so a license arriving later
+// denies it every label. Warned at creation, which reaches the person who can grant it. Only users
+// are covered: creating a role is itself refused without a license.
+TYPED_TEST(InterpreterTest, CreatingAUserWithoutLicenseWarnsItWillBeDenied) {
+  AuthQueryHandlerFixture auth{this->data_directory / "auth_create_warning"};
+  this->interpreter_context.auth = &auth.handler;
+
+  using CodeAndSeverity = std::pair<std::string, std::string>;
+  auto const notifications = [this](std::string const &query) {
+    auto [stream, qid] = this->Prepare(query);
+    this->Pull(&stream);
+    std::vector<CodeAndSeverity> result;
+    if (stream.GetSummary().contains("notifications")) {
+      for (auto const &notification : stream.GetSummary().at("notifications").ValueList()) {
+        auto const &map = notification.ValueMap();
+        result.emplace_back(map.at("code").ValueString(), map.at("severity").ValueString());
+      }
+    }
+    return result;
+  };
+
+  auto const unlicensed_warning = CodeAndSeverity{"UnlicensedEnterpriseFeature", "WARNING"};
+
+  {
+    const UnlicensedScope unlicensed;
+    EXPECT_THAT(notifications("CREATE USER bob"), ::testing::Contains(unlicensed_warning));
+  }
+
+  memgraph::license::global_license_checker.EnableTesting();
+  EXPECT_THAT(notifications("CREATE USER carol"), ::testing::Not(::testing::Contains(unlicensed_warning)));
 }
 
 TYPED_TEST(InterpreterTest, DenyDatabaseFromWarnsItIsDeprecated) {

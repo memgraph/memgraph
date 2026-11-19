@@ -6050,6 +6050,33 @@ PreparedQuery PrepareAuthQuery(ParsedQuery parsed_query, bool in_explicit_transa
                                 "instead.");
   }
 
+#ifdef MG_ENTERPRISE
+  if (!license::global_license_checker.IsEnterpriseValidFast()) {
+    // Report configuration that an invalid license is not applying where the operator is looking: in
+    // the result of the query that just showed it to them.
+    static const std::unordered_set kAccessControlShows{AuthQuery::Action::SHOW_PRIVILEGES,
+                                                        AuthQuery::Action::SHOW_ROLE_FOR_USER,
+                                                        AuthQuery::Action::SHOW_USERS_FOR_ROLE,
+                                                        AuthQuery::Action::SHOW_DATABASE_PRIVILEGES};
+    if (kAccessControlShows.contains(auth_query->action_)) {
+      notifications->emplace_back(SeverityLevel::WARNING,
+                                  NotificationCode::UNLICENSED_ENTERPRISE_FEATURE,
+                                  "Fine-grained access control is not enforced without a valid enterprise license, so "
+                                  "the configuration shown is not being applied. Check your license status by running "
+                                  "SHOW LICENSE INFO.");
+    } else if (auth_query->action_ == AuthQuery::Action::CREATE_USER) {
+      // Granting needs a license, so nothing can be granted here. Once one arrives, fine-grained
+      // checks start applying and deny by default, which locks this user out until it is granted.
+      // Creating a role needs a license of its own, so it never reaches this.
+      notifications->emplace_back(SeverityLevel::WARNING,
+                                  NotificationCode::UNLICENSED_ENTERPRISE_FEATURE,
+                                  "No fine-grained permissions can be granted without a valid enterprise license. "
+                                  "Once a license is in place, this user is denied every label, edge type and "
+                                  "property until it is granted them.");
+    }
+  }
+#endif
+
   // The transaction is created here, on the first auth statement, rather than at BEGIN: a transaction is only known
   // to be an auth one once a statement has classified it, and one that only ever runs data queries must not pay for
   // auth machinery it never uses.

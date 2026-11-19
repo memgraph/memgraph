@@ -85,6 +85,8 @@ constexpr std::string_view GetCodeString(const NotificationCode code) {
       return "LeaderNotReachable"sv;
     case NotificationCode::REPLICATION_LAG_UNAVAILABLE:
       return "ReplicationLagUnavailable"sv;
+    case NotificationCode::UNLICENSED_ENTERPRISE_FEATURE:
+      return "UnlicensedEnterpriseFeature"sv;
 #endif
     case NotificationCode::REPLICA_PORT_WARNING:
       return "ReplicaPortWarning"sv;
