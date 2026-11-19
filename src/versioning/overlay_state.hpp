@@ -15,15 +15,16 @@
 #error "versioning/overlay_state.hpp is enterprise-only"
 #endif
 
-#include <algorithm>
 #include <cstdint>
 #include <expected>
 #include <mutex>
+#include <optional>
+#include <shared_mutex>
 #include <span>
+#include <type_traits>
 
 #include "storage/v2/delta.hpp"
 #include "storage/v2/edge.hpp"
-#include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/edge_direction.hpp"
 #include "storage/v2/edge_ref.hpp"
 #include "storage/v2/id_types.hpp"
@@ -40,72 +41,96 @@
 #include "utils/logging.hpp"
 
 // An overlay is a sparse stock Vertex or Edge in a branch's diff engine holding only a branch's difference to the base
-// object, so the diff engine's own MVCC versions, aborts and collects it. This header is the encoding in labels and
-// properties; a marked id has the reserved bit set (id_types.hpp), so it never collides with a user id:
+// object, so the diff engine's own MVCC versions, aborts and collects it. The encoding uses stock fields:
 //
-//   label added by the branch       -> label L
-//   base label removed              -> label Mark(L)
-//   property set by the branch      -> property p = value
-//   base property removed           -> property Mark(p) = true
-//   object deleted                  -> label kDeleteLabel (vertex) / property kEdgeDeletePid (edge)
-//   base edge deleted               -> entry of type Mark(T) in both endpoint overlays' adjacency (LinkEdgeMarker)
+//   labels            the overlay's FULL label set, copied from the base at overlay creation (CopyBaseLabels);
+//   afterwards
+//                     stock AddLabel / RemoveLabel
+//   property set      stock value
+//   property removed  an explicit null entry (PropertyStore::SetExplicitNull), written by WriteProperty
+//   object deleted    the stock deleted flag (MarkVertexDeleted / MarkEdgeDeleted, overlay_mark_deleted.hpp), read by
+//   IsDeleted base edge deleted an entry of type Mark(T) in both endpoint overlays' adjacency (LinkEdgeMarker); the
+//   only reserved
+//                     id left: an edge type with the reserved bit set (id_types.hpp) never collides with a user type
+//
+// A property key is absent (the base's value stands), an explicit null (the base's value is removed) or a value.
+// An MVCC reader reconstructing an older snapshot of a key through its SET_PROPERTY deltas must read a before-image
+// equal to &storage::kExplicitNullBeforeImage as an explicit null, not as absent; every other before-image Null is
+// absent. WriteProperty is the only writer that may put an explicit null on an overlay or write over one: a stock
+// SetProperty over an explicit null records a plain Null before-image, and its abort would erase the key.
 namespace memgraph::versioning::overlay {
-
-// Labels and properties share one name mapper, so the one delete id serves both.
-inline constexpr storage::LabelId kDeleteLabel = storage::LabelId::FromUint(storage::kDeleteId);
-inline constexpr storage::PropertyId kEdgeDeletePid = storage::PropertyId::FromUint(storage::kDeleteId);
-
-static_assert(storage::IsReservedId(storage::kDeleteId));
-static_assert((storage::kLastRealId | storage::kReservedIdBit) < storage::kDeleteId,
-              "no real id's mark is a delete marker, nor the invalid id 0xFFFFFFFF");
-
-inline storage::LabelId Mark(storage::LabelId l) noexcept {
-  return storage::LabelId::FromUint(l.AsUint() | storage::kReservedIdBit);
-}
-
-inline storage::PropertyId Mark(storage::PropertyId p) noexcept {
-  return storage::PropertyId::FromUint(p.AsUint() | storage::kReservedIdBit);
-}
 
 inline storage::EdgeTypeId Mark(storage::EdgeTypeId t) noexcept {
   return storage::EdgeTypeId::FromUint(t.AsUint() | storage::kReservedIdBit);
 }
 
-// Whether an overlay vertex's labels carry the delete marker.
-inline bool HasDeleteLabel(std::span<const storage::LabelId> labels) noexcept {
-  return std::ranges::contains(labels, kDeleteLabel);
-}
-
-inline storage::Result<bool> IsDeleted(const storage::VertexAccessor &overlay, storage::View view) {
-  return overlay.HasLabel(kDeleteLabel, view);
-}
-
-inline storage::Result<bool> IsEdgeDeleted(const storage::EdgeAccessor &overlay, storage::View view) {
-  auto r = overlay.GetProperty(kEdgeDeletePid, view);
-  if (!r) return std::unexpected(r.error());
-  return !r->IsNull();
-}
-
-// Writes `value` (null removes) to `key` on a vertex or edge overlay in the per-key order readers rely on: the removal
-// marker goes on before the value is dropped and off after the new value is set. `in_base`: the base object has the
-// key; `marked`: the overlay already holds Mark(key). Not atomic across the writes; the caller guards a partial write.
-template <typename OverlayAccessor>
-storage::Result<void> WriteKey(OverlayAccessor &overlay, storage::PropertyId key, const storage::PropertyValue &value,
-                               bool in_base, bool marked) {
-  if (value.IsNull()) {
-    if (in_base) {
-      if (auto on = overlay.SetProperty(Mark(key), storage::PropertyValue{true}); !on)
-        return std::unexpected(on.error());
-    }
-    if (auto dropped = overlay.SetProperty(key, storage::PropertyValue{}); !dropped) {
-      return std::unexpected(dropped.error());
-    }
-    return {};
+// Gives an unpublished overlay the base vertex's labels as the delta-less base copy, counted as stock AddLabel would so
+// MarkVertexDeleted's decrement balances. Must run before the overlay is published to any other thread or transaction:
+// it takes no lock and records no delta.
+// @throw utils::OutOfMemoryException
+inline void CopyBaseLabels(storage::Storage &engine, storage::Vertex *overlay,
+                           std::span<const storage::LabelId> base_labels) {
+  DMG_ASSERT(overlay->labels.empty() && overlay->delta() == nullptr, "labels are copied once, onto a fresh overlay");
+  overlay->labels.reserve(base_labels.size());
+  for (auto const label : base_labels) {
+    overlay->labels.push_back(label);
+    engine.UpdateLabelCount(label, 1);
   }
-  if (auto set = overlay.SetProperty(key, value); !set) return std::unexpected(set.error());
-  if (marked) {
-    if (auto off = overlay.SetProperty(Mark(key), storage::PropertyValue{}); !off) return std::unexpected(off.error());
+}
+
+// Whether the overlay is deleted in `view`: the stock deleted flag with the overlay's deltas applied.
+inline bool IsDeleted(const storage::Transaction *transaction, const storage::Vertex *overlay, storage::View view) {
+  return !storage::VertexAccessor::IsVisible(overlay, transaction, view);
+}
+
+inline bool IsDeleted(const storage::Transaction *transaction, const storage::Edge *overlay, storage::View view) {
+  bool deleted = false;
+  const storage::Delta *delta = nullptr;
+  {
+    auto const guard = std::shared_lock{overlay->lock};
+    deleted = overlay->deleted();
+    delta = overlay->delta();
   }
+  storage::ApplyDeltasForRead(transaction, delta, view, [&deleted](const storage::Delta &d) {
+    if (d.action == storage::Delta::Action::RECREATE_OBJECT) deleted = false;
+  });
+  return deleted;
+}
+
+// The overlay's latest stored state of `key` (this transaction's writes and everything committed): nullopt when absent,
+// a Null value for an explicit null, otherwise the value. Older snapshots go through the stock MVCC readers.
+template <typename Overlay>
+  requires(std::is_same_v<Overlay, storage::Vertex> || std::is_same_v<Overlay, storage::Edge>)
+std::optional<storage::PropertyValue> FindProperty(const Overlay &overlay, storage::PropertyId key) {
+  auto const guard = std::shared_lock{overlay.lock};
+  return overlay.properties.FindProperty(key);
+}
+
+// Writes `value` to `key` on a vertex or edge overlay; a null value removes the base's value by storing an explicit
+// null. The undo delta records kExplicitNullBeforeImage when the old state was an explicit null, so an abort restores
+// it. Not index- or schema-tracked: an overlay is in no index of its diff engine. Returns SERIALIZATION_ERROR on a
+// conflicting writer, DELETED_OBJECT on a marked-deleted overlay.
+// @throw utils::OutOfMemoryException
+template <typename Overlay>
+  requires(std::is_same_v<Overlay, storage::Vertex> || std::is_same_v<Overlay, storage::Edge>)
+storage::Result<void> WriteProperty(storage::Transaction *transaction, Overlay *overlay, storage::PropertyId key,
+                                    const storage::PropertyValue &value) {
+  DMG_ASSERT(transaction->storage_mode == storage::StorageMode::IN_MEMORY_TRANSACTIONAL, "overlays need MVCC deltas");
+  auto guard = std::unique_lock{overlay->lock};
+  if (!storage::PrepareForWrite(transaction, overlay)) return std::unexpected{storage::Error::SERIALIZATION_ERROR};
+  if (overlay->deleted()) return std::unexpected{storage::Error::DELETED_OBJECT};
+  auto const old = overlay->properties.FindProperty(key);
+  auto const old_is_explicit_null = old.has_value() && old->IsNull();
+  utils::AtomicMemoryBlock([&] {
+    storage::CreateAndLinkDelta(
+        transaction, overlay, storage::Delta::SetPropertyTag(), key, old.value_or(storage::PropertyValue{}));
+    if (old_is_explicit_null) overlay->delta()->property.value = &storage::kExplicitNullBeforeImage;
+    if (value.IsNull()) {
+      overlay->properties.SetExplicitNull(key);
+    } else {
+      overlay->properties.SetProperty(key, value);
+    }
+  });
   return {};
 }
 
