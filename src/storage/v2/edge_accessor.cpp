@@ -53,19 +53,6 @@ std::optional<PropertyValue> TryConvertToVectorEdgeIndexProperty(Storage *storag
   if (index_ids.empty()) return std::nullopt;
   return PropertyValue(PropertyValue::VectorIndexIdData{.ids = std::move(index_ids), .vector = ListToVector(value)});
 }
-
-void CreateAndLinkDeltaForEdgeSetProperty(Transaction *transaction, const Config &config, Edge *edge,
-                                          Vertex *from_vertex, Vertex *to_vertex, EdgeTypeId edge_type_id,
-                                          PropertyId property, const PropertyValue &old_value) {
-  CreateAndLinkDelta(transaction, edge, Delta::SetPropertyTag(), from_vertex, property, old_value);
-  // No need to record the edge set property info if the edge was created in this transaction
-  // The edge set property info is only used to speed up the edge search, during recovery/replication.
-  if (config.durability.snapshot_wal_mode == Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL &&
-      transaction->commit_info &&
-      !EdgeWasCreatedThisTransaction(edge, transaction->commit_info->timestamp.load(std::memory_order_acquire))) {
-    transaction->RecordEdgeSetPropertyInfo(edge->gid, to_vertex->gid, edge_type_id);
-  }
-}
 }  // namespace
 
 std::optional<EdgeAccessor> EdgeAccessor::Create(EdgeRef edge, EdgeTypeId edge_type, Vertex *from_vertex,

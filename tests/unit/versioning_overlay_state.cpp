@@ -29,6 +29,7 @@
 #include "storage/v2/vertex.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 #include "tests/test_commit_args_helper.hpp"
+#include "utils/atomic_utils.hpp"
 #include "utils/bound.hpp"
 #include "versioning/overlay_mark_deleted.hpp"
 #include "versioning/overlay_state.hpp"
@@ -81,13 +82,17 @@ class OverlayStateIndexedTest : public OverlayStateTest {
  protected:
   void SetUp() override {
     OverlayStateTest::SetUp();
+    // As the diff engine's ctor does: index scans skip gids at or above the id counters, and overlays sit below them.
+    constexpr uint64_t kGidFloor = 100;
+    atomic_fetch_max_explicit(&storage->vertex_id_, kGidFloor, std::memory_order_acq_rel);
+    atomic_fetch_max_explicit(&storage->edge_id_, kGidFloor, std::memory_order_acq_rel);
     Ddl([](ms::Storage::Accessor &acc) {
       return acc.CreateIndex(kLabelA, ms::PropertiesPaths{ms::PropertyPath{kKey}});
     });
     Ddl([](ms::Storage::Accessor &acc) { return acc.CreateGlobalVertexIndex(kKey); });
     Ddl([](ms::Storage::Accessor &acc) { return acc.CreateIndex(kEdgeType, kKey); });
     Ddl([](ms::Storage::Accessor &acc) { return acc.CreateGlobalEdgeIndex(kKey); });
-    overlay::CopyBaseLabels(*storage, vertex.get(), std::vector{kLabelA});
+    overlay::CopyBaseLabels(vertex.get(), std::vector{kLabelA});
   }
 
   void Ddl(auto &&create) {
@@ -157,7 +162,7 @@ TEST(OverlayMarkers, OnlyEdgeTypesCarryTheReservedBit) {
 }
 
 TEST_F(OverlayStateTest, LabelsAreCopiedOnceAndThenStockAddAndRemoveApply) {
-  overlay::CopyBaseLabels(*storage, vertex.get(), std::vector{kLabelA, kLabelB});
+  overlay::CopyBaseLabels(vertex.get(), std::vector{kLabelA, kLabelB});
   EXPECT_EQ(Labels(), (std::vector{kLabelA, kLabelB}));
 
   auto writer = Writer();
@@ -228,7 +233,8 @@ TEST_F(OverlayStateTest, AMarkDeletedIsReadPerViewAndRefusesFurtherWrites) {
   auto *const tx = writer->GetTransaction();
   EXPECT_FALSE(overlay::IsDeleted(tx, vertex.get(), ms::View::NEW));
   EXPECT_FALSE(overlay::IsDeleted(tx, edge.get(), ms::View::NEW));
-  ASSERT_TRUE(*overlay::MarkVertexDeleted(tx, *storage, vertex.get()));
+  auto vertex_accessor = ms::VertexAccessor{vertex.get(), storage.get(), tx};
+  ASSERT_TRUE(writer->DeleteVertex(&vertex_accessor)->has_value());
   ASSERT_TRUE(*overlay::MarkEdgeDeleted(tx, edge.get()));
   EXPECT_TRUE(overlay::IsDeleted(tx, vertex.get(), ms::View::NEW));
   EXPECT_TRUE(overlay::IsDeleted(tx, edge.get(), ms::View::NEW));
