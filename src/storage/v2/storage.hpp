@@ -231,13 +231,12 @@ struct ColdTenantRecovery {
 nlohmann::json ToJson(const StorageInfo &info);
 
 struct EdgeInfoForDeletion {
-  // Edges are identified by the EdgeRef an adjacency entry already holds, so matching an entry never reads the
-  // Edge object; on a dense vertex that read would be a cache miss for every entry scanned.
-  boost::unordered_flat_set<EdgeRef> partial_src_edges{};
-  boost::unordered_flat_set<EdgeRef> partial_dest_edges{};
-  // How many of those edges each vertex holds in the matching direction, so its scan can stop once all are found.
-  std::unordered_map<Vertex *, size_t> partial_src_vertices{};
-  std::unordered_map<Vertex *, size_t> partial_dest_vertices{};
+  // For each vertex, the edges it loses in the matching direction, so its scan checks only its own edges and stops
+  // once all are found. Edges are identified by the EdgeRef an adjacency entry already holds, so matching an entry
+  // never reads the Edge object; on a dense vertex that read would be a cache miss for every entry scanned.
+  using EdgeSet = boost::unordered_flat_set<EdgeRef>;
+  std::unordered_map<Vertex *, EdgeSet> partial_src_vertices{};
+  std::unordered_map<Vertex *, EdgeSet> partial_dest_vertices{};
 };
 
 struct TTLReplicationArgs {
