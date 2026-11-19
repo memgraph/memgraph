@@ -167,7 +167,7 @@ TEST_F(WriteVisibilityPlan, RootReturnDrainAdvances) {
   auto accumulates = Collect<Accumulate>(Plan("MATCH (n) SET n.x = 1 RETURN n.x AS x ORDER BY x"));
   ASSERT_EQ(accumulates.size(), 1);
   EXPECT_TRUE(accumulates[0]->advance_command_);
-  EXPECT_TRUE(accumulates[0]->skip_advance_in_analytical_);
+  EXPECT_TRUE(accumulates[0]->write_visibility_advance_);
 }
 
 TEST_F(WriteVisibilityPlan, BodyReturnDrainDoesNotAdvance) {
@@ -178,8 +178,8 @@ TEST_F(WriteVisibilityPlan, BodyReturnDrainDoesNotAdvance) {
   EXPECT_TRUE(accumulates[1]->advance_command_);
   EXPECT_FALSE(accumulates[2]->advance_command_);
   // Master advances after a writing CALL too, so analytical mode keeps that advance.
-  EXPECT_TRUE(accumulates[0]->skip_advance_in_analytical_);
-  EXPECT_FALSE(accumulates[1]->skip_advance_in_analytical_);
+  EXPECT_TRUE(accumulates[0]->write_visibility_advance_);
+  EXPECT_FALSE(accumulates[1]->write_visibility_advance_);
 }
 
 // Master's WITH advance: analytical mode keeps it.
@@ -187,7 +187,7 @@ TEST_F(WriteVisibilityPlan, WithDrainIsNotSkippedInAnalyticalMode) {
   auto accumulates = Collect<Accumulate>(Plan("MATCH (n) SET n.x = 1 WITH n RETURN n.x AS x"));
   ASSERT_EQ(accumulates.size(), 1);
   EXPECT_TRUE(accumulates[0]->advance_command_);
-  EXPECT_FALSE(accumulates[0]->skip_advance_in_analytical_);
+  EXPECT_FALSE(accumulates[0]->write_visibility_advance_);
 }
 
 /// Whether each Union of @p plan advances the command after its left side, top first.
@@ -395,7 +395,7 @@ TEST_F(WriteVisibilityPlan, BarrierBeforeSetThatReadsAnEarlierSet) {
             (Names{"EmptyResult", "SetProperty", "SetProperty", "ScanAll", "Unwind", "Once"}));
   auto barriers = Collect<Accumulate>(Plan("UNWIND [1, 2] AS i MATCH (a) SET a.x = 1 SET a.y = a.x"));
   ASSERT_EQ(barriers.size(), 1);
-  EXPECT_TRUE(barriers[0]->skip_advance_in_analytical_);
+  EXPECT_TRUE(barriers[0]->write_visibility_advance_);
 }
 
 TEST_F(WriteVisibilityPlan, TwoBarriersInOnePart) {
@@ -480,7 +480,7 @@ TEST_F(WriteVisibilityPlan, ANodeReadAfterALabelWriteGetsAnAccessCheckBarrier) {
   auto *barrier = dynamic_cast<Accumulate *>(applies[0]->input_.get());
   ASSERT_NE(barrier, nullptr);
   EXPECT_TRUE(barrier->access_check_only_);
-  EXPECT_TRUE(barrier->skip_advance_in_analytical_);
+  EXPECT_TRUE(barrier->write_visibility_advance_);
 }
 
 // a may repeat, so another row's label write can reach this row's check.
@@ -562,7 +562,7 @@ TEST_F(WriteVisibilityPlan, ACloneKeepsTheAccessCheckFlag) {
 TEST_F(WriteVisibilityPlan, ACloneKeepsTheAnalyticalSkipFlag) {
   auto const skips = [](LogicalOperator &root) {
     return Collect<Accumulate>(root) |
-           std::views::transform([](auto const *acc) { return acc->skip_advance_in_analytical_; }) |
+           std::views::transform([](auto const *acc) { return acc->write_visibility_advance_; }) |
            std::ranges::to<std::vector<bool>>();
   };
   auto &plan = Plan("MATCH (a:P), (b:P) SET a.x = b.x SET b.x = 0");
@@ -654,7 +654,7 @@ std::string DeletePairs(std::string_view rest) { return std::string{kDeletePairs
 
 /// The drain ids of @p plan's Accumulates and Deletes, top first.
 std::vector<uint64_t> DrainIds(LogicalOperator &plan) {
-  return Collect<Accumulate>(plan) | std::views::transform([](auto *op) { return op->defers_deletes_; }) |
+  return Collect<Accumulate>(plan) | std::views::transform([](auto *op) { return op->owned_deletes_drain_id_; }) |
          std::ranges::to<std::vector>();
 }
 

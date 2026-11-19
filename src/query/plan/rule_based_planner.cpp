@@ -1072,7 +1072,7 @@ std::unique_ptr<LogicalOperator> PlanProjectionAndOrdering(std::unique_ptr<Logic
 std::unique_ptr<LogicalOperator> GenReturnBody(std::unique_ptr<LogicalOperator> input_op, bool advance_command,
                                                const ReturnBodyContext &body, bool accumulate,
                                                Expression *commit_frequency, storage::View read_view,
-                                               bool skip_advance_in_analytical = false) {
+                                               bool write_visibility_advance = false) {
   std::vector<Symbol> used_symbols(body.used_symbols().begin(), body.used_symbols().end());
   using BodyPosition = ReturnBodyContext::BodyPosition;
   auto last_op = std::move(input_op);
@@ -1080,9 +1080,9 @@ std::unique_ptr<LogicalOperator> GenReturnBody(std::unique_ptr<LogicalOperator> 
     // We only advance the command in Accumulate. This is done for WITH clause,
     // when the first part updated the database. RETURN clause may only need an
     // accumulation after updates, without advancing the command.
-    auto accumulate_op = std::make_unique<Accumulate>(std::move(last_op), used_symbols, advance_command);
-    accumulate_op->skip_advance_in_analytical_ = skip_advance_in_analytical;
-    last_op = std::move(accumulate_op);
+    last_op = write_visibility_advance
+                  ? Accumulate::Barrier(std::move(last_op), used_symbols, advance_command)
+                  : std::make_unique<Accumulate>(std::move(last_op), used_symbols, advance_command);
   }
   // A planned branch, folded onto last_op: the list fold reads a column, the column-less folds do not, and that is
   // the whole difference between the two RollUpApply constructors.

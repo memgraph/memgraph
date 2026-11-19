@@ -404,9 +404,9 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
       // The outermost drain owns the segment's Deletes and applies them after its replay.
       auto own_deletes = [&](Accumulate &drain) {
         if (segment_deletes.empty()) return;
-        if (delete_owner) delete_owner->defers_deletes_ = 0;
-        drain.defers_deletes_ = ++last_drain_id_;
-        for (auto *del : segment_deletes) del->deferred_to_ = drain.defers_deletes_;
+        if (delete_owner) delete_owner->owned_deletes_drain_id_ = 0;
+        drain.owned_deletes_drain_id_ = ++last_drain_id_;
+        for (auto *del : segment_deletes) del->deferred_to_ = drain.owned_deletes_drain_id_;
         delete_owner = &drain;
       };
       // Where a barrier would go: before the matching of `barrier_matched_after`, or before the clauses
@@ -431,8 +431,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
         Accumulate *barrier = nullptr;
         if (input_op) {
           auto symbols = barrier_symbols();
-          auto accumulate = std::make_unique<Accumulate>(std::move(input_op), symbols, read_scope_ == ReadScope::kRoot);
-          accumulate->skip_advance_in_analytical_ = true;
+          auto accumulate = Accumulate::Barrier(std::move(input_op), symbols, read_scope_ == ReadScope::kRoot);
           barrier = accumulate.get();
           input_op = std::move(accumulate);
         }
@@ -451,9 +450,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
       auto plan_access_check_barrier = [&]() {
         if (input_op) {
           auto barrier =
-              std::make_unique<Accumulate>(std::move(input_op), barrier_symbols(), read_scope_ == ReadScope::kRoot);
-          barrier->access_check_only_ = true;
-          barrier->skip_advance_in_analytical_ = true;
+              Accumulate::AccessCheckBarrier(std::move(input_op), barrier_symbols(), read_scope_ == ReadScope::kRoot);
           own_deletes(*barrier);
           input_op = std::move(barrier);
         }
@@ -1595,9 +1592,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
       if (!context_->bound_symbols.contains(symbol)) symbols.push_back(symbol);
     }
     std::ranges::sort(symbols, std::less<>{}, &Symbol::position);
-    auto buffer = std::make_unique<Accumulate>(std::move(on_match), symbols, /*advance_command=*/false);
-    buffer->access_check_only_ = ConflictsOnlyInAccessCheck(reads, writes);
-    return buffer;
+    return Accumulate::MatchBuffer(std::move(on_match), symbols, ConflictsOnlyInAccessCheck(reads, writes));
   }
 
   auto GenMerge(query::Merge &merge, std::unique_ptr<LogicalOperator> input_op, const Matching &matching,

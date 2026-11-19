@@ -191,7 +191,7 @@ std::pair<int, int> NodesLeftAroundAReplay(QueryPlanTest<TStorage> &test, uint64
   auto delete_op = std::make_shared<plan::Delete>(n.op_, std::vector<Expression *>{n_get}, false);
   delete_op->deferred_to_ = delete_owner;
   auto accumulate = std::make_shared<Accumulate>(delete_op, std::vector<Symbol>{n.sym_}, false);
-  accumulate->defers_deletes_ = drain;
+  accumulate->owned_deletes_drain_id_ = drain;
   accumulate->access_check_only_ = access_check_only;
   auto context = MakeContext(test.storage, symbol_table, &dba);
   Frame frame(context.symbol_table.max_position());
@@ -226,10 +226,10 @@ TYPED_TEST(QueryPlanTest, ADeleteDefersOnlyToTheDrainOnTop) {
   auto delete_op = std::make_shared<plan::Delete>(n.op_, std::vector<Expression *>{n_get}, false);
   delete_op->deferred_to_ = 1;
   auto inner = std::make_shared<Accumulate>(delete_op, std::vector<Symbol>{n.sym_}, false);
-  inner->defers_deletes_ = 1;
+  inner->owned_deletes_drain_id_ = 1;
   inner->access_check_only_ = true;
   auto outer = std::make_shared<Accumulate>(inner, std::vector<Symbol>{n.sym_}, false);
-  outer->defers_deletes_ = 2;
+  outer->owned_deletes_drain_id_ = 2;
   auto context = MakeContext(this->storage, symbol_table, &dba);
   Frame frame(context.symbol_table.max_position());
   auto cursor = outer->MakeCursor(memgraph::utils::NewDeleteResource(), TestMetricHandles());
@@ -248,7 +248,7 @@ TYPED_TEST(QueryPlanTest, AThrowInsideAnOwnerDrainPopsIt) {
   auto delete_op = std::make_shared<plan::Delete>(n.op_, std::vector<Expression *>{LITERAL(5)}, false);
   delete_op->deferred_to_ = 3;
   auto accumulate = std::make_shared<Accumulate>(delete_op, std::vector<Symbol>{n.sym_}, false);
-  accumulate->defers_deletes_ = 3;
+  accumulate->owned_deletes_drain_id_ = 3;
   auto context = MakeContext(this->storage, symbol_table, &dba);
   EXPECT_THROW(PullAll(*accumulate, &context), QueryRuntimeException);
   EXPECT_TRUE(context.delete_owners.empty());

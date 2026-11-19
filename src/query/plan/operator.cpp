@@ -7502,6 +7502,27 @@ Accumulate::Accumulate(const std::shared_ptr<LogicalOperator> &input, const std:
                        bool advance_command)
     : input_(input ? input : std::make_shared<Once>()), symbols_(symbols), advance_command_(advance_command) {}
 
+std::unique_ptr<Accumulate> Accumulate::Barrier(const std::shared_ptr<LogicalOperator> &input,
+                                                const std::vector<Symbol> &symbols, bool advance_command) {
+  auto barrier = std::make_unique<Accumulate>(input, symbols, advance_command);
+  barrier->write_visibility_advance_ = true;
+  return barrier;
+}
+
+std::unique_ptr<Accumulate> Accumulate::AccessCheckBarrier(const std::shared_ptr<LogicalOperator> &input,
+                                                           const std::vector<Symbol> &symbols, bool advance_command) {
+  auto barrier = Barrier(input, symbols, advance_command);
+  barrier->access_check_only_ = true;
+  return barrier;
+}
+
+std::unique_ptr<Accumulate> Accumulate::MatchBuffer(const std::shared_ptr<LogicalOperator> &input,
+                                                    const std::vector<Symbol> &symbols, bool access_check_only) {
+  auto buffer = std::make_unique<Accumulate>(input, symbols, /*advance_command=*/false);
+  buffer->access_check_only_ = access_check_only;
+  return buffer;
+}
+
 ACCEPT_WITH_INPUT(Accumulate)
 
 std::vector<Symbol> Accumulate::ModifiedSymbols(const SymbolTable &) const { return symbols_; }
@@ -7532,7 +7553,7 @@ class AccumulateCursor : public Cursor {
     if (*passes_through_) {
       bool has_more = false;
       {
-        auto const owner = OwnDeletes(context, self_.defers_deletes_, &deferred_);
+        auto const owner = OwnDeletes(context, self_.owned_deletes_drain_id_, &deferred_);
         has_more = input_cursor_->Pull(frame, context);
       }
       if (!has_more) ApplyDeferredDeletes(context);
@@ -7543,7 +7564,7 @@ class AccumulateCursor : public Cursor {
     // cache all the input
     if (!pulled_all_input_) {
       {
-        auto const owner = OwnDeletes(context, self_.defers_deletes_, &deferred_);
+        auto const owner = OwnDeletes(context, self_.owned_deletes_drain_id_, &deferred_);
         while (input_cursor_->Pull(frame, context)) {
           utils::pmr::vector<TypedValue> row(cache_.get_allocator().resource());
           row.reserve(self_.symbols_.size());
@@ -7554,7 +7575,8 @@ class AccumulateCursor : public Cursor {
       pulled_all_input_ = true;
       cache_it_ = cache_.begin();
 
-      if (self_.advance_command_ && !(self_.skip_advance_in_analytical_ && IsAnalytical(dba))) dba.AdvanceCommand();
+      // Analytical mode keeps no deltas: after a write-visibility advance an index scan meets its own writes again.
+      if (self_.advance_command_ && !(self_.write_visibility_advance_ && IsAnalytical(dba))) dba.AdvanceCommand();
     }
 
     AbortCheck(context);
@@ -7611,8 +7633,8 @@ std::unique_ptr<LogicalOperator> Accumulate::Clone(AstStorage *storage) const {
   object->symbols_ = symbols_;
   object->advance_command_ = advance_command_;
   object->access_check_only_ = access_check_only_;
-  object->skip_advance_in_analytical_ = skip_advance_in_analytical_;
-  object->defers_deletes_ = defers_deletes_;
+  object->write_visibility_advance_ = write_visibility_advance_;
+  object->owned_deletes_drain_id_ = owned_deletes_drain_id_;
   return object;
 }
 

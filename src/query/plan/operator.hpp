@@ -1955,6 +1955,15 @@ class Accumulate : public memgraph::query::plan::LogicalOperator {
 
   Accumulate(const std::shared_ptr<LogicalOperator> &input, const std::vector<Symbol> &symbols,
              bool advance_command = false);
+  /// A barrier or drain write visibility plans: its advance is a write-visibility advance.
+  static std::unique_ptr<Accumulate> Barrier(const std::shared_ptr<LogicalOperator> &input,
+                                             const std::vector<Symbol> &symbols, bool advance_command);
+  /// A barrier only a fine-grained access check needs: without a check it passes rows through.
+  static std::unique_ptr<Accumulate> AccessCheckBarrier(const std::shared_ptr<LogicalOperator> &input,
+                                                        const std::vector<Symbol> &symbols, bool advance_command);
+  /// A MERGE's matches of one input row, buffered before ON MATCH writes; it never advances.
+  static std::unique_ptr<Accumulate> MatchBuffer(const std::shared_ptr<LogicalOperator> &input,
+                                                 const std::vector<Symbol> &symbols, bool access_check_only);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
@@ -1971,11 +1980,10 @@ class Accumulate : public memgraph::query::plan::LogicalOperator {
   /// Planned only because a fine-grained access check reads labels an earlier clause wrote: without a check to run,
   /// the cursor passes rows through and does not advance.
   bool access_check_only_{false};
-  /// A write-visibility advance: analytical mode keeps no deltas, so after it an index scan sees its own command's
-  /// writes, and the cursor skips it there.
-  bool skip_advance_in_analytical_{false};
+  /// Placed for write visibility, so analytical mode skips its advance.
+  bool write_visibility_advance_{false};
   /// Nonzero on the outermost drain of a segment that holds Deletes: the id those Deletes defer their deletes to.
-  uint64_t defers_deletes_{0};
+  uint64_t owned_deletes_drain_id_{0};
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
 };
@@ -2825,8 +2833,8 @@ class Union : public memgraph::query::plan::LogicalOperator {
   std::vector<Symbol> union_symbols_;
   std::vector<Symbol> left_symbols_;
   std::vector<Symbol> right_symbols_;
-  /// Advance the command once the left side is done, so the right side's View::OLD reads see its writes. Analytical
-  /// mode skips it, as Accumulate::skip_advance_in_analytical_ does.
+  /// Advance the command once the left side is done, so the right side's View::OLD reads see its writes. It is a
+  /// write-visibility advance: analytical mode skips it.
   bool advance_command_{false};
 
   std::string ToString(const DbAccessor *dba) const override;
