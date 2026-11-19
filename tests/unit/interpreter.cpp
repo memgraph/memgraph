@@ -648,6 +648,108 @@ TYPED_TEST(InterpreterTest, AWriteBeforeAnInTransactionsCallIsUpdatedOnce) {
   }
 }
 
+// Analytical mode keeps no deltas, so after the PR's own advances an index scan meets its own writes again (the
+// unbounded forms loop). Bounded forms fail on a value. Master's advances still advance.
+TYPED_TEST(InterpreterTest, AnalyticalModeSkipsTheWriteVisibilityAdvances) {
+  if constexpr (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
+    GTEST_SKIP() << "On-disk storage has no analytical mode.";
+  } else {
+    constexpr auto kX1 = "CREATE (:Z) UNION ALL MATCH (n:L) WHERE n.p > 0 AND n.p < 30 SET n.p = n.p + 10";
+    constexpr auto kA1b =
+        "CREATE (:L {p: 5}) CALL () { MATCH (n:L) WHERE n.p > 0 AND n.p < 100 RETURN n } SET n.p = n.p + 10";
+    constexpr auto kV1 = "CREATE (:L {p: 5}) RETURN 0 AS c UNION ALL MATCH (n:L) WHERE n.p > 0 RETURN count(*) AS c";
+    constexpr auto kD2 =
+        "CREATE (:L {p: 5}) CALL () { MATCH (n:L) WHERE n.p > 0 RETURN count(*) AS c } WITH c MATCH (m:L) WHERE m.p > "
+        "0 "
+        "RETURN c, count(m) AS d";
+    using Rows = std::vector<std::vector<int64_t>>;
+
+    struct Case {
+      std::string id;
+      std::string query;
+      bool analytical;
+      std::vector<int64_t> values;
+      Rows rows{};
+    };
+
+    auto const cases = std::vector<Case>{
+        {"X1", kX1, true, {11, 12, 13, 14}},
+        {"X2",
+         "MATCH (a:Z) SET a.p = 0 RETURN 1 AS k UNION ALL MATCH (n:L) WHERE n.p > 0 AND n.p < 30 SET n.p = n.p + 10 "
+         "RETURN 2 AS k",
+         true,
+         {11, 12, 13, 14},
+         {{1}, {2}, {2}, {2}, {2}}},
+        {"X3",
+         "CREATE (:L {p: 5}) UNION ALL MATCH (n:L) WHERE n.p > 0 AND n.p < 30 CALL (n) { SET n.p = n.p + 10 }",
+         true,
+         {5, 11, 12, 13, 14}},
+        {"A1b", kA1b, true, {5, 11, 12, 13, 14}},
+        {"L1b",
+         "CREATE (:L {p: 5}) CALL () { MATCH (n:L) WHERE n.p > 0 AND n.p < 100 RETURN n } WITH n SET n.p = n.p + 10",
+         true,
+         {5, 11, 12, 13, 14}},
+        {"V1", kV1, true, {1, 2, 3, 4, 5}, {{0}, {4}}},
+        // Master gives (4, 5): its WITH advances. Here the barrier took over that advance and is skipped, so the
+        // (m:L) scan misses the new node (stamp_deferral.md, analytical section).
+        {"D2", kD2, true, {1, 2, 3, 4, 5}, {{4, 4}}},
+        // Master's WITH advance, unmarked: it still advances, so the scan meets its own writes as on master.
+        {"WC",
+         "CREATE (:Z) WITH 1 AS x MATCH (n:L) WHERE n.p > 0 AND n.p < 100 SET n.p = n.p + 10",
+         true,
+         {101, 102, 103, 104}},
+        {"X1 tx", kX1, false, {11, 12, 13, 14}},
+        {"A1b tx", kA1b, false, {11, 12, 13, 14, 15}},
+        {"V1 tx", kV1, false, {1, 2, 3, 4, 5}, {{0}, {5}}},
+        {"D2 tx", kD2, false, {1, 2, 3, 4, 5}, {{5, 5}}},
+    };
+
+    auto values = [this](std::string const &query) {
+      std::vector<int64_t> out;
+      for (auto const &row : this->Interpret(query).GetResults()) out.push_back(row[0].ValueInt());
+      return out;
+    };
+    auto setup = [this](bool analytical) {
+      this->Interpret("STORAGE MODE IN_MEMORY_TRANSACTIONAL");
+      this->Interpret("MATCH (n) DETACH DELETE n");
+      this->Interpret("UNWIND range(1, 4) AS i CREATE (:L {p: i})");
+      this->Interpret("CREATE (:Z)");
+      if (analytical) this->Interpret("STORAGE MODE IN_MEMORY_ANALYTICAL");
+    };
+    auto plans = [this] { return this->db->plan_cache()->WithLock([](auto &cache) { return cache.size(); }); };
+
+    this->Interpret("CREATE INDEX ON :L(p)");
+
+    // Cache: the analytical run reuses the plan cached by the transactional run, so the check must be at run time.
+    setup(false);
+    auto const before = plans();
+    this->Interpret(kA1b);
+    EXPECT_EQ(plans(), before + 1);
+    EXPECT_EQ(values("MATCH (n:L) RETURN n.p AS p ORDER BY p"), (std::vector<int64_t>{11, 12, 13, 14, 15}));
+    setup(true);
+    auto const cached = plans();
+    this->Interpret(kA1b);
+    EXPECT_EQ(plans(), cached);
+    EXPECT_EQ(values("MATCH (n:L) RETURN n.p AS p ORDER BY p"), (std::vector<int64_t>{5, 11, 12, 13, 14}));
+
+    for (auto const &c : cases) {
+      SCOPED_TRACE(c.id);
+      setup(c.analytical);
+      Rows rows;
+      for (auto const &row : this->Interpret(c.query).GetResults()) {
+        rows.emplace_back();
+        for (auto const &value : row) rows.back().push_back(value.ValueInt());
+      }
+      EXPECT_EQ(rows, c.rows);
+      EXPECT_EQ(values("MATCH (n:L) RETURN n.p AS p ORDER BY p"), c.values);
+    }
+
+    this->Interpret("STORAGE MODE IN_MEMORY_TRANSACTIONAL");
+    this->Interpret("MATCH (n) DETACH DELETE n");
+    this->Interpret("DROP INDEX ON :L(p)");
+  }
+}
+
 namespace {
 
 namespace procedure = memgraph::query::procedure;
