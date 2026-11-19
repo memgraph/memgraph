@@ -11,9 +11,11 @@
 
 #include "refactor.hpp"
 
+#include <algorithm>
 #include <compare>
 #include <string_view>
 #include <unordered_set>
+#include <vector>
 
 #include <fmt/format.h>
 #include <mg_utils.hpp>
@@ -155,10 +157,18 @@ void Refactor::InsertCloneNodesRecord(mgp_graph *graph, mgp_result *result, mgp_
 
   mg_utility::InsertIntValueResult(record, std::string(kResultClonedNodeId).c_str(), cycle_id, memory);
   mg_utility::InsertNodeValueResult(record, std::string(kResultNewNode).c_str(), node, memory);
-  mg_utility::InsertStringValueResult(record, std::string(kResultCloneNodeError).c_str(), "", memory);
+  mg_utility::InsertNullValueResult(record, std::string(kResultCloneNodeError).c_str(), memory);
 }
 
 namespace {
+
+// Appends value unless already seen, so clones come out in input order.
+template <typename T>
+void PushUnique(std::vector<T> &out, std::unordered_set<T> &seen, const T &value) {
+  if (seen.insert(value).second) {
+    out.push_back(value);
+  }
+}
 
 mgp::Node GetStandinOrCopy(const mgp::List &standin_nodes, const mgp::Node node,
                            const std::map<mgp::Node, mgp::Node> &old_new_node_mirror) {
@@ -249,6 +259,10 @@ void Refactor::CloneNodesAndRels(mgp_graph *memgraph_graph, mgp_result *result, 
   }
   if (!config_map.At("skipProperties").IsNull()) {
     skip_props = config_map.At("skipProperties").ValueList();
+    if (!std::all_of(skip_props.begin(), skip_props.end(), [](const mgp::Value &key) { return key.IsString(); })) {
+      throw mgp::ValueException(
+          "Configuration map must consist of specific keys and values described in documentation.");
+    }
   }
   const std::unordered_set<mgp::Value> skip_props_searchable{skip_props.begin(), skip_props.end()};
 
@@ -268,18 +282,18 @@ void Refactor::CloneSubgraphFromPaths(mgp_list *args, mgp_graph *memgraph_graph,
     const auto paths = arguments[0].ValueList();
     const auto config_map = arguments[1].ValueMap();
 
-    std::unordered_set<mgp::Node> distinct_nodes;
-    std::unordered_set<mgp::Relationship> distinct_relationships;
+    std::vector<mgp::Node> nodes_vector;
+    std::vector<mgp::Relationship> rels_vector;
+    std::unordered_set<mgp::Node> seen_nodes;
+    std::unordered_set<mgp::Relationship> seen_rels;
     for (auto path_value : paths) {
       auto path = path_value.ValuePath();
       for (size_t index = 0; index < path.Length(); index++) {
-        distinct_nodes.insert(path.GetNodeAt(index));
-        distinct_relationships.insert(path.GetRelationshipAt(index));
+        PushUnique(nodes_vector, seen_nodes, path.GetNodeAt(index));
+        PushUnique(rels_vector, seen_rels, path.GetRelationshipAt(index));
       }
-      distinct_nodes.insert(path.GetNodeAt(path.Length()));
+      PushUnique(nodes_vector, seen_nodes, path.GetNodeAt(path.Length()));
     }
-    const std::vector<mgp::Node> nodes_vector{distinct_nodes.begin(), distinct_nodes.end()};
-    const std::vector<mgp::Relationship> rels_vector{distinct_relationships.begin(), distinct_relationships.end()};
     CloneNodesAndRels(memgraph_graph, result, memory, nodes_vector, rels_vector, config_map);
 
   } catch (const std::exception &e) {
@@ -296,28 +310,27 @@ void Refactor::CloneSubgraph(mgp_list *args, mgp_graph *memgraph_graph, mgp_resu
     const auto rels = arguments[1].ValueList();
     const auto config_map = arguments[2].ValueMap();
 
-    std::unordered_set<mgp::Node> distinct_nodes;
-    std::unordered_set<mgp::Relationship> distinct_rels;
+    std::vector<mgp::Node> nodes_vector;
+    std::vector<mgp::Relationship> rels_vector;
+    std::unordered_set<mgp::Node> seen_nodes;
+    std::unordered_set<mgp::Relationship> seen_rels;
 
     for (auto node : nodes) {
-      distinct_nodes.insert(node.ValueNode());
+      PushUnique(nodes_vector, seen_nodes, node.ValueNode());
     }
     for (auto rel : rels) {
-      distinct_rels.insert(rel.ValueRelationship());
+      PushUnique(rels_vector, seen_rels, rel.ValueRelationship());
     }
 
-    if (distinct_rels.empty() && !distinct_nodes.empty()) {
-      for (const auto &node : distinct_nodes) {
+    if (rels_vector.empty()) {
+      for (const auto &node : nodes_vector) {
         for (auto rel : node.OutRelationships()) {
-          if (distinct_nodes.contains(rel.To())) {
-            distinct_rels.insert(rel);
+          if (seen_nodes.contains(rel.To())) {
+            PushUnique(rels_vector, seen_rels, rel);
           }
         }
       }
     }
-
-    const std::vector<mgp::Node> nodes_vector{distinct_nodes.begin(), distinct_nodes.end()};
-    const std::vector<mgp::Relationship> rels_vector{distinct_rels.begin(), distinct_rels.end()};
 
     CloneNodesAndRels(memgraph_graph, result, memory, nodes_vector, rels_vector, config_map);
 
