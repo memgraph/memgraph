@@ -369,8 +369,9 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
             std::make_unique<Once>(std::vector<Symbol>(initial_bound_symbols.begin(), initial_bound_symbols.end()));
       }
 
-      // Whether this UNION part wrote since its last WITH.
-      bool wrote_since_with = false;
+      // Whether this UNION part wrote since its last drain (a WITH after a write, or a barrier). A drain that owns
+      // Deletes keeps it: they have not landed.
+      bool wrote_since_drain = false;
       // What this UNION part wrote since its last barrier; a read that meets it gets a barrier first.
       ReadWriteSet pending_writes;
       // What its View::NEW readers read since the last barrier; a write that meets it gets a drain first, or the
@@ -444,7 +445,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
           return;
         }
         forget_pending();
-        wrote_since_with = false;
+        wrote_since_drain = false;
       };
       // A barrier only a fine-grained access check needs passes rows through when no check runs, so it ends nothing:
       // the writes stay pending for a later read that conflicts for real.
@@ -596,6 +597,11 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
         // EXISTS branch - the write it was spliced after. Kept apart from `write_occurred`, which the MERGE, CALL and
         // FOREACH arms below read to ask about this part alone.
         auto const branch_sees_write = [&] { return write_occurred || subquery_branch_after_write_; };
+        // Every write clause sets both flags.
+        auto const note_write = [&] {
+          wrote_since_drain = true;
+          write_occurred = true;
+        };
 
         // A value that holds no entity is data: a lookup on its alias reads no graph.
         auto const note_non_graph = [&](const std::vector<NamedExpression *> &items) {
@@ -718,13 +724,13 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
           }};
 
           if (auto *ret = utils::Downcast<Return>(clause)) {
-            CheckSubqueryBodyInvariants(context, wrote_since_with, query_parts.commit_frequency);
+            CheckSubqueryBodyInvariants(context, wrote_since_drain, query_parts.commit_frequency);
             // A CALL body's results are read through these symbols after the call.
             note_non_graph(ret->body_.named_expressions);
             input_op = impl::GenReturn(*ret,
                                        std::move(input_op),
                                        *context.symbol_table,
-                                       wrote_since_with,
+                                       wrote_since_drain,
                                        context.bound_symbols,
                                        *context.ast_storage,
                                        subquery_ctx,
@@ -742,18 +748,17 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
             // A MERGE may create, so it counts as a write - marked before its own drain, as at every other write
             // site, so a comprehension in its pattern sees what earlier rows created. Only an all-anonymous one
             // reaches here; a user-declared atom fails earlier in filter generation (pre-existing, MATCH too).
-            wrote_since_with = true;
-            write_occurred = true;
+            note_write();
             plan_and_apply_comprehensions(eligible);
             input_op = GenMerge(
                 *merge, std::move(input_op), single_query_part.merge_matching[merge_id++], pending_comprehensions);
           } else if (auto *with = utils::Downcast<query::With>(clause)) {
-            CheckSubqueryBodyInvariants(context, wrote_since_with, /*commit_frequency=*/nullptr);
+            CheckSubqueryBodyInvariants(context, wrote_since_drain, /*commit_frequency=*/nullptr);
             note_non_graph(with->body_.named_expressions);
             input_op = impl::GenWith(*with,
                                      std::move(input_op),
                                      *context.symbol_table,
-                                     wrote_since_with,
+                                     wrote_since_drain,
                                      context.bound_symbols,
                                      *context.ast_storage,
                                      subquery_ctx,
@@ -764,13 +769,12 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
                                      read_scope_ != ReadScope::kWritingTree);
             // WITH clause advances the command, so reset the flag. It drains only after a write, and only a drain
             // ends what the reads before it can see.
-            if (wrote_since_with) {
+            if (wrote_since_drain) {
               forget_pending();
             }
-            wrote_since_with = false;
+            wrote_since_drain = false;
           } else if (IsWriteClause(clause)) {
-            wrote_since_with = true;
-            write_occurred = true;
+            note_write();
             auto const index = static_cast<size_t>(std::distance(clauses.begin(), clause_it));
             auto eligible = impl::OriginatingIn(clause, pending_comprehensions);
             // A SET run evaluates every value before its first write, its comprehensions included.
@@ -831,8 +835,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
             }
             // A write procedure writes like a write clause, so the RETURN after it must drain and advance.
             if (call_proc->graph_access_ == GraphAccess::Write) {
-              wrote_since_with = true;
-              write_occurred = true;
+              note_write();
             }
             input_op = std::make_unique<plan::CallProcedure>(std::move(input_op),
                                                              call_proc->procedure_name_,
@@ -888,8 +891,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
             input_op = std::make_unique<plan::LoadJsonl>(
                 std::move(input_op), load_jsonl->file_, load_jsonl->configs_, row_sym);
           } else if (auto *foreach = utils::Downcast<query::Foreach>(clause)) {
-            wrote_since_with = true;
-            write_occurred = true;
+            note_write();
             // One set gates both chains, whichever binds the symbols first. Forced: `ForeachCursor::Pull` evaluates
             // the list expression before writing the loop variable, so a list comprehension must drain here, and
             // `origin_clause` is the whole FOREACH. An uncorrelated body one is therefore hoisted out of the loop.
@@ -936,7 +938,8 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
                                       scoped_variables,
                                       switched_to_new);
             if (subquery->writes) {
-              wrote_since_with = true;
+              // Not `note_write`: `write_occurred` would move later clauses' reads and folds to View::NEW.
+              wrote_since_drain = true;
               if (!has_periodic_commit) {
                 // TODO: barrier_symbols() suffices; ModifiedSymbols also caches what nothing reads after (the values
                 // of a SET run's Produce, a collected list), so the barrier holds an extra copy per row.
@@ -1333,10 +1336,10 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
   /// A subquery body is read-only and carries no periodic commit: `BuildSubqueryFold` allows only MATCH, UNWIND,
   /// WHERE, WITH and RETURN - in every UNION branch - and rejects a body-level commit directive. Reaching either here
   /// means that validation has a hole.
-  static void CheckSubqueryBodyInvariants(const TPlanningContext &context, bool wrote_since_with,
+  static void CheckSubqueryBodyInvariants(const TPlanningContext &context, bool wrote_since_drain,
                                           Expression *commit_frequency) {
     if (!context.in_subquery_body) return;
-    if (wrote_since_with) {
+    if (wrote_since_drain) {
       impl::ThrowPlannerBug("A write clause reached the body of an EXISTS subquery, which may only read.");
     }
     if (commit_frequency != nullptr) {
