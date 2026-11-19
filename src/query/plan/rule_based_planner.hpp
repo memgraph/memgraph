@@ -345,18 +345,16 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
     bool const has_periodic_commit = query_parts.commit_frequency != nullptr;
     bool const is_root_query = !query_parts.is_subquery;
     auto const restore_scope = utils::OnScopeExit{[this, saved = read_scope_] { read_scope_ = saved; }};
-    auto const restore_batches = utils::OnScopeExit{[this, saved = batches_] { batches_ = saved; }};
     // A query that commits in batches plans its root as on master: no barrier, no UNION-leg or RETURN advance.
     // A batch commit gives the query a new transaction, which a scan opened before an advance does not follow.
-    if (is_root_query && !context.in_subquery_body) {
-      batches_ = batches_ || has_periodic_commit || CommitsInBatches(query_parts);
-      read_scope_ = batches_ ? ReadScope::kBatching : ReadScope::kRoot;
+    if (is_root_query && !context.in_subquery_body && read_scope_ != ReadScope::kBatching) {
+      read_scope_ = CommitsInBatches(query_parts) ? ReadScope::kBatching : ReadScope::kRoot;
     }
 
     // in CALL with scoped variables, we immediately have some bound variables to work with
     auto const initial_bound_symbols = context.bound_symbols;
     // A root UNION leg is a later clause: it reads what the leg before it wrote, so the command advances between them.
-    bool const legs_advance = is_root_query && !context.in_subquery_body && read_scope_ == ReadScope::kRoot;
+    bool const root_advances = is_root_query && !context.in_subquery_body && read_scope_ == ReadScope::kRoot;
     bool previous_leg_writes = false;
     for (const auto &query_part : query_parts.query_parts) {
       context.bound_symbols = initial_bound_symbols;
@@ -734,7 +732,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
                                        *context.ast_storage,
                                        subquery_ctx,
                                        query_parts.commit_frequency,
-                                       is_root_query && !batches_,
+                                       root_advances,
                                        ScopeView());
           } else if (auto *merge = utils::Downcast<query::Merge>(clause)) {
             // ON CREATE / ON MATCH comprehensions originate here too; GenMerge splices each onto the branch that
@@ -971,7 +969,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
         final_plan = MergeWithCombinator(std::move(input_op),
                                          std::move(final_plan),
                                          *query_part.query_combinator,
-                                         legs_advance && previous_leg_writes);
+                                         root_advances && previous_leg_writes);
       } else {
         final_plan = std::move(input_op);
       }
@@ -1064,8 +1062,6 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
     kBatching,      ///< a batched query's root, or a read-only IN TRANSACTIONS body: no barriers, View::NEW reads
   };
   ReadScope read_scope_{ReadScope::kRoot};
-  /// The query being planned commits in batches: a periodic commit, or an IN TRANSACTIONS call anywhere in it.
-  bool batches_{false};
   /// The last id a drain that owns Deletes took: one counter for the root and every CALL body planned under it.
   uint64_t last_drain_id_{0};
   /// Symbols that hold data, never a graph entity (`MayHoldEntity` of what binds them: a WITH or RETURN item, an
