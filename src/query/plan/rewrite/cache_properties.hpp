@@ -12,7 +12,6 @@
 #pragma once
 
 #include <algorithm>
-#include <array>
 #include <cstdint>
 #include <map>
 #include <memory>
@@ -52,9 +51,20 @@ class CachedPropertySlots {
     return Pool{&slots_[expressions]};
   }
 
-  /// Which slot holds which property of which symbol, as the positions alone, so that two plans
-  /// can be asked whether they would rewrite an expression the same way.
-  using SlotSignature = std::vector<std::array<int64_t, 3>>;
+  /// One slot a pass reads into, named by position alone so that comparing two plans does not
+  /// mean holding on to what either was planned from.
+  struct FilledSlot {
+    Symbol::Position_t symbol;
+    size_t property;
+    Symbol::Position_t slot;
+
+    friend bool operator==(FilledSlot const &, FilledSlot const &) = default;
+    friend auto operator<=>(FilledSlot const &, FilledSlot const &) = default;
+  };
+
+  /// Which slot holds which property of which symbol, which is what two plans must agree on
+  /// before one can read the other's rewrite of an expression.
+  using SlotSignature = std::vector<FilledSlot>;
 
   /// The rewrite of `original` a plan has already made under `signature`, if one has.
   ///
@@ -137,9 +147,8 @@ class PropertyLookupCacher final : public ExpressionVisitor<void> {
       auto signature = CachedPropertySlots::SlotSignature{};
       for (auto const &group : by_symbol_) {
         for (auto const &[property, slot] : group.slots) {
-          signature.push_back({static_cast<int64_t>(group.symbol.position()),
-                               static_cast<int64_t>(property.Position()),
-                               static_cast<int64_t>(slot.position())});
+          signature.push_back(CachedPropertySlots::FilledSlot{
+              .symbol = group.symbol.position(), .property = property.Position(), .slot = slot.position()});
         }
       }
       return signature;
