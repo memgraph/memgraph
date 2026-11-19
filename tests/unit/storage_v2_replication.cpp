@@ -1182,12 +1182,15 @@ TEST_F(ReplicationTest, ForcedResetRunsAfterStateOverwrite) {
   ASSERT_TRUE(WaitUntil([&] { return main.db.storage()->GetReplicaState(replicas[0]) == ReplicaState::READY; }));
   ASSERT_TRUE(HasVertex(replica, replicated_gid));
 
-  auto const recoveries = [](std::string_view name) {
+  auto const recoveries = [](std::string_view name) -> std::optional<int64_t> {
     auto const info = memgraph::metrics::Metrics().GetGlobalMetricsInfo();
-    return std::get<int64_t>(std::ranges::find(info, name, &memgraph::metrics::MetricInfo::name)->value);
+    auto const it = std::ranges::find(info, name, &memgraph::metrics::MetricInfo::name);
+    if (it == info.end()) return std::nullopt;
+    return std::get<int64_t>(it->value);
   };
   auto const success_before = recoveries("ReplicaRecoverySuccess");
   auto const skip_before = recoveries("ReplicaRecoverySkip");
+  ASSERT_TRUE(success_before && skip_before);
 
   auto *client = FindReplicationClient(main, replicas[0]);
   ASSERT_NE(client, nullptr);
@@ -1210,8 +1213,8 @@ TEST_F(ReplicationTest, ForcedResetRunsAfterStateOverwrite) {
 
   EXPECT_FALSE(HasVertex(replica, canary_gid));
   EXPECT_TRUE(HasVertex(replica, replicated_gid));
-  EXPECT_EQ(recoveries("ReplicaRecoverySuccess") - success_before, 1);
-  EXPECT_EQ(recoveries("ReplicaRecoverySkip") - skip_before, 0);
+  EXPECT_EQ(recoveries("ReplicaRecoverySuccess"), *success_before + 1);
+  EXPECT_EQ(recoveries("ReplicaRecoverySkip"), skip_before);
 }
 
 // The frequent check re-queues a MAYBE_BEHIND replica on every tick, so a second check queued while one is

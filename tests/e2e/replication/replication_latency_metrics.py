@@ -122,6 +122,14 @@ def count(name, **labels):
     return sum(value for series, value in counts(name).items() if frozenset(labels.items()) <= series)
 
 
+def recovery_totals(cursor):
+    return {
+        name: value
+        for name, _, _, value in execute_and_fetch_all(cursor, "SHOW METRICS INFO")
+        if name.startswith("ReplicaRecovery")
+    }
+
+
 def test_commit_latencies_are_labelled_by_replica(test_name):
     interactive_mg_runner.start_all(instances_description(test_name), keep_directories=False)
     cursor = connect(host="localhost", port=BOLT_PORTS["main"]).cursor()
@@ -167,18 +175,26 @@ def test_recovery_is_counted_for_the_recovered_replica(test_name):
 
 
 def test_dropped_replica_series_disappear(test_name):
-    interactive_mg_runner.start_all(instances_description(test_name), keep_directories=False)
+    instances = instances_description(test_name)
+    interactive_mg_runner.start_all(instances, keep_directories=False)
     cursor = connect(host="localhost", port=BOLT_PORTS["main"]).cursor()
+
+    interactive_mg_runner.kill(instances, "replica_2")
     execute_and_fetch_all(cursor, "CREATE ();")
+    interactive_mg_runner.start(instances, "replica_2", run_setup_queries=False)
     mg_sleep_and_assert_eval_function(
         lambda c: c >= 1,
-        lambda: count("memgraph_heartbeat_rpc_seconds", mg_instance="replica_2"),
+        lambda: count("memgraph_replica_recovery_success_total", mg_instance="replica_2"),
     )
+    totals_before = recovery_totals(cursor)
 
     execute_and_fetch_all(cursor, "DROP REPLICA replica_2;")
 
+    assert recovery_totals(cursor) == totals_before
     for name in LABELLED_FAMILIES:
-        assert not any(dict(labels).get("mg_instance") == "replica_2" for labels in counts(name)), name
+        series = [dict(labels).get("mg_instance") for labels in counts(name)]
+        assert "replica_2" not in series, name
+        assert "replica_1" in series, name
 
 
 if __name__ == "__main__":
