@@ -22,6 +22,8 @@
 #include <utility>
 #include <vector>
 
+#include <spdlog/sinks/ostream_sink.h>
+
 #include "auth_query_handler_fixture.hpp"
 #include "auth_test_utils.hpp"
 #include "communication/bolt/v1/value.hpp"
@@ -2945,6 +2947,32 @@ TYPED_TEST(InterpreterTest, ExecutionStatsValuesPropertiesSet) {
 }
 
 #ifdef MG_ENTERPRISE
+// A credential in a query must be redacted in the log whatever the license says. Withholding the
+// redaction writes passwords into a log that is then sent on to whoever is diagnosing the problem.
+TYPED_TEST(InterpreterTest, QueryLogRedactsCredentialsWithoutLicense) {
+  const UnlicensedScope unlicensed;
+
+  AuthQueryHandlerFixture auth{this->data_directory / "auth"};
+  this->interpreter_context.auth = &auth.handler;
+
+  std::ostringstream log;
+  auto sink = std::make_shared<spdlog::sinks::ostream_sink_mt>(log);
+  auto logger = spdlog::default_logger();
+  auto const previous_level = logger->level();
+  logger->sinks().push_back(sink);
+  logger->set_level(spdlog::level::debug);
+  memgraph::utils::OnScopeExit restore([logger, previous_level, sink] {
+    logger->set_level(previous_level);
+    std::erase(logger->sinks(), sink);
+  });
+
+  this->default_interpreter.Interpret("CREATE USER alice IDENTIFIED BY 'topsecret'");
+
+  // The second expectation keeps the first from passing because nothing was logged at all.
+  EXPECT_THAT(log.str(), ::testing::HasSubstr("CREATE USER alice IDENTIFIED BY"));
+  EXPECT_THAT(log.str(), ::testing::Not(::testing::HasSubstr("topsecret")));
+}
+
 TYPED_TEST(InterpreterTest, DenyDatabaseFromWarnsItIsDeprecated) {
   memgraph::license::global_license_checker.EnableTesting();
   AuthQueryHandlerFixture auth{this->data_directory / "auth"};

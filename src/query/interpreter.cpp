@@ -268,10 +268,10 @@ std::ostream &operator<<(std::ostream &os, const QueryLogWrapper &qlw) {
   auto final_query = memgraph::utils::NoCopyStr{qlw.query};
 #if MG_ENTERPRISE
   os << "[Run - " << qlw.db_name << "] ";
-  if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-    if (auto masked = memgraph::logging::MaskSensitiveInformation(final_query.view())) {
-      final_query = *std::move(masked);
-    }
+  // Deliberately not gated on the license. Redaction is not a capability anyone buys, and
+  // withholding it writes credentials to a log that is then handed to whoever is diagnosing.
+  if (auto masked = memgraph::logging::MaskSensitiveInformation(final_query.view())) {
+    final_query = *std::move(masked);
   }
 #else
   os << "[Run] ";
