@@ -42,6 +42,7 @@ namespace {
 using memgraph::query::TypedValue;
 using memgraph::storage::View;
 using Fields = std::initializer_list<std::pair<std::string_view, std::string_view>>;
+
 const mgp_proc *FindProc(mgp_module &module, std::string_view name) {
   auto it = module.procedures.find(memgraph::utils::pmr::string{name, module.procedures.get_allocator()});
   if (it == module.procedures.end()) {
@@ -108,6 +109,7 @@ std::unique_ptr<mgp_module> InitializedModule(mgp_memory &memory) {
   EXPECT_EQ(mgp_init_module(module.get(), &memory), 0);
   return module;
 }
+
 class RefactorModuleTest : public ::testing::Test {
  protected:
   void SetUp() override {
@@ -115,6 +117,7 @@ class RefactorModuleTest : public ::testing::Test {
     acc_ = &Access();
     guard_.emplace(&memory_);
   }
+
   void TearDown() override {
     graph_.reset();
     guard_.reset();
@@ -178,6 +181,7 @@ class RefactorModuleTest : public ::testing::Test {
     for (auto rel : By(id).OutRelationships()) return rel;
     throw std::logic_error{"node has no outgoing relationship"};
   }
+
   static mgp_result MakeResult(const mgp_proc &proc) {
     mgp_result result{memgraph::utils::NewDeleteResource()};
     uint32_t field_id = 0;
@@ -185,9 +189,11 @@ class RefactorModuleTest : public ::testing::Test {
       result.signature.emplace(name, ResultsMetadata{meta.first, false, field_id++});
     return result;
   }
+
   void Call(const mgp_proc &proc, mgp::List &args, mgp_result &result) {
     proc.cb(args.GetPtr(), &Graph(), &result, &memory_);
   }
+
   memgraph::storage::Config config_;
   std::unique_ptr<memgraph::storage::InMemoryStorage> storage_;
   mgp_memory memory_{memgraph::utils::NewDeleteResource()};
@@ -216,6 +222,7 @@ TEST_F(RefactorModuleTest, Signatures) {
   for (const auto *name : {"rename_type", "rename_type_property"})
     ExpectResults(*module, name, {{"relationships_changed", "INTEGER"}, {"total", "INTEGER"}});
 }
+
 TEST_F(RefactorModuleTest, FromToSuccessRow) {
   const auto a = InsertNode(), b = InsertNode(), c = InsertNode();
   const auto edge_ab = InsertEdge(a, b, "TYPE"), edge_bc = InsertEdge(b, c, "TYPE");
@@ -242,6 +249,7 @@ TEST_F(RefactorModuleTest, FromToSuccessRow) {
   check("from", a, c, edge_ab);
   check("to", b, a, edge_bc);
 }
+
 TEST_F(RefactorModuleTest, FromToFailureChannels) {
   const auto a = InsertNode(), b = InsertNode();
   const auto edge_ab = InsertEdge(a, b, "TYPE");
@@ -272,6 +280,7 @@ TEST_F(RefactorModuleTest, FromToFailureChannels) {
   // A null relationship is a soft error row, never a hard failure or empty stream.
   expect_soft(call(mgp::Value(), mgp::Map{}), false);
 }
+
 TEST_F(RefactorModuleTest, SiblingBodies) {
   // n0 -> n1 -> n2 for collapse_node; n3 -> n4 -> n5 for the rename_type calls.
   const auto n0 = InsertNode(), n1 = InsertNode(), n2 = InsertNode();
