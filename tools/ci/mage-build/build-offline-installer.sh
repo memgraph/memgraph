@@ -32,7 +32,7 @@ MAGE_DEB=""
 ARCH="amd64"
 BUILD_TYPE="Release"
 CUDA="false"
-CUDA_VERSION="13.0"
+CUDA_VERSION="13.2"
 MALLOC="false"
 CUGRAPH="false"
 OUTPUT=""
@@ -50,7 +50,7 @@ Options:
   --arch amd64|arm64        Target dpkg arch (default amd64)
   --build-type STR          Release|RelWithDebInfo (default Release)
   --cuda true|false         Bundle CUDA wheels (requires --arch amd64)
-  --cuda-version X.Y        CUDA version for S3 wheel path (default 13.0)
+  --cuda-version X.Y        CUDA version for S3 wheel path (default 13.2)
   --malloc true|false       Variant flag — for output filename only
   --cugraph true|false      Variant flag — implies --cuda true
   --output PATH             Output .run file

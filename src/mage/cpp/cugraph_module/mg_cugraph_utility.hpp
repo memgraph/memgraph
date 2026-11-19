@@ -21,8 +21,8 @@
 #include <raft/core/handle.hpp>
 #include <raft/random/rng_state.hpp>
 #include <rmm/device_uvector.hpp>
-#include <rmm/mr/device/cuda_async_memory_resource.hpp>
-#include <rmm/mr/device/device_memory_resource.hpp>
+#include <rmm/mr/cuda_async_memory_resource.hpp>
+#include <rmm/mr/per_device_resource.hpp>
 
 #include <mg_exceptions.hpp>
 #include <set>
@@ -35,8 +35,6 @@
 // - RMM uses cudaMallocAsync via the configured pool
 namespace {
 struct CudaPoolInitializer {
-  rmm::mr::cuda_async_memory_resource async_mr;
-
   CudaPoolInitializer() {
     // Configure CUDA's default pool
     cudaMemPool_t pool;
@@ -44,8 +42,10 @@ struct CudaPoolInitializer {
     uint64_t threshold = 0;
     cudaMemPoolSetAttribute(pool, cudaMemPoolAttrReleaseThreshold, &threshold);
 
-    // Tell RMM to use async memory resource
-    rmm::mr::set_current_device_resource(&async_mr);
+    // Tell RMM to use async memory resource. rmm >= 26.10 takes the resource by
+    // value (cuda::mr::any_resource) instead of a raw pointer; the async
+    // resource is a shared handle onto the pool, so the copy is cheap.
+    rmm::mr::set_current_device_resource(rmm::mr::cuda_async_memory_resource{});
   }
 };
 
@@ -241,11 +241,11 @@ auto CreateCugraphLegacyFromMemgraph(const mg_graph::GraphView<> &mg_graph, raft
 
   // Synchronize the data structures to the GPU
   auto stream = handle.get_stream();
-  rmm::mr::device_memory_resource *mr = rmm::mr::get_current_device_resource();
-
-  rmm::device_buffer offsets_buffer(mg_deg_sum.data(), sizeof(TEdgeT) * (mg_deg_sum.size()), stream, mr);
-  rmm::device_buffer dsts_buffer(mg_dst.data(), sizeof(TVertexT) * (mg_dst.size()), stream, mr);
-  rmm::device_buffer weights_buffer(mg_weight.data(), sizeof(TWeightT) * (mg_weight.size()), stream, mr);
+  // device_buffer allocates from the current device resource (the async
+  // resource installed above) when no resource is passed explicitly.
+  rmm::device_buffer offsets_buffer(mg_deg_sum.data(), sizeof(TEdgeT) * (mg_deg_sum.size()), stream);
+  rmm::device_buffer dsts_buffer(mg_dst.data(), sizeof(TVertexT) * (mg_dst.size()), stream);
+  rmm::device_buffer weights_buffer(mg_weight.data(), sizeof(TWeightT) * (mg_weight.size()), stream);
 
   cugraph::legacy::GraphSparseContents<TVertexT, TEdgeT, TWeightT> csr_contents{
       static_cast<TVertexT>(n_vertices),

@@ -7,7 +7,7 @@ set -euo pipefail
 CI=false
 CACHE_PRESENT=false
 CUDA=false
-CUDA_VERSION=13.0
+CUDA_VERSION=13.2
 ARCH=amd64
 WHEEL_CACHE_DIR="$(pwd)/wheels"
 DEB_PACKAGE=false
@@ -171,9 +171,11 @@ fi
 #
 # Wheels are portable manylinux_2_34 builds (load on both Ubuntu and CentOS
 # Stream 9) hosted under a dated prefix wheels/<date>/<arch>/; bump WHEELS_DATE
-# when a new set is published. cuda wheels live under cuda-<ver>/amd64.
+# when a new set is published. cuda wheels live under cuda-<ver>/amd64, where
+# <ver> is the CUDA flavour of the torch wheel they were compiled against
+# (torch 2.15 -> cu132), not the CUDA toolkit of the docker image.
 S3_HOST="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io"
-WHEELS_DATE="2026-06-25"
+WHEELS_DATE="2026-11-17"
 if [[ "$ARCH" == "arm64" ]]; then
   BASE_URL="$S3_HOST/wheels/${WHEELS_DATE}/arm64"
   PLAT="manylinux_2_34_aarch64"
@@ -190,7 +192,8 @@ TORCH_SCATTER="$BASE_URL/torch_scatter-2.1.2-cp312-cp312-${PLAT}.whl"
 TORCH_SPARSE="$BASE_URL/torch_sparse-0.6.18-cp312-cp312-${PLAT}.whl"
 TORCH_SPLINE_CONV="$BASE_URL/torch_spline_conv-1.2.2-cp312-cp312-${PLAT}.whl"
 DGL="$BASE_URL/dgl-2.5-cp312-cp312-${PLAT}.whl"
-PYG_LIB="$BASE_URL/pyg_lib-0.8.0-cp312-cp312-${PLAT}.whl"
+# pyg_lib >= 0.10 ships a stable-ABI (cp311-abi3) wheel rather than a cp312 one.
+PYG_LIB="$BASE_URL/pyg_lib-0.10.0-cp311-abi3-${PLAT}.whl"
 
 if [ "$ARCH" = "arm64" ]; then
   if [ "$CACHE_PRESENT" = "true" ]; then
@@ -201,7 +204,7 @@ if [ "$ARCH" = "arm64" ]; then
     {
       pip_install --no-cache-dir $TORCH_SPARSE $TORCH_CLUSTER $TORCH_SPLINE_CONV $TORCH_GEOMETRIC $TORCH_SCATTER $PYG_LIB
     } || {
-      pip_install --no-cache-dir torch-sparse torch-cluster torch-spline-conv torch-geometric torch-scatter -f https://data.pyg.org/whl/torch-2.9.0+cpu.html
+      pip_install --no-cache-dir torch-sparse torch-cluster torch-spline-conv torch-geometric torch-scatter -f https://data.pyg.org/whl/torch-2.15.0+cpu.html
     }
     pip_install --no-cache-dir "$DGL"
   fi
@@ -215,9 +218,9 @@ else
       pip_install --no-cache-dir $TORCH_SPARSE $TORCH_CLUSTER $TORCH_SPLINE_CONV $TORCH_GEOMETRIC $TORCH_SCATTER $PYG_LIB
     } || {
       if [[ "$CUDA" == true ]]; then
-        pip_install --no-cache-dir torch-sparse torch-cluster torch-spline-conv torch-geometric torch-scatter -f https://data.pyg.org/whl/torch-2.9.0+cu130.html
+        pip_install --no-cache-dir torch-sparse torch-cluster torch-spline-conv torch-geometric torch-scatter -f https://data.pyg.org/whl/torch-2.15.0+cu132.html
       else
-        pip_install --no-cache-dir torch-sparse torch-cluster torch-spline-conv torch-geometric torch-scatter -f https://data.pyg.org/whl/torch-2.9.0+cpu.html
+        pip_install --no-cache-dir torch-sparse torch-cluster torch-spline-conv torch-geometric torch-scatter -f https://data.pyg.org/whl/torch-2.15.0+cpu.html
       fi
     }
     pip_install --no-cache-dir "$DGL"
