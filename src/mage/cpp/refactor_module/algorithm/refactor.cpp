@@ -13,6 +13,7 @@
 
 #include <compare>
 #include <cstdint>
+#include <optional>
 #include <string_view>
 #include <unordered_set>
 
@@ -50,72 +51,62 @@ bool FailOnErrorsRequested(const mgp::List &arguments) {
 }
 }  // namespace
 
-void Refactor::From(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
-  const mgp::MemoryDispatcherGuard guard{memory};
+namespace {
+// Soft failures (failOnErrors false) leave the graph untouched: the created relationship is undone.
+// Once the old relationship is deleted nothing can be undone, so a failure then is always hard.
+void ReplaceRelationshipEndpoint(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, bool replace_from) {
   auto arguments = mgp::List(args);
   const auto record_factory = mgp::RecordFactory(result);
   const bool fail_on_errors = FailOnErrorsRequested(arguments);
   int64_t original_id{0};
+  mgp::Graph graph{memgraph_graph};
+  std::optional<mgp::Relationship> new_relationship;
+  bool old_deleted{false};
   try {
     auto relationship{arguments[0].ValueRelationship()};
-    auto const new_from{arguments[1].ValueNode()};
+    auto const new_node{arguments[1].ValueNode()};
     original_id = relationship.Id().AsInt();
 
-    mgp::Graph graph{memgraph_graph};
     // Read before creating so a deleted source throws before any write.
     auto const properties = relationship.Properties();
-    auto new_relationship = graph.CreateRelationship(new_from, relationship.To(), relationship.Type());
-    SetRelProperties(new_relationship, properties);
+    new_relationship = replace_from ? graph.CreateRelationship(new_node, relationship.To(), relationship.Type())
+                                    : graph.CreateRelationship(relationship.From(), new_node, relationship.Type());
+    SetRelProperties(*new_relationship, properties);
     graph.DeleteRelationship(relationship);
+    old_deleted = true;
 
     auto record = record_factory.NewRecord();
-    record.Insert(std::string(kFromResult).c_str(), new_relationship);
-    record.Insert(std::string(kFromResultInput).c_str(), original_id);
-    record.Insert(std::string(kFromResultOutput).c_str(), new_relationship);
-
+    record.Insert(std::string(Refactor::kFromResult).c_str(), *new_relationship);
+    record.Insert(std::string(Refactor::kFromResultInput).c_str(), original_id);
+    record.Insert(std::string(Refactor::kFromResultOutput).c_str(), *new_relationship);
   } catch (const std::exception &e) {
-    if (fail_on_errors) {
+    if (fail_on_errors || old_deleted) {
       record_factory.SetErrorMessage(e.what());
       return;
     }
+    if (new_relationship) {
+      try {
+        graph.DeleteRelationship(*new_relationship);
+      } catch (...) {
+        record_factory.SetErrorMessage(e.what());
+        return;
+      }
+    }
     auto record = record_factory.NewRecord();
-    record.Insert(std::string(kFromResultInput).c_str(), original_id);
-    record.Insert(std::string(kFromResultError).c_str(), std::string_view(e.what()));
+    record.Insert(std::string(Refactor::kFromResultInput).c_str(), original_id);
+    record.Insert(std::string(Refactor::kFromResultError).c_str(), std::string_view(e.what()));
   }
+}
+}  // namespace
+
+void Refactor::From(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
+  const mgp::MemoryDispatcherGuard guard{memory};
+  ReplaceRelationshipEndpoint(args, memgraph_graph, result, /*replace_from=*/true);
 }
 
 void Refactor::To(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
   const mgp::MemoryDispatcherGuard guard{memory};
-  auto arguments = mgp::List(args);
-  const auto record_factory = mgp::RecordFactory(result);
-  const bool fail_on_errors = FailOnErrorsRequested(arguments);
-  int64_t original_id{0};
-  try {
-    auto relationship{arguments[0].ValueRelationship()};
-    auto const new_to{arguments[1].ValueNode()};
-    original_id = relationship.Id().AsInt();
-
-    mgp::Graph graph{memgraph_graph};
-    // Read before creating so a deleted source throws before any write.
-    auto const properties = relationship.Properties();
-    auto new_relationship = graph.CreateRelationship(relationship.From(), new_to, relationship.Type());
-    SetRelProperties(new_relationship, properties);
-    graph.DeleteRelationship(relationship);
-
-    auto record = record_factory.NewRecord();
-    record.Insert(std::string(kToResult).c_str(), new_relationship);
-    record.Insert(std::string(kToResultInput).c_str(), original_id);
-    record.Insert(std::string(kToResultOutput).c_str(), new_relationship);
-
-  } catch (const std::exception &e) {
-    if (fail_on_errors) {
-      record_factory.SetErrorMessage(e.what());
-      return;
-    }
-    auto record = record_factory.NewRecord();
-    record.Insert(std::string(kToResultInput).c_str(), original_id);
-    record.Insert(std::string(kToResultError).c_str(), std::string_view(e.what()));
-  }
+  ReplaceRelationshipEndpoint(args, memgraph_graph, result, /*replace_from=*/false);
 }
 
 void Refactor::RenameLabel(mgp_list *args, mgp_graph * /*memgraph_graph*/, mgp_result *result, mgp_memory *memory) {
