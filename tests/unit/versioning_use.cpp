@@ -665,7 +665,7 @@ TEST_F(VersioningGatedTest, PinnedUnknownBranchFailsAndLeavesTheSessionWhereItWa
 TEST_F(VersioningGatedTest, PinnedUnavailableBranchFailsWithTheReasonAndLeavesTheSessionWhereItWas) {
   faker.Interpret("CREATE BRANCH bad");
   auto *store = db->version_store();
-  store->MarkUnavailable(store->Get("bad")->id, "the branch directory is not a directory");
+  store->MarkUnavailable(store->Get("bad")->info.id, "the branch directory is not a directory");
   faker.interpreter.SetCurrentDB(*db_gk.access(), true);
 
   const auto message = ThrownMessage([&] { faker.interpreter.SelectPinnedBranch("bad"); });
@@ -723,7 +723,7 @@ TEST_F(VersioningGatedTest, PinnedBranchDroppedFailsEveryTransactionUntilTheDbCh
   faker.interpreter.SelectPinnedBranch("b");
   faker.Interpret("CREATE (:K {v: 20})");
   ASSERT_DOUBLE_EQ(sessions.Value(), sessions0 + 1);
-  ASSERT_EQ(db->version_store()->Drop("b", {.force = true}), memgraph::versioning::DropResult::kDropped);
+  ASSERT_EQ(*db->version_store()->DropBranch("b", true), memgraph::versioning::DropResult::kDropped);
 
   for (const auto *query : {"MATCH (n:K) RETURN n.v", "CREATE (:K {v: 30})", "BEGIN"}) {
     EXPECT_EQ(ThrownMessage([&] { faker.Interpret(query); }), "Branch 'b' no longer exists.") << query;
@@ -743,7 +743,7 @@ TEST_F(VersioningGatedTest, PinnedBranchStaysOnTheDroppedOneWhenTheNameIsSelecte
   faker.Interpret("CREATE BRANCH b");
   faker.interpreter.SetCurrentDB(*db_gk.access(), true);
   faker.interpreter.SelectPinnedBranch("b");
-  ASSERT_EQ(db->version_store()->Drop("b", {.force = true}), memgraph::versioning::DropResult::kDropped);
+  ASSERT_EQ(*db->version_store()->DropBranch("b", true), memgraph::versioning::DropResult::kDropped);
 
   EXPECT_NO_THROW(faker.interpreter.SelectPinnedBranch("b"));
   EXPECT_EQ(ThrownMessage([&] { faker.Interpret("MATCH (n:K) RETURN n.v"); }), "Branch 'b' no longer exists.");
