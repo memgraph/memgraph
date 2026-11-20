@@ -39,7 +39,7 @@ message(STATUS "MAGE cuGraph build enabled: ${MG_ENABLE_CUGRAPH}")
 
 if (MG_ENABLE_CUGRAPH)
   # Version of cuGraph for local build
-  set(MG_CUGRAPH_TAG "v22.02.00" CACHE STRING "cuGraph GIT tag to checkout" )
+  set(MG_CUGRAPH_TAG "v26.10.00" CACHE STRING "cuGraph GIT tag to checkout" )
   set(MG_CUGRAPH_REPO "https://github.com/rapidsai/cugraph.git" CACHE STRING "cuGraph GIT repo URL")
   # Custom MG_CUGRAPH_BUILD_TYPE.
   set(MG_CUGRAPH_BUILD_TYPE "Release" CACHE STRING "Passed to cuGraph as CMAKE_BUILD_TYPE")
@@ -49,14 +49,25 @@ if (MG_ENABLE_CUGRAPH)
   # RAPIDS.cmake is here because rapids_cuda_init_architectures is required to
   # properly set both CMAKE_CUDA_ARCHITECTURES and CUDA_ARCHITECTURES target
   # property.
-  file(DOWNLOAD "https://raw.githubusercontent.com/rapidsai/rapids-cmake/${MG_CUGRAPH_TAG}a/RAPIDS.cmake"
-                ${CMAKE_CURRENT_BINARY_DIR}/RAPIDS.cmake)
+  set(rapids-cmake-branch "${MG_CUGRAPH_TAG}")
+  set(rapids-cmake-tag "${MG_CUGRAPH_TAG}")
+  # A failed file(DOWNLOAD) is silent and leaves an empty file, which then
+  # surfaces as "include could not find rapids-cuda"; check it explicitly.
+  if(NOT EXISTS "${CMAKE_CURRENT_BINARY_DIR}/RAPIDS.cmake")
+    file(DOWNLOAD "https://raw.githubusercontent.com/rapidsai/rapids-cmake/${MG_CUGRAPH_TAG}a/RAPIDS.cmake"
+                  "${CMAKE_CURRENT_BINARY_DIR}/RAPIDS.cmake" STATUS _rapids_dl)
+    list(GET _rapids_dl 0 _rapids_dl_code)
+    if(NOT _rapids_dl_code EQUAL 0)
+      file(REMOVE "${CMAKE_CURRENT_BINARY_DIR}/RAPIDS.cmake")
+      message(FATAL_ERROR "Downloading RAPIDS.cmake for ${MG_CUGRAPH_TAG} failed: ${_rapids_dl}")
+    endif()
+  endif()
   include(${CMAKE_CURRENT_BINARY_DIR}/RAPIDS.cmake)
 
   # Must be set BEFORE enable_language: the ABI-detection try_compile
   # otherwise resolves a CUDA23 dialect (from the root's C++23) that nvcc
-  # can't compile.
-  set(CMAKE_CUDA_STANDARD 17)
+  # can't compile. C++20 is the floor for RAPIDS >= 26.10 (std::source_location).
+  set(CMAKE_CUDA_STANDARD 20)
   set(CMAKE_CUDA_STANDARD_REQUIRED ON)
 
   # nvcc host-compiles/links with the system g++ (the only host RAPIDS
@@ -103,6 +114,13 @@ if (MG_ENABLE_CUGRAPH)
   set_target_properties(mage_cugraph PROPERTIES
     IMPORTED_LOCATION "${MG_CUGRAPH_LIBRARY_PATH}"
   )
+  # rmm >= 26.10 is no longer header-only: device_buffer's constructors live
+  # in librmm.so, which ships next to libcugraph.so.
+  set(MG_RMM_LIBRARY_PATH "${MG_CUGRAPH_ROOT}/lib/${CMAKE_FIND_LIBRARY_PREFIXES}rmm.so")
+  add_library(mage_rmm SHARED IMPORTED)
+  set_target_properties(mage_rmm PROPERTIES
+    IMPORTED_LOCATION "${MG_RMM_LIBRARY_PATH}"
+  )
   include_directories("${MG_CUGRAPH_INCLUDE_DIR}")
   add_dependencies(mage_cugraph cugraph-proj)
 endif()
@@ -126,15 +144,16 @@ macro(target_mage_cugraph target_name)
       message(STATUS "Building with CUDA debugging flags")
       list(APPEND MAGE_CUDA_FLAGS -g -G -Xcompiler=-rdynamic)
     endif()
-    # Ensure CUDA standard is set on the target
+    # Ensure CUDA standard is set on the target. RAPIDS >= 26.10 headers (raft
+    # uses std::source_location) need C++20.
     set_target_properties("${target_name}" PROPERTIES
-      CUDA_STANDARD 17
+      CUDA_STANDARD 20
       CUDA_STANDARD_REQUIRED ON
     )
     target_compile_options("${target_name}"
       PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${MAGE_CXX_FLAGS}>"
               "$<$<COMPILE_LANGUAGE:CUDA>:${MAGE_CUDA_FLAGS}>"
     )
-    target_link_libraries("${target_name}" PRIVATE mage_cugraph)
+    target_link_libraries("${target_name}" PRIVATE mage_cugraph mage_rmm)
   endif()
 endmacro()

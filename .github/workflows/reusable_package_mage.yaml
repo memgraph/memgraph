@@ -221,12 +221,12 @@ jobs:
           WHEEL_PATH="${ARCH}64"
           if [[ "$CUGRAPH" == true  || "$CUDA" == true ]]; then
             echo "Using wheels build for CUDA"
-            WHEEL_PATH="cuda-13.0/${WHEEL_PATH}"
+            WHEEL_PATH="cuda-13.2/${WHEEL_PATH}"
           fi
           # Wheels live under a dated prefix wheels/<date>/<arch>/ (portable
           # manylinux builds). Keep WHEELS_DATE in sync with the one in
           # release/package/mage/install_python_requirements.sh.
-          WHEELS_DATE="2026-06-25"
+          WHEELS_DATE="2026-11-17"
           WHEEL_PATH="${WHEELS_DATE}/${WHEEL_PATH}"
           echo "using wheel path: WHEEL_PATH=${WHEEL_PATH}"
           echo "MAGE_WHEEL_PATH=${WHEEL_PATH}" >> $GITHUB_ENV
