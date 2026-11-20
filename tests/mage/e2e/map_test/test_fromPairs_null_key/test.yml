@@ -1,0 +1,5 @@
+query: >
+  RETURN map.from_pairs([[null, 1]]) AS map;
+
+exception_contains: >
+  All keys have to be type string.

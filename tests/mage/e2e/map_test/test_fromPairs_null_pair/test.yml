@@ -1,0 +1,5 @@
+query: >
+  RETURN map.from_pairs([null]) AS map;
+
+exception_contains: >
+  must be of type LIST OF LIST OF ANY?

@@ -1,0 +1,6 @@
+query: >
+  MATCH (n:WP) SET n += map.from_pairs([["b", null]]) RETURN n.a AS a, n.b AS b;
+
+output:
+  - a: 1
+    b: null
