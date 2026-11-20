@@ -11,6 +11,10 @@
 
 #pragma once
 
+#include <array>
+#include <cstdint>
+#include <string_view>
+
 #include <prometheus/counter.h>
 #include <prometheus/gauge.h>
 #include <prometheus/histogram.h>
@@ -41,6 +45,31 @@ struct GaugeHandle {
     return gauge;
   }
 };
+
+// A value of a metric's label, and the name its series has in SHOW METRICS INFO.
+struct CounterLabelValue {
+  std::string_view label;
+  std::string_view info_name;
+};
+
+enum class AbortedQueryReason : uint8_t { MEMORY_LIMIT, TIMEOUT, TERMINATED, SHUTDOWN };
+
+// Indexed by AbortedQueryReason.
+inline constexpr std::array<CounterLabelValue, 4> kAbortedQueryReasons{{
+    {.label = "memory_limit", .info_name = "AbortedQueriesMemoryLimit"},
+    {.label = "timeout", .info_name = "AbortedQueriesTimeout"},
+    {.label = "terminated", .info_name = "AbortedQueriesTerminated"},
+    {.label = "shutdown", .info_name = "AbortedQueriesShutdown"},
+}};
+
+enum class QueryOutcome : uint8_t { SUCCESS, FAILURE, ABORTED };
+
+// Indexed by QueryOutcome.
+inline constexpr std::array<CounterLabelValue, 3> kQueryOutcomes{{
+    {.label = "success", .info_name = "QueryDurationSuccess"},
+    {.label = "failure", .info_name = "QueryDurationFailure"},
+    {.label = "aborted", .info_name = "QueryDurationAborted"},
+}};
 
 struct CounterHandle {
   prometheus::Counter *counter{nullptr};
@@ -178,6 +207,10 @@ struct DatabaseMetricHandles {
   CounterHandle successful_query;
   CounterHandle write_write_conflicts;
   CounterHandle transient_errors;
+  // Indexed by AbortedQueryReason.
+  std::array<CounterHandle, kAbortedQueryReasons.size()> aborted_queries;
+  // Indexed by QueryOutcome.
+  std::array<HistogramHandle, kQueryOutcomes.size()> query_duration_seconds;
   GaugeHandle unreleased_delta_objects;
 
   // Query type

@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <expected>
 #include <functional>
@@ -108,6 +109,10 @@ struct GlobalMetricHandles {
 
   // Transaction (global) — incremented when no per-db context is available
   prometheus::Counter *transient_errors;
+  // Indexed by AbortedQueryReason.
+  std::array<CounterHandle, kAbortedQueryReasons.size()> aborted_queries;
+  // Indexed by QueryOutcome.
+  std::array<HistogramHandle, kQueryOutcomes.size()> query_duration_seconds;
   prometheus::Counter *failed_query;
   prometheus::Counter *failed_prepare;
   prometheus::Counter *failed_pull;
@@ -432,6 +437,7 @@ class PrometheusMetrics {
   prometheus::Family<prometheus::Counter> &successful_query_family_;
   prometheus::Family<prometheus::Counter> &write_write_conflicts_family_;
   prometheus::Family<prometheus::Counter> &transient_errors_family_;
+  prometheus::Family<prometheus::Counter> &aborted_queries_family_;
   prometheus::Family<prometheus::Gauge> &unreleased_delta_objects_family_;
 
   // Per-database metric families — TTL
@@ -490,6 +496,7 @@ class PrometheusMetrics {
 
   // Per-database metric families — histograms
   prometheus::Family<prometheus::Histogram> &query_execution_latency_family_;
+  prometheus::Family<prometheus::Histogram> &query_duration_family_;
   prometheus::Family<prometheus::Histogram> &snapshot_creation_latency_family_;
   prometheus::Family<prometheus::Histogram> &snapshot_recovery_latency_family_;
 

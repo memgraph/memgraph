@@ -70,6 +70,7 @@
 #include "license/license.hpp"
 #include "memory/global_memory_control.hpp"
 #include "memory/query_memory_control.hpp"
+#include "metrics/metric_handles.hpp"
 #include "metrics/prometheus_metrics.hpp"
 #include "parameters/parameters.hpp"
 #include "query/auth_checker.hpp"
@@ -10646,13 +10647,13 @@ Interpreter::ParseRes Interpreter::Parse(const std::string &query_string, UserPa
     return TransactionQuery::ROLLBACK;
   }
 
+  const utils::Timer parsing_timer;
   try {
     if (!in_explicit_transaction_) {
       // BEGIN has a different execution path; for implicit transaction start the timer as soon as possible
       current_timeout_deadline_ = CreateTimeoutDeadline(extras, interpreter_context_->config);
     }
     // NOTE: query_string is not BEGIN, COMMIT or ROLLBACK
-    const utils::Timer parsing_timer;
     memgraph::logging::EmitSessionTraceEvent("Query parsing started.");
     std::string database_uuid;
     if (current_db_.db_acc_) database_uuid = std::string{current_db_.db_acc_->get()->uuid()};
@@ -10675,9 +10676,46 @@ Interpreter::ParseRes Interpreter::Parse(const std::string &query_string, UserPa
       h->failed_query.Increment();
     else
       metrics::Metrics().global.failed_query->Increment();
+    ObserveQueryDuration(parsing_timer.Elapsed().count(), metrics::QueryOutcome::FAILURE);
     AbortCommand({});
     throw;
   }
+}
+
+void Interpreter::ObserveQueryDuration(double seconds, metrics::QueryOutcome outcome) {
+  auto const index = std::to_underlying(outcome);
+  if (auto *h = current_db_.db_acc_ ? (*current_db_.db_acc_)->metric_handles() : nullptr)
+    h->query_duration_seconds[index].Observe(seconds);
+  else
+    metrics::Metrics().global.query_duration_seconds[index].Observe(seconds);
+}
+
+bool Interpreter::CountAbortedQuery(utils::BasicException const &e) {
+  auto const reason = std::invoke([&e]() -> std::optional<metrics::AbortedQueryReason> {
+    if (dynamic_cast<utils::OutOfMemoryException const *>(&e)) return metrics::AbortedQueryReason::MEMORY_LIMIT;
+    auto const *abort = dynamic_cast<HintedAbortError const *>(&e);
+    if (!abort) return std::nullopt;
+    switch (abort->Reason()) {
+      case AbortReason::TIMEOUT:
+        return metrics::AbortedQueryReason::TIMEOUT;
+      case AbortReason::TERMINATED:
+        return metrics::AbortedQueryReason::TERMINATED;
+      case AbortReason::SHUTDOWN:
+        return metrics::AbortedQueryReason::SHUTDOWN;
+      case AbortReason::NO_ABORT:
+      case AbortReason::EXCEPTION:
+        return std::nullopt;
+    }
+    std::unreachable();
+  });
+  if (!reason) return false;
+
+  auto const index = std::to_underlying(*reason);
+  if (auto *h = current_db_.db_acc_ ? (*current_db_.db_acc_)->metric_handles() : nullptr)
+    h->aborted_queries[index].Increment();
+  else
+    metrics::Metrics().global.aborted_queries[index].Increment();
+  return true;
 }
 
 Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParameters_fn params_getter,
@@ -10705,6 +10743,8 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
   MG_ASSERT(std::holds_alternative<ParseInfo>(parse_res), "Unkown ParseRes type");
 
   auto &parse_info = std::get<ParseInfo>(parse_res);
+  utils::Timer const prepare_timer;
+  auto const query_seconds = [&] { return parse_info.parsing_time + prepare_timer.Elapsed().count(); };
   auto &parsed_query = parse_info.parsed_query;
 
   // SHOW TRANSACTIONS lists this text. A statement that sets a password is rebuilt from its parsed fields, so no
@@ -11342,6 +11382,7 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
 
     // prepare is done, move system txn guard to be owned by interpreter
     system_transaction_ = std::move(system_transaction);
+    query_execution->server_seconds = query_seconds();
     return {.headers = query_execution->prepared_query->header,
             .privileges = query_execution->prepared_query->privileges,
             .qid = qid,
@@ -11360,6 +11401,8 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
       h->failed_prepare.Increment();
     else
       metrics::Metrics().global.failed_prepare->Increment();
+    ObserveQueryDuration(query_seconds(),
+                         CountAbortedQuery(e) ? metrics::QueryOutcome::ABORTED : metrics::QueryOutcome::FAILURE);
     AbortCommand(query_execution_ptr);
     throw;
   }

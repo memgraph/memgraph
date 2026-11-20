@@ -218,6 +218,15 @@ def test_all_show_metrics_info_values_are_present(memgraph):
         {"name": "UnionOperator", "type": "Operator", "metric type": "Counter"},
         {"name": "UnwindOperator", "type": "Operator", "metric type": "Counter"},
         # Query
+        {"name": "QueryDurationAborted_us_50p", "type": "Query", "metric type": "Histogram"},
+        {"name": "QueryDurationAborted_us_90p", "type": "Query", "metric type": "Histogram"},
+        {"name": "QueryDurationAborted_us_99p", "type": "Query", "metric type": "Histogram"},
+        {"name": "QueryDurationFailure_us_50p", "type": "Query", "metric type": "Histogram"},
+        {"name": "QueryDurationFailure_us_90p", "type": "Query", "metric type": "Histogram"},
+        {"name": "QueryDurationFailure_us_99p", "type": "Query", "metric type": "Histogram"},
+        {"name": "QueryDurationSuccess_us_50p", "type": "Query", "metric type": "Histogram"},
+        {"name": "QueryDurationSuccess_us_90p", "type": "Query", "metric type": "Histogram"},
+        {"name": "QueryDurationSuccess_us_99p", "type": "Query", "metric type": "Histogram"},
         {"name": "QueryExecutionLatency_us_50p", "type": "Query", "metric type": "Histogram"},
         {"name": "QueryExecutionLatency_us_90p", "type": "Query", "metric type": "Histogram"},
         {"name": "QueryExecutionLatency_us_99p", "type": "Query", "metric type": "Histogram"},
@@ -250,6 +259,10 @@ def test_all_show_metrics_info_values_are_present(memgraph):
         {"name": "DeletedEdges", "type": "TTL", "metric type": "Counter"},
         {"name": "DeletedNodes", "type": "TTL", "metric type": "Counter"},
         # Transaction (counters alphabetical, then Gauge)
+        {"name": "AbortedQueriesMemoryLimit", "type": "Transaction", "metric type": "Counter"},
+        {"name": "AbortedQueriesShutdown", "type": "Transaction", "metric type": "Counter"},
+        {"name": "AbortedQueriesTerminated", "type": "Transaction", "metric type": "Counter"},
+        {"name": "AbortedQueriesTimeout", "type": "Transaction", "metric type": "Counter"},
         {"name": "CommitedTransactions", "type": "Transaction", "metric type": "Counter"},
         {"name": "FailedPrepare", "type": "Transaction", "metric type": "Counter"},
         {"name": "FailedPull", "type": "Transaction", "metric type": "Counter"},
@@ -391,6 +404,17 @@ def test_general_gauges_reflect_graph_state(memgraph):
 def test_query_execution_latency_histogram_has_observations(memgraph):
     memgraph.execute("MATCH (n) RETURN n")
     assert get_metric_value(memgraph, "QueryExecutionLatency_us_50p") > 0
+
+
+def test_query_duration_histogram_has_observations(memgraph):
+    memgraph.execute("MATCH (n) RETURN n")
+    assert get_metric_value(memgraph, "QueryDurationSuccess_us_50p") > 0
+
+
+def test_query_duration_failure_observed_on_parse_error(memgraph):
+    with pytest.raises(Exception):
+        memgraph.execute("METCH (n) RETURN n")
+    assert get_metric_value(memgraph, "QueryDurationFailure_us_50p") > 0
 
 
 def test_session_metrics_reflect_active_connection(memgraph):
