@@ -15,8 +15,6 @@
 #include <string>
 #include <string_view>
 
-#include "storage/v2/id_types.hpp"
-#include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
 #include "utils/skip_list.hpp"
 
@@ -61,19 +59,12 @@ class NameIdMapper {
   virtual ~NameIdMapper() = default;
 
   /// @throw std::bad_alloc if unable to insert a new mapping
-  /// @throw utils::BasicException (enterprise) if the name space is exhausted, as branch edge-type markers reserve the
-  /// upper half
   virtual uint64_t NameToId(const std::string_view name) {
     auto name_to_id_acc = name_to_id_.access();
     auto found = name_to_id_acc.find(name);
     uint64_t id;
     if (found == name_to_id_acc.end()) {
       uint64_t new_id = counter_.fetch_add(1, std::memory_order_acq_rel);
-#ifdef MG_ENTERPRISE
-      if (new_id > kLastRealId) [[unlikely]] {
-        throw utils::BasicException("Too many distinct labels, properties and edge types.");
-      }
-#endif
       // Try to insert the mapping with the `new_id`, but use the id that is in
       // the object itself. The object that cointains the mapping is designed to
       // be a map, so that if the inserted name already exists `insert` will

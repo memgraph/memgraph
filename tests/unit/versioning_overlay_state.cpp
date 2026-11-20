@@ -10,7 +10,7 @@
 // licenses/APL.txt.
 
 // The overlay encoding on stock fields (overlay_state.hpp): copied labels, explicit-null property removal and its abort
-// round trip, the delete mark read, and the edge-type marker ids.
+// round trip and the delete mark read.
 
 #include <algorithm>
 #include <array>
@@ -26,7 +26,6 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/isolation_level.hpp"
-#include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/vertex.hpp"
 #include "storage/v2/vertex_accessor.hpp"
@@ -103,6 +102,7 @@ class OverlayStateTest : public testing::Test {
       {  // explicit null -> value, aborted: the explicit null, not absent
         auto writer = Writer();
         ASSERT_TRUE(Write(*writer, on_edge, ms::PropertyValue{5}));
+        ASSERT_TRUE(Stored(on_edge).has_value());
         EXPECT_EQ(Stored(on_edge)->ValueInt(), 5);
         writer->Abort();
         ASSERT_TRUE(Stored(on_edge).has_value()) << "abort erased the explicit null";
@@ -114,8 +114,10 @@ class OverlayStateTest : public testing::Test {
         Commit(*writer);
         auto remover = Writer();
         ASSERT_TRUE(Write(*remover, on_edge, ms::PropertyValue{}));
+        ASSERT_TRUE(Stored(on_edge).has_value());
         EXPECT_TRUE(Stored(on_edge)->IsNull());
         remover->Abort();
+        ASSERT_TRUE(Stored(on_edge).has_value());
         EXPECT_EQ(Stored(on_edge)->ValueInt(), 5);
       }
     }
@@ -190,31 +192,7 @@ class OverlayStateIndexedTest : public OverlayStateTest {
   }
 };
 
-struct CountedMapper : ms::NameIdMapper {
-  void SetCounter(uint64_t value) { counter_.store(value); }
-};
-
 }  // namespace
-
-TEST(OverlayMarkers, OnlyEdgeTypesCarryTheReservedBit) {
-  for (uint32_t id : {0U, 1U, 65536U, ms::kLastRealId - 1, ms::kLastRealId}) {
-    auto const t = ms::EdgeTypeId::FromUint(id);
-    EXPECT_FALSE(ms::IsReservedId(t));
-    EXPECT_TRUE(ms::IsReservedId(overlay::Mark(t)));
-    EXPECT_EQ(ms::StripReservedId(overlay::Mark(t)), t);
-    EXPECT_NE(overlay::Mark(t), ms::kInvalidEdgeTypeId);
-  }
-}
-
-TEST(OverlayMarkers, NameMapperRefusesNewNamesPastTheLastRealId) {
-  CountedMapper mapper;
-  EXPECT_EQ(mapper.NameToId("known"), 0U);
-  mapper.SetCounter(ms::kLastRealId);
-  EXPECT_EQ(mapper.NameToId("last"), ms::kLastRealId);
-  EXPECT_THROW(mapper.NameToId("past"), memgraph::utils::BasicException);
-  EXPECT_FALSE(mapper.NameToIdIfExists("past").has_value());
-  EXPECT_EQ(mapper.NameToId("known"), 0U);
-}
 
 TEST_F(OverlayStateTest, LabelsAreCopiedOnceAndThenStockAddAndRemoveApply) {
   overlay::CopyBaseLabels(vertex.get(), std::vector{kLabelA, kLabelB});
@@ -262,7 +240,9 @@ TEST_F(OverlayStateTest, AMarkDeletedIsReadPerViewAndRefusesFurtherWrites) {
   EXPECT_EQ(deleted(tx, ms::View::NEW), (std::pair{true, true}));
   EXPECT_EQ(deleted(tx, ms::View::OLD), (std::pair{false, false})) << "not before the command advances";
   for (bool const on_edge : {false, true}) {
-    EXPECT_EQ(Write(*writer, on_edge, ms::PropertyValue{1}).error(), ms::Error::DELETED_OBJECT);
+    auto const result = Write(*writer, on_edge, ms::PropertyValue{1});
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error(), ms::Error::DELETED_OBJECT);
   }
   Commit(*writer);
 
@@ -284,9 +264,14 @@ TEST_F(OverlayStateIndexedTest, OverlayWritesAreIndexedAndAnAbortRestoresTheInde
   auto writer = Writer();
   ASSERT_TRUE(Write(*writer, false, ms::PropertyValue{2}));
   ASSERT_TRUE(Write(*writer, true, ms::PropertyValue{2}));
+  EXPECT_EQ(Entries(), (Hits{2, 2, 2, 2}));
   writer->Abort();  // the edge delta's out vertex is dereferenced by the index abort processing
+  // As stock: the vertex indexes drop the aborted entry at abort, the edge indexes leave it to GC.
+  EXPECT_EQ(Entries(), (Hits{1, 1, 2, 2}));
   EXPECT_EQ(Scan(2), (Hits{0, 0, 0, 0})) << "an aborted write is not visible through the index";
   EXPECT_EQ(Scan(1), (Hits{1, 1, 1, 1}));
+  ASSERT_TRUE(Stored(false).has_value());
+  ASSERT_TRUE(Stored(true).has_value());
   EXPECT_EQ(Stored(false)->ValueInt(), 1);
   EXPECT_EQ(Stored(true)->ValueInt(), 1);
 }

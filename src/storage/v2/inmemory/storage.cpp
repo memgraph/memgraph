@@ -320,7 +320,7 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
                                  utils::MemoryTracker *db_embedding_memory_tracker
 #ifdef MG_ENTERPRISE
                                  ,
-                                 durability::HistoryBounds history_bounds
+                                 durability::HistoryBounds history_bounds, RetainedGidFloors retained_gid_floors
 #endif
                                  )
     : Storage(config, config.salient.storage_mode, std::move(invalidator), metric_handles, db_arena,
@@ -338,8 +338,8 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
       global_locker_(file_retainer_.AddLocker())
 #ifdef MG_ENTERPRISE
       ,
-      retained_vertex_floor_(config.retained_gid_floors.vertex),
-      retained_edge_floor_(config.retained_gid_floors.edge)
+      retained_vertex_floor_(retained_gid_floors.vertex),
+      retained_edge_floor_(retained_gid_floors.edge)
 #endif
 {
   MG_ASSERT(config.salient.storage_mode != StorageMode::ON_DISK_TRANSACTIONAL,
@@ -3833,9 +3833,9 @@ void InMemoryStorage::CollectGarbage(utils::ResourceLockGuard main_guard, bool p
   // the actual objects need removing before the object is removed itself. Also moving from IN_MEMORY_ANALYTICAL to
   // IN_MEMORY_TRANSACTIONAL any object could have been deleted so also index cleanup is required for correctness.
 #ifdef MG_ENTERPRISE
-  // Overlays are never retired, so they stay out of the deleted lists that drive retirement and vector-index removal,
-  // which assume the object is in `vertices_`/`edges_`. Their regular index entries are removed by the obsolete-entry
-  // sweep, which only reads the object, so a filtered overlay arms the all-index sweep below.
+  // A marked-deleted overlay reaches the deleted lists through its RECREATE_OBJECT delta, but it is not in
+  // `vertices_`/`edges_`, so retiring it would fail the skip-list MG_ASSERT in RetireVertices/RetireEdges. Overlays are
+  // owned by the branch's overlay indexes; the floor tells them apart, as native gids are at or above it.
   bool overlays_filtered_vertices = false;
   bool overlays_filtered_edges = false;
   if (retained_vertex_floor_ != 0 || retained_edge_floor_ != 0) [[unlikely]] {
@@ -3873,6 +3873,7 @@ void InMemoryStorage::CollectGarbage(utils::ResourceLockGuard main_guard, bool p
   if (index_cleanup_vertex_needed) sweep_arming.arm_all_vertex_indexes();
   if (index_cleanup_edge_needed) sweep_arming.arm_all_edge_indexes();
 #ifdef MG_ENTERPRISE
+  // A filtered overlay may still have index entries, so the read-only stale-entry sweep is armed to remove them.
   if (overlays_filtered_vertices) sweep_arming.arm_all_vertex_indexes();
   if (overlays_filtered_edges) sweep_arming.arm_all_edge_indexes();
 #endif
