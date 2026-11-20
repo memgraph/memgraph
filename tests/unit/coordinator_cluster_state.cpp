@@ -432,6 +432,65 @@ TEST_F(CoordinatorClusterStateTest, RegionsBackwardCompat) {
   ASSERT_EQ(feature_state.GetRegions(), (std::set<std::string>{"eu-west"}));
 }
 
+TEST_F(CoordinatorClusterStateTest, PrimaryRegionDoAction) {
+  CoordinatorClusterState cluster_state{};
+  ASSERT_FALSE(cluster_state.GetPrimaryRegion().has_value());
+
+  // NOLINTNEXTLINE
+  cluster_state.DoAction(CoordinatorClusterStateDelta{.primary_region_ = "eu"});
+  ASSERT_EQ(cluster_state.GetPrimaryRegion(), "eu");
+
+  // A delta without a primary region leaves it untouched.
+  // NOLINTNEXTLINE
+  cluster_state.DoAction(CoordinatorClusterStateDelta{.regions_ = std::set<std::string>{"eu", "us"}});
+  ASSERT_EQ(cluster_state.GetPrimaryRegion(), "eu");
+
+  // NOLINTNEXTLINE
+  cluster_state.DoAction(CoordinatorClusterStateDelta{.primary_region_ = "us"});
+  ASSERT_EQ(cluster_state.GetPrimaryRegion(), "us");
+
+  auto const copied = cluster_state;
+  ASSERT_EQ(copied.GetPrimaryRegion(), "us");
+  auto moved = CoordinatorClusterState{cluster_state};
+  auto const move_constructed = std::move(moved);
+  ASSERT_EQ(move_constructed.GetPrimaryRegion(), "us");
+}
+
+TEST_F(CoordinatorClusterStateTest, PrimaryRegionMarshalling) {
+  CoordinatorClusterState cluster_state{};
+  // NOLINTNEXTLINE
+  cluster_state.DoAction(
+      CoordinatorClusterStateDelta{.regions_ = std::set<std::string>{"eu", "us"}, .primary_region_ = "eu"});
+
+  ptr<buffer> data;
+  cluster_state.Serialize(data);
+  auto const deserialized_cluster_state = CoordinatorClusterState::Deserialize(*data);
+  ASSERT_EQ(cluster_state, deserialized_cluster_state);
+  ASSERT_EQ(deserialized_cluster_state.GetPrimaryRegion(), "eu");
+
+  // Unset, the key isn't written, and the cluster differs from one with a primary region.
+  CoordinatorClusterState const no_primary_state{};
+  nlohmann::json const no_primary_json = no_primary_state;
+  ASSERT_FALSE(no_primary_json.contains(memgraph::coordination::kPrimaryRegion.data()));
+  ASSERT_NE(no_primary_state, deserialized_cluster_state);
+}
+
+TEST_F(CoordinatorClusterStateTest, PrimaryRegionBackwardCompat) {
+  // A snapshot serialized before cross-region HA has no primary region key and loads without a primary region.
+  auto json =
+      nlohmann::json{{memgraph::coordination::kDataInstances.data(), std::vector<DataInstanceContext>{}},
+                     {memgraph::coordination::kMainUUID.data(), UUID{}},
+                     {memgraph::coordination::kCoordinatorInstances.data(), std::vector<CoordinatorInstanceContext>{}}};
+  CoordinatorClusterState legacy_state;
+  nlohmann::from_json(json, legacy_state);
+  ASSERT_FALSE(legacy_state.GetPrimaryRegion().has_value());
+
+  json[memgraph::coordination::kPrimaryRegion.data()] = "eu";
+  CoordinatorClusterState feature_state;
+  nlohmann::from_json(json, feature_state);
+  ASSERT_EQ(feature_state.GetPrimaryRegion(), "eu");
+}
+
 TEST_F(CoordinatorClusterStateTest, DataInstanceRegionMarshalling) {
   auto const config =
       DataInstanceConfig{.instance_name = "instance1",

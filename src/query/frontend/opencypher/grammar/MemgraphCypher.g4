@@ -161,6 +161,7 @@ memgraphCypherKeyword : cypherKeyword
                       | PERMISSIONS
                       | POINT
                       | PORT
+                      | PRIMARY
                       | PRIVILEGES
                       | PROPERTY
                       | PROFILE_RESTRICTION
@@ -379,6 +380,7 @@ coordinatorQuery : registerInstanceOnCoordinator
                  | addRegion
                  | dropRegion
                  | showRegionInfo
+                 | setPrimaryRegion
                  ;
 
 triggerQuery : createTrigger
@@ -704,6 +706,8 @@ addRegion : ADD REGION regionName=literal ;
 dropRegion : DROP REGION regionName=literal ;
 
 showRegionInfo : SHOW REGION INFO ;
+
+setPrimaryRegion : SET regionName=literal AS PRIMARY REGION ;
 
 showRoutingTable: SHOW ROUTING TABLE ;
 

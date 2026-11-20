@@ -190,6 +190,7 @@ auto CoordinatorStateMachine::SerializeUpdateClusterState(CoordinatorClusterStat
   add_if_set(kGlobalReadOnly, delta_state.global_read_only_);
   add_if_set(kRoles, delta_state.roles_);
   add_if_set(kRegions, delta_state.regions_);
+  add_if_set(kPrimaryRegion, delta_state.primary_region_);
 
   return CreateLog(delta_state_json);
 }
@@ -257,6 +258,10 @@ auto CoordinatorStateMachine::DecodeLog(buffer &data) -> CoordinatorClusterState
 
     if (json.contains(kRegions.data())) {
       delta_state.regions_ = json[kRegions.data()].get<std::set<std::string>>();
+    }
+
+    if (json.contains(kPrimaryRegion.data())) {
+      delta_state.primary_region_ = json[kPrimaryRegion.data()].get<std::string>();
     }
 
     return delta_state;
@@ -467,6 +472,10 @@ auto CoordinatorStateMachine::GetGlobalReadOnly() const -> bool { return cluster
 auto CoordinatorStateMachine::GetRoles() const -> std::vector<CoordinatorRole> { return cluster_state_.GetRoles(); }
 
 auto CoordinatorStateMachine::GetRegions() const -> std::set<std::string> { return cluster_state_.GetRegions(); }
+
+auto CoordinatorStateMachine::GetPrimaryRegion() const -> std::optional<std::string> {
+  return cluster_state_.GetPrimaryRegion();
+}
 
 }  // namespace memgraph::coordination
 #endif

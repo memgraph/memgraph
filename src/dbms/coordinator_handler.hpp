@@ -60,6 +60,8 @@ class CoordinatorHandler {
 
   auto DropRegion(std::string_view region_name) const -> coordination::DropRegionStatus;
 
+  auto SetPrimaryRegion(std::string_view region_name) const -> coordination::SetPrimaryRegionStatus;
+
   auto ShowRegionInfo() const -> std::optional<std::vector<coordination::RegionInfo>>;
 
   auto GetRoles() const -> std::optional<std::vector<coordination::CoordinatorRole>>;

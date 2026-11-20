@@ -311,6 +311,8 @@ TEST(RpcVersioning, UpdateDataInstanceConfigRpc) {
 namespace memgraph::coordination {
 using RegisterInstanceRpcV1 = rpc::RequestResponse<RegisterInstanceReqV1, RegisterInstanceResV1>;
 using UpdateConfigRpcV1 = rpc::RequestResponse<UpdateConfigReqV1, UpdateConfigResV1>;
+using UnregisterInstanceRpcV1 = rpc::RequestResponse<UnregisterInstanceReqV1, UnregisterInstanceResV1>;
+using SetInstanceToMainRpcV1 = rpc::RequestResponse<SetInstanceToMainReqV1, SetInstanceToMainResV1>;
 }  // namespace memgraph::coordination
 
 namespace {
@@ -465,6 +467,76 @@ TEST(RpcVersioning, UpdateConfigRpc) {
     auto reply = stream.SendAndWait();
     EXPECT_FALSE(reply.arg_);
   }
+}
+
+namespace {
+// The v2 request carries the same instance name as v1; the v2 response carries the leader's exact status, which
+// downgrades to the v1 success flag.
+template <typename Rpc, typename RpcV1, typename StatusEnum>
+void TestInstanceNameStatusRpc(StatusEnum const failure) {
+  Endpoint const endpoint{"localhost", port};
+
+  ServerContext server_context;
+  Server rpc_server{endpoint, &server_context, /* workers */ 1};
+  auto const on_exit = memgraph::utils::OnScopeExit{[&rpc_server] {
+    ASSERT_TRUE(rpc_server.Shutdown());
+    rpc_server.AwaitShutdown();
+  }};
+
+  std::string received;
+  auto status = StatusEnum::SUCCESS;
+
+  rpc_server.Register<Rpc>(
+      [&received, &status](std::optional<memgraph::rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+                           uint64_t const request_version,
+                           auto *req_reader,
+                           auto *res_builder) {
+        typename Rpc::Request req;
+        memgraph::rpc::LoadWithUpgrade(req, request_version, req_reader);
+        received = req.arg_;
+        memgraph::rpc::SendFinalResponse(typename Rpc::Response{status}, request_version, res_builder);
+      });
+
+  ASSERT_TRUE(rpc_server.Start());
+  std::this_thread::sleep_for(100ms);
+
+  ClientContext client_context;
+  Client client{endpoint, &client_context};
+  {
+    status = failure;
+    auto stream = client.Stream<Rpc>(std::string{"instance_1"});
+    auto reply = stream.SendAndWait();
+    EXPECT_EQ(reply.arg_, failure);
+    EXPECT_EQ(received, "instance_1");
+  }
+  {
+    status = StatusEnum::SUCCESS;
+    auto stream = client.Stream<RpcV1>(std::string{"instance_2"});
+    auto reply = stream.SendAndWait();
+    EXPECT_TRUE(reply.arg_);
+    EXPECT_EQ(received, "instance_2");
+  }
+  {
+    status = failure;
+    auto stream = client.Stream<RpcV1>(std::string{"instance_3"});
+    auto reply = stream.SendAndWait();
+    EXPECT_FALSE(reply.arg_);
+  }
+}
+}  // namespace
+
+TEST(RpcVersioning, UnregisterInstanceRpc) {
+  using memgraph::coordination::UnregisterInstanceCoordinatorStatus;
+  TestInstanceNameStatusRpc<memgraph::coordination::UnregisterInstanceRpc,
+                            memgraph::coordination::UnregisterInstanceRpcV1>(
+      UnregisterInstanceCoordinatorStatus::LAST_INSTANCE_IN_PRIMARY_REGION);
+}
+
+TEST(RpcVersioning, SetInstanceToMainRpc) {
+  using memgraph::coordination::SetInstanceToMainCoordinatorStatus;
+  TestInstanceNameStatusRpc<memgraph::coordination::SetInstanceToMainRpc,
+                            memgraph::coordination::SetInstanceToMainRpcV1>(
+      SetInstanceToMainCoordinatorStatus::PRIMARY_REGION_SET);
 }
 
 // PromoteToMainReq gained a `writing_enabled` flag in v2 (the projection of global_read_only) alongside the existing

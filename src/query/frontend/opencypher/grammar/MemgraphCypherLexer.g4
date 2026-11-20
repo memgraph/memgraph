@@ -161,6 +161,7 @@ PERMISSIONS             : P E R M I S S I O N S ;
 POINT                   : P O I N T ;
 PROPERTY                : P R O P E R T Y ;
 PORT                    : P O R T ;
+PRIMARY                 : P R I M A R Y ;
 PRIVILEGES              : P R I V I L E G E S ;
 PROFILE_RESTRICTION     : P R O F I L E UNDERSCORE R E S T R I C T I O N ;
 PROFILES                : P R O F I L E S ;

@@ -663,6 +663,8 @@ auto RaftState::GetRoles() const -> std::vector<CoordinatorRole> { return state_
 
 auto RaftState::GetRegions() const -> std::set<std::string> { return state_machine_->GetRegions(); }
 
+auto RaftState::GetPrimaryRegion() const -> std::optional<std::string> { return state_machine_->GetPrimaryRegion(); }
+
 }  // namespace memgraph::coordination
 
 // namespace memgraph::coordination

@@ -6025,6 +6025,14 @@ TEST_P(CypherMainVisitorTest, TestShowRegionInfo) {
   EXPECT_EQ(parsed_query->action_, CoordinatorQuery::Action::SHOW_REGION_INFO);
 }
 
+TEST_P(CypherMainVisitorTest, TestSetPrimaryRegion) {
+  auto &ast_generator = *GetParam();
+  auto *parsed_query = dynamic_cast<CoordinatorQuery *>(ast_generator.ParseQuery("SET 'eu-west' AS PRIMARY REGION"));
+  ASSERT_TRUE(parsed_query);
+  EXPECT_EQ(parsed_query->action_, CoordinatorQuery::Action::SET_PRIMARY_REGION);
+  ast_generator.CheckLiteral(parsed_query->region_name_, TypedValue("eu-west"));
+}
+
 TEST_P(CypherMainVisitorTest, TestRegionQueriesInvalid) {
   auto &ast_generator = *GetParam();
   EXPECT_THROW(ast_generator.ParseQuery("ADD REGION eu"), SyntaxException);
@@ -6033,6 +6041,10 @@ TEST_P(CypherMainVisitorTest, TestRegionQueriesInvalid) {
   EXPECT_THROW(ast_generator.ParseQuery("DROP REGION 1"), SemanticException);
   EXPECT_THROW(ast_generator.ParseQuery("SHOW REGION"), SyntaxException);
   EXPECT_THROW(ast_generator.ParseQuery("SHOW REGIONS INFO"), SyntaxException);
+  EXPECT_THROW(ast_generator.ParseQuery("SET eu AS PRIMARY REGION"), SyntaxException);
+  EXPECT_THROW(ast_generator.ParseQuery("SET 1 AS PRIMARY REGION"), SemanticException);
+  EXPECT_THROW(ast_generator.ParseQuery("SET 'eu' AS PRIMARY"), SyntaxException);
+  EXPECT_THROW(ast_generator.ParseQuery("SET 'eu' PRIMARY REGION"), SyntaxException);
 }
 
 #endif
@@ -6048,6 +6060,8 @@ TEST_P(CypherMainVisitorTest, RegionKeywordStillUsableAsIdentifier) {
   auto &ast_generator = *GetParam();
   EXPECT_NO_THROW(ast_generator.ParseQuery("MATCH (region:Region) RETURN region.region AS region"));
   EXPECT_NO_THROW(ast_generator.ParseQuery("CREATE INDEX ON :region(region)"));
+  EXPECT_NO_THROW(ast_generator.ParseQuery("MATCH (primary:Primary) RETURN primary.primary AS primary"));
+  EXPECT_NO_THROW(ast_generator.ParseQuery("CREATE INDEX ON :primary(primary)"));
 }
 
 TEST_P(CypherMainVisitorTest, TestDeleteReplica) {
