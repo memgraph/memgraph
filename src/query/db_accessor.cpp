@@ -326,7 +326,7 @@ DbAccessor::BranchDetachDelete(std::vector<VertexAccessor> nodes, std::vector<Ed
   }
 
   for (auto &[node, base_edges] : base_nodes) {
-    auto deleted = ctx.DeleteBaseVertex(node->Gid());
+    auto deleted = ctx.DeleteBaseVertex(node->Gid(), detach);
     if (!deleted) return std::unexpected{deleted.error()};
     if (!*deleted) continue;
     deleted_vertices.push_back(*node);
