@@ -139,12 +139,13 @@ std::expected<void, DownloadError> DownloadToSink(const std::string &url, WriteS
  *
  * @param url url of the contents
  * @param os an output stream
- * @return bool true if the request was successful, false otherwise.
+ * @return nothing if the request was successful, otherwise why it was not
  */
-auto DownloadToStream(std::string_view url, std::ostream &os) -> bool;
+auto DownloadToStream(std::string_view url, std::ostream &os) -> std::expected<void, DownloadError>;
 
 /**
- * Downloads content into a stream by calling DownloadToStream.
+ * Downloads content into a stream by calling DownloadToStream. Throws utils::RetryableException when
+ * trying again could help, utils::BasicException when it could not.
 
  * @param url url of the contents
  * @return std::stringstream containing the content of the fetched file

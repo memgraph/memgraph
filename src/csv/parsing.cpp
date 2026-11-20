@@ -394,7 +394,10 @@ S3CsvSource::S3CsvSource(std::string uri, utils::S3Config const &s3_config) {
   }
 
   if (auto const res = utils::GetS3Object(std::move(uri), s3_config, stream_); !res.has_value()) {
-    throw utils::RetryableException(res.error().message);
+    if (res.error().retryable) {
+      throw utils::RetryableException(res.error().message);
+    }
+    throw utils::BasicException(res.error().message);
   }
 }
 
