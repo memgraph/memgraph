@@ -21,6 +21,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <shared_mutex>
 #include <span>
 #include <string>
 #include <string_view>
@@ -39,9 +40,8 @@ using CoreBuilder = std::function<CoreResult()>;
 
 enum class DropResult : uint8_t { kDropped, kNotFound, kInUse };
 
-// A registered branch: its metadata, fork pin and lazily built core. Shared between the store and checked-out sessions;
-// the last holder releases the pin and, if the branch was dropped, removes its directory. Sessions must let go before
-// the storage the pin callback is bound to dies.
+// A registered branch: its metadata, fork pin and lazily built core. Owned by the VersionStore; sessions reach it
+// through a BranchCheckout. Destroying it releases the pin and, if the branch was dropped, removes its directory.
 class Branch {
  public:
   // `fork_ts` is the live MVCC fork pin, released on destruction.
@@ -58,11 +58,13 @@ class Branch {
 
   const BranchInfo &info() const { return info_; }
 
-  // This process's MVCC fork pin, held until the branch is gone; drives visibility and GC.
+  // The runtime MVCC pin registered in this process; drives visibility and GC. Equals info().fork.durable_fork_ts only
+  // for a branch created in this process.
   uint64_t fork_ts() const { return fork_ts_; }
 
-  // Why the branch's files could not be recovered at startup; runtime only. Such a branch is kept as it is (pin,
-  // retention, ledger entry) but cannot be used; DROP BRANCH removes it.
+  // Why the branch's files could not be recovered at startup; runtime only. Set only by startup recovery (main
+  // recovered short of the fork, or the branch's WAL failed to replay) and never persisted. Such a branch is kept as it
+  // is (pin, retention, ledger entry) but cannot be used; DROP BRANCH removes it.
   const std::optional<std::string> &unavailable_reason() const { return unavailable_reason_; }
 
   bool dropped() const { return dropped_.load(std::memory_order_acquire); }
@@ -83,13 +85,59 @@ class Branch {
   std::filesystem::path directory_;
   std::function<void(uint64_t)> release_pin_;
   std::atomic<bool> dropped_{false};
+  // Checkouts held. Changed under VersionStore::mutex_ (shared); compared against zero under it exclusively.
+  std::atomic<size_t> sessions_{0};
   std::mutex build_mutex_;
   std::shared_ptr<BranchCore> core_;
 };
 
-// Per-Database registry of branches, persisted to an attached BranchLedger. Each branch's GC fork pin and the retention
-// floor are injected as callbacks (Database binds InMemoryStorage::RegisterBranchForkPin/ReleaseForkPin/
-// SetRetentionFloor) so tests need no storage engine.
+class VersionStore;
+
+// A session's hold on a branch: the branch stays alive, even if force-dropped, until the handle is destroyed.
+class BranchCheckout {
+ public:
+  BranchCheckout() = default;
+
+  BranchCheckout(const BranchCheckout &) = delete;
+  BranchCheckout &operator=(const BranchCheckout &) = delete;
+
+  BranchCheckout(BranchCheckout &&other) noexcept
+      : store_{std::exchange(other.store_, nullptr)}, branch_{std::exchange(other.branch_, nullptr)} {}
+
+  BranchCheckout &operator=(BranchCheckout &&other) noexcept {
+    if (this != &other) {
+      reset();
+      store_ = std::exchange(other.store_, nullptr);
+      branch_ = std::exchange(other.branch_, nullptr);
+    }
+    return *this;
+  }
+
+  ~BranchCheckout() { reset(); }
+
+  // Gives the branch back; the handle is empty afterwards.
+  void reset();
+
+  Branch *get() const { return branch_; }
+
+  Branch *operator->() const { return branch_; }
+
+  Branch &operator*() const { return *branch_; }
+
+  explicit operator bool() const { return branch_ != nullptr; }
+
+ private:
+  friend class VersionStore;
+
+  BranchCheckout(VersionStore *store, Branch *branch) : store_{store}, branch_{branch} {}
+
+  VersionStore *store_{nullptr};
+  Branch *branch_{nullptr};
+};
+
+// Per-Database registry of branches, persisted to a BranchLedger. Each branch's GC fork pin and the retention floor are
+// injected as callbacks (Database binds InMemoryStorage::RegisterBranchForkPin/ReleaseForkPin/SetRetentionFloor) so
+// tests need no storage engine.
 // Structural validation only (duplicate name): callers MUST run ValidateBranchName and gate/privilege checks first.
 class VersionStore {
  public:
@@ -102,28 +150,30 @@ class VersionStore {
     size_t sessions;
   };
 
-  // The callbacks must stay bound to the owning storage for this VersionStore's lifetime. `set_retention_floor`
-  // receives the durable timestamp branches still need recoverable (kNoRetentionFloor when no branch exists) after
-  // Restore, a failed CREATE and a DROP; empty means nobody listens. It runs under the store's mutex: no callback may
-  // call back in.
+  // A branch loaded from the ledger with the runtime pin the caller registered for it on the rebuilt history.
+  struct RestoredBranch {
+    LedgerBranch branch;
+    uint64_t runtime_pin;
+  };
+
+  // All arguments are required. The callbacks must stay bound to the owning storage for this VersionStore's lifetime.
+  // `set_retention_floor` receives the durable timestamp branches still need recoverable (kNoRetentionFloor when no
+  // branch exists) after Restore, a failed CREATE and a DROP. It runs under the store's mutex: no callback may call
+  // back in. `branches_root` holds one directory per branch id.
   VersionStore(std::function<ForkPoint()> acquire_pin, std::function<void(uint64_t)> release_pin,
-               std::function<void(uint64_t)> set_retention_floor = {});
+               std::function<void(uint64_t)> set_retention_floor, BranchLedger ledger,
+               std::filesystem::path branches_root);
 
   VersionStore(const VersionStore &) = delete;
   VersionStore &operator=(const VersionStore &) = delete;
   VersionStore(VersionStore &&) = delete;
   VersionStore &operator=(VersionStore &&) = delete;
-  // Withdraws this store's branches from the process-wide active gauge.
+  // Withdraws this store's branches from the process-wide active gauge. All checkouts must be released.
   ~VersionStore();
 
-  // Starts persisting to `ledger`; `branches_root` holds one directory per branch id. Call before Restore and
-  // CreateBranch; does not read or write the ledger itself.
-  void AttachLedger(BranchLedger ledger, std::filesystem::path branches_root);
-
-  // Startup only, before any other call but AttachLedger. Installs `contents` without writing the ledger.
-  // `fork_ts[i]` is the runtime fork pin of contents.branches[i], already registered by the caller on the rebuilt
-  // history; the store owns it from here (released when the branch is gone). Same size as contents.branches.
-  void Restore(const LedgerContents &contents, std::span<const uint64_t> fork_ts);
+  // Startup only, before any other call. Installs the branches without writing the ledger. The store owns each
+  // `runtime_pin` from here (released when the branch is gone).
+  void Restore(uint64_t next_branch_id, std::span<const RestoredBranch> branches);
 
   // Startup only, after Restore. Sets the branch `id` aside: it stays registered (pin, retention, ledger entry) but
   // cannot be checked out, with `reason` shown to its user; DROP BRANCH removes it. Unknown `id`: no-op.
@@ -134,7 +184,7 @@ class VersionStore {
   std::expected<BranchInfo, std::string> CreateBranch(std::string name);
 
   // Drops `name`: kInUse while a session holds it unless `force`. Forced, sessions keep working on the dropped branch
-  // until they let go. The pin and directory go with the last holder. A ledger write failure drops nothing; a crash
+  // until they let go. The pin and directory go with the last checkout. A ledger write failure drops nothing; a crash
   // before directory removal leaves it behind, its id never reused.
   std::expected<DropResult, std::string> DropBranch(std::string_view name, bool force = false);
 
@@ -148,28 +198,40 @@ class VersionStore {
   // True iff no branches exist (`main` is not counted). Gates storage-global destructive ops.
   bool Empty() const;
 
-  // Attaches a session to `name`; any number may. The session leaves by dropping the returned pointer. Refuses unknown
-  // and unavailable branches.
-  std::expected<std::shared_ptr<Branch>, std::string> Checkout(std::string_view name);
+  // Attaches a session to `name`; any number may. The session leaves by destroying the handle, which must happen before
+  // the store is destroyed. Refuses unknown and unavailable branches.
+  std::expected<BranchCheckout, std::string> Checkout(std::string_view name);
 
  private:
-  // Guarded by mutex_. Returns the error, or nothing once durable. No-op without a ledger.
-  std::expected<void, std::string> WriteLedger(const LedgerContents &contents);
-  LedgerContents SnapshotLocked() const;
+  friend class BranchCheckout;
+
+  using BranchMap = std::map<std::string, Branch, std::less<>>;
+  using BranchNode = BranchMap::node_type;
+
+  // Internal helpers: call with mutex_ held.
+  // Writes the registry as the maps now hold it. Any failure, including a throw, is returned as an error so the caller
+  // can revert its map change.
+  std::expected<void, std::string> PersistLedger_();
+  LedgerContents CreateSnapshot_() const;
   void PublishRetentionFloorLocked() const;
-  static Listing DescribeLocked(const std::string &name, const std::shared_ptr<Branch> &branch);
+  static Listing DescribeLocked(const std::string &name, const Branch &branch);
+  // BranchCheckout's release. A dropped branch is destroyed here once its last checkout is gone.
+  void Release(Branch *branch);
 
   std::function<ForkPoint()> acquire_pin_;
   std::function<void(uint64_t)> release_pin_;
   std::function<void(uint64_t)> set_retention_floor_;
-
-  // The only lock; held across the ledger write and the callbacks, never across Branch destruction.
-  mutable std::mutex mutex_;
-  std::map<std::string, std::shared_ptr<Branch>, std::less<>> branches_;
-  uint64_t next_branch_id_{2};
-  std::optional<BranchLedger> ledger_;
-  // One directory per branch id. Empty without a ledger.
+  BranchLedger ledger_;
+  // One directory per branch id.
   std::filesystem::path branches_root_;
+
+  // The only lock; held across the ledger write and the callbacks, never across Branch destruction. Shared for
+  // checkout/release/reads, exclusive for anything that changes the registry.
+  mutable std::shared_mutex mutex_;
+  BranchMap branches_;
+  // Force-dropped branches that still have checkouts. Extracted nodes keep their address, so checkouts stay valid.
+  std::vector<BranchNode> dropped_;
+  uint64_t next_branch_id_{2};
 };
 
 }  // namespace memgraph::versioning

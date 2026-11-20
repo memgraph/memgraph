@@ -21,6 +21,7 @@
 #include <functional>
 #include <latch>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <system_error>
 #include <thread>
@@ -67,19 +68,21 @@ class VersionStoreTest : public ::testing::Test {
   }
 
   uint64_t Acquire() {
+    const std::scoped_lock lock{live_mutex_};
     const auto ts = next_ts_++;
     live_.push_back(ts);
     return ts;
   }
 
   void Release(uint64_t ts) {
+    const std::scoped_lock lock{live_mutex_};
     const auto it = std::ranges::find(live_, ts);
     ASSERT_NE(it, live_.end()) << "released a pin that is not live";
     live_.erase(it);
   }
 
-  std::unique_ptr<VersionStore> MakeStore(bool with_ledger = true) {
-    auto store = std::make_unique<VersionStore>(
+  std::unique_ptr<VersionStore> MakeStore() {
+    return std::make_unique<VersionStore>(
         [this] {
           const auto ts = Acquire();
           return ForkPoint{.durable_fork_ts = ts,
@@ -89,15 +92,15 @@ class VersionStoreTest : public ::testing::Test {
                            .counts = {.vertices = 4, .edges = 5}};
         },
         [this](uint64_t ts) { Release(ts); },
-        [this](uint64_t floor) { floors_.push_back(floor); });
-    if (with_ledger) store->AttachLedger(Ledger(), root_);
-    return store;
+        [this](uint64_t floor) { floors_.push_back(floor); },
+        Ledger(),
+        root_);
   }
 
   memgraph::versioning::BranchLedger Ledger() const { return memgraph::versioning::BranchLedger{*kv_, uuid_}; }
 
   // The ledger refuses every write while next_branch_id is below 2, standing in for a failing KVStore.
-  static void BreakLedger(VersionStore &store) { store.Restore({.next_branch_id = 1}, {}); }
+  static void BreakLedger(VersionStore &store) { store.Restore(1, {}); }
 
   std::filesystem::path BranchDir(uint64_t id) const { return root_ / std::to_string(id); }
 
@@ -108,6 +111,7 @@ class VersionStoreTest : public ::testing::Test {
   std::unique_ptr<memgraph::kvstore::KVStore> kv_;
   memgraph::utils::UUID uuid_;
   uint64_t next_ts_{100};
+  std::mutex live_mutex_;
   std::vector<uint64_t> live_;
   std::vector<uint64_t> floors_;
 };
@@ -178,10 +182,23 @@ TEST_F(VersionStoreTest, LedgerWriteFailureLeavesNoPinOrBranchAndDropsNothing) {
   EXPECT_TRUE(std::filesystem::exists(BranchDir(2)));
   EXPECT_TRUE(store->Checkout("a")) << "a failed drop leaves the branch usable";
 
-  store->Restore({.next_branch_id = 3}, {});
+  store->Restore(3, {});
   auto b = store->CreateBranch("b");
   ASSERT_TRUE(b);
   EXPECT_EQ(b->id, 3) << "a failed create consumes no id";
+}
+
+TEST_F(VersionStoreTest, FailedCreateRestoresTheIdCounter) {
+  auto store = MakeStore();
+  ASSERT_TRUE(store->CreateBranch("a"));
+  ASSERT_TRUE(store->CreateBranch("b"));
+  store->Restore(3, {});  // the counter now collides with b's id, so the ledger refuses the next write
+
+  EXPECT_FALSE(store->CreateBranch("c"));
+  ASSERT_EQ(store->DropBranch("b"), DropResult::kDropped);
+  auto c = store->CreateBranch("c");
+  ASSERT_TRUE(c);
+  EXPECT_EQ(c->id, 3) << "the failed create gave its id back";
 }
 
 TEST_F(VersionStoreTest, DropUnknownIsNotFound) {
@@ -214,9 +231,36 @@ TEST_F(VersionStoreTest, DropIsRefusedWhileCheckedOutUnlessForced) {
   EXPECT_FALSE((*session)->dropped());
   EXPECT_EQ(live_.size(), 1);
 
+  EXPECT_EQ(store->Get("a")->sessions, 1);
   EXPECT_EQ(store->DropBranch("a", /*force=*/true), DropResult::kDropped);
   EXPECT_FALSE(store->Exists("a"));
   EXPECT_TRUE((*session)->dropped());
+}
+
+TEST_F(VersionStoreTest, DropIsAllowedOnceTheCheckoutIsGone) {
+  auto store = MakeStore();
+  ASSERT_TRUE(store->CreateBranch("a"));
+  {
+    auto session = store->Checkout("a");
+    ASSERT_TRUE(session);
+    EXPECT_EQ(store->DropBranch("a"), DropResult::kInUse);
+  }
+  EXPECT_EQ(store->Get("a")->sessions, 0);
+  EXPECT_EQ(store->DropBranch("a"), DropResult::kDropped);
+  EXPECT_TRUE(live_.empty());
+}
+
+TEST_F(VersionStoreTest, MovedFromCheckoutReleasesNothing) {
+  auto store = MakeStore();
+  ASSERT_TRUE(store->CreateBranch("a"));
+  auto s1 = *store->Checkout("a");
+  auto s2 = std::move(s1);
+  EXPECT_FALSE(s1);
+  EXPECT_TRUE(s2);
+  s1.reset();
+  EXPECT_EQ(store->Get("a")->sessions, 1);
+  s2 = memgraph::versioning::BranchCheckout{};
+  EXPECT_EQ(store->Get("a")->sessions, 0);
 }
 
 TEST_F(VersionStoreTest, ForcedDropKeepsSessionsUsableAndReleasesWithTheLastOne) {
@@ -307,7 +351,7 @@ TEST_F(VersionStoreTest, ListCountsCheckoutsAndGaugeReturnsToStart) {
 }
 
 TEST_F(VersionStoreTest, ConcurrentFirstCallersBuildTheCoreOnce) {
-  auto store = MakeStore(false);
+  auto store = MakeStore();
   ASSERT_TRUE(store->CreateBranch("a"));
   auto session = *store->Checkout("a");
   constexpr size_t kThreads = 8;
@@ -333,7 +377,7 @@ TEST_F(VersionStoreTest, ConcurrentFirstCallersBuildTheCoreOnce) {
 }
 
 TEST_F(VersionStoreTest, FailedBuildIsNotCached) {
-  auto store = MakeStore(false);
+  auto store = MakeStore();
   ASSERT_TRUE(store->CreateBranch("a"));
   auto session = *store->Checkout("a");
   int builds = 0;
@@ -357,7 +401,7 @@ TEST_F(VersionStoreTest, FailedBuildIsNotCached) {
 }
 
 TEST_F(VersionStoreTest, SeparateBranchesBuildIndependently) {
-  auto store = MakeStore(false);
+  auto store = MakeStore();
   ASSERT_TRUE(store->CreateBranch("a"));
   ASSERT_TRUE(store->CreateBranch("b"));
   auto a = *store->Checkout("a");
@@ -378,11 +422,10 @@ TEST_F(VersionStoreTest, RestoreInstallsBranchesTakesPinsAndPublishesFloor) {
   auto store = MakeStore();
   const auto ts_a = Acquire();
   const auto ts_b = Acquire();
-  const std::vector<uint64_t> pins{ts_a, ts_b};
-  store->Restore({.next_branch_id = 9,
-                  .branches = {{.name = "a", .info = {.id = 4, .fork = {.durable_fork_ts = 50}}},
-                               {.name = "b", .info = {.id = 7, .fork = {.durable_fork_ts = 30}}}}},
-                 pins);
+  const std::vector<VersionStore::RestoredBranch> restored{
+      {.branch = {.name = "a", .info = {.id = 4, .fork = {.durable_fork_ts = 50}}}, .runtime_pin = ts_a},
+      {.branch = {.name = "b", .info = {.id = 7, .fork = {.durable_fork_ts = 30}}}, .runtime_pin = ts_b}};
+  store->Restore(9, restored);
   EXPECT_FALSE(store->Empty());
   EXPECT_EQ(store->Get("a")->info.id, 4);
   EXPECT_EQ(store->Get("b")->info.id, 7);
@@ -402,7 +445,7 @@ TEST_F(VersionStoreTest, RestoreInstallsBranchesTakesPinsAndPublishesFloor) {
 
 TEST_F(VersionStoreTest, RestoreOfNothingPublishesNoFloorAndStaysEmpty) {
   auto store = MakeStore();
-  store->Restore({.next_branch_id = 5}, {});
+  store->Restore(5, {});
   EXPECT_TRUE(store->Empty());
   ASSERT_FALSE(floors_.empty());
   EXPECT_EQ(floors_.back(), kNoRetentionFloor);
@@ -419,7 +462,7 @@ TEST_F(VersionStoreTest, RetentionFloorIsRepublishedAfterFailedCreateAndAfterDro
   ASSERT_EQ(floors_.size(), 1);
   EXPECT_EQ(floors_.back(), 99) << "the failed branch's pin does not lower the floor";
 
-  store->Restore({.next_branch_id = 4}, {});
+  store->Restore(4, {});
   floors_.clear();
   ASSERT_EQ(store->DropBranch("a"), DropResult::kDropped);
   EXPECT_EQ(floors_.back(), 100) << "only b remains";
@@ -441,7 +484,9 @@ TEST_F(VersionStoreTest, RestartRestoresWhatTheLedgerHolds) {
   const auto fresh_pin = Acquire();
   ASSERT_NE(fresh_pin, b->fork.durable_fork_ts);
   store = MakeStore();
-  store->Restore(**read, std::vector<uint64_t>{fresh_pin});
+  std::vector<VersionStore::RestoredBranch> restored;
+  restored.push_back({.branch = (*read)->branches[0], .runtime_pin = fresh_pin});
+  store->Restore((*read)->next_branch_id, restored);
 
   const auto listed = store->List();
   ASSERT_EQ(listed.size(), 1);
@@ -454,4 +499,27 @@ TEST_F(VersionStoreTest, RestartRestoresWhatTheLedgerHolds) {
   auto next = store->CreateBranch("c");
   ASSERT_TRUE(next);
   EXPECT_EQ(next->id, 4);
+}
+
+TEST_F(VersionStoreTest, ConcurrentCheckoutsAndForcedDropsReleaseEachPinOnce) {
+  auto store = MakeStore();
+  constexpr int kRounds = 200;
+  std::atomic<bool> stop{false};
+  std::vector<std::thread> sessions;
+  for (int i = 0; i < 4; ++i) {
+    sessions.emplace_back([&] {
+      while (!stop.load()) {
+        if (auto s = store->Checkout("a")) std::this_thread::yield();
+      }
+    });
+  }
+  for (int i = 0; i < kRounds; ++i) {
+    ASSERT_TRUE(store->CreateBranch("a"));
+    std::this_thread::yield();
+    ASSERT_EQ(store->DropBranch("a", /*force=*/true), DropResult::kDropped);
+  }
+  stop = true;
+  for (auto &t : sessions) t.join();
+  EXPECT_TRUE(live_.empty());
+  EXPECT_TRUE(store->Empty());
 }
