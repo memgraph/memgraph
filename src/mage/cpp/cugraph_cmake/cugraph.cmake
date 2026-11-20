@@ -50,8 +50,18 @@ if (MG_ENABLE_CUGRAPH)
   # properly set both CMAKE_CUDA_ARCHITECTURES and CUDA_ARCHITECTURES target
   # property.
   set(rapids-cmake-branch "${MG_CUGRAPH_TAG}")
-  file(DOWNLOAD "https://raw.githubusercontent.com/rapidsai/rapids-cmake/${MG_CUGRAPH_TAG}a/RAPIDS.cmake"
-                ${CMAKE_CURRENT_BINARY_DIR}/RAPIDS.cmake)
+  set(rapids-cmake-tag "${MG_CUGRAPH_TAG}")
+  # A failed file(DOWNLOAD) is silent and leaves an empty file, which then
+  # surfaces as "include could not find rapids-cuda"; check it explicitly.
+  if(NOT EXISTS "${CMAKE_CURRENT_BINARY_DIR}/RAPIDS.cmake")
+    file(DOWNLOAD "https://raw.githubusercontent.com/rapidsai/rapids-cmake/${MG_CUGRAPH_TAG}a/RAPIDS.cmake"
+                  "${CMAKE_CURRENT_BINARY_DIR}/RAPIDS.cmake" STATUS _rapids_dl)
+    list(GET _rapids_dl 0 _rapids_dl_code)
+    if(NOT _rapids_dl_code EQUAL 0)
+      file(REMOVE "${CMAKE_CURRENT_BINARY_DIR}/RAPIDS.cmake")
+      message(FATAL_ERROR "Downloading RAPIDS.cmake for ${MG_CUGRAPH_TAG} failed: ${_rapids_dl}")
+    endif()
+  endif()
   include(${CMAKE_CURRENT_BINARY_DIR}/RAPIDS.cmake)
 
   # Must be set BEFORE enable_language: the ABI-detection try_compile
