@@ -21,6 +21,7 @@
 
 #include "flags/general.hpp"
 #include "query/plan/operator.hpp"
+#include "query/plan/read_write_type_checker.hpp"
 
 namespace memgraph::query::plan {
 
@@ -485,8 +486,13 @@ class PropertyLookupCacher final : public ExpressionVisitor<void> {
 template <class TDbAccessor>
 class CachePropertiesRewriter final : public HierarchicalLogicalOperatorVisitor {
  public:
-  CachePropertiesRewriter(SymbolTable *symbol_table, AstStorage *ast_storage, TDbAccessor *db, PassPlanning *planning)
-      : symbol_table_(symbol_table), ast_storage_(ast_storage), db_(db), planning_(planning) {}
+  CachePropertiesRewriter(SymbolTable *symbol_table, AstStorage *ast_storage, TDbAccessor *db, PassPlanning *planning,
+                          bool plan_writes)
+      : symbol_table_(symbol_table),
+        ast_storage_(ast_storage),
+        db_(db),
+        planning_(planning),
+        plan_writes_(plan_writes) {}
 
   ~CachePropertiesRewriter() override = default;
 
@@ -540,13 +546,14 @@ class CachePropertiesRewriter final : public HierarchicalLogicalOperatorVisitor 
   /// which a projection and an aggregation hold differently. Each is passed by reference, since
   /// both replacing a lookup and copying an expression write back to the operator.
   template <class TForEachExpression>
-  void CacheBelow(LogicalOperator &op, PropertyLookupCacher::ValueUse value_use, storage::View view,
+  void CacheBelow(LogicalOperator &op, PropertyLookupCacher::ValueUse value_use, storage::View evaluated_at,
                   TForEachExpression for_each_expression) {
     auto input = op.input();
     if (!input) return;
 
+    auto const view = ViewFor(evaluated_at);
     auto cacher = PropertyLookupCacher{symbol_table_, ast_storage_};
-    cacher.ReuseSlots(FilledSlotsBelow(*input));
+    cacher.ReuseSlots(FilledSlotsBelow(*input, view));
     for_each_expression([&cacher](auto &expression) { cacher.Gather(expression); });
 
     // Before a slot is taken or the input is walked, because most operators read nothing worth a
@@ -586,19 +593,36 @@ class CachePropertiesRewriter final : public HierarchicalLogicalOperatorVisitor 
     auto pass = std::make_shared<CacheProperties>(input, std::move(groups), view);
     // Both what this pass reads and what it reused, since a row reaching an operator above holds
     // all of it.
-    slots_filled_by_.emplace(pass.get(), cacher.Slots());
+    slots_filled_by_.emplace(pass.get(), FilledPass{.slots = cacher.Slots(), .view = view});
     op.set_input(std::move(pass));
   }
 
-  /// The slots a pass below `input` filled that every row reaching this operator still holds.
+  /// The view a pass reads at for an operator that evaluates at `evaluated_at`.
+  ///
+  /// The two views answer differently only for a record this command has written, so where the plan
+  /// writes nothing every pass may read at one view, and a slot one operator filled is then a value
+  /// any other would have read.
+  [[nodiscard]] auto ViewFor(storage::View evaluated_at) const -> storage::View {
+    return plan_writes_ ? evaluated_at : storage::View::NEW;
+  }
+
+  /// The slots a pass below `input` filled that a read at `view` may take as its own.
   ///
   /// Only an operator that neither writes a record nor rebuilds a row may stand between the two. A
   /// write would leave the slot holding what the property was before it, and an operator that
   /// restores rows restores only the symbols it was told to.
-  [[nodiscard]] auto FilledSlotsBelow(LogicalOperator const &input) const -> PropertyLookupCacher::AssignedSlots {
+  ///
+  /// A pass that read at another view is no use here however little stands between: a filter tests
+  /// a row against the record as the row was produced, where a projection returns what the row's
+  /// own writes left, so one operator's slot is not the other's value.
+  [[nodiscard]] auto FilledSlotsBelow(LogicalOperator const &input, storage::View view) const
+      -> PropertyLookupCacher::AssignedSlots {
     for (auto const *below = &input; below != nullptr;) {
       auto const filled = slots_filled_by_.find(below);
-      if (filled != slots_filled_by_.end()) return filled->second;
+      if (filled != slots_filled_by_.end()) {
+        if (filled->second.view != view) return {};
+        return filled->second.slots;
+      }
       if (below->GetTypeInfo() != Filter::kType) break;
       below = below->HasSingleInput() ? below->input().get() : nullptr;
     }
@@ -631,13 +655,21 @@ class CachePropertiesRewriter final : public HierarchicalLogicalOperatorVisitor 
     return groups;
   }
 
+  /// What a pass this rewrite hung leaves in the frame, and the view it read to fill it.
+  struct FilledPass {
+    PropertyLookupCacher::AssignedSlots slots;
+    storage::View view;
+  };
+
   SymbolTable *symbol_table_;
   AstStorage *ast_storage_;
   TDbAccessor *db_;
   PassPlanning *planning_;
+  /// Whether anything in this plan writes, which is what makes the two views disagree.
+  bool plan_writes_;
   /// What each pass this rewrite hung leaves in the frame, so an operator above can read a slot
   /// rather than the record again.
-  std::map<LogicalOperator const *, PropertyLookupCacher::AssignedSlots> slots_filled_by_;
+  std::map<LogicalOperator const *, FilledPass> slots_filled_by_;
 };
 
 }  // namespace impl
@@ -647,7 +679,13 @@ std::unique_ptr<LogicalOperator> RewriteCacheProperties(std::unique_ptr<LogicalO
                                                         SymbolTable *symbol_table, AstStorage *ast_storage,
                                                         TDbAccessor *db, PassPlanning *planning) {
   if (!FLAGS_query_cache_properties) return root_op;
-  auto rewriter = impl::CachePropertiesRewriter<TDbAccessor>{symbol_table, ast_storage, db, planning};
+  // Whether the plan writes decides whether the two views can disagree, and it is asked of the
+  // whole plan because a write anywhere in it can reach a record read anywhere else.
+  auto types = ReadWriteTypeChecker{};
+  types.InferRWType(*root_op);
+  auto const plan_writes =
+      types.type == ReadWriteTypeChecker::RWType::W || types.type == ReadWriteTypeChecker::RWType::RW;
+  auto rewriter = impl::CachePropertiesRewriter<TDbAccessor>{symbol_table, ast_storage, db, planning, plan_writes};
   root_op->Accept(rewriter);
   return root_op;
 }
