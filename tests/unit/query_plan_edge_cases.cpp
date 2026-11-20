@@ -15,116 +15,25 @@
 
 #include <array>
 #include <cstdint>
-#include <filesystem>
 #include <memory>
-#include <optional>
+#include <string>
+#include <string_view>
+#include <vector>
 
-#include "disk_test_utils.hpp"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 
-#include "cache_properties_flag_guard.hpp"
-#include "communication/result_stream_faker.hpp"
-#include "query/auth_checker.hpp"
-#include "query/interpreter.hpp"
-#include "query/interpreter_context.hpp"
-#include "query/stream/streams.hpp"
-#include "storage/v2/disk/storage.hpp"
-#include "storage/v2/inmemory/storage.hpp"
-#include "storage/v2/storage.hpp"
+#include "query_execution_fixture.hpp"
 
 DECLARE_bool(query_cost_planner);
 DECLARE_bool(query_cache_properties);
 
 template <typename StorageType>
-class QueryExecution : public testing::Test {
+class QueryExecution : public QueryExecutionFixture<StorageType> {
  protected:
-  const std::string testSuite = "query_plan_edge_cases";
-  std::optional<memgraph::dbms::DatabaseAccess> db_acc_;
-  std::optional<memgraph::query::InterpreterContext> interpreter_context_;
-  std::optional<memgraph::query::AllowEverythingAuthChecker> auth_checker_;
-  std::optional<memgraph::query::Interpreter> interpreter_;
-
-  std::filesystem::path data_directory{std::filesystem::temp_directory_path() / "MG_tests_unit_query_plan_edge_cases"};
-
-  std::optional<memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock>>
-      repl_state;
-  std::optional<memgraph::utils::Gatekeeper<memgraph::dbms::Database>> db_gk;
-  std::optional<memgraph::system::System> system_state;
-
-  void SetUp() override {
-    auto config = [&]() {
-      memgraph::storage::Config config{};
-      config.durability.storage_directory = data_directory;
-      config.disk.main_storage_directory = config.durability.storage_directory / "disk";
-      if constexpr (std::is_same_v<StorageType, memgraph::storage::DiskStorage>) {
-        config.disk = disk_test_utils::GenerateOnDiskConfig(testSuite).disk;
-        config.force_on_disk = true;
-      }
-      return config;
-    }();  // iile
-
-    repl_state.emplace(memgraph::storage::ReplicationStateRootPath(config));
-    db_gk.emplace(config);
-    auto db_acc_opt = db_gk->access();
-    MG_ASSERT(db_acc_opt, "Failed to access db");
-    auto &db_acc = *db_acc_opt;
-    MG_ASSERT(db_acc->GetStorageMode() == (std::is_same_v<StorageType, memgraph::storage::DiskStorage>
-                                               ? memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL
-                                               : memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL),
-              "Wrong storage mode!");
-    db_acc_ = std::move(db_acc);
-    system_state.emplace();
-    interpreter_context_.emplace(memgraph::query::InterpreterConfig{},
-                                 nullptr,
-                                 nullptr,
-                                 nullptr,
-                                 &repl_state.value(),
-                                 *system_state,
-                                 nullptr
-#ifdef MG_ENTERPRISE
-                                 ,
-                                 nullptr,
-                                 nullptr
-#endif
-    );
-    auth_checker_.emplace();
-    interpreter_.emplace(&*interpreter_context_, *db_acc_);
-    interpreter_->SetUser(auth_checker_->GenQueryUser(std::nullopt, {}));
-  }
-
-  void TearDown() override {
-    interpreter_ = std::nullopt;
-    auth_checker_.reset();
-    interpreter_context_ = std::nullopt;
-    system_state.reset();
-    db_acc_.reset();
-    db_gk.reset();
-    repl_state.reset();
-    if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
-      disk_test_utils::RemoveRocksDbDirs(testSuite);
-    }
-    std::filesystem::remove_all(data_directory);
-  }
-
-  /**
-   * Execute the given query and commit the transaction.
-   *
-   * Return the query results.
-   */
-  auto Execute(const std::string &query) {
-    ResultStreamFaker stream(this->db_acc_->get()->storage());
-
-    auto [header, _1, qid, _2] = interpreter_->Prepare(query, memgraph::query::no_params_fn, {});
-    stream.Header(header);
-    auto summary = interpreter_->PullAll(&stream);
-    stream.Summary(summary);
-
-    return stream.GetResults();
-  }
+  std::string SuiteName() const override { return "query_plan_edge_cases"; }
 };
 
-using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
 TYPED_TEST_SUITE(QueryExecution, StorageTypes);
 
 TYPED_TEST(QueryExecution, MissingOptionalIntoExpand) {
@@ -334,56 +243,96 @@ TYPED_TEST(QueryExecution, ADeepVariableExpansionWalksBothWaysToEveryLength) {
 
 /// The queries the property cache is allowed to change the plan of, plus the ones it must leave alone. Each fixture
 /// gets a fresh plan cache, so the flag has to be compared across two tests rather than toggled inside one.
-#define CHECK_CACHE_PROPERTIES_RESULTS()                                                                     \
-  do {                                                                                                       \
-    using BoltValue = memgraph::communication::bolt::Value;                                                  \
-    this->Execute("CREATE (:P {id: 1, a: 1, b: 'x'}), (:P {id: 2, a: 2})");                                  \
-    {                                                                                                        \
-      /* Two properties on one symbol, the second missing on one of the nodes. */                            \
-      auto results = this->Execute("MATCH (n:P) RETURN n.a AS a, n.b AS b ORDER BY a");                      \
-      ASSERT_EQ(results.size(), 2);                                                                          \
-      EXPECT_EQ(results[0][0].ValueInt(), 1);                                                                \
-      EXPECT_EQ(results[0][1].ValueString(), "x");                                                           \
-      EXPECT_EQ(results[1][0].ValueInt(), 2);                                                                \
-      EXPECT_EQ(results[1][1].type(), BoltValue::Type::Null);                                                \
-    }                                                                                                        \
-    {                                                                                                        \
-      /* A single lookup must not be cached, but must still answer the same. */                              \
-      auto results = this->Execute("MATCH (n:P) RETURN n.a AS a ORDER BY a");                                \
-      ASSERT_EQ(results.size(), 2);                                                                          \
-      EXPECT_EQ(results[0][0].ValueInt(), 1);                                                                \
-      EXPECT_EQ(results[1][0].ValueInt(), 2);                                                                \
-    }                                                                                                        \
-    {                                                                                                        \
-      /* Both lookups of one property answer it, and a property absent from a record still reads Null. */    \
-      auto results = this->Execute("MATCH (n:P) RETURN n.a AS x, n.a AS y, n.b AS z ORDER BY x");            \
-      ASSERT_EQ(results.size(), 2);                                                                          \
-      EXPECT_EQ(results[0][0].ValueInt(), 1);                                                                \
-      EXPECT_EQ(results[0][1].ValueInt(), 1);                                                                \
-      EXPECT_EQ(results[0][2].ValueString(), "x");                                                           \
-      EXPECT_EQ(results[1][0].ValueInt(), 2);                                                                \
-      EXPECT_EQ(results[1][1].ValueInt(), 2);                                                                \
-      EXPECT_EQ(results[1][2].type(), BoltValue::Type::Null);                                                \
-    }                                                                                                        \
-    {                                                                                                        \
-      /* One lookup each is not worth a pass of its own, whether or not they share a symbol. */              \
-      auto results = this->Execute("MATCH (n:P), (m:P) RETURN n.id AS x, m.a AS y ORDER BY x, y");           \
-      ASSERT_EQ(results.size(), 4);                                                                          \
-      EXPECT_EQ(results[0][0].ValueInt(), 1);                                                                \
-      EXPECT_EQ(results[0][1].ValueInt(), 1);                                                                \
-      EXPECT_EQ(results[3][0].ValueInt(), 2);                                                                \
-      EXPECT_EQ(results[3][1].ValueInt(), 2);                                                                \
-    }                                                                                                        \
-    {                                                                                                        \
-      /* The cached symbol is Null for every row here. */                                                    \
-      auto results =                                                                                         \
-          this->Execute("MATCH (n:P) OPTIONAL MATCH (n)-[:R]->(o) RETURN o.a AS a, o.b AS b ORDER BY n.id"); \
-      ASSERT_EQ(results.size(), 2);                                                                          \
-      for (const auto &row : results) {                                                                      \
-        EXPECT_EQ(row[0].type(), BoltValue::Type::Null);                                                     \
-        EXPECT_EQ(row[1].type(), BoltValue::Type::Null);                                                     \
-      }                                                                                                      \
-    }                                                                                                        \
+#define CHECK_CACHE_PROPERTIES_RESULTS()                                                                          \
+  do {                                                                                                            \
+    using BoltValue = memgraph::communication::bolt::Value;                                                       \
+    this->Execute("CREATE (:P {id: 1, a: 1, b: 'x'}), (:P {id: 2, a: 2})");                                       \
+    {                                                                                                             \
+      /* Two properties on one symbol, the second missing on one of the nodes. */                                 \
+      auto results = this->Execute("MATCH (n:P) RETURN n.a AS a, n.b AS b ORDER BY a");                           \
+      ASSERT_EQ(results.size(), 2);                                                                               \
+      EXPECT_EQ(results[0][0].ValueInt(), 1);                                                                     \
+      EXPECT_EQ(results[0][1].ValueString(), "x");                                                                \
+      EXPECT_EQ(results[1][0].ValueInt(), 2);                                                                     \
+      EXPECT_EQ(results[1][1].type(), BoltValue::Type::Null);                                                     \
+    }                                                                                                             \
+    {                                                                                                             \
+      /* A single lookup must not be cached, but must still answer the same. */                                   \
+      auto results = this->Execute("MATCH (n:P) RETURN n.a AS a ORDER BY a");                                     \
+      ASSERT_EQ(results.size(), 2);                                                                               \
+      EXPECT_EQ(results[0][0].ValueInt(), 1);                                                                     \
+      EXPECT_EQ(results[1][0].ValueInt(), 2);                                                                     \
+    }                                                                                                             \
+    {                                                                                                             \
+      /* A repeated property keeps the rows the two comparisons kept. */                                          \
+      auto results = this->Execute("MATCH (n:P) WHERE n.a > 0 AND n.a < 2 RETURN n.id AS id");                    \
+      ASSERT_EQ(results.size(), 1);                                                                               \
+      EXPECT_EQ(results[0][0].ValueInt(), 1);                                                                     \
+    }                                                                                                             \
+    {                                                                                                             \
+      /* A property absent from a record compares as Null there, so that row is still left out. */                \
+      auto results = this->Execute("MATCH (n:P) WHERE n.b >= 'x' AND n.b <= 'x' RETURN n.id AS id");              \
+      ASSERT_EQ(results.size(), 1);                                                                               \
+      EXPECT_EQ(results[0][0].ValueInt(), 1);                                                                     \
+    }                                                                                                             \
+    {                                                                                                             \
+      /* Both lookups of one property answer it, and a property absent from a record still reads Null. */         \
+      auto results = this->Execute("MATCH (n:P) RETURN n.a AS x, n.a AS y, n.b AS z ORDER BY x");                 \
+      ASSERT_EQ(results.size(), 2);                                                                               \
+      EXPECT_EQ(results[0][0].ValueInt(), 1);                                                                     \
+      EXPECT_EQ(results[0][1].ValueInt(), 1);                                                                     \
+      EXPECT_EQ(results[0][2].ValueString(), "x");                                                                \
+      EXPECT_EQ(results[1][0].ValueInt(), 2);                                                                     \
+      EXPECT_EQ(results[1][1].ValueInt(), 2);                                                                     \
+      EXPECT_EQ(results[1][2].type(), BoltValue::Type::Null);                                                     \
+    }                                                                                                             \
+    {                                                                                                             \
+      /* One lookup each is not worth a pass of its own, whether or not they share a symbol. */                   \
+      auto results = this->Execute("MATCH (n:P), (m:P) RETURN n.id AS x, m.a AS y ORDER BY x, y");                \
+      ASSERT_EQ(results.size(), 4);                                                                               \
+      EXPECT_EQ(results[0][0].ValueInt(), 1);                                                                     \
+      EXPECT_EQ(results[0][1].ValueInt(), 1);                                                                     \
+      EXPECT_EQ(results[3][0].ValueInt(), 2);                                                                     \
+      EXPECT_EQ(results[3][1].ValueInt(), 2);                                                                     \
+    }                                                                                                             \
+    {                                                                                                             \
+      /* The cached symbol is Null for every row here. */                                                         \
+      auto results =                                                                                              \
+          this->Execute("MATCH (n:P) OPTIONAL MATCH (n)-[:R]->(o) RETURN o.a AS a, o.b AS b ORDER BY n.id");      \
+      ASSERT_EQ(results.size(), 2);                                                                               \
+      for (const auto &row : results) {                                                                           \
+        EXPECT_EQ(row[0].type(), BoltValue::Type::Null);                                                          \
+        EXPECT_EQ(row[1].type(), BoltValue::Type::Null);                                                          \
+      }                                                                                                           \
+    }                                                                                                             \
+    {                                                                                                             \
+      /* What a predicate read and the row returns is one value, however it reaches the row. */                   \
+      auto results = this->Execute("MATCH (n) WHERE n.a > 0 AND n.a < 2 RETURN n.a AS a, n.a AS b");              \
+      ASSERT_EQ(results.size(), 1);                                                                               \
+      EXPECT_EQ(results[0][0].ValueInt(), 1);                                                                     \
+      EXPECT_EQ(results[0][1].ValueInt(), 1);                                                                     \
+    }                                                                                                             \
+    {                                                                                                             \
+      /* A second predicate reads what the first one's pass left, and the row returns it after both. */           \
+      auto results = this->Execute("MATCH (n) WHERE n.a > 0 AND n.a < 2 WITH n WHERE n.a > 0 RETURN n.a AS a");   \
+      ASSERT_EQ(results.size(), 1);                                                                               \
+      EXPECT_EQ(results[0][0].ValueInt(), 1);                                                                     \
+    }                                                                                                             \
+    {                                                                                                             \
+      /* One property comes from a slot a predicate filled and the other from a pass of this */                   \
+      /* row's own, so each has to answer its own property. */                                                    \
+      auto results = this->Execute("MATCH (n) WHERE n.a > 0 AND n.a < 2 RETURN n.a AS x, n.b + n.b AS y");        \
+      ASSERT_EQ(results.size(), 1);                                                                               \
+      EXPECT_EQ(results[0][0].ValueInt(), 1);                                                                     \
+      EXPECT_EQ(results[0][1].ValueString(), "xx");                                                               \
+    }                                                                                                             \
+    {                                                                                                             \
+      /* A write stands between the predicate and the row, so the row answers what the write left. */             \
+      auto results = this->Execute("MATCH (n) WHERE n.a > 1 AND n.a < 3 SET n.a = 99 RETURN n.a AS a, n.a AS b"); \
+      ASSERT_EQ(results.size(), 1);                                                                               \
+      EXPECT_EQ(results[0][0].ValueInt(), 99);                                                                    \
+      EXPECT_EQ(results[0][1].ValueInt(), 99);                                                                    \
+    }                                                                                                             \
   } while (false)
 
 TYPED_TEST(QueryExecution, CachePropertiesResultsWithFlagOff) {
@@ -513,12 +462,95 @@ TYPED_TEST(QueryExecution, ADeletedRecordRefusesWithFlagOff) {
   CachePropertiesFlagGuard guard{false};
   CHECK_A_DELETED_RECORD_REFUSES("RETURN n.a AS a, n.b AS b");
   CHECK_A_DELETED_RECORD_REFUSES("RETURN sum(n.a) AS s, max(n.a) AS m");
+  CHECK_A_DELETED_RECORD_REFUSES("WITH n WHERE n.a > 0 AND n.a < 10 RETURN n.b AS b");
+  CHECK_A_DELETED_RECORD_REFUSES("WITH n WHERE n.a > 0 AND n.a < 10 RETURN n.a AS a");
 }
 
 TYPED_TEST(QueryExecution, ADeletedRecordRefusesWithFlagOn) {
   CachePropertiesFlagGuard guard{true};
   CHECK_A_DELETED_RECORD_REFUSES("RETURN n.a AS a, n.b AS b");
   CHECK_A_DELETED_RECORD_REFUSES("RETURN sum(n.a) AS s, max(n.a) AS m");
+  CHECK_A_DELETED_RECORD_REFUSES("WITH n WHERE n.a > 0 AND n.a < 10 RETURN n.b AS b");
+  CHECK_A_DELETED_RECORD_REFUSES("WITH n WHERE n.a > 0 AND n.a < 10 RETURN n.a AS a");
+}
+
+/// A predicate tests a record as it stood when the row was produced, which is before a write above
+/// the filter has run for any later row. Two paths into one record therefore both reach the write,
+/// whether the predicate read the record itself or a slot filled for it.
+#define CHECK_A_WRITE_ABOVE_A_FILTER_LEAVES_ITS_READS_ALONE()                                                   \
+  do {                                                                                                          \
+    this->Execute("MATCH (n) DETACH DELETE n");                                                                 \
+    this->Execute("CREATE (a1 {id: 1}), (a2 {id: 2}), (b {p: 3}) CREATE (a1)-[:E]->(b) CREATE (a2)-[:E]->(b)"); \
+    /* The filter on a starts the scan there, so the predicate on b stands above the expansion. */              \
+    auto rows = this->Execute(                                                                                  \
+        "MATCH (a)-[:E]->(b) WHERE a.id >= 1 AND b.p > 1 AND b.p < 10 SET b.p = 99 RETURN count(*) AS c");      \
+    ASSERT_EQ(rows.size(), 1);                                                                                  \
+    EXPECT_EQ(rows[0][0].ValueInt(), 2);                                                                        \
+  } while (false)
+
+TYPED_TEST(QueryExecution, AWriteAboveAFilterLeavesItsReadsAloneWithFlagOff) {
+  CachePropertiesFlagGuard guard{false};
+  CHECK_A_WRITE_ABOVE_A_FILTER_LEAVES_ITS_READS_ALONE();
+}
+
+TYPED_TEST(QueryExecution, AWriteAboveAFilterLeavesItsReadsAloneWithFlagOn) {
+  CachePropertiesFlagGuard guard{true};
+  CHECK_A_WRITE_ABOVE_A_FILTER_LEAVES_ITS_READS_ALONE();
+}
+
+/// A slot stands in for a lookup only where that lookup would have read the same value, and a
+/// filter tests a row at an earlier view than a projection returns one at. Those answer differently
+/// for a record the query has already written, so a projection takes the record rather than a slot
+/// a predicate below it filled.
+#define CHECK_A_PROJECTION_DOES_NOT_TAKE_A_FILTERS_SLOT_ACROSS_A_WRITE()                                        \
+  do {                                                                                                          \
+    this->Execute("MATCH (n) DETACH DELETE n");                                                                 \
+    this->Execute("CREATE (a1 {id: 1}), (a2 {id: 2}), (b {p: 3}) CREATE (a1)-[:E]->(b) CREATE (a2)-[:E]->(b)"); \
+    /* The second path into b reaches it after the first path's write, which the projection returns  */         \
+    /* and the predicate below it never sees.                                                        */         \
+    auto rows = this->Execute(                                                                                  \
+        "MATCH (a)-[:E]->(b) WHERE a.id >= 1 AND b.p > 1 AND b.p < 10 "                                         \
+        "WITH b, b.p AS v SET b.p = 99 RETURN v ORDER BY v");                                                   \
+    ASSERT_EQ(rows.size(), 2);                                                                                  \
+    EXPECT_EQ(rows[0][0].ValueInt(), 3);                                                                        \
+    EXPECT_EQ(rows[1][0].ValueInt(), 99);                                                                       \
+  } while (false)
+
+/// Each stage of a read-modify-write chain reads what the stage before it wrote, so the value
+/// doubles per stage. The numbers here are known rather than agreed between the two plans, which is
+/// what comparing the plans against each other cannot say on its own.
+#define CHECK_A_CHAIN_OF_READ_MODIFY_WRITES_DOUBLES()                                                            \
+  do {                                                                                                           \
+    this->Execute("MATCH (n) DETACH DELETE n");                                                                  \
+    this->Execute("CREATE ({p: 1})");                                                                            \
+    auto doubled = this->Execute("MATCH (n) SET n.p = n.p + n.p WITH n SET n.p = n.p + n.p RETURN n.p AS p");    \
+    ASSERT_EQ(doubled.size(), 1);                                                                                \
+    EXPECT_EQ(doubled[0][0].ValueInt(), 4);                                                                      \
+    /* Starts from four, and the predicate ahead of the writes is what hangs a pass in the chain. */             \
+    auto again = this->Execute(                                                                                  \
+        "MATCH (n) WHERE n.p > 0 AND n.p < 100 SET n.p = n.p + n.p WITH n SET n.p = n.p + n.p RETURN n.p AS q"); \
+    ASSERT_EQ(again.size(), 1);                                                                                  \
+    EXPECT_EQ(again[0][0].ValueInt(), 16);                                                                       \
+  } while (false)
+
+TYPED_TEST(QueryExecution, AChainOfReadModifyWritesDoublesWithFlagOff) {
+  CachePropertiesFlagGuard guard{false};
+  CHECK_A_CHAIN_OF_READ_MODIFY_WRITES_DOUBLES();
+}
+
+TYPED_TEST(QueryExecution, AChainOfReadModifyWritesDoublesWithFlagOn) {
+  CachePropertiesFlagGuard guard{true};
+  CHECK_A_CHAIN_OF_READ_MODIFY_WRITES_DOUBLES();
+}
+
+TYPED_TEST(QueryExecution, AProjectionDoesNotTakeAFiltersSlotAcrossAWriteWithFlagOff) {
+  CachePropertiesFlagGuard guard{false};
+  CHECK_A_PROJECTION_DOES_NOT_TAKE_A_FILTERS_SLOT_ACROSS_A_WRITE();
+}
+
+TYPED_TEST(QueryExecution, AProjectionDoesNotTakeAFiltersSlotAcrossAWriteWithFlagOn) {
+  CachePropertiesFlagGuard guard{true};
+  CHECK_A_PROJECTION_DOES_NOT_TAKE_A_FILTERS_SLOT_ACROSS_A_WRITE();
 }
 
 TYPED_TEST(QueryExecution, LeftoverLookupResultsWithFlagOff) {
@@ -625,9 +657,9 @@ TYPED_TEST(QueryExecution, CachePropertiesLeavesLookupsBehindAShortCircuit) {
 
   CachePropertiesFlagGuard guard{true};
   // The first operand is read from another node, so it is not folded away before planning.
-  EXPECT_EQ(explained("EXPLAIN MATCH (n:Q), (g:G) RETURN g.t OR n.a AS x, g.t OR n.b AS y").find("CacheProperties"),
+  EXPECT_EQ(explained("EXPLAIN MATCH (n:Q), (g:G) RETURN g.t OR n.a AS x, n.b AS y").find("CacheProperties"),
             std::string::npos);
-  EXPECT_EQ(explained("EXPLAIN MATCH (n:Q), (g:G) RETURN g.t AND n.a AS p, g.t AND n.b AS q").find("CacheProperties"),
+  EXPECT_EQ(explained("EXPLAIN MATCH (n:Q), (g:G) RETURN g.t AND n.a AS p, n.b AS q").find("CacheProperties"),
             std::string::npos);
 
   // A projection reading the same properties outside a short circuit still gets its pass.

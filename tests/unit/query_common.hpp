@@ -358,6 +358,15 @@ auto GetWithPatterns(TWithPatterns *with_patterns, std::vector<Pattern *> patter
 
 /// Create a query with given clauses.
 
+/// Declared ahead of the overloads that recurse into them, so that a query whose clauses run past
+/// a Match or a With carrying a Where still finds them.
+template <class... T>
+auto GetSingleQuery(SingleQuery *single_query, Clause *clause, T *...clauses);
+template <class... T>
+auto GetSingleQuery(SingleQuery *single_query, Match *match, Where *where, T *...clauses);
+template <class... T>
+auto GetSingleQuery(SingleQuery *single_query, With *with, Where *where, T *...clauses);
+
 auto GetSingleQuery(SingleQuery *single_query, Clause *clause) {
   single_query->clauses_.emplace_back(clause);
   return single_query;

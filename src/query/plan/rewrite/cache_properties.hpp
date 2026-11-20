@@ -21,25 +21,9 @@
 
 #include "flags/general.hpp"
 #include "query/plan/operator.hpp"
+#include "query/plan/property_writes.hpp"
 
 namespace memgraph::query::plan {
-
-/// Where the frontend interned a property's name, which is what the AST carries in place of the
-/// name itself. Both the names an `AstStorage` holds and the ids an `EvaluationContext` resolves
-/// them to are indexed by it, so nothing holding one needs the name as well. Not a
-/// `storage::PropertyId`, which is what names a property to the storage engine.
-class AstPropertyIndex {
- public:
-  explicit AstPropertyIndex(PropertyIx const &property) : value_{property.ix} {}
-
-  [[nodiscard]] auto Position() const -> size_t { return static_cast<size_t>(value_); }
-
-  friend bool operator==(AstPropertyIndex const &, AstPropertyIndex const &) = default;
-  friend auto operator<=>(AstPropertyIndex const &, AstPropertyIndex const &) = default;
-
- private:
-  int64_t value_;
-};
 
 /// What one query's planning settles once, which every candidate plan it weighs then takes as it
 /// stands: the frame slots a pass reads into, and the rewrites made with them.
@@ -70,13 +54,14 @@ class PassPlanning {
     return SlotPool{&slots_[expressions]};
   }
 
-  /// One slot a pass reads into: the symbol whose record a property is read from, and the slot the
-  /// value is written to. Both symbols are named by position alone so that comparing two plans does
-  /// not mean holding on to what either was planned from.
+  /// One slot a pass reads into: the symbol whose record a property is read from, the slot the
+  /// value is written to, and the view it was read at. Both symbols are named by position alone so
+  /// that comparing two plans does not mean holding on to what either was planned from.
   struct FilledSlot {
     Symbol::Position_t input_symbol;
     AstPropertyIndex property;
     Symbol::Position_t output_symbol;
+    storage::View view;
 
     friend bool operator==(FilledSlot const &, FilledSlot const &) = default;
     friend auto operator<=>(FilledSlot const &, FilledSlot const &) = default;
@@ -119,8 +104,10 @@ namespace impl {
 /// The phases share one traversal, so a lookup it does not reach is neither counted nor replaced.
 class PropertyLookupCacher final : public ExpressionVisitor<void> {
  public:
-  PropertyLookupCacher(SymbolTable *symbol_table, AstStorage *ast_storage)
-      : symbol_table_(symbol_table), ast_storage_(ast_storage) {}
+  /// `view` is the one the operator this serves evaluates at, which is what its lookups read at and
+  /// so what any slot standing in for one of them has to hold.
+  PropertyLookupCacher(SymbolTable *symbol_table, AstStorage *ast_storage, storage::View view)
+      : symbol_table_(symbol_table), ast_storage_(ast_storage), view_(view) {}
 
   using ExpressionVisitor<void>::Visit;
 
@@ -136,49 +123,75 @@ class PropertyLookupCacher final : public ExpressionVisitor<void> {
 
   using AstPropertyIndex = plan::AstPropertyIndex;
 
-  /// The frame slots a pass reads into, by the symbol and the property each holds.
+  /// The frame slots a pass reads into, each held under the read that filled it: the symbol whose
+  /// record it came from, the property, and the view it was read at.
+  ///
+  /// The view belongs in the key rather than beside it, because a filter and a projection reading
+  /// one property of one record are two reads whenever this command has written that record. A
+  /// reader asks for the value it needs and finds a slot only if one holds exactly that.
   class AssignedSlots {
    public:
-    void Add(Symbol const &symbol, AstPropertyIndex property, Symbol const &slot) {
+    void Add(Symbol const &symbol, AstPropertyIndex property, Symbol const &slot, storage::View view) {
       auto found = std::ranges::find(by_symbol_, symbol, &SymbolSlots::symbol);
       if (found == by_symbol_.end()) {
         by_symbol_.push_back(SymbolSlots{.symbol = symbol});
         found = std::prev(by_symbol_.end());
       }
-      found->slots.emplace_back(property, slot);
+      found->slots.push_back(FilledSlot{.property = property, .slot = slot, .view = view});
     }
 
     [[nodiscard]] auto Signature() const -> PassPlanning::SlotSignature {
       auto signature = PassPlanning::SlotSignature{};
       for (auto const &group : by_symbol_) {
-        for (auto const &[property, slot] : group.slots) {
-          signature.push_back(PassPlanning::FilledSlot{
-              .input_symbol = group.symbol.position(), .property = property, .output_symbol = slot.position()});
+        for (auto const &filled : group.slots) {
+          signature.push_back(PassPlanning::FilledSlot{.input_symbol = group.symbol.position(),
+                                                       .property = filled.property,
+                                                       .output_symbol = filled.slot.position(),
+                                                       .view = filled.view});
         }
       }
       return signature;
     }
 
-    /// Whether the pass reads anything of this symbol, which is all that looking for a lookup to
-    /// replace asks: it decides only whether an expression needs a copy of its own.
-    [[nodiscard]] auto Holds(Symbol const &symbol) const -> bool {
-      return std::ranges::find(by_symbol_, symbol, &SymbolSlots::symbol) != by_symbol_.end();
+    /// Whether a read at `view` finds anything of this symbol here, which is all that looking for a
+    /// lookup to replace asks: it decides only whether an expression needs a copy of its own.
+    [[nodiscard]] auto Holds(Symbol const &symbol, storage::View view) const -> bool {
+      auto const found = std::ranges::find(by_symbol_, symbol, &SymbolSlots::symbol);
+      if (found == by_symbol_.end()) return false;
+      return std::ranges::any_of(found->slots, [view](FilledSlot const &filled) { return filled.view == view; });
     }
 
-    [[nodiscard]] auto SlotHolding(Symbol const &symbol, AstPropertyIndex property) const -> std::optional<Symbol> {
+    /// Hands a read at `view` every slot holding a property the plan never writes, since a read of
+    /// one answers the same whichever view it is made at.
+    void TakeUnwrittenAt(storage::View view, PropertyWrites const &writes) {
+      for (auto &group : by_symbol_) {
+        for (auto &filled : group.slots) {
+          if (!writes.MayWrite(filled.property)) filled.view = view;
+        }
+      }
+    }
+
+    [[nodiscard]] auto SlotHolding(Symbol const &symbol, AstPropertyIndex property, storage::View view) const
+        -> std::optional<Symbol> {
       auto const found = std::ranges::find(by_symbol_, symbol, &SymbolSlots::symbol);
       if (found == by_symbol_.end()) return std::nullopt;
-      auto const slot = std::ranges::find(found->slots, property, &PropertySlot::first);
+      auto const slot = std::ranges::find_if(found->slots, [property, view](FilledSlot const &filled) {
+        return filled.property == property && filled.view == view;
+      });
       if (slot == found->slots.end()) return std::nullopt;
-      return slot->second;
+      return slot->slot;
     }
 
    private:
-    using PropertySlot = std::pair<AstPropertyIndex, Symbol>;
+    struct FilledSlot {
+      AstPropertyIndex property;
+      Symbol slot;
+      storage::View view;
+    };
 
     struct SymbolSlots {
       Symbol symbol;
-      std::vector<PropertySlot> slots;
+      std::vector<FilledSlot> slots;
     };
 
     std::vector<SymbolSlots> by_symbol_;
@@ -191,19 +204,24 @@ class PropertyLookupCacher final : public ExpressionVisitor<void> {
     /// saving then pays: a second property to read alongside the first, or a second lookup of one
     /// property.
     kKept,
-    /// An aggregation compares the value and keeps none of it, so a slot is a write it would not
-    /// otherwise make. Only a read the pass removes pays for that write, and only a property more
-    /// than one lookup names gives it one.
+    /// An aggregation and a filter consume the value and keep none of it, so a slot is a write
+    /// neither would otherwise make. Only a read the pass removes pays for that write, and only a
+    /// property more than one lookup names gives it one.
     kDiscarded,
   };
 
-  /// A property gathered for a symbol, with how many lookups named it. A pass reads it once
-  /// however many asked, so the count says how many reads the pass saves.
+  /// A property gathered for a symbol, with how many lookups named it and how many of those every
+  /// row reaches.
   struct GatheredProperty {
     AstPropertyIndex property;
     size_t lookups{0};
+    size_t unconditional_lookups{0};
 
-    void Note() { ++lookups; }
+    /// Records one lookup of this property, and whether every row reaching the operator evaluates it.
+    void Note(bool unconditional) {
+      ++lookups;
+      unconditional_lookups += unconditional ? 1 : 0;
+    }
   };
 
   /// One symbol and the properties a pass of its own would read. What the lookup counts were for
@@ -219,24 +237,37 @@ class PropertyLookupCacher final : public ExpressionVisitor<void> {
     Symbol symbol;
     std::vector<GatheredProperty> properties;
 
-    void Note(AstPropertyIndex property) {
+    void Note(AstPropertyIndex property, bool unconditional) {
       auto found = std::ranges::find(properties, property, &GatheredProperty::property);
       if (found == properties.end()) {
         properties.push_back(GatheredProperty{.property = property});
         found = std::prev(properties.end());
       }
-      found->Note();
+      found->Note(unconditional);
     }
 
     /// The properties worth reading in one pass, and nothing when none of them are.
+    ///
+    /// A pass reads only a property some lookup reads on every row, so what the operator needs
+    /// saved is asked of those alone. Reading one the rows may not ask for would read for rows
+    /// stopping first, which is work the query did not ask for and the one way a pass could reach a
+    /// record it never touched.
     [[nodiscard]] auto PropertiesWorthOnePass(ValueUse value_use) const -> std::optional<Pass> {
-      auto const removes_a_read = std::ranges::any_of(properties, [](auto const &p) { return p.lookups > 1; });
-      auto const pays = value_use == ValueUse::kDiscarded ? removes_a_read : removes_a_read || properties.size() >= 2;
+      auto const read_on_every_row = [](GatheredProperty const &property) {
+        return property.unconditional_lookups > 0;
+      };
+      auto const removes_a_read = std::ranges::any_of(
+          properties, [&](auto const &property) { return read_on_every_row(property) && property.lookups > 1; });
+      auto const pays = value_use == ValueUse::kDiscarded
+                            ? removes_a_read
+                            : removes_a_read || std::ranges::count_if(properties, read_on_every_row) >= 2;
+      // Judged before anything is built, since most symbols fall short and a plan is one of hundreds.
       if (!pays) return std::nullopt;
 
       auto pass = Pass{.symbol = symbol, .properties = {}};
-      pass.properties.reserve(properties.size());
-      for (auto const &gathered : properties) pass.properties.push_back(gathered.property);
+      for (auto const &gathered : properties) {
+        if (read_on_every_row(gathered)) pass.properties.push_back(gathered.property);
+      }
       return pass;
     }
   };
@@ -251,7 +282,20 @@ class PropertyLookupCacher final : public ExpressionVisitor<void> {
     return passes;
   }
 
-  void SetAssignedSlots(AssignedSlots slots) { assigned_ = std::move(slots); }
+  /// The slots a pass below filled, which a lookup here reads instead of the record where one holds
+  /// the read it was going to make. A slot filled by a read of another view is simply not that, so
+  /// it is taken along with the rest and never matches.
+  void ReuseSlots(AssignedSlots filled) { assigned_ = std::move(filled); }
+
+  /// Whether a lookup here reads a slot a pass below already filled, rather than the record.
+  [[nodiscard]] auto ReadsAFilledSlot() const -> bool { return reads_a_filled_slot_; }
+
+  /// Records the slot a new pass reads a property into, alongside any this operator reuses.
+  void NoteSlot(Symbol const &symbol, AstPropertyIndex property, Symbol const &slot) {
+    assigned_.Add(symbol, property, slot, view_);
+  }
+
+  [[nodiscard]] auto Slots() const -> AssignedSlots const & { return assigned_; }
 
   /// What two plans must agree on before one can read the other's rewrite of an expression.
   [[nodiscard]] auto SlotSignature() const -> PassPlanning::SlotSignature { return assigned_.Signature(); }
@@ -297,15 +341,22 @@ class PropertyLookupCacher final : public ExpressionVisitor<void> {
         // The cursor fills a slot with Null for anything that is not a record, so an untyped symbol
         // would silently lose its properties.
         if (!symbol.BindsOneRecord()) return;
-        GatheredFor(symbol).Note(AstPropertyIndex{op.property_});
+        // A slot a pass below filled holds this row's value already, so reading it costs nothing
+        // and earns no pass of its own.
+        auto const property = AstPropertyIndex{op.property_};
+        if (assigned_.SlotHolding(symbol, property, view_)) {
+          reads_a_filled_slot_ = true;
+          return;
+        }
+        GatheredFor(symbol).Note(property, conditional_depth_ == 0);
         return;
       }
       case Phase::FIND: {
-        if (assigned_.Holds(symbol_table_->at(*identifier))) found_one_to_replace_ = true;
+        if (assigned_.Holds(symbol_table_->at(*identifier), view_)) found_one_to_replace_ = true;
         return;
       }
       case Phase::REPLACE: {
-        auto const slot = assigned_.SlotHolding(symbol_table_->at(*identifier), AstPropertyIndex{op.property_});
+        auto const slot = assigned_.SlotHolding(symbol_table_->at(*identifier), AstPropertyIndex{op.property_}, view_);
         if (!slot) return;
         auto *replacement = ast_storage_->Create<Identifier>(slot->name(), false);
         replacement->MapTo(*slot);
@@ -329,6 +380,15 @@ class PropertyLookupCacher final : public ExpressionVisitor<void> {
       expr = prev_expressions_.back();
     }
     prev_expressions_.pop_back();
+  }
+
+  /// Which operand a row may not reach follows the operator rather than the values, so it is
+  /// settled here rather than per row.
+  void ShortCircuit(Expression *&always, Expression *&sometimes) {
+    AcceptExpression(always);
+    ++conditional_depth_;
+    AcceptExpression(sometimes);
+    --conditional_depth_;
   }
 
   void Visit(NotOperator &op) override { AcceptExpression(op.expression_); }
@@ -412,10 +472,11 @@ class PropertyLookupCacher final : public ExpressionVisitor<void> {
   NOT_ENTERED(EdgeTypesTest)
   NOT_ENTERED(RegexMatch)
 
-  // A short circuit may never evaluate its second operand, so reading ahead for a lookup there has
-  // the same fault as the conditionals above.
-  NOT_ENTERED(AndOperator)
-  NOT_ENTERED(OrOperator)
+  // Entered, with only the second operand marked as one a row may not reach, so a property read
+  // on every row elsewhere is still read once and found in a slot here.
+  void Visit(AndOperator &op) override { ShortCircuit(op.expression1_, op.expression2_); }
+
+  void Visit(OrOperator &op) override { ShortCircuit(op.expression1_, op.expression2_); }
 
   // Always evaluated, so entering these would be safe. An entry or an element consumes the value
   // rather than handing it back, though, so a slot taken for one adds a write and removes no read.
@@ -426,18 +487,28 @@ class PropertyLookupCacher final : public ExpressionVisitor<void> {
 
   SymbolTable *symbol_table_;
   AstStorage *ast_storage_;
+  /// What the operator this serves reads its own lookups at.
+  storage::View view_;
   Phase phase_{Phase::GATHER};
+  /// Short circuits between here and the operator. Zero means every row evaluates what is here.
+  size_t conditional_depth_{0};
   std::vector<Expression *> prev_expressions_;
   std::vector<Gathered> gathered_;
   AssignedSlots assigned_;
   bool found_one_to_replace_{false};
+  bool reads_a_filled_slot_{false};
 };
 
 template <class TDbAccessor>
 class CachePropertiesRewriter final : public HierarchicalLogicalOperatorVisitor {
  public:
-  CachePropertiesRewriter(SymbolTable *symbol_table, AstStorage *ast_storage, TDbAccessor *db, PassPlanning *planning)
-      : symbol_table_(symbol_table), ast_storage_(ast_storage), db_(db), planning_(planning) {}
+  CachePropertiesRewriter(SymbolTable *symbol_table, AstStorage *ast_storage, TDbAccessor *db, PassPlanning *planning,
+                          PropertyWrites writes)
+      : symbol_table_(symbol_table),
+        ast_storage_(ast_storage),
+        db_(db),
+        planning_(planning),
+        writes_(std::move(writes)) {}
 
   ~CachePropertiesRewriter() override = default;
 
@@ -448,8 +519,17 @@ class CachePropertiesRewriter final : public HierarchicalLogicalOperatorVisitor 
   bool Visit(Once &) override { return true; }
 
   bool PostVisit(Produce &op) override {
-    CacheBelow(op, PropertyLookupCacher::ValueUse::kKept, [&op](auto &&each) {
+    CacheBelow(op, PropertyLookupCacher::ValueUse::kKept, storage::View::NEW, [&op](auto &&each) {
       for (auto *&named_expression : op.named_expressions_) each(named_expression);
+    });
+    return true;
+  }
+
+  bool PostVisit(Filter &op) override {
+    if (!op.expression_) return true;
+
+    CacheBelow(op, PropertyLookupCacher::ValueUse::kDiscarded, storage::View::OLD, [&op](auto &&each) {
+      each(op.expression_);
     });
     return true;
   }
@@ -457,7 +537,7 @@ class CachePropertiesRewriter final : public HierarchicalLogicalOperatorVisitor 
   /// Below the aggregation, which is where the record still is: above it only the grouping keys
   /// and the aggregated values are defined.
   bool PostVisit(Aggregate &op) override {
-    CacheBelow(op, PropertyLookupCacher::ValueUse::kDiscarded, [&op](auto &&each) {
+    CacheBelow(op, PropertyLookupCacher::ValueUse::kDiscarded, storage::View::NEW, [&op](auto &&each) {
       // A secondary argument, which a map collection and the graph projections take, is left out
       // however many lookups it holds. It is reached only once the row's first value is accepted,
       // so a Null value, or a repeat a distinct aggregation ignores, never evaluates it, and
@@ -474,31 +554,43 @@ class CachePropertiesRewriter final : public HierarchicalLogicalOperatorVisitor 
   /// Puts a one-pass read below `op` for each symbol whose lookups save it enough, which is what
   /// `value_use` decides.
   ///
+  /// `view` is the one `op` evaluates its own expressions at, which is what the pass must read at:
+  /// a read moved out of an operator has to answer what that operator would have read of a record
+  /// this command has written.
+  ///
   /// `for_each_expression` hands each expression the operator evaluates for every row to a visitor,
   /// which a projection and an aggregation hold differently. Each is passed by reference, since
   /// both replacing a lookup and copying an expression write back to the operator.
   template <class TForEachExpression>
-  void CacheBelow(LogicalOperator &op, PropertyLookupCacher::ValueUse value_use,
+  void CacheBelow(LogicalOperator &op, PropertyLookupCacher::ValueUse value_use, storage::View evaluated_at,
                   TForEachExpression for_each_expression) {
     auto input = op.input();
     if (!input) return;
 
-    auto cacher = PropertyLookupCacher{symbol_table_, ast_storage_};
+    auto const view = evaluated_at;
+    auto cacher = PropertyLookupCacher{symbol_table_, ast_storage_, view};
+    // A slot filled by a read of another view is still this read's value where nothing in the plan
+    // writes that property, so it is handed over as if it had been read here.
+    auto reused = FilledSlotsBelow(*input);
+    reused.TakeUnwrittenAt(view, writes_);
+    cacher.ReuseSlots(std::move(reused));
     for_each_expression([&cacher](auto &expression) { cacher.Gather(expression); });
 
     // Before a slot is taken or the input is walked, because most operators read nothing worth a
     // pass and should pay only for the gathering that says so.
     auto const passes = cacher.SymbolsWorthOnePass(value_use);
-    if (passes.empty()) return;
+    if (passes.empty() && !cacher.ReadsAFilledSlot()) return;
 
-    // Taken from the expressions themselves, and before any is copied, which is what makes two
-    // plans for one query agree on the operator these slots belong to.
-    auto pool_key = std::vector<Tree const *>{};
-    for_each_expression([&pool_key](auto &expression) { pool_key.push_back(expression); });
+    auto groups = std::vector<CachedPropertyGroup>{};
+    if (!passes.empty()) {
+      // Taken from the expressions themselves, and before any is copied, which is what makes two
+      // plans for one query agree on the operator these slots belong to.
+      auto pool_key = std::vector<Tree const *>{};
+      for_each_expression([&pool_key](auto &expression) { pool_key.push_back(expression); });
 
-    auto pool = planning_->SlotsFor(pool_key);
-    auto groups = MakeGroups(cacher, passes, *input, pool);
-    if (groups.empty()) return;
+      auto pool = planning_->SlotsFor(pool_key);
+      groups = MakeGroups(cacher, passes, *input, pool);
+    }
 
     // Candidate plans share the expressions they were planned from, so replacing writes to a copy.
     // One expression nothing would change stays shared, since copying it would duplicate all it
@@ -516,7 +608,29 @@ class CachePropertiesRewriter final : public HierarchicalLogicalOperatorVisitor 
       planning_->Remember(original, signature, expression);
     });
 
-    op.set_input(std::make_shared<CacheProperties>(input, std::move(groups)));
+    if (groups.empty()) return;
+
+    auto pass = std::make_shared<CacheProperties>(input, std::move(groups), view);
+    // Both what this pass reads and what it reused, since a row reaching an operator above holds
+    // all of it, and each slot says which read filled it.
+    slots_filled_by_.emplace(pass.get(), cacher.Slots());
+    op.set_input(std::move(pass));
+  }
+
+  /// The slots a pass below `input` filled, each still held under the read that filled it.
+  ///
+  /// Only an operator that neither writes a record nor rebuilds a row may stand between the two. A
+  /// write would leave a slot holding what the property was before it, and an operator that
+  /// restores rows restores only the symbols it was told to. Whether a slot holds the read a lookup
+  /// here was going to make is then that lookup's own question, which it asks of the key.
+  [[nodiscard]] auto FilledSlotsBelow(LogicalOperator const &input) const -> PropertyLookupCacher::AssignedSlots {
+    for (auto const *below = &input; below != nullptr;) {
+      auto const filled = slots_filled_by_.find(below);
+      if (filled != slots_filled_by_.end()) return filled->second;
+      if (below->GetTypeInfo() != Filter::kType) break;
+      below = below->HasSingleInput() ? below->input().get() : nullptr;
+    }
+    return {};
   }
 
   /// Takes a frame slot for each property of each of `passes` the input binds a record for, telling
@@ -525,7 +639,6 @@ class CachePropertiesRewriter final : public HierarchicalLogicalOperatorVisitor 
   auto MakeGroups(PropertyLookupCacher &cacher, std::vector<PropertyLookupCacher::Pass> const &passes,
                   LogicalOperator const &input, PassPlanning::SlotPool &pool) -> std::vector<CachedPropertyGroup> {
     auto const modified = input.ModifiedSymbols(*symbol_table_);
-    auto slots = PropertyLookupCacher::AssignedSlots{};
     auto groups = std::vector<CachedPropertyGroup>{};
 
     for (auto const &pass : passes) {
@@ -536,14 +649,13 @@ class CachePropertiesRewriter final : public HierarchicalLogicalOperatorVisitor 
       cached_properties.reserve(pass.properties.size());
       for (auto const &property : pass.properties) {
         auto const output_symbol = pool.NextSlot(*symbol_table_);
-        slots.Add(pass.symbol, property, output_symbol);
+        cacher.NoteSlot(pass.symbol, property, output_symbol);
         auto const &name = ast_storage_->properties_[property.Position()];
         cached_properties.push_back(CachedProperty{db_->NameToProperty(name), output_symbol});
       }
       groups.emplace_back(pass.symbol, std::move(cached_properties));
     }
 
-    if (!groups.empty()) cacher.SetAssignedSlots(std::move(slots));
     return groups;
   }
 
@@ -551,6 +663,12 @@ class CachePropertiesRewriter final : public HierarchicalLogicalOperatorVisitor 
   AstStorage *ast_storage_;
   TDbAccessor *db_;
   PassPlanning *planning_;
+  /// What this plan may write, which is what decides whether a slot one read filled answers
+  /// another read.
+  PropertyWrites writes_;
+  /// What each pass this rewrite hung leaves in the frame, so an operator above can read a slot
+  /// rather than the record again.
+  std::map<LogicalOperator const *, PropertyLookupCacher::AssignedSlots> slots_filled_by_;
 };
 
 }  // namespace impl
@@ -560,7 +678,11 @@ std::unique_ptr<LogicalOperator> RewriteCacheProperties(std::unique_ptr<LogicalO
                                                         SymbolTable *symbol_table, AstStorage *ast_storage,
                                                         TDbAccessor *db, PassPlanning *planning) {
   if (!FLAGS_query_cache_properties) return root_op;
-  auto rewriter = impl::CachePropertiesRewriter<TDbAccessor>{symbol_table, ast_storage, db, planning};
+  // Asked of the whole plan rather than of what stands between two reads, because rows reach an
+  // operator one at a time: a write above a pass has already run for the rows after the first, so
+  // it reaches a record the pass reads again whatever sits between the two.
+  auto const writes = PropertyWritesOf(*root_op);
+  auto rewriter = impl::CachePropertiesRewriter<TDbAccessor>{symbol_table, ast_storage, db, planning, writes};
   root_op->Accept(rewriter);
   return root_op;
 }

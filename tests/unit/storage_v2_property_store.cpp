@@ -1675,6 +1675,59 @@ TEST(PropertyStore, ExtractPropertyValuesMissingAsNull_ReturnsNullsForAllItemsWi
             }));
 }
 
+// A path naming a property the store does not hold reads Null, and the pass over the store carries
+// on to the paths after it rather than stopping where it looked.
+TEST(PropertyStore, ExtractPropertyValuesMissingAsNull_AnAbsentPropertyLeavesTheOnesAfterItAlone) {
+  auto const data =
+      std::vector<std::pair<PropertyId, PropertyValue>>{{PropertyId::FromInt(1), PropertyValue("alfa")},
+                                                        {PropertyId::FromInt(3), PropertyValue("charlie")},
+                                                        {PropertyId::FromInt(5), PropertyValue("echo")}};
+  PropertyStore store;
+  store.InitProperties(data);
+
+  auto paths = std::vector<PropertyPath>{};
+  for (int id = 1; id <= 5; ++id) paths.push_back(PropertyPath{PropertyId::FromInt(id)});
+
+  EXPECT_EQ(
+      store.ExtractPropertyValuesMissingAsNull(OrderedPropertyPaths{std::move(paths)}),
+      (std::vector{
+          PropertyValue("alfa"), PropertyValue(), PropertyValue("charlie"), PropertyValue(), PropertyValue("echo")}));
+}
+
+// The store runs out before the last path is reached, which is the same answer as a property it does
+// not hold.
+TEST(PropertyStore, ExtractPropertyValuesMissingAsNull_APathPastTheLastPropertyReadsNull) {
+  auto const data = std::vector<std::pair<PropertyId, PropertyValue>>{{PropertyId::FromInt(1), PropertyValue("alfa")},
+                                                                      {PropertyId::FromInt(2), PropertyValue("bravo")}};
+  PropertyStore store;
+  store.InitProperties(data);
+
+  EXPECT_EQ(
+      store.ExtractPropertyValuesMissingAsNull(OrderedPropertyPaths{std::vector{PropertyPath{PropertyId::FromInt(1)},
+                                                                                PropertyPath{PropertyId::FromInt(2)},
+                                                                                PropertyPath{PropertyId::FromInt(9)}}}),
+      (std::vector{PropertyValue("alfa"), PropertyValue("bravo"), PropertyValue()}));
+}
+
+// Reading into a caller's buffer is the form a pass over the record uses, and it has to answer what
+// the form that builds its own answers.
+TEST(PropertyStore, ExtractPropertyValuesMissingAsNull_ReadingIntoABufferAnswersTheSame) {
+  auto const data = std::vector<std::pair<PropertyId, PropertyValue>>{{PropertyId::FromInt(1), PropertyValue("alfa")},
+                                                                      {PropertyId::FromInt(4), PropertyValue(42)},
+                                                                      {PropertyId::FromInt(6), PropertyValue(true)}};
+  PropertyStore store;
+  store.InitProperties(data);
+
+  auto const ordered = OrderedPropertyPaths{std::vector{PropertyPath{PropertyId::FromInt(1)},
+                                                        PropertyPath{PropertyId::FromInt(2)},
+                                                        PropertyPath{PropertyId::FromInt(4)},
+                                                        PropertyPath{PropertyId::FromInt(6)}}};
+
+  auto into_buffer = std::vector<PropertyValue>(ordered.size());
+  store.ExtractPropertyValuesMissingAsNull(ordered, into_buffer);
+  EXPECT_EQ(into_buffer, store.ExtractPropertyValuesMissingAsNull(ordered));
+}
+
 TEST(PropertyStore, ExtractPropertyValuesMissingAsNull_CanReadNestedValuesOnSameBranch) {
   auto const p1 = PropertyId::FromInt(1);
   auto const p2 = PropertyId::FromInt(2);

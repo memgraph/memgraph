@@ -32,6 +32,7 @@ OrderedPropertyPaths::OrderedPropertyPaths(std::vector<PropertyPath> paths) : so
   // the reader and answers Null: a wrong answer for the slot rather than a refusal. Sorting has put
   // any repeat next to its first occurrence.
   DMG_ASSERT(r::adjacent_find(sorted_) == sorted_.end(), "A property may be read only once in one pass");
+  every_path_names_one_ = r::all_of(sorted_, [](PropertyPath const &path) { return path.size() == 1; });
 }
 
 auto OrderedPropertyPaths::FromPropertyIds(std::span<PropertyId const> properties) -> OrderedPropertyPaths {
