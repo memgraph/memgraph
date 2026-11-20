@@ -20,8 +20,6 @@
 
 #include "storage/v2/delta.hpp"
 #include "storage/v2/edge.hpp"
-#include "storage/v2/edge_direction.hpp"
-#include "storage/v2/id_types.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/result.hpp"
 #include "storage/v2/storage.hpp"
@@ -30,19 +28,12 @@
 #include "utils/atomic_memory_block.hpp"
 #include "versioning/overlay_state.hpp"
 
-// An overlay's delete mark is the stock `deleted` flag with the stock RECREATE_OBJECT undo, so the diff engine's MVCC
-// versions, aborts and collects it as for any deleted object. Collection keeps it alive
-// (Config::retained_gid_floors). An overlay vertex is deleted by stock non-detach DeleteVertex, which ignores the
-// Mark(T) adjacency entries. Stock MarkEdgeAsDeleted does not fit an edge overlay: it decrements an edge count the
-// overlay never incremented.
+// An overlay's delete mark is the stock `deleted` flag with the stock RECREATE_OBJECT undo. An overlay vertex is
+// deleted by stock non-detach DeleteVertex, which is valid because an overlay's adjacency holds only native edges.
 namespace memgraph::versioning::overlay {
 
-// Deletes `e` as stock MarkEdgeAsDeleted does, without its edge_count_ decrement: a base edge never incremented the
-// diff engine's count. Returns false when `e` is already deleted.
-//
-// Writes only the edge overlay, which is the sole conflict against a concurrent edge property write and against a
-// DETACH of an endpoint. Stock deletion also writes both endpoints; a caller deleting a BASE edge must call
-// DeleteBaseEdge, which adds the endpoint markers a concurrent edge creation conflicts with.
+// Stock MarkEdgeAsDeleted minus its edge_count_ decrement (a base edge never incremented it). False if already deleted.
+// The whole base-edge delete at this layer: it writes only the edge overlay; endpoint bookkeeping comes later.
 // @throw utils::OutOfMemoryException
 inline storage::Result<bool> MarkEdgeDeleted(storage::Transaction *transaction, storage::Edge *e) {
   auto guard = std::unique_lock{e->lock};
@@ -52,27 +43,6 @@ inline storage::Result<bool> MarkEdgeDeleted(storage::Transaction *transaction, 
     storage::CreateAndLinkDelta(transaction, e, storage::Delta::RecreateObjectTag());
     e->SetDeleted(true);
   });
-  return true;
-}
-
-// Deletes the base edge `edge_overlay` (of type `base_edge_type`, from `from_overlay` to `to_overlay`):
-// MarkEdgeDeleted, then a Mark(`base_edge_type`) entry on each endpoint (OUT on `from_overlay`, IN on `to_overlay`; a
-// self-loop gets one in each list). Returns false, touching nothing else, when the edge is already deleted.
-// SERIALIZATION_ERROR means a conflicting writer on the edge or an endpoint. Not atomic: a failure after the edge
-// delete mark leaves earlier deltas in the transaction, which is poisoned (as in stock) and must abort, which undoes
-// them all.
-// @throw utils::OutOfMemoryException
-inline storage::Result<bool> DeleteBaseEdge(storage::Transaction *transaction, storage::Storage &engine,
-                                            storage::Edge *edge_overlay, storage::Vertex *from_overlay,
-                                            storage::Vertex *to_overlay, storage::EdgeTypeId base_edge_type) {
-  auto const marked_deleted = MarkEdgeDeleted(transaction, edge_overlay);
-  if (!marked_deleted.has_value() || !*marked_deleted) return marked_deleted;
-  if (!LinkEdgeMarker(
-          transaction, engine, from_overlay, storage::EdgeDirection::OUT, base_edge_type, to_overlay, edge_overlay) ||
-      !LinkEdgeMarker(
-          transaction, engine, to_overlay, storage::EdgeDirection::IN, base_edge_type, from_overlay, edge_overlay)) {
-    return std::unexpected{storage::Error::SERIALIZATION_ERROR};
-  }
   return true;
 }
 

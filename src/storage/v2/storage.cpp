@@ -664,13 +664,7 @@ Result<std::vector<VertexAccessor>> Storage::Accessor::TryDeleteVertices(
 
     MG_ASSERT(!vertex_ptr->deleted(), "Invalid database state!");
 
-#ifdef MG_ENTERPRISE
-    // A branch overlay's Mark(T) entries are its hidden-edge set, not edges.
-    auto const is_edge = [](auto const &entry) { return !IsReservedId(std::get<EdgeTypeId>(entry)); };
-    if (std::ranges::any_of(vertex_ptr->in_edges, is_edge) || std::ranges::any_of(vertex_ptr->out_edges, is_edge)) {
-#else
     if (!vertex_ptr->in_edges.empty() || !vertex_ptr->out_edges.empty()) {
-#endif
       return std::unexpected{Error::VERTEX_HAS_EDGES};
     }
 

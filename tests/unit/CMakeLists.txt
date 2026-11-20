@@ -1039,11 +1039,6 @@ add_unit_test(versioning_overlay_state
     LINK_TARGETS mg::versioning mg::storage
 )
 
-add_unit_test(versioning_overlay_mvcc
-    SOURCES versioning_overlay_mvcc.cpp
-    LINK_TARGETS mg::versioning mg::storage
-)
-
 add_unit_test(versioning_overlay_mark_deleted
     SOURCES versioning_overlay_mark_deleted.cpp
     LINK_TARGETS mg::versioning mg::storage
