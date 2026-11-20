@@ -2492,6 +2492,8 @@ TEST_P(CypherMainVisitorTest, ClausesOrdering) {
   CheckRWType(ast_generator.ParseQuery("REMOVE n.x SET n.x = 1"), kWrite);
   CheckRWType(ast_generator.ParseQuery("REMOVE n:L RETURN n"), kWrite);
   CheckRWType(ast_generator.ParseQuery("SET n.x = 1 WITH n AS m RETURN m"), kWrite);
+  CheckRWType(ast_generator.ParseQuery("MATCH (n) SET n['k'] = 1"), kWrite);
+  ASSERT_THROW(ast_generator.ParseQuery("MATCH (n) RETURN n SET n['k'] = 1"), SemanticException);
 
   ASSERT_THROW(ast_generator.ParseQuery("MATCH (n)"), SemanticException);
   CheckRWType(ast_generator.ParseQuery("MATCH (n) MATCH (n) RETURN n"), kRead);

@@ -17,8 +17,11 @@
 #include <gtest/gtest.h>
 
 #include "query/frontend/ast/ast.hpp"
+#include "query/frontend/ast/cypher_main_visitor.hpp"
+#include "query/frontend/opencypher/parser.hpp"
 #include "query/frontend/semantic/symbol_generator.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
+#include "query/parameters.hpp"
 #include "query/plan/operator.hpp"
 #include "query/plan/planner.hpp"
 
@@ -95,6 +98,33 @@ TYPED_TEST(OrderByIndexTest, BasicElimination) {
   EXPECT_TRUE(PlanContainsOp(planner.plan(), ScanAllByLabelProperties::kType))
       << "Plan should use ScanAllByLabelProperties";
   EXPECT_FALSE(PlanContainsOp(planner.plan(), OrderBy::kType)) << "OrderBy should be eliminated";
+}
+
+// A dynamic-key SET has no statically-known property, so it must be treated as
+// possibly touching the ORDER BY column and the OrderBy must be kept.
+TYPED_TEST(OrderByIndexTest, DynamicKeySetKeepsOrderBy) {
+  // MATCH (n:L) WHERE n.prop > 5 SET n['k'] = 1 WITH n ORDER BY n.prop RETURN n
+  FakeDbAccessor dba;
+  const auto *const label_name = "L";
+  const auto label = dba.Label(label_name);
+  const auto property = PROPERTY_PAIR(dba, "prop");
+  dba.SetIndexCount(label, 1);
+  dba.SetIndexCount(label, property.second, 1);
+
+  memgraph::query::frontend::opencypher::Parser parser(
+      "MATCH (n:L) WHERE n.prop > 5 SET n['k'] = 1 WITH n ORDER BY n.prop RETURN n");
+  memgraph::query::Parameters parameters;
+  memgraph::query::frontend::ParsingContext context;
+  memgraph::query::frontend::CypherMainVisitor visitor(context, &this->storage, &parameters);
+  visitor.visit(parser.tree());
+  auto *query = dynamic_cast<memgraph::query::CypherQuery *>(visitor.query());
+  ASSERT_TRUE(query);
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  EXPECT_TRUE(PlanContainsOp(planner.plan(), OrderBy::kType))
+      << "OrderBy must not be eliminated across a dynamic-key SET";
 }
 
 // Composite prefix - ORDER BY n.a with index (a, b)
