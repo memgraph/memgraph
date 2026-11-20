@@ -31,7 +31,7 @@ struct QueryUserOrRole : public query::QueryUserOrRole {
   bool CanImpersonate(const std::string &target, query::UserPolicy *policy,
                       std::optional<std::string_view> db_name = std::nullopt) const override;
   std::string GetDefaultDB() const override;
-  bool HasFineGrainedConfiguration() const override;
+  bool HasFineGrainedRestrictions() const override;
 #endif
 
   explicit QueryUserOrRole(auth::SynchedAuth *auth) : query::QueryUserOrRole{{}, {}}, auth_{auth} {}

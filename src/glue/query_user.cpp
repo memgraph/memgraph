@@ -106,24 +106,34 @@ std::string QueryUserOrRole::GetDefaultDB() const {
   return std::string{dbms::kDefaultDB};
 }
 
-bool QueryUserOrRole::HasFineGrainedConfiguration() const {
-  // Read straight from the stored handlers: the merged getters answer for a database, while this
-  // question is about whether anything is configured at all.
-  auto const configured = [](auto const &fine_grained, auto const &properties) {
-    return !fine_grained.label_permissions().IsUnconfigured() ||
-           !fine_grained.edge_type_permissions().IsUnconfigured() || !properties.label_properties().IsUnconfigured() ||
-           !properties.edge_type_properties().IsUnconfigured();
+bool QueryUserOrRole::HasFineGrainedRestrictions() const {
+  // A dropped principal's cached snapshot describes a user that no longer exists.
+  if (dropped_) return false;
+
+  // A set withholds something when it is configured and is not a blanket grant. Read straight from
+  // the stored handlers: the merged getters answer for one database, while this asks whether any rule
+  // anywhere could narrow what is returned. The snapshot is whatever the last refresh saw, which is
+  // enough for a warning; it is not an access decision.
+  auto const withholds = [](auto const &fine_grained, auto const &properties) {
+    auto const &labels = fine_grained.label_permissions();
+    auto const &edge_types = fine_grained.edge_type_permissions();
+    auto const &label_properties = properties.label_properties();
+    auto const &edge_type_properties = properties.edge_type_properties();
+    return (!labels.IsUnconfigured() && !labels.IsUnrestricted(auth::kAllLabelPermissions)) ||
+           (!edge_types.IsUnconfigured() && !edge_types.IsUnrestricted(auth::kAllEdgeTypePermissions)) ||
+           (!label_properties.IsUnconfigured() && !label_properties.HasUnrestrictedAccess()) ||
+           (!edge_type_properties.IsUnconfigured() && !edge_type_properties.HasUnrestrictedAccess());
   };
 
-  if (user_ && configured(user_->fine_grained_access_handler(), user_->property_access_handler())) return true;
+  if (user_ && withholds(user_->fine_grained_access_handler(), user_->property_access_handler())) return true;
   if (roles_) {
     for (auto const &role : *roles_) {
-      if (configured(role.fine_grained_access_handler(), role.property_access_handler())) return true;
+      if (withholds(role.fine_grained_access_handler(), role.property_access_handler())) return true;
     }
   }
   if (user_) {
     for (auto const &role : user_->roles()) {
-      if (configured(role.fine_grained_access_handler(), role.property_access_handler())) return true;
+      if (withholds(role.fine_grained_access_handler(), role.property_access_handler())) return true;
     }
   }
   return false;

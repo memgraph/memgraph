@@ -59,10 +59,11 @@ struct QueryUserOrRole {
                               std::optional<std::string_view> db_name = std::nullopt) const = 0;
   virtual std::string GetDefaultDB() const = 0;
 
-  /// Whether any fine-grained rule is stored for this principal. Reports configuration rather than
-  /// deciding anything, so that a query can say the rules are not being applied without a license.
-  /// A principal with nothing behind it, such as a test or internal one, carries no rules.
-  virtual bool HasFineGrainedConfiguration() const { return false; }
+  /// Whether this principal carries a stored fine-grained rule that withholds something. Reports
+  /// configuration rather than deciding anything, so a query can say the rules are not being applied
+  /// without a license. False where there is nothing to withhold: nothing configured, everything
+  /// granted globally, or no principal behind it at all, as for a test or internal one.
+  virtual bool HasFineGrainedRestrictions() const { return false; }
 #endif
 
   const std::optional<std::string> &username() const { return username_; }

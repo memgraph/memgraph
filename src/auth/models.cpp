@@ -932,10 +932,6 @@ Role::Role(const std::string &rolename, const Permissions &permissions,
 #ifdef MG_ENTERPRISE
 const FineGrainedAccessPermissions &Role::GetFineGrainedAccessLabelPermissions(
     std::optional<std::string_view> db_name) const {
-  if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-    return empty_permissions;
-  }
-
   // If db_name is provided, check if the role has access to that database
   if (db_name && !HasAccess(*db_name)) {
     return empty_permissions;
@@ -946,10 +942,6 @@ const FineGrainedAccessPermissions &Role::GetFineGrainedAccessLabelPermissions(
 
 const FineGrainedAccessPermissions &Role::GetFineGrainedAccessEdgeTypePermissions(
     std::optional<std::string_view> db_name) const {
-  if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-    return empty_permissions;
-  }
-
   // If db_name is provided, check if the role has access to that database
   if (db_name && !HasAccess(*db_name)) {
     return empty_permissions;

@@ -343,13 +343,10 @@ bool FineGrainedAuthChecker::HasUnrestrictedAccessToEdgeTypeProperties() const {
 }
 
 bool FineGrainedAuthChecker::NeedsFineGrainedAuthChecker() const {
-  auto const is_unconfigured = [](auth::PropertyAccessPermissions const &perms) {
-    return perms.GetRules().empty() && perms.GetGlobalRules().empty();
-  };
   auto const vertex_props_ok =
-      HasUnrestrictedAccessToVertexProperties() || is_unconfigured(GetCachedPropertyLabelPermissions());
+      HasUnrestrictedAccessToVertexProperties() || GetCachedPropertyLabelPermissions().IsUnconfigured();
   auto const edge_props_ok =
-      HasUnrestrictedAccessToEdgeTypeProperties() || is_unconfigured(GetCachedPropertyEdgeTypePermissions());
+      HasUnrestrictedAccessToEdgeTypeProperties() || GetCachedPropertyEdgeTypePermissions().IsUnconfigured();
   return !(HasUnrestrictedAccessToVertices() && HasUnrestrictedAccessToEdges() && vertex_props_ok && edge_props_ok);
 }
 

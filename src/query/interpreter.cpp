@@ -1437,6 +1437,19 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
                                                           AuthQuery::Action::GRANT_PRIVILEGE,
                                                           AuthQuery::Action::DENY_PRIVILEGE,
                                                           AuthQuery::Action::REVOKE_PRIVILEGE,
+#ifndef MG_ENTERPRISE
+                                                          // Reading the access-control configuration
+                                                          // is refused in the community edition,
+                                                          // which has no role-based access control to
+                                                          // read. An unlicensed enterprise build
+                                                          // answers these: the rules are there and an
+                                                          // operator needs to see what a returning
+                                                          // license will enforce.
+                                                          AuthQuery::Action::SHOW_PRIVILEGES,
+                                                          AuthQuery::Action::SHOW_ROLE_FOR_USER,
+                                                          AuthQuery::Action::SHOW_USERS_FOR_ROLE,
+                                                          AuthQuery::Action::SHOW_DATABASE_PRIVILEGES,
+#endif
                                                           AuthQuery::Action::GRANT_DATABASE_TO_USER,
                                                           AuthQuery::Action::DENY_DATABASE_FROM_USER,
                                                           AuthQuery::Action::REVOKE_DATABASE_FROM_USER,
@@ -4189,12 +4202,12 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
   // This principal's rules exist and are not being applied, so the rows this query returns may be
   // ones it is denied. Said once in the session, on a query that could have been filtered.
   if (!license::global_license_checker.IsEnterpriseValidFast() && user_or_role && *user_or_role &&
-      user_or_role->HasFineGrainedConfiguration() && interpreter.TakeUnlicensedFgaWarning()) {
+      user_or_role->HasFineGrainedRestrictions() && interpreter.TakeUnlicensedFgaWarning()) {
     notifications->emplace_back(SeverityLevel::WARNING,
                                 NotificationCode::UNLICENSED_ENTERPRISE_FEATURE,
-                                "Fine-grained access control is not enforced without a valid enterprise license, so "
-                                "the rules granted to this user or role are not being applied and results are not "
-                                "filtered by them. Check your license status by running SHOW LICENSE INFO.");
+                                "Without a valid enterprise license, the label, edge-type and property rules this "
+                                "user or role carries are not being applied, so these results are not filtered by "
+                                "them. Check your license status by running SHOW LICENSE INFO.");
   }
 #endif
 
@@ -6074,9 +6087,9 @@ PreparedQuery PrepareAuthQuery(ParsedQuery parsed_query, bool in_explicit_transa
     if (kAccessControlShows.contains(auth_query->action_)) {
       notifications->emplace_back(SeverityLevel::WARNING,
                                   NotificationCode::UNLICENSED_ENTERPRISE_FEATURE,
-                                  "Fine-grained access control is not enforced without a valid enterprise license, so "
-                                  "the configuration shown is not being applied. Check your license status by running "
-                                  "SHOW LICENSE INFO.");
+                                  "Without a valid enterprise license, any label, edge-type or property rules shown "
+                                  "are not being applied. Role membership, the privileges a role carries and database "
+                                  "access still apply. Check your license status by running SHOW LICENSE INFO.");
     } else if (auth_query->action_ == AuthQuery::Action::CREATE_USER) {
       // Granting needs a license, so nothing can be granted here. Once one arrives, fine-grained
       // checks start applying and deny by default, which locks this user out until it is granted.
@@ -12184,6 +12197,9 @@ void Interpreter::SetUser(std::shared_ptr<QueryUserOrRole> user_or_role,
     user_resource_.reset();
   }
   ResetCachedFga();
+  // The warning is about this principal's rules, so the next one has not been told yet. A pooled
+  // connection logs one principal in after another on the same interpreter.
+  unlicensed_fga_warned_ = false;
   user_or_role_ = std::move(user_or_role);
   foreign_user_view_.store(user_or_role_, std::memory_order_release);
   RefreshLogUser();
@@ -12213,6 +12229,7 @@ void Interpreter::ResetUser() {
   foreign_session_view_.store(nullptr, std::memory_order_release);
   session_log_ctx_.ClearUser();
 #ifdef MG_ENTERPRISE
+  unlicensed_fga_warned_ = false;
   if (user_resource_) {
     user_resource_->DecrementSessions();
     user_resource_.reset();

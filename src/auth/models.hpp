@@ -401,6 +401,13 @@ class FineGrainedAccessPermissions final {
   /// True when nothing has ever been granted or denied here, so there is no rule to apply.
   bool IsUnconfigured() const { return rules_.empty() && !global_grants_.has_value() && !global_denies_.has_value(); }
 
+  /// True when `all` is granted globally with nothing denied and no rule narrowing it, so this set
+  /// withholds nothing. Pass the full permission mask for the kind of entity it covers.
+  bool IsUnrestricted(FineGrainedPermission all) const {
+    return rules_.empty() && !global_denies_.has_value() && global_grants_.has_value() &&
+           static_cast<FineGrainedPermission>(*global_grants_) == all;
+  }
+
  private:
   std::optional<uint64_t> global_grants_;
   std::optional<uint64_t> global_denies_;

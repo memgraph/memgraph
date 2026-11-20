@@ -3106,6 +3106,13 @@ TYPED_TEST(InterpreterTest, AQueryWarnsOnceWhenThisUsersRulesAreNotApplied) {
   memgraph::glue::AuthChecker checker{&auth.auth};
   this->interpreter_context.auth = &auth.handler;
   this->interpreter_context.auth_checker = &checker;
+  // The fixture's interpreter outlives these locals, and the session principal holds a pointer into
+  // the auth store, so both have to be let go before the locals die.
+  memgraph::utils::OnScopeExit unplug([this] {
+    this->default_interpreter.interpreter.ResetUser();
+    this->interpreter_context.auth = nullptr;
+    this->interpreter_context.auth_checker = nullptr;
+  });
 
   auto user = *memgraph::auth::AddUser(*auth.auth.Lock(), "alice");
   user.permissions().Grant(memgraph::auth::Permission::MATCH);
@@ -3135,6 +3142,112 @@ TYPED_TEST(InterpreterTest, AQueryWarnsOnceWhenThisUsersRulesAreNotApplied) {
   const UnlicensedScope unlicensed;
   EXPECT_THAT(notifications("MATCH (n) RETURN n"), ::testing::Contains(unlicensed_warning));
   EXPECT_THAT(notifications("MATCH (n) RETURN n"), ::testing::Not(::testing::Contains(unlicensed_warning)));
+}
+
+// Rules that restrict nothing take nothing away when they stop being applied, so a principal granted
+// everything globally, which is what the first user and the admin role carry, must not be warned.
+TYPED_TEST(InterpreterTest, AQueryIsSilentWhenTheRulesRestrictNothing) {
+  memgraph::license::global_license_checker.EnableTesting();
+  AuthQueryHandlerFixture auth{this->data_directory / "auth_unrestricted"};
+  memgraph::glue::AuthChecker checker{&auth.auth};
+  this->interpreter_context.auth = &auth.handler;
+  this->interpreter_context.auth_checker = &checker;
+  memgraph::utils::OnScopeExit unplug([this] {
+    this->default_interpreter.interpreter.ResetUser();
+    this->interpreter_context.auth = nullptr;
+    this->interpreter_context.auth_checker = nullptr;
+  });
+
+  auto user = *memgraph::auth::AddUser(*auth.auth.Lock(), "root");
+  user.permissions().Grant(memgraph::auth::Permission::MATCH);
+  user.fine_grained_access_handler().label_permissions().GrantGlobal(memgraph::auth::kAllLabelPermissions);
+  auth.auth->SaveUser(user);
+  this->default_interpreter.interpreter.SetUser(checker.GenQueryUser("root", {}));
+
+  using CodeAndSeverity = std::pair<std::string, std::string>;
+  auto const notifications = [this](std::string const &query) {
+    auto [stream, qid] = this->Prepare(query);
+    this->Pull(&stream);
+    std::vector<CodeAndSeverity> result;
+    if (stream.GetSummary().contains("notifications")) {
+      for (auto const &notification : stream.GetSummary().at("notifications").ValueList()) {
+        auto const &map = notification.ValueMap();
+        result.emplace_back(map.at("code").ValueString(), map.at("severity").ValueString());
+      }
+    }
+    return result;
+  };
+
+  const UnlicensedScope unlicensed;
+  EXPECT_THAT(notifications("MATCH (n) RETURN n"),
+              ::testing::Not(::testing::Contains(CodeAndSeverity{"UnlicensedEnterpriseFeature", "WARNING"})));
+}
+
+// A pooled Bolt connection serves one principal after another, and the warning is per principal:
+// the second must not inherit the first one's "already told".
+TYPED_TEST(InterpreterTest, ASecondPrincipalOnTheSameSessionIsWarnedToo) {
+  memgraph::license::global_license_checker.EnableTesting();
+  AuthQueryHandlerFixture auth{this->data_directory / "auth_second_principal"};
+  memgraph::glue::AuthChecker checker{&auth.auth};
+  this->interpreter_context.auth = &auth.handler;
+  this->interpreter_context.auth_checker = &checker;
+  memgraph::utils::OnScopeExit unplug([this] {
+    this->default_interpreter.interpreter.ResetUser();
+    this->interpreter_context.auth = nullptr;
+    this->interpreter_context.auth_checker = nullptr;
+  });
+
+  for (auto const *name : {"alice", "bob"}) {
+    auto user = *memgraph::auth::AddUser(*auth.auth.Lock(), name);
+    user.permissions().Grant(memgraph::auth::Permission::MATCH);
+    user.fine_grained_access_handler().label_permissions().Deny({"Secret"}, memgraph::auth::kAllLabelPermissions);
+    auth.auth->SaveUser(user);
+  }
+
+  using CodeAndSeverity = std::pair<std::string, std::string>;
+  auto const notifications = [this](std::string const &query) {
+    auto [stream, qid] = this->Prepare(query);
+    this->Pull(&stream);
+    std::vector<CodeAndSeverity> result;
+    if (stream.GetSummary().contains("notifications")) {
+      for (auto const &notification : stream.GetSummary().at("notifications").ValueList()) {
+        auto const &map = notification.ValueMap();
+        result.emplace_back(map.at("code").ValueString(), map.at("severity").ValueString());
+      }
+    }
+    return result;
+  };
+
+  auto const unlicensed_warning = CodeAndSeverity{"UnlicensedEnterpriseFeature", "WARNING"};
+  const UnlicensedScope unlicensed;
+
+  this->default_interpreter.interpreter.SetUser(checker.GenQueryUser("alice", {}));
+  EXPECT_THAT(notifications("MATCH (n) RETURN n"), ::testing::Contains(unlicensed_warning));
+
+  this->default_interpreter.interpreter.SetUser(checker.GenQueryUser("bob", {}));
+  EXPECT_THAT(notifications("MATCH (n) RETURN n"), ::testing::Contains(unlicensed_warning));
+}
+
+// The rules a role owns have to be readable through the role, not only through a user that holds it,
+// or an audit of what a returning license will enforce misses whatever is configured role-side.
+TYPED_TEST(InterpreterTest, ShowPrivilegesForARoleReadsItsFineGrainedRulesWithoutLicense) {
+  memgraph::license::global_license_checker.EnableTesting();
+  AuthQueryHandlerFixture auth{this->data_directory / "auth_show_role_rules"};
+  this->interpreter_context.auth = &auth.handler;
+
+  this->default_interpreter.Interpret("CREATE ROLE analyst");
+  this->default_interpreter.Interpret("DENY READ ON NODES CONTAINING LABELS :Secret TO analyst");
+
+  const UnlicensedScope unlicensed;
+
+  auto [stream, qid] = this->Prepare("SHOW PRIVILEGES FOR analyst");
+  this->Pull(&stream);
+
+  EXPECT_TRUE(std::ranges::any_of(stream.GetResults(), [](auto const &row) {
+    return std::ranges::any_of(row, [](auto const &value) {
+      return value.IsString() && value.ValueString().find("Secret") != std::string::npos;
+    });
+  }));
 }
 
 TYPED_TEST(InterpreterTest, DenyDatabaseFromWarnsItIsDeprecated) {

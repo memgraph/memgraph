@@ -318,9 +318,6 @@ std::vector<std::vector<memgraph::query::TypedValue>> ShowFineGrainedUserPrivile
 
 std::vector<std::vector<memgraph::query::TypedValue>> ShowFineGrainedRolePrivileges(
     const std::optional<memgraph::auth::Role> &role, std::optional<std::string_view> db_name = std::nullopt) {
-  if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-    return {};
-  }
   const auto &label_permissions = role->GetFineGrainedAccessLabelPermissions(db_name);
   const auto &edge_type_permissions = role->GetFineGrainedAccessEdgeTypePermissions(db_name);
 
@@ -1107,10 +1104,8 @@ std::vector<std::vector<memgraph::query::TypedValue>> AuthQueryHandler::GetPrivi
     } else if (role) {
       grants = ShowRolePrivileges(role, db_name);
 #ifdef MG_ENTERPRISE
-      if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-        fine_grained_grants = ShowFineGrainedRolePrivileges(role, db_name);
-        fine_grained_grants.append_range(ShowPropertyPermissions(role->property_access_handler(), "ROLE"));
-      }
+      fine_grained_grants = ShowFineGrainedRolePrivileges(role, db_name);
+      fine_grained_grants.append_range(ShowPropertyPermissions(role->property_access_handler(), "ROLE"));
 #endif
     } else {
       throw memgraph::query::QueryRuntimeException("User or role '{}' doesn't exist.", user_or_role);

@@ -433,6 +433,8 @@ class Interpreter final {
 #ifdef MG_ENTERPRISE
   // Whether this session has already been told that its principal's fine-grained rules are not being
   // applied. Tagging every result would bury the warning that matters in one per row-returning query.
+  // Cleared whenever the principal changes. Spent at preparation, so a query that then fails carries
+  // the warning nowhere and the session is not told again until its principal changes.
   bool unlicensed_fga_warned_{false};
 #endif
   SessionInfo session_info_;
