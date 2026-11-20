@@ -1,0 +1,10 @@
+query: >
+  MATCH ()-[r:R]->(), (c:Node {id: 2}) WITH r, id(r) AS rid, c
+  CALL refactor.to(r, c) YIELD input, output, error
+  RETURN input = rid AS input_is_original, startNode(output).id AS from_id, endNode(output).id AS to_id, output.w AS w, error
+output:
+  - input_is_original: true
+    from_id: 0
+    to_id: 2
+    w: 1
+    error: null
