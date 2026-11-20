@@ -126,8 +126,9 @@ TYPED_TEST(PassOracle, OnePassAnswersWhatOneLookupAtATimeAnswers) {
   ASSERT_GT(shapes.size(), 100u) << "the shapes are generated, so a drop in their number is a defect in the generator";
 
   for (const auto &query : shapes) {
-    const auto lookups = this->RunWith(false, query);
-    const auto pass = this->RunWith(true, query);
+    using Arm = typename TestFixture::Arm;
+    const auto lookups = this->RunWith(Arm::kLookupAtATime, query);
+    const auto pass = this->RunWith(Arm::kOnePass, query);
 
     EXPECT_EQ(lookups.rows, pass.rows) << query;
     EXPECT_EQ(lookups.graph, pass.graph) << query;

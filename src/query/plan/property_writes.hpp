@@ -51,8 +51,6 @@ class PropertyWrites {
 
   void NoteEverything() { everything_ = true; }
 
-  [[nodiscard]] auto Nothing() const -> bool { return !everything_ && properties_.empty(); }
-
   [[nodiscard]] auto MayWrite(AstPropertyIndex property) const -> bool {
     return everything_ || std::ranges::find(properties_, property) != properties_.end();
   }
