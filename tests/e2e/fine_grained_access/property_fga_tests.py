@@ -363,5 +363,115 @@ def test_role_merge_deny_wins():
         common.execute_and_fetch_all(admin, "DROP ROLE role_b;")
 
 
+def run_with_roles(role_queries, query):
+    """Create roles from (name, [queries]) pairs, assign them all to user, and run query as user."""
+    admin = admin_cursor()
+    names = ", ".join(name for name, _ in role_queries)
+    try:
+        for name, queries in role_queries:
+            common.execute_and_fetch_all(admin, f"CREATE ROLE {name};")
+            for role_query in queries:
+                common.execute_and_fetch_all(admin, role_query)
+        common.execute_and_fetch_all(admin, f"GRANT ROLE {names} TO user;")
+        return common.execute_and_fetch_all(user_cursor(), query)
+    finally:
+        common.execute_and_fetch_all(admin, f"REVOKE ROLE {names} FROM user;")
+        for name, _ in role_queries:
+            common.execute_and_fetch_all(admin, f"DROP ROLE {name};")
+
+
+SALARY = "MATCH (n:Employee) RETURN n.salary AS salary;"
+GRANT_SALARY = "GRANT READ {salary} ON NODES CONTAINING LABELS :Employee TO ROLE "
+WEAK_DENY_SALARY = "WEAK DENY READ {salary} ON NODES CONTAINING LABELS :Employee TO ROLE "
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_role_merge_grant_overrides_weak_deny(reverse):
+    roles = [("worker", [WEAK_DENY_SALARY + "worker;"]), ("ceo", [GRANT_SALARY + "ceo;"])]
+    result = run_with_roles(roles[::-1] if reverse else roles, SALARY)
+    assert result == [(50000,)]
+
+
+@pytest.mark.parametrize(
+    "deny, grant, query, expected",
+    [
+        (
+            "WEAK DENY READ ON NODES CONTAINING LABELS :Employee TO ROLE worker;",
+            "GRANT READ ON NODES CONTAINING LABELS :Employee TO ROLE ceo;",
+            "MATCH (n:Employee) RETURN n.name;",
+            [("Alice",)],
+        ),
+        (
+            "WEAK DENY READ ON EDGES OF TYPE :WORKS_AT TO ROLE worker;",
+            "GRANT READ ON EDGES OF TYPE :WORKS_AT TO ROLE ceo;",
+            "MATCH ()-[r:WORKS_AT]->() RETURN r.start_date;",
+            [("2020-01-01",)],
+        ),
+    ],
+)
+def test_role_merge_grant_overrides_weak_deny_on_entities(deny, grant, query, expected):
+    assert run_with_roles([("worker", [deny])], query) == []
+    assert run_with_roles([("worker", [deny]), ("ceo", [grant])], query) == expected
+
+
+def test_role_merge_strong_deny_beats_grant_over_weak_deny():
+    result = run_with_roles(
+        [
+            ("worker", [WEAK_DENY_SALARY + "worker;"]),
+            ("ceo", [GRANT_SALARY + "ceo;"]),
+            ("auditor", ["STRONG DENY READ {salary} ON NODES CONTAINING LABELS :Employee TO ROLE auditor;"]),
+        ],
+        SALARY,
+    )
+    assert result == [(None,)]
+
+
+def test_role_merge_wildcard_grant_does_not_override_weak_deny():
+    result = run_with_roles(
+        [
+            ("worker", [WEAK_DENY_SALARY + "worker;"]),
+            ("ceo", ["GRANT READ {*} ON NODES CONTAINING LABELS :Employee TO ROLE ceo;"]),
+        ],
+        SALARY,
+    )
+    assert result == [(None,)]
+
+
+def test_role_merge_global_grant_overrides_global_weak_deny():
+    admin = admin_cursor()
+    try:
+        common.execute_and_fetch_all(admin, "CREATE USER roles_only IDENTIFIED BY 'test';")
+        common.execute_and_fetch_all(admin, "GRANT ALL PRIVILEGES TO roles_only;")
+        common.execute_and_fetch_all(admin, "GRANT DATABASE * TO roles_only;")
+        common.execute_and_fetch_all(admin, "CREATE ROLE worker;")
+        common.execute_and_fetch_all(admin, "WEAK DENY READ ON NODES CONTAINING LABELS * TO ROLE worker;")
+        common.execute_and_fetch_all(admin, "CREATE ROLE ceo;")
+        common.execute_and_fetch_all(
+            admin, "GRANT CREATE, READ, UPDATE, DELETE ON NODES CONTAINING LABELS * TO ROLE ceo;"
+        )
+        common.execute_and_fetch_all(admin, "GRANT CREATE, READ, UPDATE, DELETE ON EDGES OF TYPE * TO ROLE ceo;")
+        common.execute_and_fetch_all(admin, "GRANT ROLE worker, ceo TO roles_only;")
+        cursor = common.connect(username="roles_only", password="test").cursor()
+        assert common.execute_and_fetch_all(cursor, SALARY) == [(50000,)]
+    finally:
+        common.execute_and_fetch_all(admin, "DROP USER roles_only;")
+        common.execute_and_fetch_all(admin, "DROP ROLE worker;")
+        common.execute_and_fetch_all(admin, "DROP ROLE ceo;")
+
+
+def test_show_privileges_shows_weak_deny():
+    admin = admin_cursor()
+    try:
+        common.execute_and_fetch_all(admin, "CREATE ROLE worker;")
+        common.execute_and_fetch_all(admin, WEAK_DENY_SALARY + "worker;")
+        common.execute_and_fetch_all(admin, "DENY READ {ssn} ON NODES CONTAINING LABELS :Employee TO ROLE worker;")
+        rows = common.execute_and_fetch_all(admin, "SHOW PRIVILEGES FOR worker ON MAIN;")
+        effective = {privilege: level for privilege, level, _ in rows}
+        assert effective["READ {salary} ON NODES CONTAINING LABELS :Employee MATCHING ANY"] == "WEAK DENY"
+        assert effective["READ {ssn} ON NODES CONTAINING LABELS :Employee MATCHING ANY"] == "STRONG DENY"
+    finally:
+        common.execute_and_fetch_all(admin, "DROP ROLE worker;")
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))

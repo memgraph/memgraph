@@ -308,7 +308,7 @@ def execute_test(memgraph_binary, tester_binary, checker_binary):
                     expected = []
                     perms = [user_perm, role_perm] if mapped else [user_perm]
                     if "DENY" in perms:
-                        expected = ["MATCH", "DENY"]
+                        expected = ["MATCH", "STRONG DENY"]
                     elif "GRANT" in perms:
                         expected = ["MATCH", "GRANT"]
                     if len(expected) > 0:
@@ -359,7 +359,7 @@ def execute_test(memgraph_binary, tester_binary, checker_binary):
                     expected = []
                     perms = [user_perm, role1_perm, role2_perm]
                     if "DENY" in perms:
-                        expected = ["MATCH", "DENY"]
+                        expected = ["MATCH", "STRONG DENY"]
                     elif "GRANT" in perms:
                         expected = ["MATCH", "GRANT"]
                     if len(expected) > 0:

@@ -136,7 +136,8 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
           &edge_type_privileges
 #endif
       ,
-      auth::UserOrRoleType type, memgraph::auth::AuthTransaction *auth_tx, system::Transaction *system_tx) override;
+      auth::DenyStrength strength, auth::UserOrRoleType type, memgraph::auth::AuthTransaction *auth_tx,
+      system::Transaction *system_tx) override;
 
   void RevokePrivilege(
       const std::string &user_or_role, const std::vector<memgraph::query::AuthQuery::Privilege> &privileges
@@ -176,8 +177,8 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
   void DenyPropertyPermission(const std::string &user_or_role, const std::vector<std::string> &properties,
                               const std::vector<std::string> &entity_names, auth::PropertyEntityKind entity_kind,
                               auth::MatchingMode matching_mode, auth::UserOrRoleType type,
-                              auth::PropertyPermissionType perm_type, memgraph::auth::AuthTransaction *auth_tx,
-                              system::Transaction *system_tx) override;
+                              auth::PropertyPermissionType perm_type, auth::DenyStrength strength,
+                              memgraph::auth::AuthTransaction *auth_tx, system::Transaction *system_tx) override;
   void RevokePropertyPermission(const std::string &user_or_role, const std::vector<std::string> &properties,
                                 const std::vector<std::string> &entity_names, auth::PropertyEntityKind entity_kind,
                                 auth::MatchingMode matching_mode, auth::UserOrRoleType type,

@@ -66,7 +66,7 @@ def test_lba_procedures_show_privileges_first_user():
         ("READ ON NODES CONTAINING LABELS :Label1 MATCHING ANY", "GRANT", "LABEL PERMISSION GRANTED TO USER"),
         (
             "CREATE, READ, UPDATE(SET LABEL, REMOVE LABEL, SET PROPERTY, CREATE EDGE, DELETE EDGE), DELETE ON NODES CONTAINING LABELS :Label2 MATCHING ANY",
-            "DENY",
+            "STRONG DENY",
             "LABEL PERMISSION DENIED TO USER",
         ),
         (
@@ -83,7 +83,7 @@ def test_lba_procedures_show_privileges_first_user():
         ),
         (
             "CREATE, READ, UPDATE(SET LABEL, REMOVE LABEL, SET PROPERTY, CREATE EDGE, DELETE EDGE), DELETE ON NODES CONTAINING LABELS :Label7 MATCHING ANY",
-            "DENY",
+            "STRONG DENY",
             "LABEL PERMISSION DENIED TO USER",
         ),
     ]
@@ -103,7 +103,7 @@ def test_lba_procedures_show_privileges_second_user():
         ("READ ON NODES CONTAINING LABELS :Label1 MATCHING ANY", "GRANT", "LABEL PERMISSION GRANTED TO USER"),
         (
             "CREATE, READ, UPDATE(SET LABEL, REMOVE LABEL, SET PROPERTY, CREATE EDGE, DELETE EDGE), DELETE ON NODES CONTAINING LABELS :Label2 MATCHING ANY",
-            "DENY",
+            "STRONG DENY",
             "LABEL PERMISSION DENIED TO USER",
         ),
         (
@@ -120,7 +120,7 @@ def test_lba_procedures_show_privileges_second_user():
         ),
         (
             "CREATE, READ, UPDATE(SET LABEL, REMOVE LABEL, SET PROPERTY, CREATE EDGE, DELETE EDGE), DELETE ON NODES CONTAINING LABELS :Label7 MATCHING ANY",
-            "DENY",
+            "STRONG DENY",
             "LABEL PERMISSION DENIED TO USER",
         ),
     ]

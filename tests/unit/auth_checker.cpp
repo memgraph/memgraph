@@ -261,6 +261,23 @@ TYPED_TEST(FineGrainedAuthCheckerFixture, GlobalGrantWithSpecificLabelGrantOnlyR
       this->v3, memgraph::storage::View::NEW, memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE));
 }
 
+TYPED_TEST(FineGrainedAuthCheckerFixture, GlobalGrantOverridingWeakDenyNeedsNoAuthChecker) {
+  memgraph::auth::Role role{"granter"};
+  role.fine_grained_access_handler().label_permissions().GrantGlobal(memgraph::auth::kAllLabelPermissions);
+  role.fine_grained_access_handler().edge_type_permissions().GrantGlobal(memgraph::auth::kAllEdgeTypePermissions);
+  memgraph::auth::User user{"test"};
+  user.fine_grained_access_handler().label_permissions().DenyGlobal(memgraph::auth::FineGrainedPermission::READ,
+                                                                    memgraph::auth::DenyStrength::WEAK);
+  user.fine_grained_access_handler().edge_type_permissions().DenyGlobal(memgraph::auth::FineGrainedPermission::READ,
+                                                                        memgraph::auth::DenyStrength::WEAK);
+  user.AddRole(role);
+
+  memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba};
+
+  ASSERT_TRUE(auth_checker.HasUnrestrictedAccessToVertices());
+  ASSERT_TRUE(auth_checker.HasUnrestrictedAccessToEdges());
+}
+
 TYPED_TEST(FineGrainedAuthCheckerFixture, GlobalGrantWithSpecificEdgeTypeDenyRequiresAuthChecker) {
   memgraph::auth::User user{"test"};
   user.fine_grained_access_handler().edge_type_permissions().GrantGlobal(memgraph::auth::kAllEdgeTypePermissions);
