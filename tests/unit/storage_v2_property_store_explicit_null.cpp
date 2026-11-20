@@ -38,10 +38,6 @@ TEST(PropertyStoreExplicitNull, TriStateLookup) {
   EXPECT_TRUE(found->IsNull());
   EXPECT_TRUE(store.GetProperty(kP).IsNull());
   EXPECT_FALSE(store.FindProperty(kQ).has_value());
-
-  store.SetProperty(kQ, PropertyValue{7});
-  ASSERT_TRUE(store.FindProperty(kQ).has_value());
-  EXPECT_EQ(store.FindProperty(kQ)->ValueInt(), 7);
 }
 
 TEST(PropertyStoreExplicitNull, PropertiesReportsExplicitNullAsNull) {

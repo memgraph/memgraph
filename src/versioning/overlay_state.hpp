@@ -96,15 +96,6 @@ inline bool IsDeleted(const storage::Transaction *transaction, const storage::Ed
   return deleted;
 }
 
-// The overlay's latest stored state of `key` (this transaction's writes and everything committed): nullopt when absent,
-// a Null value for an explicit null, otherwise the value. Older snapshots go through the stock MVCC readers.
-template <typename Overlay>
-  requires(std::is_same_v<Overlay, storage::Vertex> || std::is_same_v<Overlay, storage::Edge>)
-std::optional<storage::PropertyValue> FindProperty(const Overlay &overlay, storage::PropertyId key) {
-  auto const guard = std::shared_lock{overlay.lock};
-  return overlay.properties.FindProperty(key);
-}
-
 namespace detail {
 
 // The overlay's state of `key` before a write: Null for absent and for an explicit null alike, as stock reads it.

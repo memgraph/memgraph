@@ -14,6 +14,8 @@
 
 #include <cstdint>
 #include <memory>
+#include <optional>
+#include <utility>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -173,31 +175,33 @@ TEST_F(LinkEdgeMarkerTest, AMarkerIsVisibleToTheWritersOwnCachedExpansion) {
   writer->Abort();
 }
 
-TEST_F(LinkEdgeMarkerTest, AnAbortRemovesTheEntriesAndLeavesTheEdgeCountAsItWas) {
-  auto const before = storage->edge_count_.load();
-  {
-    auto writer = Writer();
-    ASSERT_TRUE(LinkBoth(*writer));
-    // Two out-entries and two in-entries: the abort must add back exactly one per out-entry, none per in-entry.
-    ASSERT_TRUE(Link(*writer, ms::EdgeDirection::OUT, v, u));
-    ASSERT_TRUE(Link(*writer, ms::EdgeDirection::IN, u, v));
-    EXPECT_EQ(storage->edge_count_.load(), before) << "a marker is no edge";
-    writer->Abort();
+// Abort adds back exactly one edge per out-entry and none per in-entry; a committed marker collected leaves it alone.
+TEST_F(LinkEdgeMarkerTest, ACompletedTransactionLeavesTheEdgeCountAsItWas) {
+  for (bool const commit : {false, true}) {
+    SCOPED_TRACE(commit);
+    auto const before = storage->edge_count_.load();
+    {
+      auto writer = Writer();
+      ASSERT_TRUE(LinkBoth(*writer));
+      if (!commit) {  // two out-entries and two in-entries
+        ASSERT_TRUE(Link(*writer, ms::EdgeDirection::OUT, v, u));
+        ASSERT_TRUE(Link(*writer, ms::EdgeDirection::IN, u, v));
+      }
+      EXPECT_EQ(storage->edge_count_.load(), before) << "a marker is no edge";
+      if (commit) {
+        Commit(*writer);
+      } else {
+        writer->Abort();
+      }
+    }
+    static_cast<ms::Storage &>(*storage).FreeMemory();
+    EXPECT_EQ(storage->edge_count_.load(), before);
+    if (!commit) {
+      auto reader = Reader(kReadCommitted);
+      EXPECT_EQ(Entries(*reader, u, ms::EdgeDirection::OUT, ms::View::NEW), 0U);
+      EXPECT_EQ(Entries(*reader, v, ms::EdgeDirection::IN, ms::View::NEW), 0U);
+    }
   }
-  EXPECT_EQ(storage->edge_count_.load(), before);
-  auto reader = Reader(kReadCommitted);
-  EXPECT_EQ(Entries(*reader, u, ms::EdgeDirection::OUT, ms::View::NEW), 0U);
-  EXPECT_EQ(Entries(*reader, v, ms::EdgeDirection::IN, ms::View::NEW), 0U);
-}
-
-TEST_F(LinkEdgeMarkerTest, ACommitThenCollectionLeavesTheEdgeCountAsItWas) {
-  auto const before = storage->edge_count_.load();
-  auto writer = Writer();
-  ASSERT_TRUE(LinkBoth(*writer));
-  Commit(*writer);
-  writer.reset();
-  static_cast<ms::Storage &>(*storage).FreeMemory();
-  EXPECT_EQ(storage->edge_count_.load(), before);
 }
 
 // OUT links, IN is refused by a concurrent writer of the other overlay: the transaction can only abort, balanced.
@@ -218,41 +222,33 @@ TEST_F(LinkEdgeMarkerTest, AHalfLinkedPairAbortsBalanced) {
   EXPECT_EQ(Entries(*reader, v, ms::EdgeDirection::IN, ms::View::NEW), 0U);
 }
 
-TEST_F(LinkEdgeMarkerTest, ASecondMarkerOnOneOverlayConflicts) {
-  auto first = Writer();
-  auto second = Writer();
-  ASSERT_TRUE(Link(*first, ms::EdgeDirection::OUT, u, v));
-  EXPECT_FALSE(Link(*second, ms::EdgeDirection::OUT, u, v));
-  EXPECT_TRUE(second->TransactionHasSerializationError());
-  second->Abort();
-  first->Abort();
-}
-
-TEST_F(LinkEdgeMarkerTest, AnEdgeCreatedOnAnOverlayConflictsWithAnInFlightMarkerInEitherOrder) {
-  auto const create = [&](ms::Storage::Accessor &acc) {
+// A marker on an overlay conflicts with an in-flight marker or edge creation on it, whichever comes first.
+TEST_F(LinkEdgeMarkerTest, AMarkerConflictsWithAnInFlightMarkerOrEdgeCreationInEitherOrder) {
+  enum class Op { kMarker, kCreate };
+  // nullopt on success; a marker refusal is reported through the transaction's serialization-error flag.
+  auto const run = [&](Op op, ms::Storage::Accessor &acc) -> std::optional<ms::Error> {
+    if (op == Op::kMarker) {
+      if (Link(acc, ms::EdgeDirection::OUT, u, v)) return std::nullopt;
+      return acc.TransactionHasSerializationError() ? ms::Error::SERIALIZATION_ERROR : ms::Error::NONEXISTENT_OBJECT;
+    }
     auto from = acc.FindVertex(u, ms::View::NEW);
     auto to = acc.FindVertex(v, ms::View::NEW);
     EXPECT_TRUE(from.has_value() && to.has_value());
-    return static_cast<ms::ReplicationAccessor &>(acc).CreateEdgeEx(&*from, &*to, type, ms::Gid::FromUint(9000));
+    auto created =
+        static_cast<ms::ReplicationAccessor &>(acc).CreateEdgeEx(&*from, &*to, type, ms::Gid::FromUint(9000));
+    if (created.has_value()) return std::nullopt;
+    return created.error();
   };
-  {
-    auto marker = Writer();
-    auto creator = Writer();
-    ASSERT_TRUE(Link(*marker, ms::EdgeDirection::OUT, u, v));
-    auto created = create(*creator);
-    ASSERT_FALSE(created.has_value());
-    EXPECT_EQ(created.error(), ms::Error::SERIALIZATION_ERROR);
-    creator->Abort();
-    marker->Abort();
-  }
-  {
-    auto marker = Writer();
-    auto creator = Writer();
-    ASSERT_TRUE(create(*creator).has_value());
-    EXPECT_FALSE(Link(*marker, ms::EdgeDirection::OUT, u, v));
-    EXPECT_TRUE(marker->TransactionHasSerializationError());
-    marker->Abort();
-    creator->Abort();
+  for (auto const [first_op, second_op] : {std::pair{Op::kMarker, Op::kMarker},
+                                           std::pair{Op::kMarker, Op::kCreate},
+                                           std::pair{Op::kCreate, Op::kMarker}}) {
+    SCOPED_TRACE(testing::Message() << static_cast<int>(first_op) << "," << static_cast<int>(second_op));
+    auto first = Writer();
+    auto second = Writer();
+    ASSERT_FALSE(run(first_op, *first).has_value());
+    EXPECT_EQ(run(second_op, *second), ms::Error::SERIALIZATION_ERROR);
+    second->Abort();
+    first->Abort();
   }
 }
 
