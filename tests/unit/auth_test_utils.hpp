@@ -18,9 +18,11 @@
 #include "auth/models.hpp"
 #include "license/license.hpp"
 
-/// Test-only: drops the license for the duration of a scope and puts back what was there. Suites
-/// share one process and several turn the license on, so leaving it off would decide the outcome of
-/// whatever runs next.
+/// Test-only: drops the license for the duration of a scope, and re-enables the testing license
+/// afterwards if one was active. Suites share one process and several turn the testing license on, so
+/// leaving it off would decide the outcome of whatever runs next. It does not preserve a license set
+/// from a real key: entering the scope clears the stored license info and any license memory limit,
+/// and leaving it installs the testing license instead.
 struct UnlicensedScope {
   UnlicensedScope() : was_valid_{memgraph::license::global_license_checker.IsEnterpriseValidFast()} {
     memgraph::license::global_license_checker.DisableTesting();

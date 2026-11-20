@@ -4200,8 +4200,12 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
 
 #ifdef MG_ENTERPRISE
   // This principal's rules exist and are not being applied, so the rows this query returns may be
-  // ones it is denied. Said once in the session, on a query that could have been filtered.
-  if (!license::global_license_checker.IsEnterpriseValidFast() && user_or_role && *user_or_role &&
+  // ones it is denied. Said once in the session, and only for a query that reaches the graph: a
+  // driver opens with a health check, which would otherwise swallow the warning before the session's
+  // first real query. The already-warned test comes before walking the principal's rules, which is
+  // the expensive part and would otherwise run on every query for the rest of the session.
+  if (!license::global_license_checker.IsEnterpriseValidFast() && interpreter.UnlicensedFgaWarningPending() &&
+      plan::PlanRequiresStorageAccess(plan->plan()) && user_or_role && *user_or_role &&
       user_or_role->HasFineGrainedRestrictions() && interpreter.TakeUnlicensedFgaWarning()) {
     notifications->emplace_back(SeverityLevel::WARNING,
                                 NotificationCode::UNLICENSED_ENTERPRISE_FEATURE,

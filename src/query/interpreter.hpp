@@ -655,8 +655,12 @@ class Interpreter final {
   // every check, so REVOKE/DROP ROLE downgrades long-lived sessions without a reconnect.
   uint64_t EffectiveCoordinatorPermissions() const;
 
-  // True the first time it is asked in a session, so the warning that this principal's fine-grained
-  // rules are not being applied is raised once rather than on every query.
+  // Whether the warning that this principal's fine-grained rules are not being applied is still
+  // owed. Cheap, so it can gate the work of deciding whether to raise it.
+  bool UnlicensedFgaWarningPending() const { return !unlicensed_fga_warned_; }
+
+  // True the first time it is asked for a principal, so that warning is raised once rather than on
+  // every query.
   bool TakeUnlicensedFgaWarning() { return !std::exchange(unlicensed_fga_warned_, true); }
 #else
   void SetUser(std::shared_ptr<QueryUserOrRole> user);

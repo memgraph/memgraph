@@ -3140,6 +3140,9 @@ TYPED_TEST(InterpreterTest, AQueryWarnsOnceWhenThisUsersRulesAreNotApplied) {
   EXPECT_THAT(notifications("MATCH (n) RETURN n"), ::testing::Not(::testing::Contains(unlicensed_warning)));
 
   const UnlicensedScope unlicensed;
+  // A query that never reaches the graph had nothing to filter, and must not spend the one warning:
+  // a driver opens the session with exactly this.
+  EXPECT_THAT(notifications("RETURN 1"), ::testing::Not(::testing::Contains(unlicensed_warning)));
   EXPECT_THAT(notifications("MATCH (n) RETURN n"), ::testing::Contains(unlicensed_warning));
   EXPECT_THAT(notifications("MATCH (n) RETURN n"), ::testing::Not(::testing::Contains(unlicensed_warning)));
 }
