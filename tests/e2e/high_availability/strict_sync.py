@@ -262,7 +262,7 @@ def setup_cluster(test_name, setup_queries):
 
     mg_sleep_and_assert_eval_function(instance_3_is_main, partial(show_instances, coord_cursor_3))
     instance_3_cursor = connect(host="localhost", port=7689).cursor()
-    mg_sleep_and_assert([("main",)], partial(show_replication_role, instance_3_cursor))
+    mg_sleep_and_assert([("main", True)], partial(show_replication_role, instance_3_cursor))
     return inner_instances_description
 
 

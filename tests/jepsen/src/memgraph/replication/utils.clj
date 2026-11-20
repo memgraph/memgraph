@@ -38,7 +38,7 @@
   (try
     (utils/with-session connection session
       (let [role-map (first (reduce conj [] (query/show-replication-role session)))
-            role (last (vec (apply concat role-map)))]
+            role (second (vec (apply concat role-map)))]
         (= role "replica")))
     (catch Exception _
       false)))

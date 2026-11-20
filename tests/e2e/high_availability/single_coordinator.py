@@ -1121,9 +1121,9 @@ def test_show_instances(test_name):
     ]
     mg_sleep_and_assert(expected_data, partial(show_instances, coord_cursor))
 
-    mg_sleep_and_assert([("replica",)], partial(show_replication_role, instance1_cursor))
-    mg_sleep_and_assert([("replica",)], partial(show_replication_role, instance2_cursor))
-    mg_sleep_and_assert([("main",)], partial(show_replication_role, instance3_cursor))
+    mg_sleep_and_assert([("replica", False)], partial(show_replication_role, instance1_cursor))
+    mg_sleep_and_assert([("replica", False)], partial(show_replication_role, instance2_cursor))
+    mg_sleep_and_assert([("main", True)], partial(show_replication_role, instance3_cursor))
 
     interactive_mg_runner.kill(memgraph_instances_description, "instance_1")
 
@@ -1286,7 +1286,7 @@ def test_replica_instance_restarts(test_name):
 
     instance1_cursor = connect(host="localhost", port=7688).cursor()
 
-    mg_sleep_and_assert([("replica",)], partial(show_replication_role, instance1_cursor))
+    mg_sleep_and_assert([("replica", False)], partial(show_replication_role, instance1_cursor))
 
 
 def test_automatic_failover_main_back_as_replica(test_name):
@@ -1318,7 +1318,7 @@ def test_automatic_failover_main_back_as_replica(test_name):
 
     instance3_cursor = connect(host="localhost", port=7687).cursor()
 
-    mg_sleep_and_assert([("replica",)], partial(show_replication_role, instance3_cursor))
+    mg_sleep_and_assert([("replica", False)], partial(show_replication_role, instance3_cursor))
 
 
 def test_automatic_failover_main_back_as_main(test_name):
@@ -1352,7 +1352,7 @@ def test_automatic_failover_main_back_as_main(test_name):
 
     instance3_cursor = connect(host="localhost", port=7687).cursor()
 
-    mg_sleep_and_assert([("main",)], partial(show_replication_role, instance3_cursor))
+    mg_sleep_and_assert([("main", True)], partial(show_replication_role, instance3_cursor))
 
     interactive_mg_runner.start(memgraph_instances_description, "instance_1")
     interactive_mg_runner.start(memgraph_instances_description, "instance_2")
@@ -1369,9 +1369,9 @@ def test_automatic_failover_main_back_as_main(test_name):
     instance1_cursor = connect(host="localhost", port=7688).cursor()
     instance2_cursor = connect(host="localhost", port=7689).cursor()
 
-    mg_sleep_and_assert([("replica",)], partial(show_replication_role, instance1_cursor))
-    mg_sleep_and_assert([("replica",)], partial(show_replication_role, instance2_cursor))
-    mg_sleep_and_assert([("main",)], partial(show_replication_role, instance3_cursor))
+    mg_sleep_and_assert([("replica", False)], partial(show_replication_role, instance1_cursor))
+    mg_sleep_and_assert([("replica", False)], partial(show_replication_role, instance2_cursor))
+    mg_sleep_and_assert([("main", True)], partial(show_replication_role, instance3_cursor))
 
 
 def test_disable_multiple_mains(test_name):

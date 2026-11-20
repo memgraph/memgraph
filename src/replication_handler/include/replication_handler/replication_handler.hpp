@@ -18,6 +18,7 @@
 
 #include "dbms/dbms_handler.hpp"
 #include "flags/experimental.hpp"
+#include "metrics/replication_health.hpp"
 #include "metrics/scoped_histogram_timer.hpp"
 #include "parameters/parameters.hpp"
 #include "replication/include/replication/state.hpp"
@@ -214,8 +215,12 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
   auto GetRole() const -> replication_coordination_glue::ReplicationRole override;
   bool IsMain() const override;
   bool IsReplica() const override;
+  bool IsMainWriteable() const override;
 
   auto ShowReplicas() const -> std::expected<query::ReplicasInfos, query::ShowReplicaError> override;
+
+  // Empty when the replication state, the dbms handler, or a replica's state is locked.
+  auto GetReplicationHealth() const -> std::optional<metrics::ReplicationHealth>;
 
   auto GetReplState() const { return repl_state_.ReadLock(); }
 
