@@ -18,6 +18,8 @@
 #include <prometheus/detail/builder.h>
 #include <array>
 
+#include <limits>
+#include <optional>
 #include <ranges>
 #include <unordered_map>
 #include <unordered_set>
@@ -26,7 +28,10 @@
 #include "dbms/constants.hpp"
 #include "flags/coord_flag_env_handler.hpp"
 #include "flags/general.hpp"
+#include "license/license.hpp"
+#include "utils/build_info.hpp"
 #include "utils/logging.hpp"
+#include "utils/memory_tracker.hpp"
 #include "utils/stat.hpp"
 #ifdef MG_ENTERPRISE
 #include "coordination/include/coordination/instance_status.hpp"
@@ -796,7 +801,26 @@ PrometheusMetrics::PrometheusMetrics()
       wal_throughput_family_{prometheus::BuildHistogram()
                                  .Name("memgraph_wal_throughput_bytes_per_second")
                                  .Help("Throughput of WAL files sent to each replica during recovery, in bytes/s")
-                                 .Register(registry_)}
+                                 .Register(registry_)},
+      build_info_family_{prometheus::BuildGauge()
+                             .Name("memgraph_build_info")
+                             .Help("Always 1; the labels describe the running build")
+                             .Register(registry_)},
+      memory_limit_family_{prometheus::BuildGauge()
+                               .Name("memgraph_memory_limit_bytes")
+                               .Help("Limit on total tracked memory, in bytes; a licence limit lowers it, except an "
+                                     "AI_PLATFORM licence, which limits graph memory instead")
+                               .Register(registry_)},
+      memory_tracked_family_{prometheus::BuildGauge()
+                                 .Name("memgraph_memory_tracked_bytes")
+                                 .Help("Memory tracked against the memory limit, in bytes")
+                                 .Register(registry_)},
+      license_expiry_family_{prometheus::BuildGauge()
+                                 .Name("memgraph_license_expiry_timestamp_seconds")
+                                 .Help("Unix time the licence expires; +Inf if it never expires")
+                                 .Register(registry_)},
+      memory_limit_bytes_{memory_limit_family_.Add({})},
+      memory_tracked_bytes_{memory_tracked_family_.Add({})}
 #ifdef MG_ENTERPRISE
       ,
       instance_up_family_{prometheus::BuildGauge()
@@ -829,6 +853,9 @@ PrometheusMetrics::PrometheusMetrics()
 
   global.memory_res_bytes = &memory_res_family_.Add(no_labels);
   global.peak_memory_res_bytes = &peak_memory_res_family_.Add(no_labels);
+
+  auto const build = utils::GetBuildInfo();
+  build_info_family_.Add({{"version", build.version}, {"build_type", build.build_name}}).Set(1);
 
   global.database_suspends = &database_suspends_family_.Add(no_labels);
   global.database_resumes = &database_resumes_family_.Add(no_labels);
@@ -1313,6 +1340,18 @@ void PrometheusMetrics::UpdateGauges() {
   }
 
   global.memory_res_bytes->Set(static_cast<double>(utils::GetMemoryRES()));
+  memory_limit_bytes_.Set(static_cast<double>(utils::total_memory_tracker.HardLimit()));
+  memory_tracked_bytes_.Set(static_cast<double>(utils::total_memory_tracker.Amount()));
+
+  auto const valid_until = license::global_license_checker.GetLicenseInfo().WithLock([](auto const &info) {
+    return info && info->is_valid ? std::optional{info->license.valid_until} : std::nullopt;
+  });
+  if (valid_until) {
+    license_expiry_family_.Add({}).Set(*valid_until == 0 ? std::numeric_limits<double>::infinity()
+                                                         : static_cast<double>(*valid_until));
+  } else if (license_expiry_family_.Has({})) {
+    license_expiry_family_.Remove(&license_expiry_family_.Add({}));
+  }
 
 #ifdef MG_ENTERPRISE
   std::vector<coordination::InstanceStatus> instances;
