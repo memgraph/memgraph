@@ -26,9 +26,9 @@ struct PropertyValueShape {
   /// The view the read was made at, which a reference has to be read at too for it to answer what
   /// the read would have.
   storage::View view;
-  /// Whether a value the read left as an index id should stay a reference to the record rather than
-  /// becoming the floats behind it.
-  bool references_wanted;
+  /// Whether the read was the compact one, whose values a reader has to turn into references to the
+  /// record rather than into the floats behind them.
+  bool compact;
   storage::NameIdMapper *names;
   utils::MemoryResource *memory;
 };
@@ -43,7 +43,7 @@ struct PropertyValueShape {
 template <class TRecordAccessor, class TPropertyValue>
 TypedValue PropertyAsValue(TPropertyValue &&raw, TRecordAccessor const &record, storage::PropertyId property,
                            PropertyValueShape const &shape) {
-  if (shape.references_wanted && raw.IsVectorIndexId()) {
+  if (shape.compact && raw.IsVectorIndexId()) {
     return TypedValue(VectorRefValue{record.impl_, property, shape.view}, shape.memory);
   }
   return TypedValue(std::forward<TPropertyValue>(raw), shape.names, shape.memory);

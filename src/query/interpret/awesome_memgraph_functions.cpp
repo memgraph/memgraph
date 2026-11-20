@@ -52,9 +52,9 @@ namespace memgraph::query {
 namespace {
 
 /// How a function's reads of a record's properties are to hand their values back.
-PropertyValueShape ValueShapeOf(const FunctionContext &ctx) {
+PropertyValueShape ValueShape(const FunctionContext &ctx) {
   return PropertyValueShape{.view = ctx.view,
-                            .references_wanted = ctx.lazy_vector_refs,
+                            .compact = ctx.lazy_vector_refs,
                             .names = ctx.db_accessor->GetStorageAccessor()->GetNameIdMapper(),
                             .memory = ctx.memory};
 }
@@ -488,7 +488,7 @@ TypedValue Properties(const TypedValue *args, int64_t nargs, const FunctionConte
           throw QueryRuntimeException("Unexpected error when getting properties.");
       }
     }
-    const auto shape = ValueShapeOf(ctx);
+    const auto shape = ValueShape(ctx);
     for (const auto &property : *maybe_props) {
       auto key = TypedValue::TString(dba->PropertyToName(property.first), ctx.memory);
       if (is_allowed(property.first)) {
@@ -1038,7 +1038,7 @@ TypedValue Values(const TypedValue *args, int64_t nargs, const FunctionContext &
           throw QueryRuntimeException("Unexpected error when getting keys.");
       }
     }
-    const auto shape = ValueShapeOf(ctx);
+    const auto shape = ValueShape(ctx);
     for (const auto &[key, value] : *maybe_props) {
       if (is_allowed(key)) values.emplace_back(PropertyAsValue(value, record_accessor, key, shape));
     }
