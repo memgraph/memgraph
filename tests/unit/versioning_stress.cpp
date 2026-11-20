@@ -1057,7 +1057,7 @@ TEST_P(VersioningStressTest, WritersReadersMainWritersAndLifecycleChurn) {
   // After the churn the server restarts: exactly {b} is back (no dropped tmp branch), and b and main replay unchanged.
   const auto branch_names = [&] {
     std::vector<std::string> names;
-    for (const auto &[name, info] : engine->db()->version_store()->List()) names.push_back(name);
+    for (const auto &listing : engine->db()->version_store()->List()) names.push_back(listing.name);
     std::ranges::sort(names);
     return names;
   };
