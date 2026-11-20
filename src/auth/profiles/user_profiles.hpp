@@ -13,6 +13,7 @@
 
 #include <fmt/format.h>
 #include <functional>
+#include <unordered_map>
 #include <unordered_set>
 #include <variant>
 
@@ -70,6 +71,9 @@ class UserProfiles {
   std::unordered_set<std::string> GetUsernames(std::string_view profile_name) const;
   std::optional<std::string> GetProfileForUsername(std::string_view username) const;
 
+  /// True while the user was found in several profiles at load and no admin action has resolved it since.
+  bool IsAmbiguous(std::string_view username) const;
+
   static std::optional<Profile> Merge(const std::optional<Profile> &user, const std::optional<Profile> &role);
 
  private:
@@ -99,9 +103,17 @@ class UserProfiles {
     [[nodiscard]] bool operator()(const std::string &lhs, const Profile &rhs) const { return lhs == rhs.name; }
   };
 
+  // Writes the profile, plus the stale spellings hidden from it at load so unrelated saves never rewrite them.
+  bool Persist(const Profile &profile);
+
+  // Drops the user's stale spellings and rewrites the profiles that held them. Caller holds the unique lock.
+  void Resolve(const std::string &folded);
+
   mutable utils::RWSpinLock mtx_;
   Repository *durability_;                                             // Reuse auth's durability
   std::unordered_set<Profile, profile_hash, profile_equal> profiles_;  // Local storage
+  // Raw spellings of users hidden from a profile at load because another profile won them; guarded by mtx_.
+  std::unordered_map<std::string, std::vector<std::string>> stale_;
 };
 
 }  // namespace memgraph::auth

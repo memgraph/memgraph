@@ -4097,6 +4097,50 @@ TEST_F(AuthWithStorage, SetProfile) {
   ASSERT_NO_THROW(auth->SetProfile("profile", "non_user"));
 }
 
+TEST_F(AuthWithStorage, SetProfileFoldsUsernameAcrossProfileOps) {
+  ASSERT_TRUE(auth->CreateProfile(
+      "profile", {{memgraph::auth::UserProfiles::Limits::kSessions, memgraph::auth::UserProfiles::limit_t{1UL}}}));
+  ASSERT_TRUE(auth->CreateProfile(
+      "other_profile",
+      {{memgraph::auth::UserProfiles::Limits::kSessions, memgraph::auth::UserProfiles::limit_t{2UL}}}));
+  ASSERT_TRUE(AddUser(*auth, "alice"));
+
+  ASSERT_TRUE(auth->SetProfile("profile", "Alice").has_value());
+  EXPECT_EQ(auth->GetProfileForUsername("alice"), "profile");
+  EXPECT_EQ(auth->GetProfileForUsername("ALICE"), "profile");
+  EXPECT_EQ(auth->GetProfileForUsername("Alice"), "profile");
+
+  ASSERT_TRUE(auth->SetProfile("other_profile", "ALICE").has_value());
+  EXPECT_TRUE(auth->GetUsernamesForProfile("profile").empty());
+  {
+    const auto members = auth->GetUsernamesForProfile("other_profile");
+    EXPECT_EQ(members.size(), 1U);
+    EXPECT_TRUE(members.contains("alice"));
+  }
+
+  auth->RevokeProfile("AliCe");
+  EXPECT_FALSE(auth->GetProfileForUsername("alice"));
+}
+
+TEST_F(AuthWithStorage, CreateOrUpdateProfileFoldsReplicaPayload) {
+  ASSERT_TRUE(auth->CreateOrUpdateProfile(
+      "limited",
+      {{memgraph::auth::UserProfiles::Limits::kSessions, memgraph::auth::UserProfiles::limit_t{1UL}}},
+      {"TestUser"}));
+  EXPECT_EQ(auth->GetProfileForUsername("testuser"), "limited");
+  EXPECT_EQ(auth->GetProfileForUsername("TestUser"), "limited");
+
+  ASSERT_TRUE(auth->CreateOrUpdateProfile(
+      "limited",
+      {{memgraph::auth::UserProfiles::Limits::kSessions, memgraph::auth::UserProfiles::limit_t{1UL}}},
+      {"TESTUSER"}));
+  {
+    const auto members = auth->GetUsernamesForProfile("limited");
+    EXPECT_EQ(members.size(), 1U);
+    EXPECT_TRUE(members.contains("testuser"));
+  }
+}
+
 // Role-based profile management is no longer supported in the new architecture
 
 TEST_F(AuthWithStorage, SetProfileUserWRole) {

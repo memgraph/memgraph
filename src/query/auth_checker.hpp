@@ -125,12 +125,21 @@ class FineGrainedAuthChecker {
 
 // single source of truth for "may this caller READ this property on this entity", reused by the
 // expression evaluator (masks the value to NULL) and the search procedures (drop the hit)
+
+// A vertex's permission is decided from its labels, and reading those takes the record's lock, so
+// a caller reading a set of properties of one record reads the labels once and asks here for each.
+inline bool PropertyReadAllowed(FineGrainedAuthChecker const *auth_checker, std::span<storage::LabelId const> labels,
+                                storage::PropertyId property) {
+  if (!auth_checker || !auth_checker->HasPropertyRestrictions()) return true;
+  return auth_checker->HasPropertyPermission(labels, property, AuthQuery::PropertyPermissionType::READ);
+}
+
 inline bool PropertyReadAllowed(FineGrainedAuthChecker const *auth_checker, VertexAccessor const &vertex,
                                 storage::View view, storage::PropertyId property) {
   if (!auth_checker || !auth_checker->HasPropertyRestrictions()) return true;
   const auto maybe_labels = vertex.Labels(view);
   if (!maybe_labels) return false;
-  return auth_checker->HasPropertyPermission(*maybe_labels, property, AuthQuery::PropertyPermissionType::READ);
+  return PropertyReadAllowed(auth_checker, *maybe_labels, property);
 }
 
 inline bool PropertyReadAllowed(FineGrainedAuthChecker const *auth_checker, EdgeAccessor const &edge,

@@ -9,7 +9,7 @@ CREATE (:__mg_vertex__:`has_coord` {__mg_id__: 6, `coord`: POINT({ x:0, y:1, sri
 CREATE (:__mg_vertex__:`has_coord` {__mg_id__: 7, `coord`: POINT({ x:0, y:1, z:2, srid: 9157 })});
 CREATE (:__mg_vertex__:`edge_index_from` {__mg_id__: 8});
 CREATE (:__mg_vertex__:`edge_index_to` {__mg_id__: 9});
-CREATE (:__mg_vertex__:`Label` {__mg_id__: 10, `embedding`: [1, 2, 3]});
+CREATE (:__mg_vertex__:`Label` {__mg_id__: 10, `embedding`: [1.0, 2.0, 3.0]});
 CREATE INDEX ON :__mg_vertex__(__mg_id__);
 MATCH (u:__mg_vertex__), (v:__mg_vertex__) WHERE u.__mg_id__ = 1 AND v.__mg_id__ = 0 CREATE (u)-[:`link` {`prop`: -1, `ext`: [false, {`k`: "l"}]}]->(v);
 MATCH (u:__mg_vertex__), (v:__mg_vertex__) WHERE u.__mg_id__ = 1 AND v.__mg_id__ = 1 CREATE (u)-[:`link` {`prop`: -1, `ext`: [false, {`k`: "l"}]}]->(v);

@@ -812,6 +812,35 @@ TEST_P(CypherMainVisitorTest, IntegerLiteral) {
   CheckRWType(query, kRead);
 }
 
+// Every form of index that names a set of properties refuses a repeat, and none of them refuses
+// two distinct ones.
+TEST_P(CypherMainVisitorTest, IndexPropertiesCannotRepeat) {
+  auto &ast_generator = *GetParam();
+
+  ASSERT_THROW(ast_generator.ParseQuery("CREATE INDEX ON :Label(prop, prop)"), SemanticException);
+  ASSERT_THROW(ast_generator.ParseQuery("CREATE TEXT INDEX name ON :Label(prop, prop)"), SemanticException);
+  ASSERT_THROW(ast_generator.ParseQuery("CREATE TEXT EDGE INDEX name ON :Type(prop, prop)"), SemanticException);
+
+  ASSERT_NO_THROW(ast_generator.ParseQuery("CREATE INDEX ON :Label(prop, other)"));
+  ASSERT_NO_THROW(ast_generator.ParseQuery("CREATE TEXT INDEX name ON :Label(prop, other)"));
+  ASSERT_NO_THROW(ast_generator.ParseQuery("CREATE TEXT EDGE INDEX name ON :Type(prop, other)"));
+}
+
+// A path into a property is named twice only when every step matches, so two paths through one
+// outer property are distinct and allowed. A path that is a prefix of another is not: the shorter
+// one already indexes everything under it.
+TEST_P(CypherMainVisitorTest, NestedIndexPropertiesCannotRepeatOrNest) {
+  auto &ast_generator = *GetParam();
+
+  ASSERT_NO_THROW(ast_generator.ParseQuery("CREATE INDEX ON :Label(prop.inner, prop.other)"));
+  ASSERT_NO_THROW(ast_generator.ParseQuery("CREATE INDEX ON :Label(one.inner, two.inner)"));
+  ASSERT_NO_THROW(ast_generator.ParseQuery("CREATE INDEX ON :Label(prop, other.inner)"));
+  ASSERT_NO_THROW(ast_generator.ParseQuery("CREATE INDEX ON :Label(prop.a.b, prop.a.c)"));
+
+  ASSERT_THROW(ast_generator.ParseQuery("CREATE INDEX ON :Label(prop.inner, prop.inner)"), SemanticException);
+  ASSERT_THROW(ast_generator.ParseQuery("CREATE INDEX ON :Label(prop, prop.inner)"), SemanticException);
+}
+
 TEST_P(CypherMainVisitorTest, IntegerLiteralTooLarge) {
   auto &ast_generator = *GetParam();
   ASSERT_THROW(ast_generator.ParseQuery("RETURN 10000000000000000000000000"), SemanticException);
@@ -2411,6 +2440,33 @@ TEST_P(CypherMainVisitorTest, WithAnonymousVariableCapture) {
   CheckRWType(query, kRead);
 }
 
+TEST_P(CypherMainVisitorTest, MatchAfterOptionalMatch) {
+  auto &ast_generator = *GetParam();
+  CypherQuery *query = nullptr;
+  ASSERT_NO_THROW(
+      query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("OPTIONAL MATCH (n) MATCH (n)-[r]->(m) RETURN m")));
+  ASSERT_TRUE(query);
+  const auto &clauses = query->single_query_->clauses_;
+  ASSERT_EQ(clauses.size(), 3U);
+  auto *optional_match = dynamic_cast<Match *>(clauses[0]);
+  auto *match = dynamic_cast<Match *>(clauses[1]);
+  ASSERT_TRUE(optional_match);
+  ASSERT_TRUE(match);
+  EXPECT_TRUE(optional_match->optional_);
+  EXPECT_FALSE(match->optional_);
+  EXPECT_NO_THROW(ast_generator.ParseQuery(
+      "OPTIONAL MATCH (n) MATCH (m) RETURN m UNION ALL OPTIONAL MATCH (n) MATCH (m) RETURN m"));
+
+  // Any clause between the pair is accepted, not only WITH.
+  for (const auto *between : {"UNWIND [1] AS x",
+                              "CALL () { RETURN 1 AS one }",
+                              "CALL mg.procedures() YIELD name",
+                              R"(LOAD CSV FROM "file.csv" WITH HEADER AS row)"}) {
+    EXPECT_NO_THROW(ast_generator.ParseQuery(fmt::format("OPTIONAL MATCH (n) {} MATCH (m) RETURN n, m", between)))
+        << between;
+  }
+}
+
 TEST_P(CypherMainVisitorTest, ClausesOrdering) {
   // Obviously some of the ridiculous combinations don't fail here, but they
   // will fail in semantic analysis or they make perfect sense as a part of
@@ -2424,7 +2480,8 @@ TEST_P(CypherMainVisitorTest, ClausesOrdering) {
   ASSERT_THROW(ast_generator.ParseQuery("RETURN 1 WITH n AS m RETURN 1"), SemanticException);
   ASSERT_THROW(ast_generator.ParseQuery("RETURN 1 AS n UNWIND n AS x RETURN x"), SemanticException);
 
-  ASSERT_THROW(ast_generator.ParseQuery("OPTIONAL MATCH (n) MATCH (m) RETURN n, m"), SemanticException);
+  EXPECT_THAT([&] { ast_generator.ParseQuery("OPTIONAL MATCH (n) CREATE (m) MATCH (k) RETURN k"); },
+              testing::ThrowsMessage<SemanticException>(HasSubstr("after an update")));
 
   CheckRWType(ast_generator.ParseQuery("OPTIONAL MATCH (n) WITH n MATCH (m) RETURN n, m"), kRead);
   CheckRWType(ast_generator.ParseQuery("OPTIONAL MATCH (n) OPTIONAL MATCH (m) RETURN n, m"), kRead);

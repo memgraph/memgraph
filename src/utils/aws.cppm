@@ -28,6 +28,7 @@ module;
 #include "requests/requests.hpp"
 #include "spdlog/spdlog.h"
 #include "utils/counter.hpp"
+#include "utils/memory_tracker.hpp"
 
 export module memgraph.utils.aws;
 
@@ -151,7 +152,12 @@ class GlobalS3APIManager {
   }
 
  private:
-  GlobalS3APIManager() { Aws::InitAPI(options); }
+  // InitAPI marks the SDK as initialised before setting it up, so a memory limit exception part way through would
+  // leave it half set up for the rest of the process.
+  GlobalS3APIManager() {
+    const MemoryTracker::OutOfMemoryExceptionBlocker oom_blocker;
+    Aws::InitAPI(options);
+  }
 
   ~GlobalS3APIManager() { Aws::ShutdownAPI(options); }
 

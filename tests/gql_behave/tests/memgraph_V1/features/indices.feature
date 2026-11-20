@@ -300,10 +300,7 @@ Feature: Indices
 
     Scenario: A correlated pattern comprehension over an edge property returns the unindexed result
         Given an empty graph
-        And having executed:
-            """
-            CREATE EDGE INDEX ON :E(w);
-            """
+        And with new edge type index :E(w)
         And having executed:
             """
             CREATE (a:L {w: 1}), (b:L {w: 2})

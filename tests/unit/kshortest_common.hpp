@@ -1304,7 +1304,7 @@ class Database {
         {"null",
          PV(),
          "The weight lambda of a KSHORTEST path expansion must not evaluate to null. Give every relationship a "
-         "weight, or filter the ones without one out. If the lambda is a v3.13 filter: " +
+         "weight, or filter the ones without one out. If the lambda is a filter from Memgraph 3.13 or 3.14: " +
              hint},
         {"negative", PV(int64_t{-1}), "Weight must be non-negative, got -1."},
         {"NaN", PV(std::nan("")), "The weight lambda of a KSHORTEST path expansion must not evaluate to NaN."},
@@ -1388,7 +1388,8 @@ class Database {
       ExpectRuntimeError(
           [&] { RunWeighted(db, dba, context, query(0, 3, constant)); },
           fmt::format("The weight lambda of a KSHORTEST path expansion must not evaluate to null. Give every "
-                      "relationship a weight, or filter the ones without one out. If the lambda is a v3.13 filter: {}",
+                      "relationship a weight, or filter the ones without one out. If the lambda is a filter from "
+                      "Memgraph 3.13 or 3.14: {}",
                       memgraph::query::EdgeAtom::kKShortestWeightFirstHint));
     }
     dba.Abort();
