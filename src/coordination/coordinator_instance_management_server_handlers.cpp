@@ -70,8 +70,7 @@ void CoordinatorInstanceManagementServerHandlers::Register(CoordinatorInstanceMa
           uint64_t const request_version,
           slk::Reader *req_reader,
           slk::Builder *res_builder) -> void {
-        CoordinatorInstanceManagementServerHandlers::FwdRequestHandler<UnregisterInstanceRpc,
-                                                                       UnregisterInstanceCoordinatorStatus>(
+        CoordinatorInstanceManagementServerHandlers::FwdRequestHandler<UnregisterInstanceRpc>(
             [&coordinator_instance](std::string_view instance_name) -> UnregisterInstanceCoordinatorStatus {
               return coordinator_instance.UnregisterReplicationInstance(instance_name);
             },
@@ -85,8 +84,7 @@ void CoordinatorInstanceManagementServerHandlers::Register(CoordinatorInstanceMa
           uint64_t const request_version,
           slk::Reader *req_reader,
           slk::Builder *res_builder) -> void {
-        CoordinatorInstanceManagementServerHandlers::FwdRequestHandler<SetInstanceToMainRpc,
-                                                                       SetInstanceToMainCoordinatorStatus>(
+        CoordinatorInstanceManagementServerHandlers::FwdRequestHandler<SetInstanceToMainRpc>(
             [&coordinator_instance](std::string_view new_main_name) -> SetInstanceToMainCoordinatorStatus {
               return coordinator_instance.SetReplicationInstanceToMain(new_main_name);
             },
@@ -299,6 +297,20 @@ void CoordinatorInstanceManagementServerHandlers::Register(CoordinatorInstanceMa
         req_reader,
         res_builder);
   });
+
+  server.Register<SetPrimaryRegionRpc>(
+      [&](std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+          uint64_t const request_version,
+          slk::Reader *req_reader,
+          slk::Builder *res_builder) -> void {
+        CoordinatorInstanceManagementServerHandlers::FwdRequestHandler<SetPrimaryRegionRpc>(
+            [&coordinator_instance](std::string_view region_name) -> SetPrimaryRegionStatus {
+              return coordinator_instance.SetPrimaryRegion(region_name);
+            },
+            request_version,
+            req_reader,
+            res_builder);
+      });
 
   server.Register<ShowRegionInfoRpc>(
       [&](std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,

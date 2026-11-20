@@ -200,6 +200,9 @@ class CoordinatorQueryHandler {
   /// @throw QueryRuntimeException if an error occurred.
   virtual void DropRegion(std::string_view region_name) = 0;
 
+  /// @throw QueryRuntimeException if an error occurred.
+  virtual void SetPrimaryRegion(std::string_view region_name) = 0;
+
   /// nullopt if the leader couldn't be reached.
   virtual std::optional<std::vector<coordination::RegionInfo>> ShowRegionInfo() = 0;
 

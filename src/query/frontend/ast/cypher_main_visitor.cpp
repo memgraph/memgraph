@@ -1233,6 +1233,16 @@ antlrcpp::Any CypherMainVisitor::visitDropRegion(MemgraphCypher::DropRegionConte
   return coordinator_query;
 }
 
+antlrcpp::Any CypherMainVisitor::visitSetPrimaryRegion(MemgraphCypher::SetPrimaryRegionContext *ctx) {
+  auto *coordinator_query = storage_->Create<CoordinatorQuery>();
+  coordinator_query->action_ = CoordinatorQuery::Action::SET_PRIMARY_REGION;
+  if (!ctx->regionName->StringLiteral()) {
+    throw SemanticException("Region name should be a string literal");
+  }
+  coordinator_query->region_name_ = std::any_cast<Expression *>(ctx->regionName->accept(this));
+  return coordinator_query;
+}
+
 antlrcpp::Any CypherMainVisitor::visitShowRegionInfo(MemgraphCypher::ShowRegionInfoContext * /*ctx*/) {
   auto *coordinator_query = storage_->Create<CoordinatorQuery>();
   coordinator_query->action_ = CoordinatorQuery::Action::SHOW_REGION_INFO;

@@ -96,9 +96,19 @@ SYNC default), as today. UPDATE CONFIG can add, change, or remove (`"region": nu
 
 - Every registered instance must have a region, otherwise the query fails with `INSTANCES_WITHOUT_REGION_EXIST`.
 - The target region must contain at least one instance.
-- In a single Raft entry the coordinator sets `primary_region` and clears every instance's stored replication mode.
+- In a single Raft entry the coordinator sets `primary_region` and stores every instance's resolved replication mode.
 - No RPCs are sent by the query itself. The reconciliation loop converges the cluster from the next cycle on.
 - There is no way back to a cluster without a primary region.
+
+Upgrading a running single-region cluster must stop writes around the switch. The switch rewrites stored modes before
+the main applies them, and failover trusts the stored mode, so a crash in between could promote a replica that misses
+acknowledged commits. With no writes and every replica caught up, any failover candidate has every commit:
+
+1. `SET COORDINATOR SETTING 'global_read_only' TO 'true'`
+2. Wait until every replica has caught up with the main.
+3. `SET '<region>' AS PRIMARY REGION`
+4. Wait until `SHOW REPLICAS` on the main shows the resolved modes.
+5. `SET COORDINATOR SETTING 'global_read_only' TO 'false'`
 
 ### After the switch (cross-region mode)
 
@@ -107,7 +117,7 @@ SYNC default), as today. UPDATE CONFIG can add, change, or remove (`"region": nu
 - Unregistering the last instance of the primary region is rejected.
 - Moving the last instance out of the primary region with UPDATE CONFIG is rejected.
 - Removing an instance's region is rejected.
-- Further `SET ... AS PRIMARY REGION` calls only write to Raft.
+- Further `SET ... AS PRIMARY REGION` calls only write to Raft: the new primary region and the re-resolved modes.
 
 ### Shrinking to a single region
 
@@ -123,7 +133,7 @@ The result is a cross-region cluster with one region, which behaves like a singl
 Once a primary region is set, the leader's reconciliation loop (the instance success/fail callbacks) enforces:
 
 1. **Resolved replica modes.** A replica in the primary region uses `region_replication_mode`; any other replica uses
-   ASYNC. The coordinator always sends concrete, resolved modes to data instances.
+   ASYNC. The stored mode of every instance is kept resolved, so the coordinator sends it as is.
 2. **Bootstrap.** If there is no current main, the most up-to-date alive instance in the primary region is promoted.
 3. **Main placement.** If the main is outside the primary region, the loop performs an unplanned failover restricted to
    primary-region candidates. Data loss within the configured lag is accepted. `max_failover_replica_lag` is respected:
@@ -145,16 +155,18 @@ Once a primary region is set, the leader's reconciliation loop (the instance suc
 **`DataInstanceConfig`.** Gains `std::optional<std::string> region`, next to the other operator-supplied settings that
 REGISTER sets and UPDATE CONFIG edits. Serialized to JSON only when set; a missing key reads back as `nullopt`.
 
-**`ReplicationClientInfo::replication_mode`.** Becomes `std::optional<ReplicationMode>` everywhere: Raft JSON and the
-wire. Stored as `nullopt` for every instance after the switch. The registration-time SYNC/STRICT_SYNC mixing check does
-not apply to instances without a stored mode.
+**`ReplicationClientInfo::replication_mode`.** Stays a concrete `ReplicationMode`. In cross-region mode the stored mode
+is the resolved one, rewritten by one resolution function in the same Raft entry as every write it depends on: each
+`SET ... AS PRIMARY REGION` (all instances), REGISTER INSTANCE (the new instance), an UPDATE CONFIG region change (that
+instance), and a `region_replication_mode` change (every primary-region instance). Explicit modes are rejected in
+cross-region mode, so the registration-time SYNC/STRICT_SYNC mixing check always passes there. REGISTER INSTANCE sends
+SYNC when no mode is named, so in cross-region mode any other mode means one was named.
 
-**RPC versioning.** `DemoteMainToReplicaRpc`, `RegisterReplicaOnMainRpc` and `PromoteToMainRpc` get new versions
-carrying the optional mode, with `Upgrade`/`Downgrade`. `Downgrade()` maps `nullopt` to ASYNC. On a data instance,
-receiving `nullopt` in the register-replica path (`DoRegisterReplica`) is a hard failure: log and fail the RPC.
+**RPC versioning.** The data-instance RPCs keep their payloads, since they always carry a concrete mode.
 `StateCheckRpc`'s `InstanceState` gets a new version reporting each registered replica's mode. The
-coordinator-to-coordinator forwards `RegisterInstanceRpc` (data instance config with region) and `UpdateConfigRpc`
-(optional bolt endpoint and optional region) get a new version whose response carries the leader's exact status. All
+coordinator-to-coordinator forwards `RegisterInstanceRpc` (data instance config with region), `UpdateConfigRpc`
+(optional bolt endpoint and optional region), `UnregisterInstanceRpc` and `SetInstanceToMainRpc` get a new version whose
+response carries the leader's exact status. All
 slices ship together, so each RPC is bumped at most once relative to master; a later slice that changes an already
 bumped RPC edits that new version instead of adding another.
 
@@ -163,7 +175,7 @@ bumped RPC edits that new version instead of adding another.
 equality, JSON, the state-machine serialization, and the Raft-state getters. Defaults when absent from older logs:
 no regions, no primary region, SYNC, false.
 
-**Atomic Raft entries.** The switch (set primary region + clear all modes) is a single Raft entry. Unregistering and
+**Atomic Raft entries.** Setting the primary region and storing the re-resolved modes is a single Raft entry. Unregistering and
 region changes are validated against the primary-region invariants on the leader before appending.
 
 **Routing.** `CreateRoutingTable` filters readers to the primary region when `prefer_reading_from_primary_region` is
@@ -175,15 +187,15 @@ written by new ones.
 ## Testing Decisions
 
 - Unit: cluster-state JSON round-trip with and without the new fields (including logs written before this feature);
-  mode resolution; RPC `Upgrade`/`Downgrade` including `nullopt` → ASYNC.
+  mode resolution; RPC `Upgrade`/`Downgrade` of the bumped forwards.
 - Coordinator: query validation errors (`NO_SUCH_REGION`, `REGION_EXISTS`, `INSTANCES_WITHOUT_REGION_EXIST`, dropping
   primary/non-empty region, last-instance rules, REGISTER with region + explicit mode after the switch,
   SET INSTANCE TO MAIN after the switch).
-- E2E HA: upgrade path (label running cluster, switch, modes converge without failover when the main is already in
-  the primary region); fresh bootstrap via SET PRIMARY REGION; placement failover after changing the primary region;
-  crash failover stays inside the primary region; no failover when the primary region has no alive instance;
-  `region_replication_mode` change SYNC → STRICT_SYNC converges; `prefer_reading_from_primary_region` routing and
-  fallback; `SHOW REGION INFO` output.
+- E2E HA: upgrade path (label running cluster, read-only, switch, modes converge without failover when the main is
+  already in the primary region, writes re-enabled); fresh bootstrap via SET PRIMARY REGION; placement failover after
+  changing the primary region; crash failover stays inside the primary region; no failover when the primary region
+  has no alive instance; `region_replication_mode` change SYNC → STRICT_SYNC converges;
+  `prefer_reading_from_primary_region` routing and fallback; `SHOW REGION INFO` output.
 - New coordinator settings must be registered in the e2e configuration checks.
 
 ## Out of Scope

@@ -561,6 +561,11 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
       case IS_MAIN:
         throw QueryRuntimeException(
             "Alive main instance can't be unregistered! Shut it down to trigger failover and then unregister it!");
+      case LAST_INSTANCE_IN_PRIMARY_REGION:
+        throw QueryRuntimeException(
+            "Instance {} is the last instance in the primary region and can't be unregistered. Set another primary "
+            "region first.",
+            instance_name);
       case NOT_COORDINATOR:
         throw QueryRuntimeException("UNREGISTER INSTANCE query can only be run on a coordinator!");
       case NOT_LEADER: {
@@ -741,6 +746,34 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
       case coordination::DropRegionStatus::REGION_HAS_INSTANCES:
         throw QueryRuntimeException(
             "Region '{}' still has instances. Move or unregister them before dropping the region.", region_name);
+      case coordination::DropRegionStatus::IS_PRIMARY_REGION:
+        throw QueryRuntimeException("Region '{}' is the primary region. Set another primary region before dropping it.",
+                                    region_name);
+    }
+  }
+
+  void SetPrimaryRegion(std::string_view const region_name) override {
+    switch (coordinator_handler_.SetPrimaryRegion(region_name)) {
+      case coordination::SetPrimaryRegionStatus::SUCCESS:
+        break;
+      case coordination::SetPrimaryRegionStatus::NO_SUCH_REGION:
+        throw QueryRuntimeException("Region '{}' doesn't exist.", region_name);
+      case coordination::SetPrimaryRegionStatus::REGION_HAS_NO_INSTANCES:
+        throw QueryRuntimeException("Region '{}' has no instances, so it can't be the primary region.", region_name);
+      case coordination::SetPrimaryRegionStatus::INSTANCES_WITHOUT_REGION_EXIST:
+        throw QueryRuntimeException(
+            "Every instance must be in a region before a primary region is set. Assign the missing regions with "
+            "UPDATE CONFIG.");
+      case coordination::SetPrimaryRegionStatus::NOT_LEADER:
+        throw QueryRuntimeException(GetNotLeaderForwardedQueryMessage());
+      case coordination::SetPrimaryRegionStatus::LEADER_NOT_FOUND:
+        throw QueryRuntimeException(GetLeaderNotFoundForwardedQueryMessage());
+      case coordination::SetPrimaryRegionStatus::LEADER_FAILED:
+        throw QueryRuntimeException(GetLeaderFailedForwardedQueryMessage());
+      case coordination::SetPrimaryRegionStatus::RAFT_LOG_ERROR:
+        throw QueryRuntimeException("Writing to Raft log failed. Please retry the operation.");
+      case coordination::SetPrimaryRegionStatus::INVALID_REGION_NAME:
+        throw QueryRuntimeException(kInvalidRegionNameMessage);
     }
   }
 
@@ -892,6 +925,13 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
         throw QueryRuntimeException("Region '{}' doesn't exist.", *region);
       case INVALID_REGION_NAME:
         throw QueryRuntimeException(kInvalidRegionNameMessage);
+      case REGION_REQUIRED:
+        throw QueryRuntimeException(
+            "A primary region is set, so the instance must be registered with a {} in its config.", kRegion);
+      case REPLICATION_MODE_FORBIDDEN:
+        throw QueryRuntimeException(
+            "A primary region is set, so the replication mode is derived from the instance's region. Register the "
+            "instance without AS ASYNC or AS STRICT_SYNC.");
       case STRICT_SYNC_AND_SYNC_FORBIDDEN:
         throw QueryRuntimeException(
             "Cluster cannot consists of both STRICT_SYNC and SYNC replicas. The valid cluster consists of either "
@@ -951,6 +991,13 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
         throw QueryRuntimeException("Coordinators don't belong to a region, so {} can't be set for them.", kRegion);
       case NO_CONFIG_CHANGE:
         throw QueryRuntimeException("Config map must contain at least one of {} and {}.", kBoltServer, kRegion);
+      case LAST_INSTANCE_IN_PRIMARY_REGION:
+        throw QueryRuntimeException(
+            "Instance {} is the last instance in the primary region and can't be moved out of it. Set another primary "
+            "region first.",
+            std::get<std::string>(config.data));
+      case REGION_REMOVAL_FORBIDDEN:
+        throw QueryRuntimeException("A primary region is set, so an instance's {} can't be removed.", kRegion);
       case RAFT_FAILURE:
         throw QueryRuntimeException("Couldn't update config because appending to Raft log failed.");
       case NOT_LEADER:
@@ -1143,6 +1190,10 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
         throw QueryRuntimeException("No instance with such name!");
       case MAIN_ALREADY_EXISTS:
         throw QueryRuntimeException("Couldn't set instance to main since there is already a main instance in cluster!");
+      case PRIMARY_REGION_SET:
+        throw QueryRuntimeException(
+            "A primary region is set, so the coordinator chooses the main from the primary region. Use SET '<region>' "
+            "AS PRIMARY REGION to move the main to another region.");
       case NOT_COORDINATOR:
         throw QueryRuntimeException("SET INSTANCE TO MAIN query can only be run on a coordinator!");
       case NOT_LEADER: {
@@ -3095,10 +3146,21 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
       return callback;
     }
     case CoordinatorQuery::Action::ADD_REGION:
-    case CoordinatorQuery::Action::DROP_REGION: {
-      bool const is_add = coordinator_query->action_ == CoordinatorQuery::Action::ADD_REGION;
+    case CoordinatorQuery::Action::DROP_REGION:
+    case CoordinatorQuery::Action::SET_PRIMARY_REGION: {
+      auto const action = coordinator_query->action_;
       if (!coordinator_state->IsCoordinator()) {
-        throw QueryRuntimeException("Only coordinator can run {} REGION query.", is_add ? "ADD" : "DROP");
+        constexpr auto query_name = [](CoordinatorQuery::Action const action) -> std::string_view {
+          switch (action) {
+            case CoordinatorQuery::Action::ADD_REGION:
+              return "ADD REGION";
+            case CoordinatorQuery::Action::DROP_REGION:
+              return "DROP REGION";
+            default:
+              return "SET PRIMARY REGION";
+          }
+        };
+        throw QueryRuntimeException("Only coordinator can run {} query.", query_name(action));
       }
       EvaluationContext const evaluation_context{.timestamp = QueryTimestamp(), .parameters = parameters};
       auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
@@ -3109,11 +3171,13 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
 
       callback.fn = [handler = CoordQueryHandler{*coordinator_state},
                      region_name = std::string{region_name.ValueString()},
-                     is_add]() mutable {
-        if (is_add) {
+                     action]() mutable {
+        if (action == CoordinatorQuery::Action::ADD_REGION) {
           handler.AddRegion(region_name);
-        } else {
+        } else if (action == CoordinatorQuery::Action::DROP_REGION) {
           handler.DropRegion(region_name);
+        } else {
+          handler.SetPrimaryRegion(region_name);
         }
         return std::vector<std::vector<TypedValue>>();
       };

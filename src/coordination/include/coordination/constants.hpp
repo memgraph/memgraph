@@ -76,6 +76,7 @@ constexpr std::string_view kRoles = "roles";
 constexpr std::string_view kRoleName = "name";
 constexpr std::string_view kRolePermissions = "permissions";
 constexpr std::string_view kRegions = "regions";
+constexpr std::string_view kPrimaryRegion = "primary_region";
 constexpr std::string_view kConfig{"config"};
 constexpr std::string_view kStatus{"status"};
 // CoordinatorInstanceConfig
