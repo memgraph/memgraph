@@ -32,6 +32,7 @@ class HubEdgeRewrite(Workload):
         # query creating them could still be running when the queries linking users to them start.
         return [
             ("CREATE INDEX ON :User(id);", {}),
+            ("CREATE INDEX ON :Hub;", {}),
             ("CREATE INDEX ON :Hub(id);", {}),
             ("UNWIND range(1, $hubs) AS id CREATE (:Hub {id: id});", {"hubs": HubEdgeRewrite.HUBS}),
         ]
