@@ -589,6 +589,34 @@ TYPED_TEST(QueryExecution, AWriteAboveAFilterLeavesItsReadsAloneWithFlagOn) {
   CHECK_A_WRITE_ABOVE_A_FILTER_LEAVES_ITS_READS_ALONE();
 }
 
+/// A slot stands in for a lookup only where that lookup would have read the same value, and a
+/// filter tests a row at an earlier view than a projection returns one at. Those answer differently
+/// for a record the query has already written, so a projection takes the record rather than a slot
+/// a predicate below it filled.
+#define CHECK_A_PROJECTION_DOES_NOT_TAKE_A_FILTERS_SLOT_ACROSS_A_WRITE()                                        \
+  do {                                                                                                          \
+    this->Execute("MATCH (n) DETACH DELETE n");                                                                 \
+    this->Execute("CREATE (a1 {id: 1}), (a2 {id: 2}), (b {p: 3}) CREATE (a1)-[:E]->(b) CREATE (a2)-[:E]->(b)"); \
+    /* The second path into b reaches it after the first path's write, which the projection returns  */         \
+    /* and the predicate below it never sees.                                                        */         \
+    auto rows = this->Execute(                                                                                  \
+        "MATCH (a)-[:E]->(b) WHERE a.id >= 1 AND b.p > 1 AND b.p < 10 "                                         \
+        "WITH b, b.p AS v SET b.p = 99 RETURN v ORDER BY v");                                                   \
+    ASSERT_EQ(rows.size(), 2);                                                                                  \
+    EXPECT_EQ(rows[0][0].ValueInt(), 3);                                                                        \
+    EXPECT_EQ(rows[1][0].ValueInt(), 99);                                                                       \
+  } while (false)
+
+TYPED_TEST(QueryExecution, AProjectionDoesNotTakeAFiltersSlotAcrossAWriteWithFlagOff) {
+  CachePropertiesFlagGuard guard{false};
+  CHECK_A_PROJECTION_DOES_NOT_TAKE_A_FILTERS_SLOT_ACROSS_A_WRITE();
+}
+
+TYPED_TEST(QueryExecution, AProjectionDoesNotTakeAFiltersSlotAcrossAWriteWithFlagOn) {
+  CachePropertiesFlagGuard guard{true};
+  CHECK_A_PROJECTION_DOES_NOT_TAKE_A_FILTERS_SLOT_ACROSS_A_WRITE();
+}
+
 TYPED_TEST(QueryExecution, LeftoverLookupResultsWithFlagOff) {
   CachePropertiesFlagGuard guard{false};
   CHECK_LEFTOVER_LOOKUP_RESULTS();
