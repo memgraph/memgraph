@@ -20,8 +20,9 @@
 namespace memgraph::storage {
 
 template <>
-prometheus::Histogram *RpcInfo<replication::WalFilesRpc>::histogram() {
-  return metrics::Metrics().global.wal_files_rpc_seconds;
+prometheus::Histogram *RpcInfo<replication::WalFilesRpc>::histogram(
+    metrics::ReplicaMetricHandles const &replica_metrics) {
+  return replica_metrics.wal_files_rpc_seconds.get();
 }
 
 template <>
@@ -31,8 +32,9 @@ void RpcInfo<replication::WalFilesRpc>::ObserveThroughput(std::string const &ins
 }
 
 template <>
-prometheus::Histogram *RpcInfo<replication::CurrentWalRpc>::histogram() {
-  return metrics::Metrics().global.current_wal_rpc_seconds;
+prometheus::Histogram *RpcInfo<replication::CurrentWalRpc>::histogram(
+    metrics::ReplicaMetricHandles const &replica_metrics) {
+  return replica_metrics.current_wal_rpc_seconds.get();
 }
 
 template <>
@@ -42,8 +44,9 @@ void RpcInfo<replication::CurrentWalRpc>::ObserveThroughput(std::string const &i
 }
 
 template <>
-prometheus::Histogram *RpcInfo<replication::SnapshotRpc>::histogram() {
-  return metrics::Metrics().global.snapshot_rpc_seconds;
+prometheus::Histogram *RpcInfo<replication::SnapshotRpc>::histogram(
+    metrics::ReplicaMetricHandles const &replica_metrics) {
+  return replica_metrics.snapshot_rpc_seconds.get();
 }
 
 template <>

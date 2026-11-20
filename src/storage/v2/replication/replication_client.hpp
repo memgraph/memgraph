@@ -11,6 +11,8 @@
 
 #pragma once
 
+#include "metrics/metric_handles.hpp"
+#include "metrics/prometheus_metrics.hpp"
 #include "replication/replication_client.hpp"
 #include "rpc/client.hpp"
 #include "storage/v2/access_type.hpp"
@@ -69,7 +71,7 @@ class ReplicaStream {
   void AppendTransactionEnd(uint64_t final_commit_timestamp);
 
   /// @throw rpc::RpcFailedException
-  replication::PrepareCommitRes Finalize();
+  replication::PrepareCommitRes Finalize(metrics::HistogramHandle const &latency);
 
   bool IsDefunct() const { return stream_.IsDefunct(); }
 
@@ -300,6 +302,7 @@ class ReplicationStorageClient {
   // accumulates duplicate checks faster than it can drain them across many databases.
   mutable std::atomic<bool> check_queued_{false};
   const utils::UUID main_uuid_;
+  metrics::PrometheusMetrics::ReplicaDatabaseRegistration recovery_metrics_;
 };
 
 }  // namespace memgraph::storage
