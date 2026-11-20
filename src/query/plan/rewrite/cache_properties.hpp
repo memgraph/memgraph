@@ -21,53 +21,9 @@
 
 #include "flags/general.hpp"
 #include "query/plan/operator.hpp"
-#include "query/plan/read_write_type_checker.hpp"
+#include "query/plan/property_writes.hpp"
 
 namespace memgraph::query::plan {
-
-/// Where the frontend interned a property's name, which is what the AST carries in place of the
-/// name itself. Both the names an `AstStorage` holds and the ids an `EvaluationContext` resolves
-/// them to are indexed by it, so nothing holding one needs the name as well. Not a
-/// `storage::PropertyId`, which is what names a property to the storage engine.
-class AstPropertyIndex {
- public:
-  explicit AstPropertyIndex(PropertyIx const &property) : value_{property.ix} {}
-
-  [[nodiscard]] auto Position() const -> size_t { return static_cast<size_t>(value_); }
-
-  friend bool operator==(AstPropertyIndex const &, AstPropertyIndex const &) = default;
-  friend auto operator<=>(AstPropertyIndex const &, AstPropertyIndex const &) = default;
-
- private:
-  int64_t value_;
-};
-
-/// Which properties a plan may write, which is what decides whether two reads of one property can
-/// answer differently. A read of a property nothing writes answers the same at either view, so a
-/// slot holding it stands in for either read.
-///
-/// Which record a write lands on is deliberately not part of this. A projection binds a new symbol
-/// to the record it was given, so a write through one symbol reaches a record a slot holds under
-/// another, and naming the symbol would call that write somebody else's.
-///
-/// What a write names is also sometimes a value rather than something the plan says, as it is for a
-/// map a parameter carries, so this answers for everything where it cannot say which.
-class PropertyWrites {
- public:
-  void Note(AstPropertyIndex property) { properties_.push_back(property); }
-
-  void NoteEverything() { everything_ = true; }
-
-  [[nodiscard]] auto Nothing() const -> bool { return !everything_ && properties_.empty(); }
-
-  [[nodiscard]] auto MayWrite(AstPropertyIndex property) const -> bool {
-    return everything_ || std::ranges::find(properties_, property) != properties_.end();
-  }
-
- private:
-  bool everything_{false};
-  std::vector<AstPropertyIndex> properties_;
-};
 
 /// What one query's planning settles once, which every candidate plan it weighs then takes as it
 /// stands: the frame slots a pass reads into, and the rewrites made with them.
@@ -141,99 +97,6 @@ class PassPlanning {
 };
 
 namespace impl {
-
-/// Collects what a plan may write, naming the property where the plan says which and answering for
-/// everything where it does not.
-///
-/// Built on the plan's own read-write classification so that it walks every branch a write can hide
-/// in, and so that its verdict says whether the plan writes at all. Every operator that writes has
-/// to be named here: one that is not would be taken for a reader, which is why `WritesOf` below
-/// answers for everything when the classification says the plan writes and nothing here fired.
-class PropertyWriteCollector final : public ReadWriteTypeChecker {
- public:
-  using ReadWriteTypeChecker::PostVisit;
-  using ReadWriteTypeChecker::PreVisit;
-  using ReadWriteTypeChecker::Visit;
-
-  [[nodiscard]] auto Writes() const -> PropertyWrites const & { return writes_; }
-
-  bool PreVisit(SetProperty &op) override {
-    NoteWhatTheLookupNames(op.lhs_);
-    return ReadWriteTypeChecker::PreVisit(op);
-  }
-
-  bool PreVisit(RemoveProperty &op) override {
-    NoteWhatTheLookupNames(op.lhs_);
-    return ReadWriteTypeChecker::PreVisit(op);
-  }
-
-  /// Which properties the map carries is a value rather than something the plan says.
-  bool PreVisit(SetProperties &op) override {
-    writes_.NoteEverything();
-    return ReadWriteTypeChecker::PreVisit(op);
-  }
-
-  /// A record's labels decide which of its properties a caller may read, so changing them can
-  /// change what reading one answers.
-  bool PreVisit(SetLabels &op) override {
-    writes_.NoteEverything();
-    return ReadWriteTypeChecker::PreVisit(op);
-  }
-
-  bool PreVisit(RemoveLabels &op) override {
-    writes_.NoteEverything();
-    return ReadWriteTypeChecker::PreVisit(op);
-  }
-
-  /// A deletion ends the record, so a read of it refuses rather than answering a value, and a
-  /// procedure writes whatever it chooses to.
-  bool PreVisit(Delete &op) override {
-    writes_.NoteEverything();
-    return ReadWriteTypeChecker::PreVisit(op);
-  }
-
-  bool PreVisit(CallProcedure &op) override {
-    writes_.NoteEverything();
-    return ReadWriteTypeChecker::PreVisit(op);
-  }
-
-  /// Writing inside a property leaves the property itself holding something else.
-  bool PreVisit(SetNestedProperty &op) override {
-    writes_.NoteEverything();
-    return ReadWriteTypeChecker::PreVisit(op);
-  }
-
-  bool PreVisit(RemoveNestedProperty &op) override {
-    writes_.NoteEverything();
-    return ReadWriteTypeChecker::PreVisit(op);
-  }
-
-  // A creation writes only to the symbols it binds, and a slot can only hold a property of a symbol
-  // bound below the pass that filled it, so CreateNode and CreateExpand are left to the base.
-
- private:
-  void NoteWhatTheLookupNames(PropertyLookup *lhs) {
-    if (lhs == nullptr) {
-      writes_.NoteEverything();
-      return;
-    }
-    writes_.Note(AstPropertyIndex{lhs->property_});
-  }
-
-  PropertyWrites writes_;
-};
-
-/// What `root` may write, answering for everything where it writes something this cannot describe.
-template <class TRoot>
-[[nodiscard]] auto WritesOf(TRoot &root) -> PropertyWrites {
-  auto collector = PropertyWriteCollector{};
-  root.Accept(collector);
-  auto writes = collector.Writes();
-  auto const plan_writes =
-      collector.type == ReadWriteTypeChecker::RWType::W || collector.type == ReadWriteTypeChecker::RWType::RW;
-  if (plan_writes && writes.Nothing()) writes.NoteEverything();
-  return writes;
-}
 
 /// Counts the lookups worth reading in a pass and swaps the chosen ones for identifiers on its
 /// frame slots.
@@ -818,7 +681,7 @@ std::unique_ptr<LogicalOperator> RewriteCacheProperties(std::unique_ptr<LogicalO
   // Asked of the whole plan rather than of what stands between two reads, because rows reach an
   // operator one at a time: a write above a pass has already run for the rows after the first, so
   // it reaches a record the pass reads again whatever sits between the two.
-  auto const writes = impl::WritesOf(*root_op);
+  auto const writes = PropertyWritesOf(*root_op);
   auto rewriter = impl::CachePropertiesRewriter<TDbAccessor>{symbol_table, ast_storage, db, planning, writes};
   root_op->Accept(rewriter);
   return root_op;
