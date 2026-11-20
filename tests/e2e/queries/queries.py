@@ -561,7 +561,7 @@ def test_to_string_point_reparses(memgraph):
         "x: 1, y: -0.0, z: 1e300",
     ]
     for coordinate in coordinates:
-        srid = 9757 if "z:" in coordinate else 7203
+        srid = 9157 if "z:" in coordinate else 7203
         point = f"POINT({{{coordinate}, srid: {srid}}})"
         text = dump_float_read(memgraph, f"RETURN toString({point}) AS s")["s"]
         assert "e+" not in text and "inf" not in text and "nan" not in text.replace("(0.0/0.0)", ""), text
