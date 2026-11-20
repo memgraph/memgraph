@@ -124,6 +124,7 @@ add_subdirectory(kshortest_limit)
 add_subdirectory(user_profiles)
 add_subdirectory(load_remote_snapshot)
 add_subdirectory(reset_session_isolation)
+add_subdirectory(commit_lock_narrowing)
 
 copy_e2e_python_files(pytest_runner pytest_runner.sh "")
 copy_e2e_python_files(x x.sh "")

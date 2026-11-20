@@ -46,6 +46,7 @@
 #include <boost/beast/websocket/rfc6455.hpp>
 #include <boost/system/detail/error_code.hpp>
 
+#include "communication/bolt/v1/state.hpp"
 #include "communication/buffer.hpp"
 #include "communication/context.hpp"
 #include "communication/exceptions.hpp"
@@ -487,7 +488,19 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
               return;
             }
             while (true) {
+              // Sampled before Execute(): the would-block probe runs inside it, so a wake in between is not lost.
+              const auto commit_epoch = shared_this->session_context_->WakeEpoch(utils::WaitResource::CommitLock);
+              const auto main_epoch = shared_this->session_context_->WakeEpoch(utils::WaitResource::MainLock);
               if (shared_this->session_.Execute()) {
+                if (shared_this->session_.HasPendingCommit()) {
+                  // Return after parking so a pipelined message can't run before the commit finishes.
+                  shared_this->PostFinishPendingCommit(commit_epoch);
+                  return;
+                }
+                if (shared_this->session_.HasPendingBegin()) {
+                  shared_this->PostFinishPendingBegin(main_epoch);
+                  return;
+                }
                 // Check if we can just steal this task (loop through)
                 if (thread_priority > shared_this->session_.ApproximateQueryPriority()) {
                   // Task priority lower; reschedule
@@ -512,6 +525,107 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
           }
         },
         session_.ApproximateQueryPriority());
+  }
+
+  // Parks a would-block commit with no deadline: it must not be abandoned by timeout (liveness: pool monitor sweep).
+  void PostFinishPendingCommit(uint64_t observed_epoch) {
+    auto lambda = [shared_this = shared_from_this()](const auto /*thread_priority*/) {
+      try {
+        const auto epoch = shared_this->session_context_->WakeEpoch(utils::WaitResource::CommitLock);
+        switch (shared_this->session_.FinishPendingCommit()) {
+          case memgraph::communication::bolt::PendingOutcome::Reschedule:
+            shared_this->PostFinishPendingCommit(epoch);
+            return;
+          case memgraph::communication::bolt::PendingOutcome::Done:
+          case memgraph::communication::bolt::PendingOutcome::ClientError:
+            shared_this->pending_commit_task_id_.store(0, std::memory_order_relaxed);
+            shared_this->pending_commit_retries_ = 0;
+            if (shared_this->session_.HasBufferedData()) {
+              shared_this->DoWork();
+            } else {
+              shared_this->DoRead();
+            }
+            return;
+        }
+      } catch (const std::exception & /* unused */) {
+        boost::asio::post(shared_this->strand_,
+                          [shared_this, eptr = std::current_exception()]() { shared_this->HandleException(eptr); });
+      }
+    };
+
+    // Draining: drop the continuation; connection teardown errors the client.
+    if (session_context_->IsDrainingAdmissions()) {
+      spdlog::trace("commit would block: dropped (draining)");
+      return;
+    }
+
+    const auto id = pending_commit_task_id_.load(std::memory_order_relaxed);
+    // id==0 always re-posts (mints a place-keeping id); then re-post up to the pressure-scaled cap before parking.
+    const uint32_t cap = session_context_->RescheduleCap();
+    if (id == 0 || pending_commit_retries_ < cap) {
+      ++pending_commit_retries_;
+      spdlog::trace("commit would block: re-post (retry {})", pending_commit_retries_);
+      pending_commit_task_id_.store(
+          session_context_->AddTask(std::move(lambda), utils::Priority::LOW, /*productive=*/false),
+          std::memory_order_relaxed);
+    } else {
+      spdlog::trace("commit would block: park");
+      session_context_->ParkAdmission(std::move(lambda),
+                                      id,
+                                      std::chrono::steady_clock::time_point::max(),
+                                      utils::WaitResource::CommitLock,
+                                      observed_epoch);
+    }
+  }
+
+  // Parks a would-block BEGIN with the finite storage-access deadline: unlike commit, it must time out.
+  void PostFinishPendingBegin(uint64_t observed_epoch) {
+    auto lambda = [shared_this = shared_from_this()](const auto /*thread_priority*/) {
+      try {
+        const auto epoch = shared_this->session_context_->WakeEpoch(utils::WaitResource::MainLock);
+        switch (shared_this->session_.FinishPendingBegin()) {
+          case memgraph::communication::bolt::PendingOutcome::Reschedule:
+            shared_this->PostFinishPendingBegin(epoch);
+            return;
+          case memgraph::communication::bolt::PendingOutcome::Done:
+          case memgraph::communication::bolt::PendingOutcome::ClientError:
+            shared_this->pending_begin_task_id_.store(0, std::memory_order_relaxed);
+            shared_this->pending_begin_retries_ = 0;
+            if (shared_this->session_.HasBufferedData()) {
+              shared_this->DoWork();
+            } else {
+              shared_this->DoRead();
+            }
+            return;
+        }
+      } catch (const std::exception & /* unused */) {
+        boost::asio::post(shared_this->strand_,
+                          [shared_this, eptr = std::current_exception()]() { shared_this->HandleException(eptr); });
+      }
+    };
+
+    // Draining: drop the continuation; connection teardown errors the client.
+    if (session_context_->IsDrainingAdmissions()) {
+      spdlog::trace("begin would block: dropped (draining)");
+      return;
+    }
+
+    const auto id = pending_begin_task_id_.load(std::memory_order_relaxed);
+    // Same re-post-then-park policy as PostFinishPendingCommit.
+    const uint32_t cap = session_context_->RescheduleCap();
+    if (id == 0 || pending_begin_retries_ < cap) {
+      ++pending_begin_retries_;
+      spdlog::trace("begin would block: re-post (retry {})", pending_begin_retries_);
+      pending_begin_task_id_.store(
+          session_context_->AddTask(std::move(lambda), utils::Priority::LOW, /*productive=*/false),
+          std::memory_order_relaxed);
+    } else {
+      spdlog::trace("begin would block: park");
+      const auto deadline = session_.PendingBeginDeadline();
+      DMG_ASSERT(deadline != std::chrono::steady_clock::time_point::max(),
+                 "PendingBegin park deadline must be finite (storage-access timeout)");
+      session_context_->ParkAdmission(std::move(lambda), id, deadline, utils::WaitResource::MainLock, observed_epoch);
+    }
   }
 
   void OnError(const boost::system::error_code &ec) {
@@ -671,5 +785,19 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
   // Defensive atomic: accesses are already ordered (arm_lock_: worker arm vs TerminateIfIdle_; strand_: handlers
   // vs TerminateIfIdle_; async-completion: arm vs its handler), so relaxed suffices.
   std::atomic_bool read_armed_{false};
+
+  // TaskID of the in-flight commit-park continuation; 0 = not yet issued. Post-and-return keeps one in flight
+  // per session, so relaxed suffices: a stale 0 costs one extra AddTask, a stale id is recovered by the pool's
+  // monitor sweep.
+  std::atomic<utils::PriorityThreadPool::TaskID> pending_commit_task_id_{0};
+
+  // Plain (non-atomic): post-and-return keeps one commit task active at a time.
+  uint32_t pending_commit_retries_{0};
+
+  // As pending_commit_task_id_, for BEGIN.
+  std::atomic<utils::PriorityThreadPool::TaskID> pending_begin_task_id_{0};
+
+  // Plain for the same reason as pending_commit_retries_.
+  uint32_t pending_begin_retries_{0};
 };
 }  // namespace memgraph::communication::v2
