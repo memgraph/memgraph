@@ -6011,7 +6011,7 @@ bool CacheProperties::CachePropertiesCursor::Pull(Frame &frame, ExecutionContext
     };
 
     auto const shape = PropertyValueShape{.view = self_.view_,
-                                          .references_wanted = lazy_refs,
+                                          .compact = lazy_refs,
                                           .names = name_id_mapper,
                                           .memory = context.evaluation_context.memory};
 

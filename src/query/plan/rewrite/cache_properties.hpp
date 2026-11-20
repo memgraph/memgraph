@@ -9,6 +9,10 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+// Hangs a `CacheProperties` operator below an operator that reads several properties of one record,
+// and rewrites that operator's lookups to read the frame slots it fills. One such operator is called
+// a pass throughout this file, after the single pass over the record it makes.
+
 #pragma once
 
 #include <algorithm>
@@ -85,7 +89,7 @@ class PassPlanning {
     return static_cast<TExpression *>(found->second);
   }
 
-  void Remember(Tree const *original, SlotSignature signature, Tree *rewritten) {
+  void NoteRewrite(Tree const *original, SlotSignature signature, Tree *rewritten) {
     rewritten_.emplace(Rewrite{original, std::move(signature)}, rewritten);
   }
 
@@ -155,15 +159,15 @@ class PropertyLookupCacher final : public ExpressionVisitor<void> {
 
     /// Whether a read at `view` finds anything of this symbol here, which is all that looking for a
     /// lookup to replace asks: it decides only whether an expression needs a copy of its own.
-    [[nodiscard]] auto Holds(Symbol const &symbol, storage::View view) const -> bool {
+    [[nodiscard]] auto HasAnySlotFor(Symbol const &symbol, storage::View view) const -> bool {
       auto const found = std::ranges::find(by_symbol_, symbol, &SymbolSlots::symbol);
       if (found == by_symbol_.end()) return false;
       return std::ranges::any_of(found->slots, [view](FilledSlot const &filled) { return filled.view == view; });
     }
 
-    /// Hands a read at `view` every slot holding a property the plan never writes, since a read of
-    /// one answers the same whichever view it is made at.
-    void TakeUnwrittenAt(storage::View view, PropertyWrites const &writes) {
+    /// Relabels every slot holding a property the plan never writes as read at `view`, so a read
+    /// there finds it: a read of such a property answers the same whichever view it is made at.
+    void RelabelUnwrittenTo(storage::View view, PropertyWrites const &writes) {
       for (auto &group : by_symbol_) {
         for (auto &filled : group.slots) {
           if (!writes.MayWrite(filled.property)) filled.view = view;
@@ -352,7 +356,7 @@ class PropertyLookupCacher final : public ExpressionVisitor<void> {
         return;
       }
       case Phase::FIND: {
-        if (assigned_.Holds(symbol_table_->at(*identifier), view_)) found_one_to_replace_ = true;
+        if (assigned_.HasAnySlotFor(symbol_table_->at(*identifier), view_)) found_one_to_replace_ = true;
         return;
       }
       case Phase::REPLACE: {
@@ -572,7 +576,7 @@ class CachePropertiesRewriter final : public HierarchicalLogicalOperatorVisitor 
     // A slot filled by a read of another view is still this read's value where nothing in the plan
     // writes that property, so it is handed over as if it had been read here.
     auto reused = FilledSlotsBelow(*input);
-    reused.TakeUnwrittenAt(view, writes_);
+    reused.RelabelUnwrittenTo(view, writes_);
     cacher.ReuseSlots(std::move(reused));
     for_each_expression([&cacher](auto &expression) { cacher.Gather(expression); });
 
@@ -605,7 +609,7 @@ class CachePropertiesRewriter final : public HierarchicalLogicalOperatorVisitor 
       auto *original = expression;
       expression = original->Clone(ast_storage_);
       cacher.Replace(expression);
-      planning_->Remember(original, signature, expression);
+      planning_->NoteRewrite(original, signature, expression);
     });
 
     if (groups.empty()) return;

@@ -1219,7 +1219,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   /// How a value read at this evaluator's view is to be handed back.
   PropertyValueShape ValueShape() {
     return PropertyValueShape{
-        .view = view_, .references_wanted = ctx_->lazy_vector_refs, .names = GetNameIdMapper(), .memory = ctx_->memory};
+        .view = view_, .compact = ctx_->lazy_vector_refs, .names = GetNameIdMapper(), .memory = ctx_->memory};
   }
 
   template <class TRecordAccessor, class TPropertyValue>
