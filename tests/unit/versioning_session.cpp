@@ -25,13 +25,13 @@
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/isolation_level.hpp"
 #include "tests/test_commit_args_helper.hpp"
-#include "tests/version_store_test_peer.hpp"
 #include "utils/gatekeeper.hpp"
 #include "versioning_fixture.hpp"
 
 namespace {
 size_t CheckoutCount(const memgraph::versioning::VersionStore *store, std::string_view name) {
-  return memgraph::versioning::VersionStoreTestPeer::CheckoutCount(*store, name);
+  const auto listing = store->Get(name);
+  return listing ? listing->sessions : 0;
 }
 }  // namespace
 
@@ -105,7 +105,7 @@ TEST_F(VersioningGatedTest, ReApplyingSameDatabaseAccessPreservesCheckout) {
   // A real checkout also holds a BranchContext and a checkout slot; a same-database re-apply must keep both.
   EXPECT_NE(current_db.branch_context(), nullptr);
   EXPECT_EQ(CheckoutCount(db->version_store(), "feature"), 1U);
-  const auto number = db->version_store()->Get("feature")->id;
+  const auto number = db->version_store()->Get("feature")->info.id;
   EXPECT_EQ(current_db.foreign_branch_number(), number);
   EXPECT_TRUE(current_db.OnBranch(number));
   EXPECT_FALSE(current_db.OnBranch(number + 1));
@@ -153,7 +153,7 @@ TEST_F(VersioningGatedTest, ParkedBranchIsRestoredAfterTheTransactionOrDiscarded
   Attach(faker, "other");
   EXPECT_EQ(IntRows(faker, "MATCH (n) RETURN count(n)"), (Rows{{0}}));
   EXPECT_EQ(current_db.CurrentVersion(), "b") << "the transaction's end restores the parked branch";
-  EXPECT_EQ(current_db.foreign_branch_number(), version_store->Get("b")->id);
+  EXPECT_EQ(current_db.foreign_branch_number(), version_store->Get("b")->info.id);
   EXPECT_EQ(CheckoutCount(version_store, "other"), 0U);
   EXPECT_EQ(CheckoutCount(version_store, "b"), 1U);
 
@@ -181,7 +181,7 @@ TEST_F(VersioningGatedTest, NestedSessionAttachesToTheCallersBranch) {
   }
   EXPECT_EQ(CheckoutCount(version_store, "b"), 1U) << "a destroyed session must release its checkout";
 
-  ASSERT_TRUE(version_store->ForceDropBranch("b"));
+  ASSERT_EQ(version_store->DropBranch("b", true).value(), memgraph::versioning::DropResult::kDropped);
   memgraph::query::Interpreter nested{&interpreter_context, db};
   EXPECT_THROW(nested.current_db_.AttachBranchOf(version_store, outer), memgraph::query::QueryRuntimeException);
   EXPECT_EQ(nested.current_db_.branch_context(), nullptr);
@@ -194,7 +194,7 @@ TEST_F(VersioningGatedTest, NestedSessionRefusesARecreatedBranchOfTheSameName) {
   Fork();
   auto *version_store = db->version_store();
   auto &outer = *faker.interpreter.current_db_.branch_context();
-  ASSERT_TRUE(version_store->ForceDropBranch("b"));
+  ASSERT_EQ(version_store->DropBranch("b", true).value(), memgraph::versioning::DropResult::kDropped);
   ASSERT_TRUE(version_store->CreateBranch("b"));
   {
     memgraph::query::Interpreter nested{&interpreter_context, db};
@@ -210,7 +210,7 @@ TEST_F(VersioningGatedTest, NestedSessionRefusesARecreatedBranchOfTheSameName) {
 TEST_F(VersioningGatedTest, ABranchDroppedUnderTheSessionFailsEveryQueryUntilItLeaves) {
   Fork();
   auto &current_db = faker.interpreter.current_db_;
-  ASSERT_TRUE(db->version_store()->ForceDropBranch("b"));
+  ASSERT_EQ(db->version_store()->DropBranch("b", true).value(), memgraph::versioning::DropResult::kDropped);
 
   EXPECT_THROW(current_db.SetupDatabaseTransaction(std::nullopt, false, memgraph::storage::StorageAccessType::READ),
                memgraph::query::QueryRuntimeException)
@@ -237,7 +237,7 @@ TEST_F(VersioningGatedTest, ABranchDroppedUnderTheSessionFailsEveryQueryUntilItL
 // only.
 TEST_F(VersioningGatedTest, ABranchDroppedByDemotionTellsTheSessionToUseDatabaseOnly) {
   Fork();
-  ASSERT_TRUE(db->version_store()->FreezeAndDropAll().has_value());
+  ASSERT_EQ(db->version_store()->DropBranch("b", true).value(), memgraph::versioning::DropResult::kDropped);
   ASSERT_TRUE(repl_state.Lock()->SetReplicationRoleReplica(
       memgraph::replication::ReplicationServerConfig{.repl_server =
                                                          memgraph::io::network::Endpoint("127.0.0.1", 30247)},
@@ -255,7 +255,7 @@ TEST_F(VersioningGatedTest, ABranchDroppedByDemotionTellsTheSessionToUseDatabase
 TEST_F(VersioningGatedTest, ABranchRecreatedUnderTheSameNameIsNotFollowedAndTheMessageSaysSo) {
   Fork();
   auto &current_db = faker.interpreter.current_db_;
-  ASSERT_TRUE(db->version_store()->ForceDropBranch("b"));
+  ASSERT_EQ(db->version_store()->DropBranch("b", true).value(), memgraph::versioning::DropResult::kDropped);
   ASSERT_TRUE(db->version_store()->CreateBranch("b").has_value());
 
   EXPECT_EQ(ThrownMessage([&] { faker.Interpret("SHOW VERSION"); }),
@@ -272,7 +272,7 @@ TEST_F(VersioningGatedTest, ABranchRecreatedUnderTheSameNameIsNotFollowedAndTheM
             "Branch 'b' was dropped (a branch with the same name was created since); this connection stays on the "
             "dropped one. Reconnect, or change the client's database, to use the new 'b'.");
 
-  ASSERT_TRUE(db->version_store()->ForceDropBranch("b"));
+  ASSERT_EQ(db->version_store()->DropBranch("b", true).value(), memgraph::versioning::DropResult::kDropped);
   EXPECT_EQ(ThrownMessage([&] { faker.Interpret("RETURN 1"); }), "Branch 'b' no longer exists.")
       << "no branch of that name exists any more: the plain message";
 
@@ -374,7 +374,7 @@ TEST_F(VersioningGatedTest, BranchSessionCommitPublishesTheBaseDeletes) {
   faker.Interpret("BEGIN");
   faker.Interpret("MATCH (n:NoSuchLabel) SET n.x = 1");  // Opens the branch's write transaction.
   ASSERT_TRUE(ctx.in_transaction());
-  ASSERT_TRUE(ctx.DeleteBaseVertex(memgraph::storage::Gid::FromUint(0)).value());
+  ASSERT_TRUE(ctx.DeleteBaseVertex(memgraph::storage::Gid::FromUint(0), true).value());
   EXPECT_EQ(ctx.core()->BaseDeletes(), (memgraph::versioning::ObjectCounts{0, 0})) << "published by the commit";
   faker.Interpret("COMMIT");
 
@@ -391,27 +391,25 @@ TEST_F(VersioningGatedTest, BranchPeriodicCommitPublishesEachBatchsBaseDeletes) 
   const auto gid = [](uint64_t g) { return memgraph::storage::Gid::FromUint(g); };
 
   current_db.SetupDatabaseTransaction(std::nullopt, false, memgraph::storage::StorageAccessType::WRITE);
-  ASSERT_TRUE(ctx.DeleteBaseVertex(gid(0)).value());
+  ASSERT_TRUE(ctx.DeleteBaseVertex(gid(0), true).value());
   ASSERT_TRUE(current_db.execution_db_accessor_->PeriodicCommit(memgraph::tests::MakeMainCommitArgs()).has_value());
   EXPECT_EQ(ctx.core()->BaseDeletes(), (memgraph::versioning::ObjectCounts{1, 0}));
 
-  ASSERT_TRUE(ctx.DeleteBaseVertex(gid(1)).value());
+  ASSERT_TRUE(ctx.DeleteBaseVertex(gid(1), true).value());
   ASSERT_TRUE(ctx.CommitTransaction(memgraph::tests::MakeMainCommitArgs()).has_value());
   current_db.CleanupDBTransaction(false);
   EXPECT_EQ(ctx.core()->BaseDeletes(), (memgraph::versioning::ObjectCounts{2, 0})) << "the first batch counted once";
 }
 
-// The first checkout of a branch whose ledger already holds gid floors (no replay) builds the core on those floors,
-// not on main's current counters: main objects created since the fork are not base objects.
+// The first checkout of a branch builds the core on the ledger's fork floors, not on main's current counters: main
+// objects created since the fork are not base objects.
 TEST_F(VersioningGatedTest, LazyCoreBuildUsesTheLedgersGidFloors) {
   faker.Interpret("CREATE (:V), (:V)");
   auto &main = static_cast<memgraph::storage::InMemoryStorage &>(*db->storage());
-  ASSERT_TRUE(db->version_store()->CreateBranch("b"));
-  const auto info = *db->version_store()->Get("b");
-  ASSERT_FALSE(info.vertex_gid_floor.has_value());
-  const auto vertex_floor = main.vertex_id_.load();
-  const auto edge_floor = main.edge_id_.load();
-  ASSERT_TRUE(db->version_store()->RecordGidFloors(info.id, vertex_floor, edge_floor));
+  const auto created = db->version_store()->CreateBranch("b");
+  ASSERT_TRUE(created) << created.error();
+  const auto vertex_floor = created->fork.vertex_gid_floor;
+  const auto edge_floor = created->fork.edge_gid_floor;
   faker.Interpret("CREATE (:V), (:V), (:V)");
   ASSERT_GT(main.vertex_id_.load(), vertex_floor);
 

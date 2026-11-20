@@ -2378,7 +2378,7 @@ class VersioningBranchEdgeWriteTest : public VersioningBranchWriteTest {
 
   // A second session on the same branch, its write transaction aborted at the end of the scope.
   struct Session {
-    explicit Session(VersioningBranchEdgeWriteTest &test) : acc(test.Writer()), ctx(test.Ctx().core()) {
+    explicit Session(VersioningBranchEdgeWriteTest &test) : acc(test.Writer()), ctx(test.Ctx().core(), {}, 0) {
       EXPECT_TRUE(ctx.BeginTransaction(acc.get()).has_value());
     }
 
