@@ -71,13 +71,14 @@ class PassPlanning {
     return SlotPool{&slots_[expressions]};
   }
 
-  /// One slot a pass reads into: the symbol whose record a property is read from, and the slot the
-  /// value is written to. Both symbols are named by position alone so that comparing two plans does
-  /// not mean holding on to what either was planned from.
+  /// One slot a pass reads into: the symbol whose record a property is read from, the slot the
+  /// value is written to, and the view it was read at. Both symbols are named by position alone so
+  /// that comparing two plans does not mean holding on to what either was planned from.
   struct FilledSlot {
     Symbol::Position_t input_symbol;
     AstPropertyIndex property;
     Symbol::Position_t output_symbol;
+    storage::View view;
 
     friend bool operator==(FilledSlot const &, FilledSlot const &) = default;
     friend auto operator<=>(FilledSlot const &, FilledSlot const &) = default;
@@ -120,8 +121,10 @@ namespace impl {
 /// The phases share one traversal, so a lookup it does not reach is neither counted nor replaced.
 class PropertyLookupCacher final : public ExpressionVisitor<void> {
  public:
-  PropertyLookupCacher(SymbolTable *symbol_table, AstStorage *ast_storage)
-      : symbol_table_(symbol_table), ast_storage_(ast_storage) {}
+  /// `view` is the one the operator this serves evaluates at, which is what its lookups read at and
+  /// so what any slot standing in for one of them has to hold.
+  PropertyLookupCacher(SymbolTable *symbol_table, AstStorage *ast_storage, storage::View view)
+      : symbol_table_(symbol_table), ast_storage_(ast_storage), view_(view) {}
 
   using ExpressionVisitor<void>::Visit;
 
@@ -137,49 +140,65 @@ class PropertyLookupCacher final : public ExpressionVisitor<void> {
 
   using AstPropertyIndex = plan::AstPropertyIndex;
 
-  /// The frame slots a pass reads into, by the symbol and the property each holds.
+  /// The frame slots a pass reads into, each held under the read that filled it: the symbol whose
+  /// record it came from, the property, and the view it was read at.
+  ///
+  /// The view belongs in the key rather than beside it, because a filter and a projection reading
+  /// one property of one record are two reads whenever this command has written that record. A
+  /// reader asks for the value it needs and finds a slot only if one holds exactly that.
   class AssignedSlots {
    public:
-    void Add(Symbol const &symbol, AstPropertyIndex property, Symbol const &slot) {
+    void Add(Symbol const &symbol, AstPropertyIndex property, Symbol const &slot, storage::View view) {
       auto found = std::ranges::find(by_symbol_, symbol, &SymbolSlots::symbol);
       if (found == by_symbol_.end()) {
         by_symbol_.push_back(SymbolSlots{.symbol = symbol});
         found = std::prev(by_symbol_.end());
       }
-      found->slots.emplace_back(property, slot);
+      found->slots.push_back(FilledSlot{.property = property, .slot = slot, .view = view});
     }
 
     [[nodiscard]] auto Signature() const -> PassPlanning::SlotSignature {
       auto signature = PassPlanning::SlotSignature{};
       for (auto const &group : by_symbol_) {
-        for (auto const &[property, slot] : group.slots) {
-          signature.push_back(PassPlanning::FilledSlot{
-              .input_symbol = group.symbol.position(), .property = property, .output_symbol = slot.position()});
+        for (auto const &filled : group.slots) {
+          signature.push_back(PassPlanning::FilledSlot{.input_symbol = group.symbol.position(),
+                                                       .property = filled.property,
+                                                       .output_symbol = filled.slot.position(),
+                                                       .view = filled.view});
         }
       }
       return signature;
     }
 
-    /// Whether the pass reads anything of this symbol, which is all that looking for a lookup to
-    /// replace asks: it decides only whether an expression needs a copy of its own.
-    [[nodiscard]] auto Holds(Symbol const &symbol) const -> bool {
-      return std::ranges::find(by_symbol_, symbol, &SymbolSlots::symbol) != by_symbol_.end();
+    /// Whether a read at `view` finds anything of this symbol here, which is all that looking for a
+    /// lookup to replace asks: it decides only whether an expression needs a copy of its own.
+    [[nodiscard]] auto Holds(Symbol const &symbol, storage::View view) const -> bool {
+      auto const found = std::ranges::find(by_symbol_, symbol, &SymbolSlots::symbol);
+      if (found == by_symbol_.end()) return false;
+      return std::ranges::any_of(found->slots, [view](FilledSlot const &filled) { return filled.view == view; });
     }
 
-    [[nodiscard]] auto SlotHolding(Symbol const &symbol, AstPropertyIndex property) const -> std::optional<Symbol> {
+    [[nodiscard]] auto SlotHolding(Symbol const &symbol, AstPropertyIndex property, storage::View view) const
+        -> std::optional<Symbol> {
       auto const found = std::ranges::find(by_symbol_, symbol, &SymbolSlots::symbol);
       if (found == by_symbol_.end()) return std::nullopt;
-      auto const slot = std::ranges::find(found->slots, property, &PropertySlot::first);
+      auto const slot = std::ranges::find_if(found->slots, [property, view](FilledSlot const &filled) {
+        return filled.property == property && filled.view == view;
+      });
       if (slot == found->slots.end()) return std::nullopt;
-      return slot->second;
+      return slot->slot;
     }
 
    private:
-    using PropertySlot = std::pair<AstPropertyIndex, Symbol>;
+    struct FilledSlot {
+      AstPropertyIndex property;
+      Symbol slot;
+      storage::View view;
+    };
 
     struct SymbolSlots {
       Symbol symbol;
-      std::vector<PropertySlot> slots;
+      std::vector<FilledSlot> slots;
     };
 
     std::vector<SymbolSlots> by_symbol_;
@@ -270,7 +289,9 @@ class PropertyLookupCacher final : public ExpressionVisitor<void> {
     return passes;
   }
 
-  /// The slots a pass below filled, which lookups here may read instead of the record.
+  /// The slots a pass below filled, which a lookup here reads instead of the record where one holds
+  /// the read it was going to make. A slot filled by a read of another view is simply not that, so
+  /// it is taken along with the rest and never matches.
   void ReuseSlots(AssignedSlots filled) { assigned_ = std::move(filled); }
 
   /// Whether a lookup here reads a slot a pass below already filled, rather than the record.
@@ -278,7 +299,7 @@ class PropertyLookupCacher final : public ExpressionVisitor<void> {
 
   /// Records the slot a new pass reads a property into, alongside any this operator reuses.
   void NoteSlot(Symbol const &symbol, AstPropertyIndex property, Symbol const &slot) {
-    assigned_.Add(symbol, property, slot);
+    assigned_.Add(symbol, property, slot, view_);
   }
 
   [[nodiscard]] auto Slots() const -> AssignedSlots const & { return assigned_; }
@@ -330,7 +351,7 @@ class PropertyLookupCacher final : public ExpressionVisitor<void> {
         // A slot a pass below filled holds this row's value already, so reading it costs nothing
         // and earns no pass of its own.
         auto const property = AstPropertyIndex{op.property_};
-        if (assigned_.SlotHolding(symbol, property)) {
+        if (assigned_.SlotHolding(symbol, property, view_)) {
           reads_a_filled_slot_ = true;
           return;
         }
@@ -338,11 +359,11 @@ class PropertyLookupCacher final : public ExpressionVisitor<void> {
         return;
       }
       case Phase::FIND: {
-        if (assigned_.Holds(symbol_table_->at(*identifier))) found_one_to_replace_ = true;
+        if (assigned_.Holds(symbol_table_->at(*identifier), view_)) found_one_to_replace_ = true;
         return;
       }
       case Phase::REPLACE: {
-        auto const slot = assigned_.SlotHolding(symbol_table_->at(*identifier), AstPropertyIndex{op.property_});
+        auto const slot = assigned_.SlotHolding(symbol_table_->at(*identifier), AstPropertyIndex{op.property_}, view_);
         if (!slot) return;
         auto *replacement = ast_storage_->Create<Identifier>(slot->name(), false);
         replacement->MapTo(*slot);
@@ -473,6 +494,8 @@ class PropertyLookupCacher final : public ExpressionVisitor<void> {
 
   SymbolTable *symbol_table_;
   AstStorage *ast_storage_;
+  /// What the operator this serves reads its own lookups at.
+  storage::View view_;
   Phase phase_{Phase::GATHER};
   /// Short circuits between here and the operator. Zero means every row evaluates what is here.
   size_t conditional_depth_{0};
@@ -552,8 +575,8 @@ class CachePropertiesRewriter final : public HierarchicalLogicalOperatorVisitor 
     if (!input) return;
 
     auto const view = ViewFor(evaluated_at);
-    auto cacher = PropertyLookupCacher{symbol_table_, ast_storage_};
-    cacher.ReuseSlots(FilledSlotsBelow(*input, view));
+    auto cacher = PropertyLookupCacher{symbol_table_, ast_storage_, view};
+    cacher.ReuseSlots(FilledSlotsBelow(*input));
     for_each_expression([&cacher](auto &expression) { cacher.Gather(expression); });
 
     // Before a slot is taken or the input is walked, because most operators read nothing worth a
@@ -592,8 +615,8 @@ class CachePropertiesRewriter final : public HierarchicalLogicalOperatorVisitor 
 
     auto pass = std::make_shared<CacheProperties>(input, std::move(groups), view);
     // Both what this pass reads and what it reused, since a row reaching an operator above holds
-    // all of it.
-    slots_filled_by_.emplace(pass.get(), FilledPass{.slots = cacher.Slots(), .view = view});
+    // all of it, and each slot says which read filled it.
+    slots_filled_by_.emplace(pass.get(), cacher.Slots());
     op.set_input(std::move(pass));
   }
 
@@ -606,23 +629,16 @@ class CachePropertiesRewriter final : public HierarchicalLogicalOperatorVisitor 
     return plan_writes_ ? evaluated_at : storage::View::NEW;
   }
 
-  /// The slots a pass below `input` filled that a read at `view` may take as its own.
+  /// The slots a pass below `input` filled, each still held under the read that filled it.
   ///
   /// Only an operator that neither writes a record nor rebuilds a row may stand between the two. A
-  /// write would leave the slot holding what the property was before it, and an operator that
-  /// restores rows restores only the symbols it was told to.
-  ///
-  /// A pass that read at another view is no use here however little stands between: a filter tests
-  /// a row against the record as the row was produced, where a projection returns what the row's
-  /// own writes left, so one operator's slot is not the other's value.
-  [[nodiscard]] auto FilledSlotsBelow(LogicalOperator const &input, storage::View view) const
-      -> PropertyLookupCacher::AssignedSlots {
+  /// write would leave a slot holding what the property was before it, and an operator that
+  /// restores rows restores only the symbols it was told to. Whether a slot holds the read a lookup
+  /// here was going to make is then that lookup's own question, which it asks of the key.
+  [[nodiscard]] auto FilledSlotsBelow(LogicalOperator const &input) const -> PropertyLookupCacher::AssignedSlots {
     for (auto const *below = &input; below != nullptr;) {
       auto const filled = slots_filled_by_.find(below);
-      if (filled != slots_filled_by_.end()) {
-        if (filled->second.view != view) return {};
-        return filled->second.slots;
-      }
+      if (filled != slots_filled_by_.end()) return filled->second;
       if (below->GetTypeInfo() != Filter::kType) break;
       below = below->HasSingleInput() ? below->input().get() : nullptr;
     }
@@ -655,12 +671,6 @@ class CachePropertiesRewriter final : public HierarchicalLogicalOperatorVisitor 
     return groups;
   }
 
-  /// What a pass this rewrite hung leaves in the frame, and the view it read to fill it.
-  struct FilledPass {
-    PropertyLookupCacher::AssignedSlots slots;
-    storage::View view;
-  };
-
   SymbolTable *symbol_table_;
   AstStorage *ast_storage_;
   TDbAccessor *db_;
@@ -669,7 +679,7 @@ class CachePropertiesRewriter final : public HierarchicalLogicalOperatorVisitor 
   bool plan_writes_;
   /// What each pass this rewrite hung leaves in the frame, so an operator above can read a slot
   /// rather than the record again.
-  std::map<LogicalOperator const *, FilledPass> slots_filled_by_;
+  std::map<LogicalOperator const *, PropertyLookupCacher::AssignedSlots> slots_filled_by_;
 };
 
 }  // namespace impl
