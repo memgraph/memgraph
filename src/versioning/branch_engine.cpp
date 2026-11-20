@@ -1084,7 +1084,7 @@ HiddenBaseEdges BranchContext::ReadHiddenBaseEdges(std::span<storage::Edge *cons
 
 // Exact because a native edge is appended to the overlay's in/out edges under the overlay's lock before its transaction
 // commits, so every edge this reader may see is in the overlay's adjacency at `view`. The filters only gate the read: a
-// clear bit means no native edge, no marker and no delete of this vertex.
+// clear bit means no native edge, no deleted base edge and no delete of this vertex.
 std::optional<BranchContext::DirectExpansionPlan> BranchContext::DirectExpansion(const storage::VertexAccessor &vertex,
                                                                                  storage::EdgeDirection direction,
                                                                                  storage::View view) {
@@ -1142,7 +1142,7 @@ std::vector<storage::EdgeAccessor> BranchContext::ResolveEdges(storage::Gid vert
 }
 
 // historical() is a frozen snapshot, so it is read with View::OLD throughout. `emit` order: the overlay's native edges,
-// then the base's, less those the overlay's markers hide.
+// then the base's, less those the branch deleted.
 void BranchContext::ResolveEdgesInto(storage::Gid vertex_gid, const storage::VertexAccessor *base_hint,
                                      storage::EdgeDirection direction, storage::View view, bool *vertex_deleted,
                                      absl::FunctionRef<void(size_t)> reserve,
