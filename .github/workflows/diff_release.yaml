@@ -396,7 +396,6 @@ jobs:
           fi
 
       - name: Run mgbench
-        if: false  # TEMPORARY: run only the hub edge rewrite benchmark; revert before merge
         run: |
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
@@ -409,7 +408,6 @@ jobs:
           --export-results-file ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }}
 
       - name: Upload mgbench results
-        if: false  # TEMPORARY: run only the hub edge rewrite benchmark; revert before merge
         run: |
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
@@ -425,7 +423,6 @@ jobs:
           --head-branch-name "${{ env.BRANCH_NAME }}"
 
       - name: Run extended planner optimizations mgbench
-        if: false  # TEMPORARY: run only the hub edge rewrite benchmark; revert before merge
         run: |
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
@@ -440,7 +437,6 @@ jobs:
           --export-results-file ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }}
 
       - name: Upload extended planner optimizations mgbench results
-        if: false  # TEMPORARY: run only the hub edge rewrite benchmark; revert before merge
         run: |
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
@@ -456,7 +452,6 @@ jobs:
           --head-branch-name "${{ env.BRANCH_NAME }}"
 
       - name: Run mgbench-vector-search-index
-        if: false  # TEMPORARY: run only the hub edge rewrite benchmark; revert before merge
         run: |
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
@@ -469,7 +464,6 @@ jobs:
           --export-results-file ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }}
 
       - name: Upload mgbench-vector-search-index results
-        if: false  # TEMPORARY: run only the hub edge rewrite benchmark; revert before merge
         run: |
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
@@ -485,7 +479,6 @@ jobs:
           --head-branch-name "${{ env.BRANCH_NAME }}"
 
       - name: Run mgbench-vector-search-edge-index
-        if: false  # TEMPORARY: run only the hub edge rewrite benchmark; revert before merge
         run: |
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
@@ -498,7 +491,6 @@ jobs:
           --export-results-file ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }}
 
       - name: Upload mgbench-vector-search-edge-index results
-        if: false  # TEMPORARY: run only the hub edge rewrite benchmark; revert before merge
         run: |
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
@@ -514,7 +506,6 @@ jobs:
           --head-branch-name "${{ env.BRANCH_NAME }}"
 
       - name: Run mgbench-text-search-index
-        if: false  # TEMPORARY: run only the hub edge rewrite benchmark; revert before merge
         run: |
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
@@ -527,7 +518,6 @@ jobs:
           --export-results-file ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }}
 
       - name: Upload mgbench-text-search-index results
-        if: false  # TEMPORARY: run only the hub edge rewrite benchmark; revert before merge
         run: |
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
@@ -543,7 +533,6 @@ jobs:
           --head-branch-name "${{ env.BRANCH_NAME }}"
 
       - name: Run mgbench-text-search-edge-index
-        if: false  # TEMPORARY: run only the hub edge rewrite benchmark; revert before merge
         run: |
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
@@ -556,7 +545,6 @@ jobs:
           --export-results-file ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }}
 
       - name: Upload mgbench-text-search-edge-index results
-        if: false  # TEMPORARY: run only the hub edge rewrite benchmark; revert before merge
         run: |
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
@@ -572,7 +560,6 @@ jobs:
           --head-branch-name "${{ env.BRANCH_NAME }}"
 
       - name: Run supernode
-        if: false  # TEMPORARY: run only the hub edge rewrite benchmark; revert before merge
         run: |
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
@@ -585,7 +572,6 @@ jobs:
           --export-results-file ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }}
 
       - name: Upload supernode results
-        if: false  # TEMPORARY: run only the hub edge rewrite benchmark; revert before merge
         run: |
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
@@ -628,7 +614,6 @@ jobs:
           --head-branch-name "${{ env.BRANCH_NAME }}"
 
       - name: Run load parquet
-        if: false  # TEMPORARY: run only the hub edge rewrite benchmark; revert before merge
         run: |
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
@@ -641,7 +626,6 @@ jobs:
           --export-results-file ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }}
 
       - name: Upload load parquet results
-        if: false  # TEMPORARY: run only the hub edge rewrite benchmark; revert before merge
         run: |
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
@@ -657,7 +641,6 @@ jobs:
           --head-branch-name "${{ env.BRANCH_NAME }}"
 
       - name: Run macro benchmarks
-        if: false  # TEMPORARY: run only the hub edge rewrite benchmark; revert before merge
         run: |
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
@@ -668,7 +651,6 @@ jobs:
           test-memgraph macro-benchmark
 
       - name: Upload macro benchmark results
-        if: false  # TEMPORARY: run only the hub edge rewrite benchmark; revert before merge
         run: |
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
