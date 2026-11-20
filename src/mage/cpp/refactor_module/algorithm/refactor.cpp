@@ -41,10 +41,8 @@ namespace {
 // Only a literal boolean true in the optional trailing config map fails the call;
 // an omitted map, a missing key or any non-boolean value leaves the failure on the row.
 bool FailOnErrorsRequested(const mgp::List &arguments) {
-  if (arguments.Size() <= 2) return false;
-  const mgp::Value config = arguments[2];
-  if (!config.IsMap()) return false;
-  const mgp::Value fail_on_errors = config.ValueMap().At(Refactor::kConfigFailOnErrors);
+  const auto config_map = arguments[2].ValueMap();
+  const auto fail_on_errors = config_map.At(Refactor::kConfigFailOnErrors);
   return fail_on_errors.IsBool() && fail_on_errors.ValueBool();
 }
 }  // namespace
