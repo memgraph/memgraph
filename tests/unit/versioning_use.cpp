@@ -38,6 +38,19 @@ using memgraph::tests::versioning_fixture::ThrownMessage;
 using memgraph::versioning::GateError;
 
 namespace {
+size_t CheckoutCount(const memgraph::versioning::VersionStore *store, std::string_view name) {
+  const auto listing = store->Get(name);
+  return listing ? listing->sessions : 0;
+}
+
+void ForceDrop(memgraph::versioning::VersionStore *store, std::string_view name) {
+  const auto dropped = store->DropBranch(name, true);
+  ASSERT_TRUE(dropped) << dropped.error();
+  ASSERT_EQ(*dropped, memgraph::versioning::DropResult::kDropped);
+}
+}  // namespace
+
+namespace {
 
 constexpr std::string_view kDeadBranch = "Branch 'b' no longer exists. Run USE BRANCH or USE DATABASE to continue.";
 
@@ -88,7 +101,7 @@ TEST_F(VersioningGatedTest, UseBranchOnAnUnavailableBranchSaysWhyAndLeavesTheSes
   faker.Interpret("CREATE BRANCH feature");
   faker.Interpret("CREATE BRANCH bad");
   auto *store = db->version_store();
-  store->MarkUnavailable(store->Get("bad")->id, "the write-ahead log directory is missing");
+  store->MarkUnavailable(store->Get("bad")->info.id, "the write-ahead log directory is missing");
   faker.Interpret("USE BRANCH feature");
 
   const auto message = ThrownMessage([&] { faker.Interpret("USE BRANCH bad"); });
@@ -96,19 +109,12 @@ TEST_F(VersioningGatedTest, UseBranchOnAnUnavailableBranchSaysWhyAndLeavesTheSes
   EXPECT_THAT(message, ::testing::HasSubstr("restart Memgraph"));
   EXPECT_THAT(message, ::testing::HasSubstr("DROP BRANCH 'bad'"));
   EXPECT_EQ(faker.interpreter.current_db_.CurrentVersion(), "feature");
-  EXPECT_EQ(store->CheckoutCount("bad"), 0U);
-  EXPECT_EQ(store->CheckoutCount("feature"), 1U);
+  EXPECT_EQ(CheckoutCount(store, "bad"), 0U);
+  EXPECT_EQ(CheckoutCount(store, "feature"), 1U);
 
   faker.Interpret("DROP BRANCH bad");
   EXPECT_FALSE(store->Exists("bad"));
   EXPECT_EQ(ThrownMessage([&] { faker.Interpret("USE BRANCH bad"); }), "Branch 'bad' does not exist.");
-}
-
-// With the ledger unreadable the branches are unknown: USE BRANCH fails with the ledger's message, whatever the name.
-TEST_F(VersioningGatedTest, UseBranchWithAnUnreadableLedgerSaysSo) {
-  db->version_store()->RestoreLedgerUnreadable("The branch ledger cannot be read; restore it.");
-  EXPECT_EQ(ThrownMessage([&] { faker.Interpret("USE BRANCH x"); }), "The branch ledger cannot be read; restore it.");
-  EXPECT_FALSE(faker.interpreter.current_db_.CurrentVersion().has_value());
 }
 
 // Two or more lookups on one symbol are read in one CacheProperties pass; on a branch it must read the branch's values,
@@ -149,16 +155,16 @@ TEST_F(VersioningGatedTest, SwitchingBranchesKeepsOneCheckoutPerSession) {
 
   faker.Interpret("USE BRANCH x");
   faker.Interpret("CREATE (:OnX)");
-  EXPECT_EQ(store->CheckoutCount("x"), 1U);
+  EXPECT_EQ(CheckoutCount(store, "x"), 1U);
   EXPECT_DOUBLE_EQ(sessions.Value(), sessions0 + 1);
   faker.Interpret("USE BRANCH y");
   EXPECT_DOUBLE_EQ(sessions.Value(), sessions0 + 1) << "a switch moves the session, it does not add one";
-  EXPECT_EQ(store->CheckoutCount("x"), 0U);
-  EXPECT_EQ(store->CheckoutCount("y"), 1U);
+  EXPECT_EQ(CheckoutCount(store, "x"), 0U);
+  EXPECT_EQ(CheckoutCount(store, "y"), 1U);
   faker.Interpret("CREATE (:OnY)");
   EXPECT_EQ(IntRows(faker, "MATCH (n) WHERE n:Base OR n:OnX OR n:OnY RETURN count(n)"), (Rows{{2}}));
   faker.Interpret("USE BRANCH main");
-  EXPECT_EQ(store->CheckoutCount("y"), 0U);
+  EXPECT_EQ(CheckoutCount(store, "y"), 0U);
   EXPECT_DOUBLE_EQ(sessions.Value(), sessions0);
   faker.Interpret("CREATE (:OnMain)");
   EXPECT_EQ(IntRows(faker, "MATCH (n) WHERE n:Base OR n:OnMain RETURN count(n)"), (Rows{{2}}));
@@ -167,27 +173,27 @@ TEST_F(VersioningGatedTest, SwitchingBranchesKeepsOneCheckoutPerSession) {
   EXPECT_EQ(IntRows(faker, "MATCH (n) WHERE n:OnX OR n:OnY OR n:OnMain RETURN count(n)"), (Rows{{1}}));
 }
 
-// The old branch is released only once the new one is attached: a switch that fails half-way (here `c` cannot persist
-// its gid floors) keeps the session on its branch.
+// The old branch is released only once the new one is attached: a switch that fails half-way (here `c` is unavailable)
+// keeps the session on its branch.
 TEST_F(VersioningGatedTest, AFailedSwitchKeepsTheSessionOnItsBranch) {
   faker.Interpret("CREATE BRANCH b");
   faker.Interpret("CREATE BRANCH c");
+  faker.Interpret("CREATE BRANCH d");
   faker.Interpret("USE BRANCH b");
   faker.Interpret("CREATE (:OnB)");
   auto *store = db->version_store();
 
-  // The registry is replaced through `ledger.tmp`; a directory in its place makes that write fail.
-  const auto blocker = config.durability.storage_directory / "branches" / "ledger.tmp";
-  std::filesystem::create_directory(blocker);
-  EXPECT_THAT(ThrownMessage([&] { faker.Interpret("USE BRANCH c"); }), ::testing::HasSubstr("Branch ledger"));
-  std::filesystem::remove(blocker);
+  store->MarkUnavailable(store->Get("c")->info.id, "the write-ahead log directory is missing");
+  EXPECT_THAT(ThrownMessage([&] { faker.Interpret("USE BRANCH c"); }),
+              ::testing::HasSubstr("Branch 'c' is unavailable"));
 
   EXPECT_EQ(faker.interpreter.current_db_.CurrentVersion(), "b");
-  EXPECT_EQ(store->CheckoutCount("b"), 1U);
-  EXPECT_EQ(store->CheckoutCount("c"), 0U);
+  EXPECT_EQ(CheckoutCount(store, "b"), 1U);
+  EXPECT_EQ(CheckoutCount(store, "c"), 0U);
   EXPECT_EQ(IntRows(faker, "MATCH (n:OnB) RETURN count(n)"), (Rows{{1}}));
-  faker.Interpret("USE BRANCH c");
-  EXPECT_EQ(store->CheckoutCount("b"), 0U);
+  faker.Interpret("USE BRANCH d");
+  EXPECT_EQ(CheckoutCount(store, "b"), 0U);
+  EXPECT_EQ(CheckoutCount(store, "d"), 1U);
   EXPECT_EQ(IntRows(faker, "MATCH (n:OnB) RETURN count(n)"), (Rows{{0}}));
 }
 
@@ -224,7 +230,7 @@ TEST_F(VersioningInterpreterTest, UseBranchGateOrder) {
         << query;
   }
   EXPECT_FALSE(faker.interpreter.current_db_.CurrentVersion().has_value());
-  EXPECT_EQ(db->version_store()->CheckoutCount("b"), 0U);
+  EXPECT_EQ(CheckoutCount(db->version_store(), "b"), 0U);
 }
 
 // Without a valid license a session can still move onto a branch, read it and leave it; only writes are refused.
@@ -306,8 +312,7 @@ TEST_F(VersioningGatedTest, SessionOnDroppedBranchFailsEveryQueryUntilItSwitches
   faker.Interpret("USE BRANCH b");
   faker.Interpret("CREATE (:A {x: 2})");
   const auto sessions0 = sessions.Value();
-  ASSERT_TRUE(db->version_store()->FreezeAndDropAll().has_value());
-  db->version_store()->Unfreeze();
+  ForceDrop(db->version_store(), "b");
 
   for (const auto *query :
        {"MATCH (n:A) RETURN n.x", "RETURN 1", "SHOW BRANCH", "SHOW BRANCHES", "SHOW INDEX INFO", "CREATE (:B)"}) {
@@ -329,7 +334,7 @@ TEST_F(VersioningGatedTest, SessionOnDroppedBranchCanUseAnotherBranch) {
   faker.Interpret("CREATE BRANCH b");
   faker.Interpret("CREATE BRANCH c");
   faker.Interpret("USE BRANCH b");
-  ASSERT_EQ(db->version_store()->Drop("b", {.force = true}), memgraph::versioning::DropResult::kDropped);
+  ForceDrop(db->version_store(), "b");
 
   EXPECT_EQ(ThrownMessage([&] { faker.Interpret("MATCH (n:A) RETURN n.x"); }), kDeadBranch);
   EXPECT_EQ(Status(faker, "USE BRANCH c"), "Using branch c");
@@ -388,15 +393,15 @@ TEST_F(VersioningGatedTest, SessionOnDroppedBranchStaysDeadWhenTheNameIsReused) 
   faker.Interpret("CREATE BRANCH b");
   faker.Interpret("USE BRANCH b");
   faker.Interpret("CREATE (:Old)");
-  ASSERT_EQ(db->version_store()->Drop("b", {.force = true}), memgraph::versioning::DropResult::kDropped);
+  ForceDrop(db->version_store(), "b");
   ASSERT_TRUE(db->version_store()->CreateBranch("b"));
 
   EXPECT_EQ(ThrownMessage([&] { faker.Interpret("MATCH (n) RETURN n"); }),
             "Branch 'b' was dropped (a branch with the same name was created since). Run USE BRANCH b to use the new "
             "one, or USE DATABASE to continue.");
-  EXPECT_EQ(db->version_store()->CheckoutCount("b"), 0U);
+  EXPECT_EQ(CheckoutCount(db->version_store(), "b"), 0U);
   EXPECT_EQ(Status(faker, "USE BRANCH b"), "Using branch b");
-  EXPECT_EQ(db->version_store()->CheckoutCount("b"), 1U);
+  EXPECT_EQ(CheckoutCount(db->version_store(), "b"), 1U);
   EXPECT_EQ(IntRows(faker, "MATCH (n:Old) RETURN count(n)"), (Rows{{0}}));
 }
 
@@ -409,7 +414,7 @@ TEST_F(VersioningGatedTest, UseDatabaseLeavesADroppedBranch) {
   faker.Interpret("USE BRANCH b");
   EXPECT_EQ(Status(faker, use_db), "Already using tenant") << "a live branch is kept";
   EXPECT_EQ(faker.interpreter.current_db_.CurrentVersion(), "b");
-  ASSERT_TRUE(db->version_store()->FreezeAndDropAll().has_value());
+  ForceDrop(db->version_store(), "b");
   ASSERT_TRUE(repl_state.Lock()->SetReplicationRoleReplica(
       memgraph::replication::ReplicationServerConfig{.repl_server =
                                                          memgraph::io::network::Endpoint("127.0.0.1", 30246)},
@@ -580,16 +585,15 @@ TEST_F(VersioningGatedTest, BranchSessionDatabaseNameFollowsARename) {
   faker.Interpret("ROLLBACK");
 }
 
-// USE BRANCH builds a branch on its ledger's gid floors, not main's current counters: main objects created since the
-// fork are not base objects, and a native create never takes a gid main has handed out.
-TEST_F(VersioningGatedTest, UseBranchBuildsTheCoreOnTheLedgersGidFloors) {
+// USE BRANCH builds a branch on the gid floors recorded at its fork, not main's current counters: main objects created
+// since the fork are not base objects, and a native create never takes a gid main has handed out.
+TEST_F(VersioningGatedTest, UseBranchBuildsTheCoreOnTheForkGidFloors) {
   faker.Interpret("CREATE (:V {k: 1}), (:V {k: 2})");
   auto &main = static_cast<memgraph::storage::InMemoryStorage &>(*db->storage());
   ASSERT_TRUE(db->version_store()->CreateBranch("b"));
-  const auto number = db->version_store()->Get("b")->id;
-  const auto vertex_floor = main.vertex_id_.load();
-  const auto edge_floor = main.edge_id_.load();
-  ASSERT_TRUE(db->version_store()->RecordGidFloors(number, vertex_floor, edge_floor));
+  const auto fork = db->version_store()->Get("b")->info.fork;
+  const auto vertex_floor = fork.vertex_gid_floor;
+  const auto edge_floor = fork.edge_gid_floor;
   faker.Interpret("CREATE (:V {k: 3}), (:V {k: 4}), (:V {k: 5})");
   const auto main_vertex_counter = main.vertex_id_.load();
   ASSERT_GT(main_vertex_counter, vertex_floor);

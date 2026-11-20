@@ -9752,37 +9752,23 @@ PreparedQuery PrepareDropBranchQuery(ParsedQuery parsed_query, std::string name,
       .rw_type = RWType::W};
 }
 
-// Attaches the session to branch `name` with a counted checkout. A failure leaves the session without a branch and the
-// checkout released.
+// Attaches the session to branch `name` with a counted checkout. A failure leaves the session without a branch; the
+// checkout is released on unwind.
 void AttachBranchEngine(CurrentDB &current_db, versioning::VersionStore *version_store, storage::Storage *main,
                         const std::string &name) {
-  auto info = version_store->TryAcquireCheckout(name);
-  if (!info) throw QueryRuntimeException(info.error());
-  try {
-    auto core = version_store->GetOrBuildCore(
-        info->id, [&]() -> std::expected<std::shared_ptr<versioning::BranchCore>, std::string> {
-          auto built = versioning::BranchCore::BuildForCheckout(*static_cast<storage::InMemoryStorage *>(main), *info);
-          if (!built) return std::unexpected(std::move(built.error().message));
-          (*built)->SetGidReserver(version_store->GidReserverOf(info->id));
-          return std::move(*built);
-        });
-    if (!core) throw QueryRuntimeException(versioning::DescribeCoreFailure(name, core.error()));
-    if (auto recorded =
-            version_store->RecordGidFloors(info->id, (*core)->vertex_gid_floor(), (*core)->edge_gid_floor());
-        !recorded) {
-      throw QueryRuntimeException(recorded.error());
-    }
-    current_db.SetBranchContext(
-        std::make_unique<versioning::BranchContext>(std::move(*core), name, info->id), version_store, info->id);
-  } catch (...) {
-    // Once SetBranchContext installed the checkout, leaving the branch is what releases it.
-    if (current_db.branch_context() != nullptr) {
-      current_db.LeaveBranch();
-    } else {
-      version_store->ReleaseCheckout(info->id);
-    }
-    throw;
-  }
+  auto checkout = version_store->Checkout(name);
+  if (!checkout) throw QueryRuntimeException(checkout.error());
+  const auto &info = (*checkout)->info();
+  auto core = (*checkout)->GetOrBuildCore([&]() -> versioning::CoreResult {
+    auto built = versioning::BranchCore::Build(
+        *static_cast<storage::InMemoryStorage *>(main), info.fork, (*checkout)->fork_ts(), info.id);
+    if (!built) return std::unexpected(std::move(built.error().message));
+    return std::move(*built);
+  });
+  if (!core) throw QueryRuntimeException(core.error());
+  const auto number = info.id;
+  current_db.SetBranchContext(std::make_unique<versioning::BranchContext>(std::move(*core), name, number),
+                              std::move(*checkout));
 }
 
 // Parks the session's branch and attaches `target` ("main" attaches nothing). A failure restores the parked branch.
@@ -9806,7 +9792,7 @@ bool EnterSessionBranch(CurrentDB &current_db, versioning::VersionStore *version
   } else {
     const auto info = version_store->Get(target);
     if (!info) throw QueryRuntimeException("Branch '{}' does not exist.", target);
-    if (current_db.OnBranch(info->id)) return false;
+    if (current_db.OnBranch(info->info.id)) return false;
   }
   ParkAndAttach(current_db, version_store, main, target);
   current_db.DiscardParkedBranch();
