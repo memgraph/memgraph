@@ -791,12 +791,13 @@ PrometheusMetrics::PrometheusMetrics()
                                     .Register(registry_)},
       commit_lock_wait_family_{prometheus::BuildHistogram()
                                    .Name("memgraph_commit_lock_wait_seconds")
-                                   .Help("Time a write commit waits for the commit locks")
+                                   .Help("Time a write commit waits for the commit locks; on a replica, the wait "
+                                         "to apply a replicated commit")
                                    .Register(registry_)},
       commit_family_{prometheus::BuildHistogram()
                          .Name("memgraph_commit_seconds")
                          .Help("Time spent in each write transaction commit attempt, including the WAL write and SYNC "
-                               "replicas")
+                               "replicas; on a replica, the time to apply a replicated commit")
                          .Register(registry_)},
       gc_index_sweeps_family_{prometheus::BuildCounter()
                                   .Name("memgraph_gc_index_sweeps_total")
