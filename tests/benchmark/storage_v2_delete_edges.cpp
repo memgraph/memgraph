@@ -183,7 +183,9 @@ void DetachDeleteManyUsers(benchmark::State &state) {
 }
 
 // One user's kHubs edges deleted per iteration, one transaction each. Taking users oldest first keeps their edges at
-// the front of the hubs' adjacency, so each hub is scanned end to end; newest first keeps them at the back.
+// the front of the hubs' adjacency, newest first keeps them at the back. The order only matters to a search that
+// scans the adjacency from the back and stops once all edges are found; partitioning the whole adjacency costs the
+// same either way.
 // NOLINTNEXTLINE(google-runtime-references)
 void DeleteUserHubEdges(benchmark::State &state, bool oldest_first) {
   auto graph = MakeHubGraph(state, state.range(1));
