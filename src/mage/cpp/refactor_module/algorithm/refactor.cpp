@@ -13,7 +13,6 @@
 
 #include <compare>
 #include <cstdint>
-#include <optional>
 #include <string_view>
 #include <unordered_set>
 
@@ -52,7 +51,7 @@ void Refactor::From(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *resul
   auto arguments = mgp::List(args);
   const auto record_factory = mgp::RecordFactory(result);
   const bool fail_on_errors = FailOnErrorsRequested(arguments);
-  std::optional<int64_t> original_id;
+  int64_t original_id{0};
   try {
     auto relationship{arguments[0].ValueRelationship()};
     auto const new_from{arguments[1].ValueNode()};
@@ -65,7 +64,7 @@ void Refactor::From(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *resul
 
     auto record = record_factory.NewRecord();
     record.Insert(std::string(kFromResult).c_str(), new_relationship);
-    record.Insert(std::string(kFromResultInput).c_str(), *original_id);
+    record.Insert(std::string(kFromResultInput).c_str(), original_id);
     record.Insert(std::string(kFromResultOutput).c_str(), new_relationship);
 
   } catch (const std::exception &e) {
@@ -74,10 +73,7 @@ void Refactor::From(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *resul
       return;
     }
     auto record = record_factory.NewRecord();
-    // A field the row never inserts (here output and relationship) reads back as Null; Insert throws for a Null value.
-    if (original_id.has_value()) {
-      record.Insert(std::string(kFromResultInput).c_str(), *original_id);
-    }
+    record.Insert(std::string(kFromResultInput).c_str(), original_id);
     record.Insert(std::string(kFromResultError).c_str(), std::string_view(e.what()));
   }
 }
@@ -87,7 +83,7 @@ void Refactor::To(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result,
   auto arguments = mgp::List(args);
   const auto record_factory = mgp::RecordFactory(result);
   const bool fail_on_errors = FailOnErrorsRequested(arguments);
-  std::optional<int64_t> original_id;
+  int64_t original_id{0};
   try {
     auto relationship{arguments[0].ValueRelationship()};
     auto const new_to{arguments[1].ValueNode()};
@@ -100,7 +96,7 @@ void Refactor::To(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result,
 
     auto record = record_factory.NewRecord();
     record.Insert(std::string(kToResult).c_str(), new_relationship);
-    record.Insert(std::string(kToResultInput).c_str(), *original_id);
+    record.Insert(std::string(kToResultInput).c_str(), original_id);
     record.Insert(std::string(kToResultOutput).c_str(), new_relationship);
 
   } catch (const std::exception &e) {
@@ -109,9 +105,7 @@ void Refactor::To(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result,
       return;
     }
     auto record = record_factory.NewRecord();
-    if (original_id.has_value()) {
-      record.Insert(std::string(kToResultInput).c_str(), *original_id);
-    }
+    record.Insert(std::string(kToResultInput).c_str(), original_id);
     record.Insert(std::string(kToResultError).c_str(), std::string_view(e.what()));
   }
 }
