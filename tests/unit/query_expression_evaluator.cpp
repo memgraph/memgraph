@@ -3705,6 +3705,28 @@ TYPED_TEST(FunctionTest, ToStringPoint) {
             memgraph::query::CypherConstructionFor(p3).c_str());
 }
 
+TYPED_TEST(FunctionTest, ToStringPointCoordinatesReparse) {
+  using memgraph::storage::Point2d;
+  using memgraph::storage::Point3d;
+  using enum memgraph::storage::CoordinateReferenceSystem;
+  constexpr auto inf = std::numeric_limits<double>::infinity();
+  constexpr auto nan = std::numeric_limits<double>::quiet_NaN();
+  const auto to_string = [this](TypedValue const &point) {
+    return std::string{this->EvaluateFunction("TOSTRING", point).ValueString()};
+  };
+  // Every spelling is a Cypher expression: no '+' exponent sign, no bare inf/nan, and -0.0 keeps its sign.
+  EXPECT_EQ(to_string(TypedValue(Point2d(Cartesian_2d, 0.1, 1.0 / 3.0))),
+            "POINT({ x:0.1, y:0.3333333333333333, srid: 7203 })");
+  EXPECT_EQ(to_string(TypedValue(Point2d(Cartesian_2d, -0.0, 1e20))), "POINT({ x:-0.0, y:1e20, srid: 7203 })");
+  EXPECT_EQ(to_string(TypedValue(Point2d(Cartesian_2d, 1e-7, 1.2345678901234568e17))),
+            "POINT({ x:1e-07, y:1.2345678901234568e17, srid: 7203 })");
+  EXPECT_EQ(to_string(TypedValue(Point2d(Cartesian_2d, inf, -inf))),
+            "POINT({ x:(1.0/0.0), y:(-1.0/0.0), srid: 7203 })");
+  EXPECT_EQ(to_string(TypedValue(Point2d(Cartesian_2d, nan, 0))), "POINT({ x:(0.0/0.0), y:0, srid: 7203 })");
+  EXPECT_EQ(to_string(TypedValue(Point3d(Cartesian_3d, 1, -0.0, 1e300))),
+            "POINT({ x:1, y:-0.0, z:1e300, srid: 9157 })");
+}
+
 TYPED_TEST(FunctionTest, ToStringOrNullPoint) {
   using memgraph::storage::Point2d;
   using enum memgraph::storage::CoordinateReferenceSystem;
