@@ -6003,15 +6003,15 @@ bool CacheProperties::CachePropertiesCursor::Pull(Frame &frame, ExecutionContext
     // once where a reference holds none.
     auto const lazy_refs = context.evaluation_context.lazy_vector_refs;
 
+    // Whichever kind of record the row holds, asked once so that the read below and any reference
+    // it hands back reach the same record without either of them naming both kinds.
+    auto const of_the_record = [&](auto &&with) {
+      return reads_a_vertex ? with(input_value.ValueVertex().impl_) : with(input_value.ValueEdge().impl_);
+    };
+
     // The view the operator this pass reads for evaluates at, so a slot holds what that operator's
     // own lookup would have read of a record this command has written.
-    auto const read = std::invoke([&] {
-      if (reads_a_vertex) {
-        auto const &accessor = input_value.ValueVertex().impl_;
-        return lazy_refs ? accessor.ReadPropertyValuesCompact(group.ordered(), slots, self_.view_)
-                         : accessor.ReadPropertyValues(group.ordered(), slots, self_.view_);
-      }
-      auto const &accessor = input_value.ValueEdge().impl_;
+    auto const read = of_the_record([&](auto const &accessor) {
       return lazy_refs ? accessor.ReadPropertyValuesCompact(group.ordered(), slots, self_.view_)
                        : accessor.ReadPropertyValues(group.ordered(), slots, self_.view_);
     });
@@ -6029,9 +6029,8 @@ bool CacheProperties::CachePropertiesCursor::Pull(Frame &frame, ExecutionContext
       if (value.IsNull()) {
         frame_writer.Write(cached.output_symbol, TypedValue(context.evaluation_context.memory));
       } else if (lazy_refs && value.IsVectorIndexId()) {
-        auto const ref = reads_a_vertex
-                             ? VectorRefValue{input_value.ValueVertex().impl_, cached.property_id, self_.view_}
-                             : VectorRefValue{input_value.ValueEdge().impl_, cached.property_id, self_.view_};
+        auto const ref = of_the_record(
+            [&](auto const &accessor) { return VectorRefValue{accessor, cached.property_id, self_.view_}; });
         frame_writer.Write(cached.output_symbol, TypedValue(ref, context.evaluation_context.memory));
       } else {
         frame_writer.Write(cached.output_symbol,
