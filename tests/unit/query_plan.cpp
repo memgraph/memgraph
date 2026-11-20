@@ -9629,6 +9629,36 @@ TYPED_TEST(TestPlanner, CachePropertiesAProjectionPassesOverWhatASlotAlreadyHold
       << "the lookup a slot below holds still reads the record";
 }
 
+// A write names one property, so a slot holding another still holds what a read above the write
+// would have found, whichever view each reads at. Nothing in the plan's shape shows it, so what the
+// projection reads is the assertion.
+TYPED_TEST(TestPlanner, CachePropertiesAProjectionTakesASlotWhenAWriteNamesAnotherProperty) {
+  CachePropertiesFlagGuard guard{true};
+  FakeDbAccessor dba;
+  auto filtered = PROPERTY_PAIR(dba, "a");
+  auto written = PROPERTY_PAIR(dba, "q");
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                                   WHERE(AND(GREATER(PROPERTY_LOOKUP(dba, "n", filtered), LITERAL(0)),
+                                             LESS(PROPERTY_LOOKUP(dba, "n", filtered), LITERAL(10)))),
+                                   WITH("n", AS("n"), PROPERTY_LOOKUP(dba, "n", filtered), AS("x")),
+                                   SET(PROPERTY_LOOKUP(dba, "n", written), LITERAL(1)),
+                                   RETURN("x")));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  // The projection that reads the property is the one the write stands above.
+  auto *write = FindOpOfType<SetProperty>(&planner.plan());
+  ASSERT_NE(write, nullptr) << "expected the write";
+  auto *projection = dynamic_cast<Produce *>(write->input_.get());
+  ASSERT_NE(projection, nullptr) << "expected the projection below the write";
+
+  auto const projected =
+      std::ranges::find_if(projection->named_expressions_, [](auto const *named) { return named->name_ == "x"; });
+  ASSERT_NE(projected, projection->named_expressions_.end());
+  EXPECT_STREQ((*projected)->expression_->GetTypeInfo().name, memgraph::query::Identifier::kType.name)
+      << "the projection read the record again for a property the write does not name";
+}
+
 TYPED_TEST(TestPlanner, CachePropertiesAnAggregationReadsASlotAFilterAlreadyFilled) {
   CachePropertiesFlagGuard guard{true};
   FakeDbAccessor dba;
