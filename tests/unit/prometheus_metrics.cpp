@@ -15,6 +15,7 @@
 #include <filesystem>
 #include <string_view>
 #include <variant>
+#include <vector>
 
 #include <gtest/gtest.h>
 #include <prometheus/metric_family.h>
@@ -90,6 +91,68 @@ TEST(PrometheusMetrics, MultipleDatabasesAreIsolated) {
   auto const families = pm.CollectForScrape();
   EXPECT_EQ(FindSample(families, "memgraph_vertex_count", "db1"), 10.0);
   EXPECT_EQ(FindSample(families, "memgraph_vertex_count", "db2"), 20.0);
+}
+
+TEST(PrometheusMetrics, ReplicationFailureSeriesExistAtZeroWhileTheReplicaIsAttached) {
+  memgraph::metrics::PrometheusMetrics pm;
+  auto db = pm.AddDatabase(memgraph::utils::UUID{}, "db1");
+  auto const &counters = db.handles().replication_failures;
+
+  auto const replica_series = [&](std::string_view replica) {
+    std::vector<double> values;
+    for (auto const &family : pm.CollectForScrape()) {
+      if (family.name != "memgraph_replication_failures_total") continue;
+      for (auto const &metric : family.metric) {
+        if (r::any_of(metric.label, [&](auto const &l) { return l.name == "mg_instance" && l.value == replica; })) {
+          values.push_back(metric.counter.value);
+        }
+      }
+    }
+    return values;
+  };
+
+  counters.AddReplica("replica_1");
+  counters.AddReplica("replica_2");
+  EXPECT_EQ(replica_series("replica_1"), std::vector<double>(8, 0.0)) << "one series per outcome and reason, at 0";
+
+  counters.RemoveReplica("replica_1");
+  EXPECT_TRUE(replica_series("replica_1").empty());
+  EXPECT_EQ(replica_series("replica_2").size(), 8) << "removing one replica keeps the others";
+
+  counters.Increment("replica_1",
+                     memgraph::metrics::ReplicationFailureOutcome::COMMITTED,
+                     memgraph::metrics::ReplicationFailureReason::NOT_IN_SYNC);
+  EXPECT_TRUE(replica_series("replica_1").empty()) << "a failure counted after removal does not re-create the series";
+}
+
+TEST(PrometheusMetrics, ReplicationFailuresSumOnlyTheDatabasesOwnSeries) {
+  using enum memgraph::metrics::ReplicationFailureOutcome;
+  using enum memgraph::metrics::ReplicationFailureReason;
+  memgraph::metrics::PrometheusMetrics pm;
+  memgraph::utils::UUID const uuid1{};
+  memgraph::utils::UUID const uuid2{};
+  auto db1 = pm.AddDatabase(uuid1, "db1");
+  auto db2 = pm.AddDatabase(uuid2, "db2");
+
+  for (auto *db : {&db1, &db2}) {
+    for (auto const *replica : {"replica_1", "replica_2"}) db->handles().replication_failures.AddReplica(replica);
+  }
+  db1.handles().replication_failures.Increment("replica_1", COMMITTED, NOT_IN_SYNC);
+  db1.handles().replication_failures.Increment("replica_2", COMMITTED, RPC_ERROR);
+  db1.handles().replication_failures.Increment("replica_2", COMMITTED, RPC_ERROR);
+  db2.handles().replication_failures.Increment("replica_1", ABORTED, TIMEOUT);
+
+  auto const info_value = [&](memgraph::utils::UUID const &uuid, std::string_view name) {
+    auto const info = pm.GetDbMetricsInfo(uuid);
+    EXPECT_TRUE(info.has_value());
+    auto const it = r::find(*info, name, &memgraph::metrics::MetricInfo::name);
+    EXPECT_NE(it, info->end());
+    return std::get<int64_t>(it->value);
+  };
+  EXPECT_EQ(info_value(uuid1, "ReplicationFailuresCommitted"), 3);
+  EXPECT_EQ(info_value(uuid1, "ReplicationFailuresAborted"), 0);
+  EXPECT_EQ(info_value(uuid2, "ReplicationFailuresCommitted"), 0);
+  EXPECT_EQ(info_value(uuid2, "ReplicationFailuresAborted"), 1);
 }
 
 TEST(PrometheusMetrics, UpdateGaugesSetsStorageValues) {
