@@ -302,7 +302,7 @@ TEST_F(AiLicenseEmbeddingMemoryTest, Variant1Lazy_OnePassLeavesTheEmbeddingARefe
   Stabilize(env.db.get());
   const int64_t limit = Graph() + headroom;
   ASSERT_GT(retained_bytes, headroom + 2 * kOneMiB)
-      << "materialising every embedding must exceed the cap, so a failure here is the cap and not slack";
+      << "materialising every embedding must exceed the cap, so a refusal here is the cap and not slack";
 
   memgraph::license::global_license_checker.EnableTesting(memgraph::license::LicenseType::AI_PLATFORM, limit);
   memgraph::utils::MemoryTracker::OutOfMemoryExceptionEnabler enabler;
@@ -315,6 +315,50 @@ TEST_F(AiLicenseEmbeddingMemoryTest, Variant1Lazy_OnePassLeavesTheEmbeddingARefe
   ASSERT_EQ(stream.GetResults().size(), 1u);
   EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), kNumVerticesBig)
       << "every row was ordered and counted without exceeding the AI graph cap";
+}
+
+// Every row's map is retained, so an embedding each row holds as a reference costs one reference and
+// an embedding each row materialises costs its floats, which the cap refuses.
+TEST_F(AiLicenseEmbeddingMemoryTest, Variant1Lazy_PropertiesHoldsAReferencePerRow) {
+  QueryEnv env{data_dir_, "t23", kNumVerticesBig, kDimBig};
+
+  const int64_t retained_bytes = static_cast<int64_t>(kNumVerticesBig) * kDimBig * sizeof(float);
+  const int64_t headroom = 8 * kOneMiB;
+  Stabilize(env.db.get());
+  const int64_t limit = Graph() + headroom;
+  ASSERT_GT(retained_bytes, headroom + 2 * kOneMiB)
+      << "materialising every embedding must exceed the cap, so a refusal here is the cap and not slack";
+
+  memgraph::license::global_license_checker.EnableTesting(memgraph::license::LicenseType::AI_PLATFORM, limit);
+  memgraph::utils::MemoryTracker::OutOfMemoryExceptionEnabler enabler;
+
+  // Ordering on the record's id retains every row without reading an embedding to compare, and the
+  // limit keeps the ordering from being optimised away.
+  auto stream = env.faker.Interpret(
+      "MATCH (n) WITH properties(n) AS p, id(n) AS i ORDER BY i LIMIT 1000000 RETURN count(p) AS c");
+  ASSERT_EQ(stream.GetResults().size(), 1u);
+  EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), kNumVerticesBig)
+      << "every row held its properties without exceeding the AI graph cap";
+}
+
+TEST_F(AiLicenseEmbeddingMemoryTest, Variant1Lazy_ValuesHoldsAReferencePerRow) {
+  QueryEnv env{data_dir_, "t24", kNumVerticesBig, kDimBig};
+
+  const int64_t retained_bytes = static_cast<int64_t>(kNumVerticesBig) * kDimBig * sizeof(float);
+  const int64_t headroom = 8 * kOneMiB;
+  Stabilize(env.db.get());
+  const int64_t limit = Graph() + headroom;
+  ASSERT_GT(retained_bytes, headroom + 2 * kOneMiB)
+      << "materialising every embedding must exceed the cap, so a refusal here is the cap and not slack";
+
+  memgraph::license::global_license_checker.EnableTesting(memgraph::license::LicenseType::AI_PLATFORM, limit);
+  memgraph::utils::MemoryTracker::OutOfMemoryExceptionEnabler enabler;
+
+  auto stream =
+      env.faker.Interpret("MATCH (n) WITH values(n) AS vs, id(n) AS i ORDER BY i LIMIT 1000000 RETURN count(vs) AS c");
+  ASSERT_EQ(stream.GetResults().size(), 1u);
+  EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), kNumVerticesBig)
+      << "every row held its values without exceeding the AI graph cap";
 }
 
 #endif  // USE_JEMALLOC
@@ -672,6 +716,20 @@ TEST_F(AiLicenseEmbeddingTest, Variant1Lazy_PropertiesAndValuesStayListIdentical
     auto stream = env.faker.Interpret(std::string("MATCH (n:Doc) RETURN ") + expr + " ORDER BY n.emb[0]");
     EXPECT_EQ(EmbeddingRows(stream), expected);
   }
+}
+
+// keys(n) names a record's properties, so a property whose value lives in a vector index is named
+// like any other. The name is all the function reads, which is what lets it read the record without
+// rebuilding an embedding it never returns.
+TEST_F(AiLicenseEmbeddingTest, KeysNamesAnIndexBackedProperty) {
+  QueryEnv env{data_dir_, "t22", 1, 8};
+  env.faker.Interpret("MATCH (n:Doc) SET n.title = 'a'");
+
+  auto stream = env.faker.Interpret("MATCH (n:Doc) UNWIND keys(n) AS k RETURN k ORDER BY k");
+
+  std::vector<std::string> named;
+  for (const auto &row : stream.GetResults()) named.push_back(row[0].ValueString());
+  EXPECT_EQ(named, (std::vector<std::string>{"emb", "title"}));
 }
 
 TEST_F(AiLicenseEmbeddingTest, Variant1Lazy_EdgeEmbeddingReadsThroughIndex) {
