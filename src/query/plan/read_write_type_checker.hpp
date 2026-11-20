@@ -11,12 +11,337 @@
 
 #pragma once
 
+#include <cstdint>
+#include <ostream>
+#include <string>
+
 #include "query/plan/operator.hpp"
 
 namespace memgraph::query::plan {
 
-struct ReadWriteTypeChecker : public virtual HierarchicalLogicalOperatorVisitor {
- public:
+/// Whether an action reaches the graph, and in which direction.
+///
+/// NONE describes an action that neither reads the graph nor writes it, R one that reads, W one
+/// that writes, and RW one that does both.
+enum class RWType : uint8_t { NONE, R, W, RW };
+
+namespace detail {
+
+/// What a plan's operators have said so far, and the one rule for combining a further answer with
+/// it. Held apart from the operators' own answers so that a specialisation below can reach it.
+struct RWTypeState : public virtual HierarchicalLogicalOperatorVisitor {
+  using HierarchicalLogicalOperatorVisitor::PostVisit;
+  using HierarchicalLogicalOperatorVisitor::PreVisit;
+  using HierarchicalLogicalOperatorVisitor::Visit;
+
+  using RWType = plan::RWType;
+
+  RWType type{RWType::NONE};
+
+  void UpdateType(RWType op_type);
+};
+
+}  // namespace detail
+
+/// Whether one operator's own action reads the graph, writes it, both, or neither, and whether the
+/// walk carries on into what it reads from. An operator holding branches walks each itself.
+///
+/// Every operator says so below, and one saying nothing is a compile error rather than an action
+/// nobody counted: a plan built from operators that name no type is reported as touching no graph
+/// at all.
+template <class TOperator>
+struct OperatorRWType;
+
+namespace detail {
+
+/// An operator whose own action is one type, and whose single input the walk carries on into.
+template <RWType kType, bool kContinueVisiting = true>
+struct Contributes {
+  static bool Visit(LogicalOperator &, RWTypeState &state) {
+    state.UpdateType(kType);
+    return kContinueVisiting;
+  }
+};
+
+/// Neither reads the graph nor writes it. Covers an operator working on rows an operator below
+/// produced, and one reading a source that is not the graph.
+using TouchesNoGraph = Contributes<RWType::NONE>;
+using Reads = Contributes<RWType::R>;
+using Writes = Contributes<RWType::W>;
+/// Both reads and writes, which is the answer for a whole plan whatever lies below, so the walk
+/// stops here.
+using ReadsAndWrites = Contributes<RWType::RW, false>;
+
+/// Walks each of an operator's branches and stops, which is how an operator with more than one
+/// input answers for all of them.
+template <auto... kBranches>
+struct VisitsBranches {
+  static bool Visit(auto &op, RWTypeState &state) {
+    (((op.*kBranches)->Accept(state)), ...);
+    return false;
+  }
+};
+
+}  // namespace detail
+
+template <>
+struct OperatorRWType<Once> : detail::TouchesNoGraph {};
+
+template <>
+struct OperatorRWType<CreateNode> : detail::Writes {};
+
+template <>
+struct OperatorRWType<CreateExpand> : detail::ReadsAndWrites {};
+
+template <>
+struct OperatorRWType<ScanAll> : detail::Reads {};
+
+template <>
+struct OperatorRWType<ScanAllByLabel> : detail::Reads {};
+
+template <>
+struct OperatorRWType<ScanAllByLabelProperties> : detail::Reads {};
+
+template <>
+struct OperatorRWType<ScanAllById> : detail::Reads {};
+
+template <>
+struct OperatorRWType<ScanAllByEdge> : detail::Reads {};
+
+template <>
+struct OperatorRWType<ScanAllByEdgeType> : detail::Reads {};
+
+template <>
+struct OperatorRWType<ScanAllByEdgeTypeProperty> : detail::Reads {};
+
+template <>
+struct OperatorRWType<ScanAllByEdgeProperty> : detail::Reads {};
+
+template <>
+struct OperatorRWType<ScanAllByEdgeId> : detail::Reads {};
+
+template <>
+struct OperatorRWType<ScanAllByVertexProperty> : detail::Reads {};
+
+template <>
+struct OperatorRWType<ScanAllByPointDistance> : detail::Reads {};
+
+template <>
+struct OperatorRWType<ScanAllByPointWithinbbox> : detail::Reads {};
+
+template <>
+struct OperatorRWType<Expand> : detail::Reads {};
+
+template <>
+struct OperatorRWType<ExpandVariable> : detail::Reads {};
+
+template <>
+struct OperatorRWType<ConstructNamedPath> : detail::Reads {};
+
+template <>
+struct OperatorRWType<Filter> : detail::TouchesNoGraph {};
+
+template <>
+struct OperatorRWType<Produce> : detail::TouchesNoGraph {};
+
+template <>
+struct OperatorRWType<Delete> : detail::Writes {};
+
+template <>
+struct OperatorRWType<SetProperty> : detail::Writes {};
+
+template <>
+struct OperatorRWType<SetProperties> : detail::Writes {};
+
+template <>
+struct OperatorRWType<SetLabels> : detail::Writes {};
+
+template <>
+struct OperatorRWType<RemoveProperty> : detail::Writes {};
+
+template <>
+struct OperatorRWType<RemoveLabels> : detail::Writes {};
+
+template <>
+struct OperatorRWType<EdgeUniquenessFilter> : detail::TouchesNoGraph {};
+
+template <>
+struct OperatorRWType<Accumulate> : detail::TouchesNoGraph {};
+
+template <>
+struct OperatorRWType<Aggregate> : detail::TouchesNoGraph {};
+
+template <>
+struct OperatorRWType<Skip> : detail::TouchesNoGraph {};
+
+template <>
+struct OperatorRWType<Limit> : detail::TouchesNoGraph {};
+
+template <>
+struct OperatorRWType<OrderBy> : detail::TouchesNoGraph {};
+
+template <>
+struct OperatorRWType<Merge> : detail::ReadsAndWrites {};
+
+template <>
+struct OperatorRWType<Optional> : detail::TouchesNoGraph {};
+
+template <>
+struct OperatorRWType<Unwind> : detail::TouchesNoGraph {};
+
+template <>
+struct OperatorRWType<CardinalityScale> : detail::TouchesNoGraph {};
+
+template <>
+struct OperatorRWType<Distinct> : detail::TouchesNoGraph {};
+
+template <>
+struct OperatorRWType<Union> : detail::VisitsBranches<&Union::left_op_, &Union::right_op_> {};
+
+template <>
+struct OperatorRWType<Cartesian> : detail::VisitsBranches<&Cartesian::left_op_, &Cartesian::right_op_> {};
+
+template <>
+struct OperatorRWType<CallProcedure> {
+  static bool Visit(CallProcedure &op, detail::RWTypeState &state) {
+    if (op.graph_access_ == GraphAccess::Write) {
+      state.UpdateType(RWType::RW);
+      return false;
+    }
+    state.UpdateType(RWType::R);
+    return true;
+  }
+};
+
+template <>
+struct OperatorRWType<LoadCsv> : detail::TouchesNoGraph {};
+
+template <>
+struct OperatorRWType<Foreach> : detail::ReadsAndWrites {};
+
+template <>
+struct OperatorRWType<EmptyResult> : detail::TouchesNoGraph {};
+
+/// The pattern it folds to a value is a plan of its own, which the operator holding this one walks.
+template <>
+struct OperatorRWType<EvaluatePatternFilter> : detail::TouchesNoGraph {};
+
+template <>
+struct OperatorRWType<Apply> : detail::VisitsBranches<&Apply::input_, &Apply::subquery_> {};
+
+template <>
+struct OperatorRWType<IndexedJoin> : detail::VisitsBranches<&IndexedJoin::main_branch_, &IndexedJoin::sub_branch_> {};
+
+template <>
+struct OperatorRWType<HashJoin> : detail::VisitsBranches<&HashJoin::left_op_, &HashJoin::right_op_> {};
+
+template <>
+struct OperatorRWType<RollUpApply>
+    : detail::VisitsBranches<&RollUpApply::input_, &RollUpApply::list_collection_branch_> {};
+
+template <>
+struct OperatorRWType<Conditional> : detail::TouchesNoGraph {};
+
+template <>
+struct OperatorRWType<PeriodicCommit> : detail::TouchesNoGraph {};
+
+template <>
+struct OperatorRWType<PeriodicSubquery>
+    : detail::VisitsBranches<&PeriodicSubquery::input_, &PeriodicSubquery::subquery_> {};
+
+template <>
+struct OperatorRWType<SetNestedProperty> : detail::Writes {};
+
+template <>
+struct OperatorRWType<RemoveNestedProperty> : detail::Writes {};
+
+template <>
+struct OperatorRWType<LoadParquet> : detail::TouchesNoGraph {};
+
+template <>
+struct OperatorRWType<LoadJsonl> : detail::TouchesNoGraph {};
+
+template <>
+struct OperatorRWType<AggregateParallel> : detail::TouchesNoGraph {};
+
+template <>
+struct OperatorRWType<OrderByParallel> : detail::TouchesNoGraph {};
+
+template <>
+struct OperatorRWType<ScanParallel> : detail::Reads {};
+
+template <>
+struct OperatorRWType<ScanParallelByLabel> : detail::Reads {};
+
+template <>
+struct OperatorRWType<ScanParallelByLabelProperties> : detail::Reads {};
+
+template <>
+struct OperatorRWType<ScanParallelByEdge> : detail::Reads {};
+
+template <>
+struct OperatorRWType<ScanParallelByEdgeType> : detail::Reads {};
+
+template <>
+struct OperatorRWType<ScanParallelByEdgeTypeProperty> : detail::Reads {};
+
+template <>
+struct OperatorRWType<ScanParallelByEdgeProperty> : detail::Reads {};
+
+template <>
+struct OperatorRWType<ScanParallelByVertexProperty> : detail::Reads {};
+
+/// A chunk of a scan an operator above hands out, which the scan itself has already answered for.
+template <>
+struct OperatorRWType<ScanChunk> : detail::TouchesNoGraph {};
+
+template <>
+struct OperatorRWType<ScanChunkByEdge> : detail::TouchesNoGraph {};
+
+template <>
+struct OperatorRWType<ParallelMerge> : detail::TouchesNoGraph {};
+
+/// Reading properties of records an operator below produced is not a read of the graph in its own
+/// right: whatever produced those records has said so itself.
+template <>
+struct OperatorRWType<CacheProperties> : detail::TouchesNoGraph {};
+
+namespace detail {
+
+/// Declares one `PreVisit` per operator, each asking that operator what it does. Recursive so that
+/// the set it declares is the set it is given, leaving no operator to a default that would count
+/// its action as nothing.
+template <class TBase, class... TOperators>
+struct DeclaresRWTypes;
+
+template <class TBase>
+struct DeclaresRWTypes<TBase> : TBase {};
+
+template <class TBase, class THead, class... TTail>
+struct DeclaresRWTypes<TBase, THead, TTail...> : DeclaresRWTypes<TBase, TTail...> {
+  using DeclaresRWTypes<TBase, TTail...>::PreVisit;
+
+  bool PreVisit(THead &op) override { return OperatorRWType<THead>::Visit(op, *this); }
+};
+
+/// The operators the visitor is built from, taken from the visitor itself so that this cannot name
+/// a different set.
+template <class TBase, class TVisitor>
+struct DeclaresEveryVisitedOperator;
+
+template <class TBase, class... TOperators>
+struct DeclaresEveryVisitedOperator<TBase, utils::CompositeVisitor<TOperators...>> {
+  static_assert((requires(TOperators &op, RWTypeState &state) { OperatorRWType<TOperators>::Visit(op, state); } && ...),
+                "every logical operator has to say whether it reads or writes the graph: give it an OperatorRWType "
+                "specialisation");
+
+  using Type = DeclaresRWTypes<TBase, TOperators...>;
+};
+
+}  // namespace detail
+
+struct ReadWriteTypeChecker
+    : public detail::DeclaresEveryVisitedOperator<detail::RWTypeState, LogicalOperatorCompositeVisitor>::Type {
   ReadWriteTypeChecker() = default;
 
   ReadWriteTypeChecker(const ReadWriteTypeChecker &) = delete;
@@ -25,102 +350,10 @@ struct ReadWriteTypeChecker : public virtual HierarchicalLogicalOperatorVisitor 
   ReadWriteTypeChecker &operator=(const ReadWriteTypeChecker &) = delete;
   ReadWriteTypeChecker &operator=(ReadWriteTypeChecker &&) = delete;
 
-  using HierarchicalLogicalOperatorVisitor::PostVisit;
-  using HierarchicalLogicalOperatorVisitor::PreVisit;
-  using HierarchicalLogicalOperatorVisitor::Visit;
-
-  // NONE type describes an operator whose action neither reads nor writes from
-  // the database (e.g. Produce or Once).
-  // R type describes an operator whose action involves reading from the
-  // database.
-  // W type describes an operator whose action involves writing to the
-  // database.
-  // RW type describes an operator whose action involves both reading and
-  // writing to the database.
-  enum class RWType : uint8_t { NONE, R, W, RW };
-
-  RWType type{RWType::NONE};
   void InferRWType(LogicalOperator &root);
   static std::string TypeToString(const RWType type);
 
-  bool PreVisit(CreateNode &) override;
-  bool PreVisit(CreateExpand &) override;
-  bool PreVisit(Delete &) override;
-
-  bool PreVisit(SetProperty &) override;
-  bool PreVisit(SetProperties &) override;
-  bool PreVisit(SetLabels &) override;
-
-  bool PreVisit(RemoveProperty &) override;
-  bool PreVisit(RemoveLabels &) override;
-
-  bool PreVisit(ScanAll &) override;
-  bool PreVisit(ScanAllByLabel &) override;
-  bool PreVisit(ScanAllByLabelProperties &) override;
-  bool PreVisit(ScanAllById &) override;
-
-  bool PreVisit(ScanAllByEdge &) override;
-  bool PreVisit(ScanAllByEdgeType &) override;
-  bool PreVisit(ScanAllByEdgeTypeProperty &) override;
-  bool PreVisit(ScanAllByEdgeProperty &) override;
-  bool PreVisit(ScanAllByEdgeId &) override;
-  bool PreVisit(ScanAllByVertexProperty &) override;
-
-  bool PreVisit(Expand &) override;
-  bool PreVisit(ExpandVariable &) override;
-
-  bool PreVisit(ConstructNamedPath &) override;
-
-  bool PreVisit(Filter &) override;
-  bool PreVisit(EdgeUniquenessFilter &) override;
-
-  bool PreVisit(Merge &) override;
-  bool PreVisit(Optional &) override;
-  bool PreVisit(Cartesian &) override;
-
-  bool PreVisit(EmptyResult &) override;
-  bool PreVisit(Produce &) override;
-  bool PreVisit(CacheProperties &) override;
-  bool PreVisit(Accumulate &) override;
-  bool PreVisit(Aggregate &) override;
-  bool PreVisit(Skip &) override;
-  bool PreVisit(Limit &) override;
-  bool PreVisit(OrderBy &) override;
-  bool PreVisit(Distinct &) override;
-  bool PreVisit(Union &) override;
-
-  bool PreVisit(Unwind &) override;
-  bool PreVisit(CardinalityScale &) override;
-  bool PreVisit(CallProcedure &) override;
-  bool PreVisit(Foreach &) override;
-
-  bool PreVisit(Apply &) override;
-  bool PreVisit(IndexedJoin &) override;
-  bool PreVisit(HashJoin &) override;
-  bool PreVisit(RollUpApply &) override;
-  bool PreVisit(Conditional &) override;
-  bool PreVisit(PeriodicSubquery &) override;
-  bool PreVisit(PeriodicCommit &) override;
-  bool PreVisit(SetNestedProperty &) override;
-  bool PreVisit(RemoveNestedProperty &) override;
-
-  bool PreVisit(AggregateParallel &) override;
-  bool PreVisit(OrderByParallel &) override;
-  bool PreVisit(ParallelMerge &) override;
-  bool PreVisit(ScanParallel &) override;
-  bool PreVisit(ScanParallelByLabel &) override;
-  bool PreVisit(ScanParallelByLabelProperties &) override;
-  bool PreVisit(ScanParallelByEdge &) override;
-  bool PreVisit(ScanParallelByEdgeType &) override;
-  bool PreVisit(ScanParallelByEdgeTypeProperty &) override;
-  bool PreVisit(ScanParallelByEdgeProperty &) override;
-  bool PreVisit(ScanParallelByVertexProperty &) override;
-  bool PreVisit(ScanChunk &) override;
-  bool PreVisit(ScanChunkByEdge &) override;
-
   bool Visit(Once &) override;
-
-  void UpdateType(RWType op_type);
 };
 
 /// Reaching storage is a different question from reading the graph: a call to a procedure that declared
@@ -136,9 +369,9 @@ struct StorageAccessChecker : ReadWriteTypeChecker {
 /// True if executing `plan` needs a storage transaction.
 bool PlanRequiresStorageAccess(const LogicalOperator &plan);
 
-inline std::ostream &operator<<(std::ostream &os, ReadWriteTypeChecker::RWType type) {
+inline std::ostream &operator<<(std::ostream &os, RWType type) {
   switch (type) {
-    using enum ReadWriteTypeChecker::RWType;
+    using enum RWType;
     case NONE:
       return os << "NONE";
     case R:

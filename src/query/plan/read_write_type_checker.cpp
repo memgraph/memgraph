@@ -11,85 +11,7 @@
 
 #include "query/plan/read_write_type_checker.hpp"
 
-// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
-#define PRE_VISIT(TOp, RWType, continue_visiting)                                     \
-  bool ReadWriteTypeChecker::PreVisit(TOp &) { /*NOLINT(bugprone-macro-parentheses)*/ \
-    UpdateType(RWType);                                                               \
-    return continue_visiting;                                                         \
-  }
-
 namespace memgraph::query::plan {
-
-PRE_VISIT(CreateNode, RWType::W, true)
-PRE_VISIT(CreateExpand, RWType::RW, false)
-PRE_VISIT(Delete, RWType::W, true)
-
-PRE_VISIT(SetProperty, RWType::W, true)
-PRE_VISIT(SetNestedProperty, RWType::W, true)
-PRE_VISIT(SetProperties, RWType::W, true)
-PRE_VISIT(SetLabels, RWType::W, true)
-
-PRE_VISIT(RemoveProperty, RWType::W, true)
-PRE_VISIT(RemoveNestedProperty, RWType::W, true)
-PRE_VISIT(RemoveLabels, RWType::W, true)
-
-PRE_VISIT(ScanAll, RWType::R, true)
-PRE_VISIT(ScanAllByLabel, RWType::R, true)
-PRE_VISIT(ScanAllByLabelProperties, RWType::R, true)
-PRE_VISIT(ScanAllById, RWType::R, true)
-
-PRE_VISIT(ScanAllByEdge, RWType::R, true)
-PRE_VISIT(ScanAllByEdgeType, RWType::R, true)
-PRE_VISIT(ScanAllByEdgeTypeProperty, RWType::R, true)
-PRE_VISIT(ScanAllByEdgeProperty, RWType::R, true)
-PRE_VISIT(ScanAllByEdgeId, RWType::R, true)
-PRE_VISIT(ScanAllByVertexProperty, RWType::R, true)
-
-PRE_VISIT(Expand, RWType::R, true)
-PRE_VISIT(ExpandVariable, RWType::R, true)
-
-PRE_VISIT(ConstructNamedPath, RWType::R, true)
-
-PRE_VISIT(Filter, RWType::NONE, true)
-PRE_VISIT(EdgeUniquenessFilter, RWType::NONE, true)
-
-PRE_VISIT(Merge, RWType::RW, false)
-PRE_VISIT(Optional, RWType::NONE, true)
-
-bool ReadWriteTypeChecker::PreVisit(Cartesian &op) {
-  op.left_op_->Accept(*this);
-  op.right_op_->Accept(*this);
-  return false;
-}
-
-PRE_VISIT(EmptyResult, RWType::NONE, true)
-PRE_VISIT(Produce, RWType::NONE, true)
-PRE_VISIT(CacheProperties, RWType::NONE, true)
-PRE_VISIT(Accumulate, RWType::NONE, true)
-PRE_VISIT(Aggregate, RWType::NONE, true)
-PRE_VISIT(Skip, RWType::NONE, true)
-PRE_VISIT(Limit, RWType::NONE, true)
-PRE_VISIT(OrderBy, RWType::NONE, true)
-PRE_VISIT(Distinct, RWType::NONE, true)
-PRE_VISIT(PeriodicCommit, RWType::NONE, true)
-
-bool ReadWriteTypeChecker::PreVisit(Union &op) {
-  op.left_op_->Accept(*this);
-  op.right_op_->Accept(*this);
-  return false;
-}
-
-PRE_VISIT(Unwind, RWType::NONE, true)
-PRE_VISIT(CardinalityScale, RWType::NONE, true)
-
-bool ReadWriteTypeChecker::PreVisit(CallProcedure &op) {
-  if (op.graph_access_ == GraphAccess::Write) {
-    UpdateType(RWType::RW);
-    return false;
-  }
-  UpdateType(RWType::R);
-  return true;
-}
 
 bool StorageAccessChecker::PreVisit(CallProcedure &op) {
   // A call that reaches no storage is still a read to RWType, which is what clients and the read
@@ -105,65 +27,12 @@ bool PlanRequiresStorageAccess(const LogicalOperator &plan) {
   StorageAccessChecker checker;
   // Const only because the visitor framework has no const traversal; the checker mutates nothing.
   checker.InferRWType(const_cast<LogicalOperator &>(plan));
-  return checker.type != ReadWriteTypeChecker::RWType::NONE;
+  return checker.type != RWType::NONE;
 }
-
-bool ReadWriteTypeChecker::PreVisit([[maybe_unused]] Foreach &op) {
-  UpdateType(RWType::RW);
-  return false;
-}
-
-bool ReadWriteTypeChecker::PreVisit(Apply &op) {
-  op.input_->Accept(*this);
-  op.subquery_->Accept(*this);
-  return false;
-}
-
-bool ReadWriteTypeChecker::PreVisit(IndexedJoin &op) {
-  op.main_branch_->Accept(*this);
-  op.sub_branch_->Accept(*this);
-  return false;
-}
-
-bool ReadWriteTypeChecker::PreVisit(HashJoin &op) {
-  op.left_op_->Accept(*this);
-  op.right_op_->Accept(*this);
-  return false;
-}
-
-bool ReadWriteTypeChecker::PreVisit(PeriodicSubquery &op) {
-  op.input_->Accept(*this);
-  op.subquery_->Accept(*this);
-  return false;
-}
-
-bool ReadWriteTypeChecker::PreVisit(RollUpApply &op) {
-  op.input_->Accept(*this);
-  op.list_collection_branch_->Accept(*this);
-  return false;
-}
-
-PRE_VISIT(Conditional, RWType::NONE, true)
-
-PRE_VISIT(AggregateParallel, RWType::NONE, true)
-PRE_VISIT(OrderByParallel, RWType::NONE, true)
-PRE_VISIT(ParallelMerge, RWType::NONE, true)
-PRE_VISIT(ScanParallel, RWType::R, true)
-PRE_VISIT(ScanParallelByLabel, RWType::R, true)
-PRE_VISIT(ScanParallelByLabelProperties, RWType::R, true)
-PRE_VISIT(ScanParallelByEdge, RWType::R, true)
-PRE_VISIT(ScanParallelByEdgeType, RWType::R, true)
-PRE_VISIT(ScanParallelByEdgeTypeProperty, RWType::R, true)
-PRE_VISIT(ScanParallelByEdgeProperty, RWType::R, true)
-PRE_VISIT(ScanParallelByVertexProperty, RWType::R, true)
-PRE_VISIT(ScanChunk, RWType::NONE, true)
-PRE_VISIT(ScanChunkByEdge, RWType::NONE, true)
-
-#undef PRE_VISIT
 
 bool ReadWriteTypeChecker::Visit(Once &) { return false; }  // NOLINT(hicpp-named-parameter)
 
-void ReadWriteTypeChecker::UpdateType(RWType op_type) {
+void detail::RWTypeState::UpdateType(RWType op_type) {
   // Stop inference because RW is the most "dominant" type, i.e. it isn't
   // affected by the type of nodes in the plan appearing after the node for
   // which the type is set to RW.
