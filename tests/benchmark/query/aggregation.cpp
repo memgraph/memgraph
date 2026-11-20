@@ -392,6 +392,15 @@ void ProjectOneProperty(benchmark::State &state) {
   RunQuery(state, "MATCH (:Hub)-[:HAS]->(i:Item) RETURN i.value AS v");
 }
 
+// The same three-property projection, reading the properties a record holds last rather than
+// first. One pass walks to the furthest of them where three lookups each walk from the start, so
+// this is where reading them together has the most to win.
+void ProjectThreeLatePropertiesInTheRecord(benchmark::State &state) {
+  RunQuery(state,
+           "MATCH (:Hub)-[:HAS]->(i:Item) "
+           "RETURN i.ts AS t, i.active AS a, i.quantity AS q");
+}
+
 // Lookups spread over two symbols, which the rewrite is not allowed to merge: they are reads of
 // different records and batching them would mean reading a record before the row names it.
 void ProjectAcrossTwoSymbols(benchmark::State &state) {
@@ -742,6 +751,7 @@ BENCHMARK(WeightedShortestPath)->Unit(kUnit);
 BENCHMARK(PathAggregation)->Unit(kUnit);
 BENCHMARK(TwoHopPathAggregate)->Unit(kUnit);
 
+BENCHMARK(ProjectThreeLatePropertiesInTheRecord)->Unit(kUnit);
 BENCHMARK(OrderByOnePropertyOnce)->Unit(kUnit);
 BENCHMARK(OrderByOnePropertyTwice)->Unit(kUnit);
 BENCHMARK(OrderByWhatAProjectionRead)->Unit(kUnit);
