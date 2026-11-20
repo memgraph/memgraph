@@ -1,0 +1,517 @@
+// Copyright 2026 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
+#include "algorithm/json_writer.hpp"
+
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <sys/xattr.h>
+#include <unistd.h>
+
+#include <algorithm>
+#include <atomic>
+#include <cerrno>
+#include <cmath>
+#include <cstddef>
+#include <cstdlib>
+#include <filesystem>
+#include <iterator>
+#include <optional>
+#include <string>
+#include <system_error>
+#include <unordered_map>
+#include <utility>
+#include <vector>
+
+#include <fmt/format.h>
+
+namespace Export {
+namespace {
+
+constexpr std::uint16_t kSridCartesian2d = 7203;
+constexpr std::uint16_t kSridWgs842d = 4326;
+constexpr std::uint16_t kSridCartesian3d = 9157;
+constexpr std::uint16_t kSridWgs843d = 4979;
+
+constexpr const char *kKeyType = "type";
+constexpr const char *kKeyId = "id";
+constexpr const char *kKeyLabels = "labels";
+constexpr const char *kKeyLabel = "label";
+constexpr const char *kKeyProperties = "properties";
+constexpr const char *kKeyStart = "start";
+constexpr const char *kKeyEnd = "end";
+constexpr const char *kKeyNodes = "nodes";
+constexpr const char *kKeyRels = "rels";
+constexpr const char *kTypeNode = "node";
+constexpr const char *kTypeRelationship = "relationship";
+
+constexpr int64_t kMicrosPerSecond = 1000000;
+constexpr int64_t kMicrosPerMinute = 60 * kMicrosPerSecond;
+constexpr int64_t kMicrosPerHour = 60 * kMicrosPerMinute;
+constexpr int64_t kMicrosPerDay = 24 * kMicrosPerHour;
+
+// What Properties() hands back: a deep copy of every value, so callers fetch once and share it.
+using Properties = std::unordered_map<std::string, mgp::Value>;
+
+Json ValueToJson(const mgp::Value &value);
+std::string_view SridToCrs(std::uint16_t srid);
+
+// Keys sorted: `mgp` exposes properties only as an unordered_map, whose order would reshuffle as it grows.
+Json PropertiesToJson(Properties &&props) {
+  std::vector<std::pair<std::string, mgp::Value>> sorted(std::make_move_iterator(props.begin()),
+                                                         std::make_move_iterator(props.end()));
+  std::ranges::sort(sorted, {}, &std::pair<std::string, mgp::Value>::first);
+  Json object = Json::object();
+  for (auto &[key, value] : sorted) {
+    object[key] = ValueToJson(value);
+  }
+  return object;
+}
+
+// Owned strings: mgp::Labels frees its vertex copy on the way out, and a virtual node's label text lives in that
+// copy, so a string_view would dangle.
+std::vector<std::string> SortedLabels(const mgp::Node &node) {
+  const auto labels = node.Labels();
+  const auto size = labels.Size();
+  std::vector<std::string> sorted;
+  sorted.reserve(size);
+  // Indexed rather than range-for: mgp::Labels::begin() is non-const.
+  for (size_t i = 0; i < size; ++i) {
+    sorted.emplace_back(labels[i]);
+  }
+  std::ranges::sort(sorted);
+  return sorted;
+}
+
+// Sub-second digits for the ISO_LOCAL_TIME family: none when zero, 3 for a whole millisecond, 6 otherwise. This is not
+// the same rule durations use, which strip trailing zeros instead.
+std::string SubSecondSuffix(int millisecond, int microsecond) {
+  if (millisecond == 0 && microsecond == 0) return "";
+  if (microsecond == 0) return fmt::format(".{:03}", millisecond);
+  return fmt::format(".{:06}", (millisecond * 1000) + microsecond);
+}
+
+// Seconds and below, with seconds themselves elided when the whole tail is zero.
+std::string SecondsSuffix(int second, int millisecond, int microsecond) {
+  if (second == 0 && millisecond == 0 && microsecond == 0) return "";
+  return fmt::format(":{:02}{}", second, SubSecondSuffix(millisecond, microsecond));
+}
+
+std::string OffsetSuffix(int offset_minutes) {
+  if (offset_minutes == 0) return "Z";
+  const int magnitude = std::abs(offset_minutes);
+  return fmt::format("{}{:02}:{:02}", offset_minutes < 0 ? '-' : '+', magnitude / 60, magnitude % 60);
+}
+
+constexpr const char *kAccessAcl = "system.posix_acl_access";
+
+// Creates a temporary beside `target`, unique per writer (`O_EXCL`: a stale one is never adopted). With `existing` it
+// takes the target's group and mode, since the rename replaces the target's inode; failing either, it is dropped.
+bool OpenTemporary(const std::string &target, const struct stat *existing, std::string &temp_path) {
+  static std::atomic<std::uint64_t> counter{0};
+  for (int attempt = 0; attempt < 8; ++attempt) {
+    auto candidate = fmt::format("{}.{}.{}.part", target, ::getpid(), counter.fetch_add(1));
+    const int fd = ::open(candidate.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0666);
+    if (fd < 0) {
+      if (errno != EEXIST) return false;
+      continue;
+    }
+    // An ACL inherited from the directory would grant what the target never had, so such a temporary is refused.
+    const bool matched = existing == nullptr ||
+                         (::fchown(fd, static_cast<uid_t>(-1), existing->st_gid) == 0 &&
+                          ::fchmod(fd, existing->st_mode & 0777) == 0 && ::fgetxattr(fd, kAccessAcl, nullptr, 0) < 0);
+    ::close(fd);
+    if (!matched) {
+      ::unlink(candidate.c_str());
+      return false;
+    }
+    temp_path = std::move(candidate);
+    return true;
+  }
+  return false;
+}
+
+Json PointToJson(double x, double y, Json z, std::uint16_t srid) {
+  Json object = Json::object();
+  object["crs"] = SridToCrs(srid);
+  // WGS-84 is emitted with geographic key names, latitude first; Memgraph stores longitude in x and latitude in y.
+  if (srid == kSridWgs842d || srid == kSridWgs843d) {
+    object["latitude"] = y;
+    object["longitude"] = x;
+    object["height"] = std::move(z);
+  } else {
+    object["x"] = x;
+    object["y"] = y;
+    object["z"] = std::move(z);
+  }
+  return object;
+}
+
+std::string_view SridToCrs(std::uint16_t srid) {
+  switch (srid) {
+    case kSridCartesian2d:
+      return "cartesian";
+    case kSridCartesian3d:
+      return "cartesian-3d";
+    case kSridWgs842d:
+      return "wgs-84";
+    case kSridWgs843d:
+      return "wgs-84-3d";
+    default:
+      throw mgp::ValueException(fmt::format("Cannot export a point with unknown SRID {}", srid));
+  }
+}
+
+std::string DateToString(const mgp::Date &date) {
+  return fmt::format("{:04}-{:02}-{:02}", date.Year(), date.Month(), date.Day());
+}
+
+std::string LocalTimeToString(const mgp::LocalTime &local_time) {
+  return fmt::format("{:02}:{:02}{}",
+                     local_time.Hour(),
+                     local_time.Minute(),
+                     SecondsSuffix(local_time.Second(), local_time.Millisecond(), local_time.Microsecond()));
+}
+
+std::string LocalDateTimeToString(const mgp::LocalDateTime &local_date_time) {
+  return fmt::format(
+      "{:04}-{:02}-{:02}T{:02}:{:02}{}",
+      local_date_time.Year(),
+      local_date_time.Month(),
+      local_date_time.Day(),
+      local_date_time.Hour(),
+      local_date_time.Minute(),
+      SecondsSuffix(local_date_time.Second(), local_date_time.Millisecond(), local_date_time.Microsecond()));
+}
+
+std::string ZonedDateTimeToString(const mgp::ZonedDateTime &zoned_date_time) {
+  // Two independent rules: the offset renders as `Z` iff it is zero, and `[Name]` is appended iff the zone is a named
+  // one. `Timezone()` is empty exactly for offset-only zones.
+  const std::string_view timezone{zoned_date_time.Timezone()};
+  return fmt::format(
+      "{:04}-{:02}-{:02}T{:02}:{:02}{}{}{}",
+      zoned_date_time.Year(),
+      zoned_date_time.Month(),
+      zoned_date_time.Day(),
+      zoned_date_time.Hour(),
+      zoned_date_time.Minute(),
+      SecondsSuffix(zoned_date_time.Second(), zoned_date_time.Millisecond(), zoned_date_time.Microsecond()),
+      OffsetSuffix(zoned_date_time.Offset()),
+      timezone.empty() ? std::string{} : fmt::format("[{}]", timezone));
+}
+
+std::string DurationToString(const mgp::Duration &duration) {
+  int64_t remaining = duration.Microseconds();
+  if (remaining == 0) return "PT0S";
+
+  // Truncating division carries the sign into every component, which is what the reference emits (`PT-2H-30M`, not
+  // `-PT2H30M`). Month/year components are unreachable: Memgraph cannot store them.
+  const int64_t days = remaining / kMicrosPerDay;
+  remaining %= kMicrosPerDay;
+  const int64_t hours = remaining / kMicrosPerHour;
+  remaining %= kMicrosPerHour;
+  const int64_t minutes = remaining / kMicrosPerMinute;
+  remaining %= kMicrosPerMinute;
+  const int64_t seconds = remaining / kMicrosPerSecond;
+  const int64_t micros = remaining % kMicrosPerSecond;
+
+  std::string result = "P";
+  if (days != 0) result += fmt::format("{}D", days);
+  if (hours == 0 && minutes == 0 && seconds == 0 && micros == 0) return result;
+
+  result += "T";
+  if (hours != 0) result += fmt::format("{}H", hours);
+  if (minutes != 0) result += fmt::format("{}M", minutes);
+  if (seconds == 0 && micros == 0) return result;
+
+  if (micros == 0) {
+    result += fmt::format("{}S", seconds);
+    return result;
+  }
+  // Fractional seconds strip trailing zeros (`PT1.5S`, `PT1H30.25S`) — unlike the local-time family's 3-digit groups.
+  // The sign belongs to the whole number, so a sub-second-only negative renders as `-0.5`.
+  std::string fraction = fmt::format("{:06}", std::abs(micros));
+  fraction.erase(fraction.find_last_not_of('0') + 1);
+  const bool negative = seconds < 0 || micros < 0;
+  result += fmt::format("{}{}.{}S", negative ? "-" : "", std::abs(seconds), fraction);
+  return result;
+}
+
+Json ValueToJson(const mgp::Value &value) {
+  switch (value.Type()) {
+    case mgp::Type::Null:
+      return nullptr;
+    case mgp::Type::Bool:
+      return value.ValueBool();
+    case mgp::Type::Int:
+      return value.ValueInt();
+    case mgp::Type::Double: {
+      const auto number = value.ValueDouble();
+      // JSON has no non-finite literals and the JSON library renders them as `null`, which is indistinguishable from
+      // a stored null. Emit the textual forms instead, as the reference does.
+      if (std::isnan(number)) return "NaN";
+      if (std::isinf(number)) return number > 0 ? "Infinity" : "-Infinity";
+      return number;
+    }
+    case mgp::Type::String:
+      return std::string{value.ValueString()};
+    case mgp::Type::List: {
+      Json array = Json::array();
+      for (const auto element : value.ValueList()) {
+        array.push_back(ValueToJson(element));
+      }
+      return array;
+    }
+    case mgp::Type::Map: {
+      Json object = Json::object();
+      for (const auto &[key, element] : value.ValueMap()) {
+        object[std::string{key}] = ValueToJson(element);
+      }
+      return object;
+    }
+    case mgp::Type::Date:
+      return DateToString(value.ValueDate());
+    case mgp::Type::LocalTime:
+      return LocalTimeToString(value.ValueLocalTime());
+    case mgp::Type::LocalDateTime:
+      return LocalDateTimeToString(value.ValueLocalDateTime());
+    case mgp::Type::ZonedDateTime:
+      return ZonedDateTimeToString(value.ValueZonedDateTime());
+    case mgp::Type::Duration:
+      return DurationToString(value.ValueDuration());
+    case mgp::Type::Point2d: {
+      const auto point = value.ValuePoint2d();
+      return PointToJson(point.X(), point.Y(), nullptr, point.Srid());
+    }
+    case mgp::Type::Point3d: {
+      const auto point = value.ValuePoint3d();
+      return PointToJson(point.X(), point.Y(), point.Z(), point.Srid());
+    }
+    case mgp::Type::Enum: {
+      // The property path hands enums over with empty type and value names, so the only thing this could write is
+      // "::"; refuse rather than write that.
+      auto enum_value = value.ValueEnum();
+      if (enum_value.TypeName().empty() || enum_value.ValueName().empty()) {
+        throw mgp::ValueException("Cannot export an enum property: its type and value names are not available here");
+      }
+      return enum_value.ToString();
+    }
+    default:
+      throw mgp::ValueException("Cannot export a property of this type to JSON");
+  }
+}
+
+// Appends {id, labels, properties}, shared by a top-level node and an inlined endpoint, so a node's "type" key
+// stays first. A null `properties` suppresses the key; otherwise it is consumed.
+void AppendNodeBody(Json &object, const mgp::Node &node, Properties *properties) {
+  object[kKeyId] = std::to_string(node.Id().AsInt());
+  // `labels` and `properties` are both omitted entirely when empty rather than emitted as [] / {}.
+  if (auto labels = SortedLabels(node); !labels.empty()) {
+    object[kKeyLabels] = std::move(labels);
+  }
+  if (properties != nullptr && !properties->empty()) {
+    object[kKeyProperties] = PropertiesToJson(std::move(*properties));
+  }
+}
+
+// Names the element a failed serialization came from. The library reports "invalid UTF-8 byte" with no idea which of
+// a whole database's elements carried it, which is unactionable on anything but a toy graph.
+std::string Describe(const Json &element) {
+  return fmt::format("{} with id {}", element.at(kKeyType).get<std::string>(), element.at(kKeyId).get<std::string>());
+}
+
+std::string DumpElement(const Json &element) {
+  try {
+    return element.dump();
+  } catch (const nlohmann::json::exception &e) {
+    throw mgp::ValueException(fmt::format("Cannot serialize the {}: {}", Describe(element), e.what()));
+  }
+}
+
+Json NodeBody(const mgp::Node &node, bool write_properties) {
+  Json object = Json::object();
+  auto properties = write_properties ? node.Properties() : Properties{};
+  AppendNodeBody(object, node, &properties);
+  return object;
+}
+
+// {"type":"node","id":"<id>","labels":[...],"properties":{...}}; a null `properties` suppresses the key.
+Json NodeToJson(const mgp::Node &node, Properties *properties) {
+  Json object = Json::object();
+  object[kKeyType] = kTypeNode;
+  AppendNodeBody(object, node, properties);
+  return object;
+}
+
+// {"type":"relationship","id","label","properties","start","end"}; `properties` is the relationship's own.
+Json RelationshipToJson(const mgp::Relationship &relationship, Properties *properties, bool write_endpoint_properties) {
+  Json object = Json::object();
+  object[kKeyType] = kTypeRelationship;
+  object[kKeyId] = std::to_string(relationship.Id().AsInt());
+  object[kKeyLabel] = std::string{relationship.Type()};
+  if (properties != nullptr && !properties->empty()) {
+    object[kKeyProperties] = PropertiesToJson(std::move(*properties));
+  }
+  // Endpoints are inlined in full even when they are absent from the exported node set. `writeNodeProperties` governs
+  // them; `writeRelationshipProperties` does not.
+  object[kKeyStart] = NodeBody(relationship.From(), write_endpoint_properties);
+  object[kKeyEnd] = NodeBody(relationship.To(), write_endpoint_properties);
+  return object;
+}
+
+}  // namespace
+
+JsonWriter::JsonWriter(WriteConfig config, std::optional<std::string> file, bool retain)
+    : config_(config), file_(std::move(file)), retain_(retain) {
+  if (!file_) return;
+
+  // Replacing the target's inode is safe only for a plain file the server owns, with no other names. Anything else —
+  // a symlink, a hard link, a device, another user's file — keeps its identity only when written in place.
+  struct stat existing{};
+  const bool exists = ::lstat(file_->c_str(), &existing) == 0;
+  // An access ACL also lives on the inode, and with one the mode's group bits are its mask.
+  bool in_place = exists && !(S_ISREG(existing.st_mode) && existing.st_nlink == 1 && existing.st_uid == ::geteuid() &&
+                              ::lgetxattr(file_->c_str(), kAccessAcl, nullptr, 0) < 0);
+
+  if (!in_place) {
+    if (exists) {
+      // The rename needs write permission on the directory, not on the target, so probe the target the way a direct
+      // write would; otherwise a file made read-only on purpose would be replaced.
+      const int probe = ::open(file_->c_str(), O_WRONLY | O_CLOEXEC);
+      if (probe < 0) throw mgp::ValueException(fmt::format("Cannot open '{}' for writing", *file_));
+      ::close(probe);
+    }
+    // No temporary may be possible — a read-only directory, a name too long once suffixed, a group the server cannot
+    // give it. Falling back to an in-place write keeps the export working and loses only its atomicity.
+    in_place = !OpenTemporary(*file_, exists ? &existing : nullptr, temp_path_);
+  }
+
+  out_.open(in_place ? *file_ : temp_path_, std::ios::binary | std::ios::trunc);
+  if (!out_) {
+    const auto description = SinkDescription();
+    if (!temp_path_.empty()) {
+      std::error_code ignored;
+      std::filesystem::remove(temp_path_, ignored);
+      temp_path_.clear();
+    }
+    throw mgp::ValueException(fmt::format("Cannot open {} for writing", description));
+  }
+}
+
+JsonWriter::~JsonWriter() {
+  if (temp_path_.empty()) return;
+  // Finish() was never reached, so the export failed: drop the partial file. Safe to remove unconditionally only
+  // because the name is unique to this writer — a shared one would delete a concurrent export's in-flight file.
+  out_.close();
+  std::error_code ignored;
+  std::filesystem::remove(temp_path_, ignored);
+}
+
+std::string JsonWriter::SinkDescription() const {
+  if (temp_path_.empty()) return fmt::format("'{}'", *file_);
+  return fmt::format("'{}' (temporary for '{}')", temp_path_, *file_);
+}
+
+void JsonWriter::Emit(std::string_view bytes) {
+  if (out_.is_open()) {
+    out_.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+    if (!out_) throw mgp::ValueException(fmt::format("Failed writing to {}", SinkDescription()));
+  } else if (retain_) {
+    payload_.append(bytes);
+  }
+}
+
+void JsonWriter::EnterGroup(Group group) {
+  if (group_ == group) return;
+  if (group == Group::kNodes && group_ == Group::kRelationships) {
+    throw mgp::ValueException("Cannot export a node after a relationship: the output groups them");
+  }
+  if (config_.format != JsonFormat::kJsonLines) {
+    // JSON_LINES has no wrappers. The object shapes open "nodes" on first use and close it when relationships start,
+    // so an export with no nodes at all still emits an empty node group.
+    const bool keyed = config_.format == JsonFormat::kJsonIdAsKeys;
+    if (group_ == Group::kNone) Emit(fmt::format("{{\"{}\":{}", kKeyNodes, keyed ? '{' : '['));
+    if (group == Group::kRelationships) {
+      Emit(fmt::format("{},\"{}\":{}", keyed ? '}' : ']', kKeyRels, keyed ? '{' : '['));
+    }
+  }
+  group_ = group;
+  group_has_elements_ = false;
+}
+
+void JsonWriter::EmitElement(const Json &element) {
+  const auto text = DumpElement(element);
+  if (config_.format == JsonFormat::kJsonIdAsKeys) {
+    if (group_has_elements_) Emit(",");
+    Emit(element.at(kKeyId).dump());
+    Emit(":");
+  } else if (config_.format == JsonFormat::kJson) {
+    if (group_has_elements_) Emit(",");
+  } else if (wrote_any_) {
+    Emit("\n");
+  }
+  Emit(text);
+  wrote_any_ = true;
+  group_has_elements_ = true;
+}
+
+void JsonWriter::AddNode(const mgp::Node &node) {
+  // Fetched once for the counter and the serializer: the fetch deep-copies every value, and the counter needs it
+  // even when properties are not written.
+  auto properties = node.Properties();
+  property_count_ += properties.size();
+  ++node_count_;
+  // Built even with no sink: the value checks (enum, unknown SRID, unsupported type, invalid UTF-8) live on this
+  // path, and skipping it made a sink-less call report success for a graph the very same call cannot export.
+  EnterGroup(Group::kNodes);
+  EmitElement(NodeToJson(node, config_.write_node_properties ? &properties : nullptr));
+}
+
+void JsonWriter::CountNode(const mgp::Node &node) {
+  property_count_ += node.Properties().size();
+  ++node_count_;
+}
+
+void JsonWriter::AddRelationship(const mgp::Relationship &relationship) {
+  auto properties = relationship.Properties();
+  // Only the relationship's own properties count; the inlined endpoints' do not.
+  property_count_ += properties.size();
+  ++relationship_count_;
+  EnterGroup(Group::kRelationships);
+  EmitElement(RelationshipToJson(
+      relationship, config_.write_relationship_properties ? &properties : nullptr, config_.write_node_properties));
+}
+
+std::string JsonWriter::Finish() && {
+  // Normalising to the relationship group emits whatever wrappers were never opened, so an empty export still comes
+  // out as {"nodes":[],"rels":[]} / {"nodes":{},"rels":{}} — and as "" under JSON_LINES.
+  EnterGroup(Group::kRelationships);
+  if (config_.format != JsonFormat::kJsonLines) {
+    Emit(config_.format == JsonFormat::kJsonIdAsKeys ? "}}" : "]}");
+  }
+
+  if (out_.is_open()) {
+    // Closed explicitly: anything still buffered is flushed here, and the destructor could not report a failure.
+    // Without this a payload smaller than the stream buffer reports success on a full disk having written nothing.
+    const auto description = SinkDescription();
+    out_.close();
+    if (!out_) throw mgp::ValueException(fmt::format("Failed writing to {}", description));
+    if (!temp_path_.empty()) {
+      std::error_code error;
+      std::filesystem::rename(temp_path_, *file_, error);
+      if (error) throw mgp::ValueException(fmt::format("Cannot write '{}': {}", *file_, error.message()));
+      temp_path_.clear();
+    }
+  }
+  return std::move(payload_);
+}
+
+}  // namespace Export
