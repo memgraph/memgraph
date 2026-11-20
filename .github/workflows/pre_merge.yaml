@@ -19,7 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check PR labels and release note
-        uses: memgraph/pr-checker@c8cb26392f21bb6d05c0e34f57c9bd867f4c8bb4  # v1.1.0
+        uses: memgraph/pr-checker@da54725ddda7d36e74941f7732f90a0b37010012  # v1.2.0
         with:
           github-token: ${{ github.token }}
           openai-api-key: ${{ secrets.OPENAI_API_KEY }}
