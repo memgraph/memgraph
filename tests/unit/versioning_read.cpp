@@ -433,7 +433,7 @@ TEST_F(VersioningReadTest, UntouchedBaseVertexExpandsWithMainsTypeDestinationAnd
     ASSERT_TRUE(base_vertex.has_value());
     ASSERT_TRUE(ctx.SetProperty(*base_vertex, Main()->NameToProperty("p"), ms::PropertyValue{1}).has_value());
     ASSERT_TRUE(ctx.AddLabel(*base_vertex, Main()->NameToLabel("Extra")).has_value());
-    ASSERT_TRUE(ctx.core()->overlay_index().FindOverlay(ms::Gid::FromInt(hub).AsUint()) != nullptr);
+    ASSERT_TRUE(ctx.core()->overlay_index().FindOverlay(ms::Gid::FromInt(hub)) != nullptr);
     check("label and property overlay");
   });
 }
@@ -474,14 +474,11 @@ TEST_F(VersioningReadTest, MergedExpansionChargesHopsBeforeTheTypeFilterOverTheV
     }
     EXPECT_EQ(std::ranges::count(gids, hidden), 0);
 
-    // Order: the overlay's native edges (marker entry skipped), then the fork's edges less the hidden one.
+    // Order: the overlay's native edges, then the fork's edges less the hidden one.
     std::vector<int64_t> expected_order;
     auto const overlay_out = overlay->OutEdges(ms::View::NEW);
     ASSERT_TRUE(overlay_out.has_value());
-    auto const entries = overlay_out->edges.Triples();
-    for (size_t i = 0; i != entries.size(); ++i) {
-      if (!ms::IsReservedId(std::get<0>(entries[i]))) expected_order.push_back(overlay_out->edges.At(i).Gid().AsInt());
-    }
+    for (auto const &edge : overlay_out->edges) expected_order.push_back(edge.Gid().AsInt());
     ASSERT_EQ(expected_order.size(), 2U) << "the two native edges";
     auto const base_out = vertex.impl_.OutEdges(ms::View::OLD);
     ASSERT_TRUE(base_out.has_value());
@@ -644,9 +641,9 @@ TEST_F(VersioningReadTest, BaseVertexWhoseOnlyChangeIsDeletedBaseEdgesExpandsDir
   });
 }
 
-// Direct expansion drops an edge by its delete marker's MVCC visibility: an uncommitted delete only for its own
+// Direct expansion drops an edge by its delete's MVCC visibility: an uncommitted delete only for its own
 // transaction (at NEW), a rolled-back one for no one, a committed one for later snapshots and read-committed readers.
-TEST_F(VersioningReadTest, DirectExpansionDropsADeletedEdgeOnlyForReadersThatSeeItsMarker) {
+TEST_F(VersioningReadTest, DirectExpansionDropsADeletedEdgeOnlyForReadersThatSeeItsDelete) {
   faker.Interpret("CREATE (h:Hub) WITH h UNWIND range(1, 3) AS i CREATE (h)-[:R]->(:T)");
   auto const hub = Int("MATCH (h:Hub) RETURN id(h)");
   auto const doomed_row = IntRows(faker, "MATCH (:Hub)-[e:R]->(t) RETURN id(e), id(t) ORDER BY id(e) LIMIT 1");
@@ -800,7 +797,7 @@ TEST_F(VersioningReadTest, ADeletedBaseVertexReportsDeletedInEveryDirectionItsNe
   auto const b = Int("MATCH (n:B) RETURN id(n)");
   auto const hub = Int("MATCH (h:Hub) RETURN id(h)");
   Fork();
-  InBranchTxn([&](mv::BranchContext &ctx) { ASSERT_TRUE(*ctx.DeleteBaseVertex(ms::Gid::FromInt(a))); });
+  InBranchTxn([&](mv::BranchContext &ctx) { ASSERT_TRUE(*ctx.DeleteBaseVertex(ms::Gid::FromInt(a), true)); });
   InBranchTxn([&](mv::BranchContext &ctx) {
     auto const va = BaseVertexOn(ctx, a);
     auto const vb = BaseVertexOn(ctx, b);
@@ -810,7 +807,7 @@ TEST_F(VersioningReadTest, ADeletedBaseVertexReportsDeletedInEveryDirectionItsNe
     EXPECT_FALSE(ctx.DirectExpansion(va.impl_, ms::EdgeDirection::IN, ms::View::NEW).has_value());
     auto const plan = ctx.DirectExpansion(vb.impl_, ms::EdgeDirection::IN, ms::View::NEW);
     ASSERT_TRUE(plan.has_value());
-    EXPECT_EQ(plan->hidden.size(), 1U) << "the deleted vertex's edge, by its marker";
+    EXPECT_EQ(plan->hidden.size(), 1U) << "the deleted vertex's edge, by its overlay's delete";
     EXPECT_EQ(vb.InEdges(ms::View::NEW)->edges.size(), 0U);
     EXPECT_EQ(vb.OutEdges(ms::View::NEW)->edges.size(), 0U);
 
@@ -1034,7 +1031,7 @@ TEST_F(VersioningReadTest, ReadsOfABaseVertexDeletedInTheTransactionFail) {
   for (auto const [deleted, other] : std::array{std::pair{a, b}, std::pair{b, a}}) {
     InBranchTxn(
         [&](mv::BranchContext &ctx) {
-          ASSERT_TRUE(*ctx.DeleteBaseVertex(ms::Gid::FromInt(deleted)));
+          ASSERT_TRUE(*ctx.DeleteBaseVertex(ms::Gid::FromInt(deleted), true));
 
           auto const gone = BranchVertex(deleted);
           auto const label = *gone.impl_.Labels(ms::View::OLD);
@@ -1143,7 +1140,7 @@ TEST_F(VersioningReadTest, ReadPropertyValuesOnABranchReadsTheBranchStateOfEvery
 
   InBranchTxn(
       [&](mv::BranchContext &ctx) {
-        ASSERT_TRUE(*ctx.DeleteBaseVertex(ms::Gid::FromInt(v)));
+        ASSERT_TRUE(*ctx.DeleteBaseVertex(ms::Gid::FromInt(v), true));
         std::array<ms::PropertyValue, 4> out;
         auto const vertex_read = BranchVertex(v).ReadPropertyValues(ordered, out, ms::View::NEW);
         ASSERT_FALSE(vertex_read.has_value());
@@ -1215,7 +1212,7 @@ TEST_F(VersioningReadTest, ContainsDeletedFollowsTheBranchAndNotMain) {
         EXPECT_FALSE(contains_deleted(BranchVertex(a)));
         EXPECT_FALSE(contains_deleted(base_edge(ctx, e, a)));
 
-        ASSERT_TRUE(*ctx.DeleteBaseVertex(ms::Gid::FromInt(a)));
+        ASSERT_TRUE(*ctx.DeleteBaseVertex(ms::Gid::FromInt(a), true));
         EXPECT_TRUE(contains_deleted(BranchVertex(a)));
         EXPECT_TRUE(contains_deleted(base_edge(ctx, e, a))) << "an edge of a deleted vertex is hidden";
         EXPECT_FALSE(contains_deleted(BranchVertex(b)));
@@ -1525,7 +1522,7 @@ TEST_F(VersioningReadNoEdgePropertiesTest, DeletedBaseEdgeReadsLikeMainBeforeAnd
   mq::EdgeAccessor const branch_edge{*base_edge, &ctx};
   expect_reads_like_main(branch_edge, "after the edge delete");
 
-  auto gone = ctx.DeleteBaseVertex(ms::Gid::FromInt(c));
+  auto gone = ctx.DeleteBaseVertex(ms::Gid::FromInt(c), true);
   ASSERT_TRUE(gone.has_value() && *gone);
   expect_reads_like_main(branch_edge, "after an unrelated vertex delete");
 
