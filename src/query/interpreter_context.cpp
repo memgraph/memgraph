@@ -10,9 +10,12 @@
 // licenses/APL.txt.
 
 #include <algorithm>
+#include <chrono>
 #include <cstdint>
+#include <map>
 #include <memory>
 #include <optional>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -326,6 +329,23 @@ std::vector<uint64_t> InterpreterContext::ShowTransactionsUsingDBName(
     }
   }
   return results;
+}
+
+std::map<utils::UUID, double> InterpreterContext::LongestTransactionSeconds(
+    const std::unordered_set<Interpreter *> &interpreters) {
+  std::map<utils::UUID, double> longest;
+  auto const now = std::chrono::steady_clock::now();
+  for (Interpreter *interpreter : interpreters) {
+    auto const verifier = interpreter->TryAcquireForVerification();
+    if (!verifier || !interpreter->GetTransactionId()) continue;
+    // Foreign thread: route through foreign_db_view(), as ShowTransactionsUsingDBName does.
+    auto const view = interpreter->current_db_.foreign_db_view();
+    if (view.name.empty()) continue;
+    auto const age = std::chrono::duration<double>(now - interpreter->transaction_start_steady_).count();
+    auto &oldest = longest[view.uuid];
+    oldest = std::max(oldest, age);
+  }
+  return longest;
 }
 
 void InterpreterContext::RegisterDropDrainHook() {

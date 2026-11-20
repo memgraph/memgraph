@@ -15,6 +15,7 @@
 #include <expected>
 #include <functional>
 #include <list>
+#include <map>
 #include <mutex>
 #include <optional>
 #include <shared_mutex>
@@ -57,6 +58,9 @@ struct StorageSnapshot {
   int64_t db_storage_memory_tracked;
   int64_t db_embedding_memory_tracked;
   int64_t db_query_memory_tracked;
+  // Time the running snapshot or GC run has taken so far; 0 when none is running.
+  double snapshot_running_seconds;
+  double gc_running_seconds;
 };
 
 struct string_hash {
@@ -77,6 +81,17 @@ struct DurabilityThroughput {
 /// Retrieves `StorageSnapshot` for the given database UUID, or `std::nullopt`
 /// if there is no such database.
 using StorageSnapshotResolver = std::function<std::optional<StorageSnapshot>(utils::UUID const &uuid)>;
+
+struct WorkerPoolStats {
+  uint64_t workers;
+  uint64_t busy;
+  uint64_t queued;
+};
+
+using WorkerPoolResolver = std::function<WorkerPoolStats()>;
+
+/// Age in seconds of the oldest open transaction per database, keyed by database uuid.
+using TransactionAgeResolver = std::function<std::map<utils::UUID, double>()>;
 
 #ifdef MG_ENTERPRISE
 using InstanceStatusResolver = std::function<std::vector<coordination::InstanceStatus>()>;
@@ -243,6 +258,9 @@ class PrometheusMetrics {
   void RemoveReplicationThroughput(std::string_view instance_name);
 
   void SetStorageSnapshotResolver(StorageSnapshotResolver resolver);
+  /// Exports the worker pool gauges; without a resolver they are absent.
+  void SetWorkerPoolResolver(WorkerPoolResolver resolver);
+  void SetTransactionAgeResolver(TransactionAgeResolver resolver);
 #ifdef MG_ENTERPRISE
   void SetInstanceStatusResolver(InstanceStatusResolver resolver);
 #endif
@@ -252,6 +270,9 @@ class PrometheusMetrics {
 
   // Returns truly global metrics: session gauges, HA counters/histograms, and peak memory.
   std::vector<MetricInfo> GetGlobalMetricsInfo() const;
+
+  // Returns the process start time and worker pool gauges for SHOW METRICS INFO only, never the JSON endpoint.
+  std::vector<MetricInfo> GetProcessMetricsInfo() const;
 
   // Returns metrics for the legacy JSON endpoint. For backwards compatibility,
   // storage fields (vertex/edge count, disk/memory usage) reflect the default
@@ -312,6 +333,12 @@ class PrometheusMetrics {
 
   std::unordered_map<std::string, int64_t> legacy_json_prev_ha_counter_values_;
   StorageSnapshotResolver storage_snapshot_resolver_;
+  WorkerPoolResolver worker_pool_resolver_;
+  TransactionAgeResolver transaction_age_resolver_;
+  prometheus::Gauge *workers_{nullptr};
+  prometheus::Gauge *workers_busy_{nullptr};
+  prometheus::Gauge *worker_queue_length_{nullptr};
+  prometheus::Gauge *process_start_time_{nullptr};
   std::optional<utils::UUID> default_db_uuid_;
 #ifdef MG_ENTERPRISE
   InstanceStatusResolver instance_status_resolver_;
@@ -321,6 +348,11 @@ class PrometheusMetrics {
   prometheus::Family<prometheus::Gauge> &vertex_count_family_;
   prometheus::Family<prometheus::Gauge> &edge_count_family_;
   prometheus::Family<prometheus::Gauge> &disk_usage_family_;
+  prometheus::Family<prometheus::Gauge> &snapshot_running_seconds_family_;
+  prometheus::Family<prometheus::Gauge> &gc_running_seconds_family_;
+  prometheus::Family<prometheus::Gauge> &longest_transaction_seconds_family_;
+  prometheus::Family<prometheus::Gauge> &last_snapshot_timestamp_seconds_family_;
+  prometheus::Family<prometheus::Counter> &snapshot_failures_family_;
   prometheus::Family<prometheus::Gauge> &db_memory_tracked_family_;
   prometheus::Family<prometheus::Gauge> &db_peak_memory_tracked_family_;
   prometheus::Family<prometheus::Gauge> &db_storage_memory_tracked_family_;
@@ -452,6 +484,10 @@ class PrometheusMetrics {
   prometheus::Family<prometheus::Counter> &database_suspends_family_;
   prometheus::Family<prometheus::Counter> &database_resumes_family_;
   prometheus::Family<prometheus::Gauge> &cold_databases_family_;
+  prometheus::Family<prometheus::Gauge> &workers_family_;
+  prometheus::Family<prometheus::Gauge> &workers_busy_family_;
+  prometheus::Family<prometheus::Gauge> &worker_queue_length_family_;
+  prometheus::Family<prometheus::Gauge> &process_start_time_family_;
   prometheus::Family<prometheus::Histogram> &database_suspend_latency_family_;
   prometheus::Family<prometheus::Histogram> &database_resume_latency_family_;
 

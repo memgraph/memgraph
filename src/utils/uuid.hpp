@@ -14,6 +14,7 @@
 #include <uuid/uuid.h>
 // NOLINTNEXTLINE
 #include <array>
+#include <compare>
 #include <nlohmann/json_fwd.hpp>
 #include <stdexcept>
 #include <string>
@@ -69,6 +70,7 @@ struct UUID {
   explicit operator arr_t() const { return uuid; }
 
   friend bool operator==(UUID const &, UUID const &) = default;
+  friend auto operator<=>(UUID const &, UUID const &) = default;
 
   friend bool operator==(UUID const &lhs, std::string_view rhs) { return std::string(lhs) == rhs; };
 

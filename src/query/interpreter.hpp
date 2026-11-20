@@ -38,6 +38,7 @@
 #include "utils/session_context.hpp"
 #include "utils/spin_lock.hpp"
 #include "utils/synchronized.hpp"
+#include "utils/uuid.hpp"
 
 #ifdef MG_ENTERPRISE
 #include "coordination/instance_status.hpp"
@@ -337,6 +338,7 @@ struct CurrentDB {
   struct ForeignDbView {
     std::string name;                 // "" when the session holds no database
     bool marked_for_deletion{false};  // false when there is no database
+    utils::UUID uuid{utils::UUID::Nil()};
   };
 
   [[nodiscard]] ForeignDbView foreign_db_view() const {
@@ -347,7 +349,7 @@ struct CurrentDB {
     // db_acc_ is optional<DatabaseAccess = Gatekeeper<Database>::Accessor>, so db_acc_-> yields an Accessor
     // and this resolves to the lockless overload. Taking the gatekeeper mutex here would add a
     // db_acc_mutex_ -> gatekeeper-mutex edge and break db_acc_mutex_'s leaf-lock property.
-    return {db_acc_->get()->name(), db_acc_->is_marked_for_deletion()};
+    return {db_acc_->get()->name(), db_acc_->is_marked_for_deletion(), db_acc_->get()->uuid()};
   }
 
   // TODO: don't provide explicitly via constructor, instead have a lazy way of getting the current/default

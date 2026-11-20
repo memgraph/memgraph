@@ -33,6 +33,7 @@
 #include "flags/run_time_configurable.hpp"
 #include "memory/db_arena_fwd.hpp"
 #include "memory/global_memory_control.hpp"
+#include "metrics/metric_handles.hpp"
 #include "replication_coordination_glue/mode.hpp"
 #include "replication_coordination_glue/role.hpp"
 #include "requests/requests.hpp"
@@ -87,6 +88,21 @@ namespace {
 // Sub-directory holding durability files superseded by a new base state. Kept in sync with the name
 // utils::GetFilesFromDir filters out, so archived files are invisible to every directory scan.
 constexpr std::string_view kOldDurabilityDir = ".old";
+
+void MarkSnapshotCurrent(metrics::DatabaseMetricHandles const &handles) {
+  handles.last_snapshot_timestamp_seconds.Set(
+      std::chrono::duration<double>(std::chrono::system_clock::now().time_since_epoch()).count());
+}
+
+// kAborted covers both a requested abort and a failed write; only the latter is a failure.
+void RecordSnapshotFailure(metrics::DatabaseMetricHandles const &handles, durability::SnapshotCreationError const error,
+                           std::atomic_bool const &abort_requested) {
+  if (error == durability::SnapshotCreationError::kNoSpaceLeft) {
+    handles.snapshot_failures_no_space.Increment();
+  } else if (!abort_requested.load(std::memory_order_acquire)) {
+    handles.snapshot_failures_write_error.Increment();
+  }
+}
 
 constexpr auto ActionToStorageOperation(MetadataDelta::Action const action) -> durability::StorageMetadataOperation {
   // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
@@ -3144,6 +3160,7 @@ void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode) {
                                                             &snapshot_progress_,
                                                             "storage_mode_change");
       if (!snapshot_path) {
+        RecordSnapshotFailure(metric_handles_, snapshot_path.error(), abort_snapshot_);
         // Analytical writes never reached a WAL, so this snapshot is the only durable record the episode
         // will ever have. Completing the switch without it would leave the data live in memory but absent
         // from durability, and the next recovery would silently drop it. Stay analytical instead: the
@@ -3158,6 +3175,7 @@ void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode) {
         }
         throw utils::RetryableException(kMsg);
       }
+      MarkSnapshotCurrent(metric_handles_);
 
       // Publish the snapshot's timestamp as the cached ldt. Analytical writes never reach
       // FinalizeCommitPhase, so without this main keeps advertising the pre-analytical ldt and a replica
@@ -4697,8 +4715,10 @@ std::expected<std::filesystem::path, InMemoryStorage::CreateSnapshotError> InMem
                                     .storage_uuid_ = storage_uuid,
                                     .last_durable_ts_ = *transaction->last_durable_ts_};
 
-    if (!force && last_snapshot_digest_ == current_digest)
+    if (!force && last_snapshot_digest_ == current_digest) {
+      MarkSnapshotCurrent(metric_handles_);
       return std::unexpected{CreateSnapshotError::NothingNewToWrite};
+    }
   }
 
   const auto snapshot_path = durability::CreateSnapshot(this,
@@ -4715,9 +4735,11 @@ std::expected<std::filesystem::path, InMemoryStorage::CreateSnapshotError> InMem
                                                         &snapshot_progress_,
                                                         trigger);
   if (!snapshot_path) {
-    return std::unexpected{snapshot_path.error() == durability::SnapshotCreationError::kNoSpaceLeft
-                               ? CreateSnapshotError::NoSpaceLeft
-                               : CreateSnapshotError::AbortSnapshot};
+    RecordSnapshotFailure(metric_handles_, snapshot_path.error(), abort_snapshot_);
+    if (snapshot_path.error() == durability::SnapshotCreationError::kNoSpaceLeft) {
+      return std::unexpected{CreateSnapshotError::NoSpaceLeft};
+    }
+    return std::unexpected{CreateSnapshotError::AbortSnapshot};
   }
 
   // Update digest only after the file has been created. Only in transaction because digests are used only in
@@ -4730,6 +4752,7 @@ std::expected<std::filesystem::path, InMemoryStorage::CreateSnapshotError> InMem
     auto snapshot_elapsed = std::chrono::duration<double>(timer.Elapsed());
     metric_handles_.snapshot_creation_latency_seconds.Observe(snapshot_elapsed.count());
   }
+  MarkSnapshotCurrent(metric_handles_);
 
   return *snapshot_path;
 }

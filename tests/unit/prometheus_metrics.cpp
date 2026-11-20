@@ -12,9 +12,14 @@
 #include "metrics/prometheus_metrics.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <filesystem>
+#include <map>
+#include <optional>
+#include <string>
 #include <string_view>
 #include <variant>
+#include <vector>
 
 #include <gtest/gtest.h>
 #include <prometheus/metric_family.h>
@@ -63,6 +68,13 @@ std::optional<double> FindSampleByUuid(std::vector<prometheus::MetricFamily> con
     }
   }
   return std::nullopt;
+}
+
+std::optional<double> FindUnlabelledGauge(std::vector<prometheus::MetricFamily> const &families,
+                                          std::string_view name) {
+  auto const family = r::find(families, name, &prometheus::MetricFamily::name);
+  if (family == families.end() || family->metric.size() != 1) return std::nullopt;
+  return family->metric.front().gauge.value;
 }
 
 }  // namespace
@@ -115,6 +127,74 @@ TEST(PrometheusMetrics, UpdateGaugesSetsStorageValues) {
   EXPECT_EQ(FindSample(families, "memgraph_disk_usage_bytes", "db1"), 1024.0);
   EXPECT_EQ(FindSample(families, "memgraph_db_memory_tracked_bytes", "db1"), 4096.0);
   EXPECT_EQ(FindSample(families, "memgraph_db_peak_memory_tracked_bytes", "db1"), 8192.0);
+}
+
+TEST(PrometheusMetrics, UpdateGaugesSetsBackgroundWorkElapsedTimes) {
+  memgraph::metrics::PrometheusMetrics pm;
+  memgraph::metrics::StorageSnapshot snapshot{.snapshot_running_seconds = 12.5, .gc_running_seconds = 0.25};
+  memgraph::utils::UUID const db_uuid{};
+  pm.SetStorageSnapshotResolver(
+      [&](memgraph::utils::UUID const &uuid) -> std::optional<memgraph::metrics::StorageSnapshot> {
+        if (uuid == db_uuid) return snapshot;
+        return std::nullopt;
+      });
+  auto const db = pm.AddDatabase(db_uuid, "db1");
+
+  pm.UpdateGauges();
+
+  auto const families = pm.CollectForScrape();
+  EXPECT_EQ(FindSample(families, "memgraph_snapshot_running_seconds", "db1"), 12.5);
+  EXPECT_EQ(FindSample(families, "memgraph_gc_running_seconds", "db1"), 0.25);
+}
+
+TEST(PrometheusMetrics, LongestTransactionIsReportedPerDatabase) {
+  memgraph::metrics::PrometheusMetrics pm;
+  memgraph::utils::UUID const db1_uuid{};
+  memgraph::utils::UUID const dropped_db2_uuid{};
+  pm.SetTransactionAgeResolver(
+      [&] { return std::map<memgraph::utils::UUID, double>{{db1_uuid, 42.0}, {dropped_db2_uuid, 99.0}}; });
+  auto const db1 = pm.AddDatabase(db1_uuid, "db1");
+  auto const db2 = pm.AddDatabase(memgraph::utils::UUID{}, "db2");
+
+  pm.UpdateGauges();
+
+  auto const families = pm.CollectForScrape();
+  EXPECT_EQ(FindSample(families, "memgraph_longest_transaction_seconds", "db1"), 42.0);
+  EXPECT_EQ(FindSample(families, "memgraph_longest_transaction_seconds", "db2"), 0.0);
+}
+
+TEST(PrometheusMetrics, ProcessStartTimeIsSetAtConstruction) {
+  auto const before = std::chrono::duration<double>(std::chrono::system_clock::now().time_since_epoch()).count();
+  memgraph::metrics::PrometheusMetrics pm;
+  auto const after = std::chrono::duration<double>(std::chrono::system_clock::now().time_since_epoch()).count();
+
+  auto const start = FindUnlabelledGauge(pm.CollectForScrape(), "process_start_time_seconds");
+  ASSERT_TRUE(start);
+  EXPECT_GE(*start, before);
+  EXPECT_LE(*start, after);
+}
+
+TEST(PrometheusMetrics, WorkerPoolGaugesReportTheResolvedPool) {
+  memgraph::metrics::PrometheusMetrics pm;
+  pm.SetWorkerPoolResolver([] { return memgraph::metrics::WorkerPoolStats{.workers = 4, .busy = 2, .queued = 5}; });
+
+  pm.UpdateGauges();
+
+  auto const families = pm.CollectForScrape();
+  EXPECT_EQ(FindUnlabelledGauge(families, "memgraph_workers"), 4.0);
+  EXPECT_EQ(FindUnlabelledGauge(families, "memgraph_workers_busy"), 2.0);
+  EXPECT_EQ(FindUnlabelledGauge(families, "memgraph_worker_queue_length"), 5.0);
+}
+
+TEST(PrometheusMetrics, WorkerPoolGaugesAreAbsentWithoutAPool) {
+  memgraph::metrics::PrometheusMetrics pm;
+
+  pm.UpdateGauges();
+
+  auto const families = pm.CollectForScrape();
+  EXPECT_EQ(FindUnlabelledGauge(families, "memgraph_workers"), std::nullopt);
+  EXPECT_EQ(FindUnlabelledGauge(families, "memgraph_workers_busy"), std::nullopt);
+  EXPECT_EQ(FindUnlabelledGauge(families, "memgraph_worker_queue_length"), std::nullopt);
 }
 
 TEST(PrometheusMetrics, GetGlobalMetricsInfoReportsCorrectMemoryUsage) {

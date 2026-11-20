@@ -10,6 +10,7 @@
 # licenses/APL.txt.
 
 import sys
+import time
 
 import pytest
 from common import connect, execute_and_fetch_all, memgraph
@@ -24,7 +25,11 @@ def test_all_show_metrics_info_values_are_present(memgraph):
         # General (alphabetical)
         {"name": "AverageDegree", "type": "General", "metric type": "Gauge"},
         {"name": "EdgeCount", "type": "General", "metric type": "Gauge"},
+        {"name": "ProcessStartTime", "type": "General", "metric type": "Gauge"},
         {"name": "VertexCount", "type": "General", "metric type": "Gauge"},
+        {"name": "WorkerQueueLength", "type": "General", "metric type": "Gauge"},
+        {"name": "Workers", "type": "General", "metric type": "Gauge"},
+        {"name": "WorkersBusy", "type": "General", "metric type": "Gauge"},
         # HighAvailability counters (alphabetical)
         {"name": "BecomeLeaderSuccess", "type": "HighAvailability", "metric type": "Counter"},
         {"name": "DemoteInstance", "type": "HighAvailability", "metric type": "Counter"},
@@ -235,6 +240,8 @@ def test_all_show_metrics_info_values_are_present(memgraph):
         {"name": "ActiveTCPSessions", "type": "Session", "metric type": "Gauge"},
         {"name": "ActiveWebSocketSessions", "type": "Session", "metric type": "Gauge"},
         # Snapshot
+        {"name": "SnapshotFailuresNoSpace", "type": "Snapshot", "metric type": "Counter"},
+        {"name": "SnapshotFailuresWriteError", "type": "Snapshot", "metric type": "Counter"},
         {"name": "SnapshotCreationLatency_us_50p", "type": "Snapshot", "metric type": "Histogram"},
         {"name": "SnapshotCreationLatency_us_90p", "type": "Snapshot", "metric type": "Histogram"},
         {"name": "SnapshotCreationLatency_us_99p", "type": "Snapshot", "metric type": "Histogram"},
@@ -391,6 +398,11 @@ def test_general_gauges_reflect_graph_state(memgraph):
 def test_query_execution_latency_histogram_has_observations(memgraph):
     memgraph.execute("MATCH (n) RETURN n")
     assert get_metric_value(memgraph, "QueryExecutionLatency_us_50p") > 0
+
+
+def test_process_and_worker_gauges_are_reported(memgraph):
+    assert 0 < get_metric_value(memgraph, "ProcessStartTime") <= time.time()
+    assert get_metric_value(memgraph, "Workers") >= 1
 
 
 def test_session_metrics_reflect_active_connection(memgraph):
