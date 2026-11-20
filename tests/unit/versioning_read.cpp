@@ -1671,7 +1671,8 @@ TEST_F(VersioningReadTest, BranchFullScanUntouchedBranchIsBaseStreamOnly) {
   Attach(faker, "c2");
   EXPECT_EQ(Int("MATCH (n) RETURN count(n)"), 3) << "a post-fork main vertex must not leak";
 
-  InBranchTxn([&](mv::BranchContext &ctx) { ASSERT_TRUE(*ctx.DeleteBaseVertex(ms::Gid::FromInt(one))); });
+  InBranchTxn(
+      [&](mv::BranchContext &ctx) { ASSERT_TRUE(*ctx.DeleteBaseVertex(ms::Gid::FromInt(one), /*detach=*/true)); });
   EXPECT_EQ(Int("MATCH (n) RETURN count(n)"), 2) << "a vertex deleted on the branch leaves the scan";
   EXPECT_EQ(Int("MATCH (n) WHERE n.i = 1 RETURN count(n)"), 0);
 
@@ -1735,7 +1736,7 @@ TEST_F(VersioningReadTest, IdLookupsResolveBaseAndNativeObjectsOnly) {
         EXPECT_FALSE(dba.FindEdge(ms::Gid::FromInt(base_edge), ms::Gid::FromInt(a_gid), ms::View::NEW).has_value())
             << "only the FROM vertex's OUT adjacency is searched";
 
-        ASSERT_TRUE(*ctx.DeleteBaseVertex(ms::Gid::FromInt(s_gid)));
+        ASSERT_TRUE(*ctx.DeleteBaseVertex(ms::Gid::FromInt(s_gid), /*detach=*/true));
         EXPECT_FALSE(dba.FindVertex(ms::Gid::FromInt(s_gid), ms::View::NEW).has_value());
         EXPECT_TRUE(dba.FindVertex(ms::Gid::FromInt(s_gid), ms::View::OLD).has_value());
         EXPECT_FALSE(dba.FindEdge(ms::Gid::FromInt(base_edge), ms::View::NEW).has_value())
@@ -2102,7 +2103,8 @@ TEST_F(VersioningReadTest, ApproximateCountsOnABranchCoverTheBaseState) {
       },
       /*commit=*/false);
 
-  InBranchTxn([&](mv::BranchContext &ctx) { ASSERT_TRUE(*ctx.DeleteBaseVertex(ms::Gid::FromInt(lone))); });
+  InBranchTxn(
+      [&](mv::BranchContext &ctx) { ASSERT_TRUE(*ctx.DeleteBaseVertex(ms::Gid::FromInt(lone), /*detach=*/true)); });
   InBranchTxn(
       [&](mv::BranchContext &ctx) {
         auto dba = BranchDba(ctx);
