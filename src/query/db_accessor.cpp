@@ -184,8 +184,9 @@ auto KeptIn(Graph const *graph) {
 }
 #ifdef MG_ENTERPRISE
 
-// Branch storage adjacency holds overlay-attached natives and delete markers, so expand via the branch-aware accessor
-// and filter membership only: by gid and transaction, which match since a base edge is always the historical txn's.
+// Branch storage adjacency holds the overlay's native edges (base-edge deletes are the overlay edge's deleted flag), so
+// expand via the branch-aware accessor and filter membership only: by gid and transaction, which match since a base
+// edge is always the historical txn's.
 auto KeptInBranch(Graph const *graph) {
   return [graph](ExpandedEdgesResult &&result) -> ExpandedEdgesResult {
     auto const &graph_edges = graph->edges();
