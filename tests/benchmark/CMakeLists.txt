@@ -140,6 +140,9 @@ target_link_libraries(${test_prefix}storage_v2_enum_store_bench mg::storage)
 add_benchmark(storage_v2_edge_index_scan.cpp)
 target_link_libraries(${test_prefix}storage_v2_edge_index_scan mg::storage)
 
+add_local_benchmark(storage_v2_delete_edges.cpp)
+target_link_libraries(${test_prefix}storage_v2_delete_edges mg::storage)
+
 add_benchmark(storage_v2_label_property_index_predicate.cpp)
 target_link_libraries(${test_prefix}storage_v2_label_property_index_predicate mg::storage)
 
