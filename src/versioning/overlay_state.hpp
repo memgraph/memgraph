@@ -183,8 +183,15 @@ inline storage::Result<void> WriteProperty(storage::Transaction *transaction, st
   if (overlay->deleted()) return std::unexpected{storage::Error::DELETED_OBJECT};
   auto const prior = detail::ReadPrior(overlay, key);
   utils::AtomicMemoryBlock([&] {
-    storage::CreateAndLinkDeltaForEdgeSetProperty(
-        transaction, engine.config_, overlay, from, to, type, key, prior.value);
+    storage::CreateAndLinkDelta(transaction, overlay, storage::Delta::SetPropertyTag(), from, key, prior.value);
+    // Stock records the in-vertex so a replica finds the edge without a scan; not for an edge made by this transaction.
+    if (engine.config_.durability.snapshot_wal_mode ==
+            storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL &&
+        transaction->commit_info &&
+        !storage::EdgeWasCreatedThisTransaction(overlay,
+                                                transaction->commit_info->timestamp.load(std::memory_order_acquire))) {
+      transaction->RecordEdgeSetPropertyInfo(overlay->gid, to->gid, type);
+    }
     detail::StoreProperty(overlay, key, value, prior.explicit_null);
   });
   engine.indices_.UpdateOnSetProperty(type, key, value, from, to, overlay, *transaction);
