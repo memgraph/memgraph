@@ -112,6 +112,10 @@ class VertexAccessor final {
   template <bool kCompact>
   Result<std::map<PropertyId, PropertyValue>> PropertiesImpl(View view) const;
 
+  template <bool kCompact>
+  Result<void> ReadPropertyValuesImpl(OrderedPropertyPaths const &ordered_properties, std::span<PropertyValue> out,
+                                      View view) const;
+
  public:
   /// Returns the size of the encoded vertex property in bytes.
   Result<uint64_t> GetPropertySize(PropertyId property, View view) const;
@@ -128,6 +132,10 @@ class VertexAccessor final {
   /// kept between rows reads a row without allocating.
   Result<void> ReadPropertyValues(OrderedPropertyPaths const &ordered_properties, std::span<PropertyValue> out,
                                   View view) const;
+
+  /// Like ReadPropertyValues, but embeddings stay compact VectorIndexId references.
+  Result<void> ReadPropertyValuesCompact(OrderedPropertyPaths const &ordered_properties, std::span<PropertyValue> out,
+                                         View view) const;
 
   /// Properties of this vertex that are backed by a vector index, given its (view-consistent) labels.
   std::vector<PropertyId> VectorIndexedProperties(std::span<LabelId const> labels) const;

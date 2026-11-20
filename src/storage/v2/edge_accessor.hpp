@@ -38,6 +38,10 @@ class EdgeAccessor final {
   template <bool kCompact>
   Result<std::map<PropertyId, PropertyValue>> PropertiesImpl(View view) const;
 
+  template <bool kCompact>
+  Result<void> ReadPropertyValuesImpl(OrderedPropertyPaths const &ordered_properties, std::span<PropertyValue> out,
+                                      View view) const;
+
  public:
   EdgeAccessor(EdgeRef edge, EdgeTypeId edge_type, Vertex *from_vertex, Vertex *to_vertex, Storage *storage,
                Transaction *transaction, bool for_deleted = false)
@@ -112,6 +116,10 @@ class EdgeAccessor final {
   /// Configured without properties on edges, every slot reads Null, as asking one at a time does.
   Result<void> ReadPropertyValues(OrderedPropertyPaths const &ordered_properties, std::span<PropertyValue> out,
                                   View view) const;
+
+  /// Like ReadPropertyValues, but embeddings stay compact VectorIndexId references.
+  Result<void> ReadPropertyValuesCompact(OrderedPropertyPaths const &ordered_properties, std::span<PropertyValue> out,
+                                         View view) const;
 
   /// Properties of this edge that are backed by a vector index.
   std::vector<PropertyId> VectorIndexedProperties() const;
