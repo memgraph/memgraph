@@ -485,7 +485,7 @@ class DbAccessor final {
     return static_cast<int64_t>(count(historical)) + static_cast<int64_t>(count(*accessor_));
   }
 
-  // Native objects are deleted by the diff engine, base ones by BranchContext delete markers; a deleted base vertex's
+  // Native objects are deleted by the diff engine, base ones by BranchContext overlay deletes; a deleted base vertex's
   // native edges are deleted for real.
   storage::Result<std::optional<std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>>> BranchDetachDelete(
       std::vector<VertexAccessor> nodes, std::vector<EdgeAccessor> edges, bool detach);

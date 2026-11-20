@@ -589,9 +589,9 @@ TEST_F(VersioningWriteTest, BranchVertexWriteOfAnEarlierDeletedBaseVertexIsRefus
   ctx->EndTransaction();
 }
 
-// DETACH DELETE of a vertex whose overlay holds native edges and markers of earlier base-edge deletes: native edges go,
-// visible base edges are hidden, earlier markers stay, each edge counts once.
-TEST_F(VersioningWriteTest, BranchDetachDeleteOfABaseVertexWithNativeEdgesAndEarlierMarkers) {
+// DETACH DELETE of a vertex whose overlay holds native edges and earlier base-edge deletes: native edges go,
+// visible base edges are hidden, earlier deletes stay, each edge counts once.
+TEST_F(VersioningWriteTest, BranchDetachDeleteOfABaseVertexWithNativeEdgesAndEarlierBaseEdgeDeletes) {
   faker.Interpret("CREATE (a:A)-[:R {k: 1}]->(:B), (a)-[:R {k: 2}]->(:B), (a)-[:R {k: 3}]->(:B), (:C)");
   Fork();
   auto &ctx = *faker.interpreter.current_db_.branch_context();
