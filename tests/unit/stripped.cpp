@@ -471,6 +471,18 @@ TEST(QueryStripper, ReturnLimit) {
   EXPECT_THAT(stripped.named_expressions(), UnorderedElementsAre(Pair(1, "2   + 3")));
 }
 
+TEST(QueryStripper, KeywordNamesDoNotEndReturnItem) {
+  auto headers = [](const char *q) { return StrippedQuery(q).named_expressions(); };
+  EXPECT_THAT(headers("MATCH (n) RETURN n.offset"), UnorderedElementsAre(Pair(5, "n.offset")));
+  EXPECT_THAT(headers("MATCH (n) RETURN n.skip, n.limit"), UnorderedElementsAre(Pair(5, "n.skip"), Pair(9, "n.limit")));
+  EXPECT_THAT(headers("MATCH (offset) RETURN offset.x"), UnorderedElementsAre(Pair(5, "offset.x")));
+  EXPECT_THAT(headers("RETURN {skip: 1}"), UnorderedElementsAre(Pair(1, "{skip: 1}")));
+  EXPECT_THAT(headers("RETURN 1 AS offset, 2 + 3"), UnorderedElementsAre(Pair(5, "2 + 3")));
+  EXPECT_THAT(headers("MATCH (n) RETURN n:Order"), UnorderedElementsAre(Pair(5, "n:Order")));
+  EXPECT_THAT(headers("MATCH (n) RETURN n.skip SKIP 1"), UnorderedElementsAre(Pair(5, "n.skip")));
+  EXPECT_THAT(headers("RETURN * ORDER BY x"), UnorderedElementsAre(Pair(1, "*")));
+}
+
 TEST(QueryStripper, ReturnListsAndFunctionCalls) {
   StrippedQuery stripped("RETURN [1,2,[3, 4] , 5], f(1, 2), 3");
   EXPECT_THAT(stripped.named_expressions(),

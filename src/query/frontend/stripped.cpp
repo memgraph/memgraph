@@ -259,11 +259,21 @@ StrippedQuery::StrippedQuery(std::string query) : original_(std::move(query)) {
       int num_open_braces = 0;
       int num_open_parantheses = 0;
       int num_open_brackets = 0;
+      // A clause keyword ends the item only in keyword position: not first, not nested, not after `.`, `:` or `AS`
+      // (property key, label, alias). Counts may go negative past a closing `}`, hence `> 0`.
+      auto is_stop_keyword = [&] {
+        if (!utils::IEquals(jt->second, "order") && !utils::IEquals(jt->second, "skip") &&
+            !utils::IEquals(jt->second, "offset") && !utils::IEquals(jt->second, "limit") &&
+            !utils::IEquals(jt->second, "union") && !utils::IEquals(jt->second, "query")) {
+          return false;
+        }
+        if (jt == it || num_open_braces > 0 || num_open_parantheses > 0 || num_open_brackets > 0) return false;
+        const auto &prev = last_non_space->second;
+        return prev != "." && prev != ":" && !utils::IEquals(prev, "as");
+      };
       for (;
            jt != tokens.end() && (jt->second != "," || num_open_braces || num_open_parantheses || num_open_brackets) &&
-           !utils::IEquals(jt->second, "order") && !utils::IEquals(jt->second, "skip") &&
-           !utils::IEquals(jt->second, "offset") && !utils::IEquals(jt->second, "limit") &&
-           !utils::IEquals(jt->second, "union") && !utils::IEquals(jt->second, "query") && jt->second != ";";
+           jt->second != ";" && !is_stop_keyword();
            ++jt) {
         if (jt->second == "(") {
           ++num_open_parantheses;
