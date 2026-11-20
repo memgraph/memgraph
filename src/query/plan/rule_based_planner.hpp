@@ -992,9 +992,9 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
 
   static bool IsWriteClause(Clause *clause) {
     return utils::Downcast<Create>(clause) || utils::Downcast<query::Delete>(clause) ||
-           utils::Downcast<query::SetProperty>(clause) || utils::Downcast<query::SetProperties>(clause) ||
-           utils::Downcast<query::SetLabels>(clause) || utils::Downcast<query::RemoveProperty>(clause) ||
-           utils::Downcast<query::RemoveLabels>(clause);
+           utils::Downcast<query::SetProperty>(clause) || utils::Downcast<query::SetPropertyDynamic>(clause) ||
+           utils::Downcast<query::SetProperties>(clause) || utils::Downcast<query::SetLabels>(clause) ||
+           utils::Downcast<query::RemoveProperty>(clause) || utils::Downcast<query::RemoveLabels>(clause);
   }
 
   // Apply nested pattern comprehensions as RollUpApply nodes.
@@ -1035,6 +1035,8 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
                                                          set->property_lookup_,
                                                          set->expression_);
       }
+    } else if (auto *set = utils::Downcast<query::SetPropertyDynamic>(clause)) {
+      return std::make_unique<plan::SetPropertyDynamic>(std::move(input_op), set->lhs_, set->key_, set->rhs_);
     } else if (auto *set = utils::Downcast<query::SetProperties>(clause)) {
       auto op = set->update_ ? plan::SetProperties::Op::UPDATE : plan::SetProperties::Op::REPLACE;
       const auto &input_symbol = symbol_table.at(*set->identifier_);

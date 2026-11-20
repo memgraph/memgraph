@@ -6256,25 +6256,12 @@ std::optional<VertexLabels> PropertyPermissionLabels(FineGrainedAuthChecker cons
 }  // namespace
 #endif
 
-SetProperty::SetPropertyCursor::SetPropertyCursor(const SetProperty &self, utils::MemoryResource *mem,
-                                                  metrics::DatabaseMetricHandles &metric_handles)
-    : self_(self), input_cursor_(self.input_->MakeCursor(mem, metric_handles)) {}
+namespace {
 
-bool SetProperty::SetPropertyCursor::Pull(Frame &frame, ExecutionContext &context) {
-  OOMExceptionEnabler oom_exception;
-  SCOPED_PROFILE_OP("SetProperty");
-
-  AbortCheck(context);
-
-  if (!input_cursor_->Pull(frame, context)) return false;
-
-  // Set, just like Create needs to see the latest changes.
-  ExpressionEvaluator evaluator =
-      ExpressionEvaluator{&frame, context, storage::View::NEW, nullptr, &context.number_of_hops};
-
-  TypedValue lhs = self_.lhs_->expression_->Accept(evaluator);
-  TypedValue rhs = self_.rhs_->Accept(evaluator);
-
+// Applies a single-key write with all static-key SET side effects (permission checks,
+// PropsSetChecked, UPDATED_PROPERTIES, triggers); shared so static and dynamic SET can't drift.
+void SetPropertyOnEntity(TypedValue &lhs, storage::PropertyId property, TypedValue const &rhs,
+                         ExecutionContext &context) {
   switch (lhs.type()) {
     case TypedValue::Type::Vertex: {
 #ifdef MG_ENTERPRISE
@@ -6287,13 +6274,13 @@ bool SetProperty::SetPropertyCursor::Pull(Frame &frame, ExecutionContext &contex
         }
         auto const labels = PropertyPermissionLabels(context.auth_checker, lhs.ValueVertex(), storage::View::NEW);
         if (labels && !context.auth_checker->HasPropertyPermission(
-                          *labels, self_.property_, AuthQuery::PropertyPermissionType::WRITE)) [[unlikely]] {
+                          *labels, property, AuthQuery::PropertyPermissionType::WRITE)) [[unlikely]] {
           throw QueryRuntimeException("Setting node property failed: missing SET PROPERTY permission on property.");
         }
       }
 #endif
       auto old_value = PropsSetChecked(&lhs.ValueVertex(),
-                                       self_.property_,
+                                       property,
                                        rhs,
                                        context.db_accessor->GetStorageAccessor()->GetNameIdMapper(),
                                        *context.metric_handles);
@@ -6302,7 +6289,7 @@ bool SetProperty::SetPropertyCursor::Pull(Frame &frame, ExecutionContext &contex
         // rhs cannot be moved because it was created with the allocator that is only valid during current pull
         context.trigger_context_collector->RegisterSetObjectProperty(
             lhs.ValueVertex(),
-            self_.property_,
+            property,
             TypedValue{std::move(old_value), context.db_accessor->GetStorageAccessor()->GetNameIdMapper()},
             TypedValue{rhs});
       }
@@ -6317,13 +6304,13 @@ bool SetProperty::SetPropertyCursor::Pull(Frame &frame, ExecutionContext &contex
               "Setting edge property failed: missing SET PROPERTY or UPDATE permission on edge type.");
         }
         if (!context.auth_checker->HasPropertyPermission(
-                lhs.ValueEdge().EdgeType(), self_.property_, AuthQuery::PropertyPermissionType::WRITE)) [[unlikely]] {
+                lhs.ValueEdge().EdgeType(), property, AuthQuery::PropertyPermissionType::WRITE)) [[unlikely]] {
           throw QueryRuntimeException("Setting edge property failed: missing SET PROPERTY permission on property.");
         }
       }
 #endif
       auto old_value = PropsSetChecked(&lhs.ValueEdge(),
-                                       self_.property_,
+                                       property,
                                        rhs,
                                        context.db_accessor->GetStorageAccessor()->GetNameIdMapper(),
                                        *context.metric_handles);
@@ -6333,7 +6320,7 @@ bool SetProperty::SetPropertyCursor::Pull(Frame &frame, ExecutionContext &contex
         // during current pull
         context.trigger_context_collector->RegisterSetObjectProperty(
             lhs.ValueEdge(),
-            self_.property_,
+            property,
             TypedValue{std::move(old_value), context.db_accessor->GetStorageAccessor()->GetNameIdMapper()},
             TypedValue{rhs});
       }
@@ -6346,12 +6333,107 @@ bool SetProperty::SetPropertyCursor::Pull(Frame &frame, ExecutionContext &contex
     default:
       throw QueryRuntimeException("Properties can only be set on edges and vertices.");
   }
+}
+
+}  // namespace
+
+SetProperty::SetPropertyCursor::SetPropertyCursor(const SetProperty &self, utils::MemoryResource *mem,
+                                                  metrics::DatabaseMetricHandles &metric_handles)
+    : self_(self), input_cursor_(self.input_->MakeCursor(mem, metric_handles)) {}
+
+bool SetProperty::SetPropertyCursor::Pull(Frame &frame, ExecutionContext &context) {
+  const OOMExceptionEnabler oom_exception;
+  SCOPED_PROFILE_OP("SetProperty");
+
+  AbortCheck(context);
+
+  if (!input_cursor_->Pull(frame, context)) return false;
+
+  // Set, just like Create needs to see the latest changes.
+  ExpressionEvaluator evaluator =
+      ExpressionEvaluator{&frame, context, storage::View::NEW, nullptr, &context.number_of_hops};
+
+  TypedValue lhs = self_.lhs_->expression_->Accept(evaluator);
+  const TypedValue rhs = self_.rhs_->Accept(evaluator);
+
+  SetPropertyOnEntity(lhs, self_.property_, rhs, context);
   return true;
 }
 
 void SetProperty::SetPropertyCursor::Shutdown() { input_cursor_->Shutdown(); }
 
 void SetProperty::SetPropertyCursor::Reset() { input_cursor_->Reset(); }
+
+SetPropertyDynamic::SetPropertyDynamic(const std::shared_ptr<LogicalOperator> &input, Expression *lhs, Expression *key,
+                                       Expression *rhs)
+    : input_(input ? input : std::make_shared<Once>()), lhs_(lhs), key_(key), rhs_(rhs) {}
+
+ACCEPT_WITH_INPUT(SetPropertyDynamic)
+
+UniqueCursorPtr SetPropertyDynamic::MakeCursor(utils::MemoryResource *mem,
+                                               metrics::DatabaseMetricHandles &metric_handles) const {
+  metric_handles.set_property_operator.Increment();
+
+  return MakeUniqueCursorPtr<SetPropertyDynamicCursor>(mem, *this, mem, metric_handles);
+}
+
+std::vector<Symbol> SetPropertyDynamic::ModifiedSymbols(const SymbolTable &table) const {
+  return input_->ModifiedSymbols(table);
+}
+
+std::unique_ptr<LogicalOperator> SetPropertyDynamic::Clone(AstStorage *storage) const {
+  auto object = std::make_unique<SetPropertyDynamic>();
+  object->input_ = input_ ? input_->Clone(storage) : nullptr;
+  object->lhs_ = lhs_ ? lhs_->Clone(storage) : nullptr;
+  object->key_ = key_ ? key_->Clone(storage) : nullptr;
+  object->rhs_ = rhs_ ? rhs_->Clone(storage) : nullptr;
+  return object;
+}
+
+SetPropertyDynamic::SetPropertyDynamicCursor::SetPropertyDynamicCursor(const SetPropertyDynamic &self,
+                                                                       utils::MemoryResource *mem,
+                                                                       metrics::DatabaseMetricHandles &metric_handles)
+    : self_(self), input_cursor_(self.input_->MakeCursor(mem, metric_handles)) {}
+
+bool SetPropertyDynamic::SetPropertyDynamicCursor::Pull(Frame &frame, ExecutionContext &context) {
+  const OOMExceptionEnabler oom_exception;
+  SCOPED_PROFILE_OP("SetPropertyDynamic");
+
+  AbortCheck(context);
+
+  if (!input_cursor_->Pull(frame, context)) return false;
+
+  // Set, just like Create needs to see the latest changes.
+  ExpressionEvaluator evaluator =
+      ExpressionEvaluator{&frame, context, storage::View::NEW, nullptr, &context.number_of_hops};
+
+  TypedValue lhs = self_.lhs_->Accept(evaluator);
+  const TypedValue rhs = self_.rhs_->Accept(evaluator);
+
+  // The key is checked on every row; it is resolved to an id only for graph elements.
+  const TypedValue key = self_.key_->Accept(evaluator);
+  if (!key.IsString()) {
+    throw QueryRuntimeException("Expected a string as a property name, got {}.", key.type());
+  }
+
+  storage::PropertyId property{};
+  if (lhs.IsVertex() || lhs.IsEdge()) {
+    const auto key_string = std::string(key.ValueString());
+    if (const auto it = cached_name_id_.find(key_string); it != cached_name_id_.end()) [[likely]] {
+      property = it->second;
+    } else {
+      property = context.db_accessor->NameToProperty(key_string);
+      cached_name_id_.emplace(key_string, property);
+    }
+  }
+
+  SetPropertyOnEntity(lhs, property, rhs, context);
+  return true;
+}
+
+void SetPropertyDynamic::SetPropertyDynamicCursor::Shutdown() { input_cursor_->Shutdown(); }
+
+void SetPropertyDynamic::SetPropertyDynamicCursor::Reset() { input_cursor_->Reset(); }
 
 SetNestedProperty::SetNestedProperty(const std::shared_ptr<LogicalOperator> &input,
                                      std::vector<storage::PropertyId> property_path, PropertyLookup *lhs,

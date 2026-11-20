@@ -129,6 +129,7 @@ bool PlanPrinter::PreVisit(ExpandVariable &op) {
 
 PRE_VISIT(ConstructNamedPath);
 PRE_VISIT(SetProperty);
+PRE_VISIT(SetPropertyDynamic);
 PRE_VISIT(SetNestedProperty);
 PRE_VISIT(RemoveNestedProperty);
 PRE_VISIT(SetProperties);
