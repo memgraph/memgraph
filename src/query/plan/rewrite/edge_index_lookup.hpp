@@ -158,8 +158,11 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PostVisit(Expand &op) override {
     prev_ops_.pop_back();
-    const bool is_child_sequential_scan = op.input()->GetTypeInfo() == ScanAll::kType;
-    if (!is_child_sequential_scan) {
+    // The edge scan replaces the ScanAll and writes both endpoints: the ScanAll must bind the Expand's start node,
+    // and the Expand's end node must be free.
+    const auto *scan =
+        op.input()->GetTypeInfo() == ScanAll::kType ? static_cast<const ScanAll *>(op.input().get()) : nullptr;
+    if (!scan || scan->output_symbol_ != op.input_symbol_ || op.common_.existing_node) {
       return true;
     }
 
@@ -168,22 +171,14 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
                             .node2_symbol = op.common_.node_symbol,
                             .direction = op.common_.direction,
                             .edge_types = op.common_.edge_types};
-    auto indexed_scan = GenScanByEdgeIndex(op, common, /*can_scan_by_edge_id=*/!op.common_.existing_node);
+    auto indexed_scan = GenScanByEdgeIndex(op, common);
     if (indexed_scan) {
-      // We know (and checked) that the input of Expand was a Scan
-      // GenScanByEdgeIndex replaced the Expand, yet maintained the input
-      // We need to remove the ScanAll
-      // We could have
-      // ScanBy... -> [ScanAll] -> input
-      // OR
-      // Filter -> ScanBy... -> [ScanAll] -> input
-      // Lets find the which operator has input of ScanAll
+      // The indexed scan keeps the ScanAll as its (possibly indirect) input: unlink it.
       auto current = indexed_scan;
-      while (current->input()->GetTypeInfo() != ScanAll::kType) {
+      while (current->input().get() != scan) {
         current = current->input();
       }
-      // Skip over the ScanAll operator
-      current->set_input(current->input()->input());
+      current->set_input(scan->input());
 
       TryRecordEdgeScan(indexed_scan.get());
       SetOnParent(std::move(indexed_scan));
@@ -1009,10 +1004,8 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool DefaultPreVisit() override { throw utils::NotYetImplemented("Operator not yet covered by EdgeIndexRewriter"); }
 
-  /// @param can_scan_by_edge_id false when the destination node is already bound on the frame.
   template <class TOperator>
-  auto GenScanByEdgeIndex(const TOperator &op, const ScanByEdgeCommon &common, bool can_scan_by_edge_id = true)
-      -> std::shared_ptr<LogicalOperator> {
+  auto GenScanByEdgeIndex(const TOperator &op, const ScanByEdgeCommon &common) -> std::shared_ptr<LogicalOperator> {
     const auto &input = op.input();
     const auto &view = op.view_;
 
@@ -1033,9 +1026,9 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
 
     for (const auto &filter : filters_.IdFilters(common.edge_symbol)) {
       if (filter.id_filter->is_symbol_in_value_ || !are_bound(filter.used_symbols)) continue;
-      // ScanAllByEdgeId carries no edge types and no node identity, and we erase the id filter below,
-      // so a pattern constraining either must keep its Expand instead of matching the wrong edge.
-      if (!can_scan_by_edge_id || !common.edge_types.empty() || common.node1_symbol == common.node2_symbol) continue;
+      // ScanAllByEdgeId carries no edge types, and we erase the id filter below,
+      // so a typed pattern must keep its Expand instead of matching the wrong edge.
+      if (!common.edge_types.empty()) continue;
       auto *value = filter.id_filter->value_;
       filter_exprs_for_removal_.insert(filter.expression);
       filters_.EraseFilter(filter);

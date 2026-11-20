@@ -202,7 +202,7 @@ struct JsonlReader::impl {
             auto const res = utils::GetS3ObjectStreaming(uri, config, sink);
             sink.RethrowIfStopped();
             if (!res.has_value()) {
-              throw utils::BasicException(res.error().message);
+              throw utils::RetryableException(res.error().message);
             }
           });
     }

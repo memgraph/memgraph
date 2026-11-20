@@ -4,7 +4,10 @@ endfunction()
 
 copy_time_to_live_e2e_python_files(common.py)
 copy_time_to_live_e2e_python_files(multitenancy.py)
+copy_time_to_live_e2e_python_files(licence.py)
 
+copy_e2e_python_files_from_parent_folder(time_to_live ".." memgraph.py)
+copy_e2e_python_files_from_parent_folder(time_to_live ".." interactive_mg_runner.py)
 copy_e2e_python_files_from_parent_folder(time_to_live ".." mg_utils.py)
 
 copy_e2e_files(time_to_live workloads.yaml)

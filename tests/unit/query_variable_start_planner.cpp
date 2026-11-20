@@ -190,6 +190,30 @@ TYPED_TEST(TestVariableStartPlanner, MatchOptionalMatchReturn) {
   });
 }
 
+TYPED_TEST(TestVariableStartPlanner, OptionalMatchThenMatchReturn) {
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
+  memgraph::query::DbAccessor dba(storage_dba.get());
+  // Graph (v1) -[:r]-> (v2) -[:r]-> (v3)
+  auto v1 = dba.InsertVertex();
+  auto v2 = dba.InsertVertex();
+  auto v3 = dba.InsertVertex();
+  ASSERT_TRUE(dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("r")).has_value());
+  ASSERT_TRUE(dba.InsertEdge(&v2, &v3, dba.NameToEdgeType("r")).has_value());
+  dba.AdvanceCommand();
+  // OPTIONAL MATCH (n) -[e]-> (x) MATCH (x) -[r]-> (y) RETURN n, x, y
+  auto *query = QUERY(SINGLE_QUERY(OPTIONAL_MATCH(PATTERN(NODE("n"), EDGE("e", Direction::OUT), NODE("x"))),
+                                   MATCH(PATTERN(NODE("x"), EDGE("r", Direction::OUT), NODE("y"))),
+                                   RETURN("n", "x", "y")));
+  // 3 start entities for the OPTIONAL MATCH times 3 for the MATCH. Only (v1)->(v2) has an x that expands on.
+  CheckPlansProduce(9, query, this->storage, &dba, [&](const auto &results) {
+    AssertRows(results,
+               {{TypedValue(memgraph::query::VertexAccessor(v1)),
+                 TypedValue(memgraph::query::VertexAccessor(v2)),
+                 TypedValue(memgraph::query::VertexAccessor(v3))}},
+               dba);
+  });
+}
+
 TYPED_TEST(TestVariableStartPlanner, MatchOptionalMatchMergeReturn) {
   auto storage_dba = this->db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());

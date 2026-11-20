@@ -11,7 +11,9 @@
 
 #include "query_plan_checker.hpp"
 
+#include <unistd.h>
 #include <cmath>
+#include <filesystem>
 #include <iostream>
 #include <list>
 #include <memory>
@@ -31,6 +33,7 @@
 #include <gtest/gtest.h>
 
 #include "cache_properties_flag_guard.hpp"
+#include "flags/run_time_configurable.hpp"
 #include "query/exceptions.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/semantic/symbol_generator.hpp"
@@ -43,6 +46,8 @@
 
 #include "query_common.hpp"
 #include "utils/bound.hpp"
+#include "utils/on_scope_exit.hpp"
+#include "utils/settings.hpp"
 
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_bool(query_cache_properties);
@@ -1100,6 +1105,16 @@ TYPED_TEST(TestPlanner, MatchOptionalMatchWhereReturn) {
   DeleteListContent(&optional);
 }
 
+TYPED_TEST(TestPlanner, OptionalMatchThenMatch) {
+  // OPTIONAL MATCH (n) MATCH (n)-[r]->(m) RETURN m: the MATCH expands on the optional's rows, above the Optional.
+  auto *query = QUERY(SINGLE_QUERY(OPTIONAL_MATCH(PATTERN(NODE("n"))),
+                                   MATCH(PATTERN(NODE("n"), EDGE("r", Direction::OUT), NODE("m"))),
+                                   RETURN("m")));
+  std::list<BaseOpChecker *> optional{new ExpectScanAll()};
+  CheckPlan<TypeParam>(query, this->storage, ExpectOptional(optional), ExpectExpand(), ExpectProduce());
+  DeleteListContent(&optional);
+}
+
 TYPED_TEST(TestPlanner, MatchOptionalMatchNodePropertyWithIndex) {
   // Test MATCH (n:Label) OPTIONAL MATCH (m:Label) WHERE n.prop = m.prop RETURN n
   FakeDbAccessor dba;
@@ -1348,6 +1363,66 @@ TYPED_TEST(TestPlanner, MatchEdgeTypeIndex) {
     auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
     CheckPlan(planner.plan(), symbol_table, ExpectScanAllByEdgeType(), ExpectConstructNamedPath(), ExpectProduce());
   }
+}
+
+TYPED_TEST(TestPlanner, MatchEdgeTypeIndexKeepsBoundEndpoint) {
+  // MATCH (m) WITH m MATCH (s)-[r:indexed_edgetype]->(m) RETURN s: the Expand into the WITH-bound m keeps
+  // existing_node, so it cannot become an edge scan, which would overwrite m.
+  FakeDbAccessor dba;
+  dba.SetIndexCount(dba.EdgeType("indexed_edgetype"), 1);
+  auto *query =
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("m"))),
+                         WITH("m"),
+                         MATCH(PATTERN(NODE("s"), EDGE("r", Direction::OUT, {"indexed_edgetype"}), NODE("m"))),
+                         RETURN("s")));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+  CheckPlan(
+      planner.plan(), symbol_table, ExpectScanAll(), ExpectProduce(), ExpectScanAll(), ExpectExpand(), ExpectProduce());
+}
+
+TYPED_TEST(TestPlanner, VariableStartDoesNotScanAnEdgeIntoABoundEndpoint) {
+  // MATCH (m) WITH m MATCH (s)-[r]->(m) RETURN s: an edge scan writes both endpoints, so the plan that starts at
+  // the edge must keep an Expand into the WITH-bound m.
+  FakeDbAccessor dba;
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("m"))),
+                                   WITH("m"),
+                                   MATCH(PATTERN(NODE("s"), EDGE("r", Direction::OUT), NODE("m"))),
+                                   RETURN("s")));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planning_context = MakePlanningContext(&this->storage, &symbol_table, query, &dba);
+  auto query_parts = CollectQueryParts(symbol_table, this->storage, query, false);
+  size_t plan_count = 0;
+  for (auto &&plan : MakeLogicalPlanForSingleQuery<VariableStartPlanner>(query_parts, &planning_context)) {
+    ASSERT_TRUE(plan);
+    ++plan_count;
+    EXPECT_EQ(FindOpOfType<memgraph::query::plan::ScanAllByEdge>(plan.get()), nullptr);
+  }
+  ASSERT_GT(plan_count, 1U) << "the edge must be offered as a start";
+}
+
+TYPED_TEST(TestPlanner, MatchEdgeTypeIndexKeepsAnExpandOverAnotherScan) {
+  // MATCH (a) WITH a MATCH (x), (a)-[e:indexed_edgetype]->(b) RETURN x: without cartesian products the Expand from
+  // the bound a sits on ScanAll (x); an edge scan would drop x and overwrite a.
+  const auto settings_dir =
+      std::filesystem::temp_directory_path() / ("MG_tests_unit_query_plan_cartesian_" + std::to_string(getpid()));
+  memgraph::utils::OnScopeExit remove_dir{[&] { std::filesystem::remove_all(settings_dir); }};
+  memgraph::utils::Settings settings(settings_dir);
+  memgraph::flags::run_time::Initialize(settings);
+  settings.SetValue("cartesian-product-enabled", "false");
+  memgraph::utils::OnScopeExit restore{[&] { settings.SetValue("cartesian-product-enabled", "true"); }};
+
+  FakeDbAccessor dba;
+  dba.SetIndexCount(dba.EdgeType("indexed_edgetype"), 1);
+  auto *query = QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(NODE("a"))),
+      WITH("a"),
+      MATCH(PATTERN(NODE("x")), PATTERN(NODE("a"), EDGE("e", Direction::OUT, {"indexed_edgetype"}), NODE("b"))),
+      RETURN("x")));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+  CheckPlan(
+      planner.plan(), symbol_table, ExpectScanAll(), ExpectProduce(), ExpectScanAll(), ExpectExpand(), ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, MatchEdgeTypePropertyIndexExistence) {
