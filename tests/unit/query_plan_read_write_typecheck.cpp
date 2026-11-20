@@ -383,6 +383,30 @@ TYPED_TEST(ReadWriteTypeCheckTest, Conditional) {
   EXPECT_TRUE(PlanRequiresStorageAccess(*reading));
 }
 
+// A scan of the graph is a read whichever index serves it, the two a point index serves included.
+// The answer decides the type a client is told the query has and whether a plan may leave a value it
+// only reads unmaterialised, so a scan the classification passes over is reported as doing neither.
+TYPED_TEST(ReadWriteTypeCheckTest, AScanAPointIndexServesReads) {
+  auto const label = this->dba.NameToLabel("L");
+  auto const property = this->dba.NameToProperty("p");
+
+  std::shared_ptr<LogicalOperator> by_distance =
+      std::make_shared<ScanAllByPointDistance>(std::make_shared<Once>(),
+                                               this->GetSymbol("n"),
+                                               label,
+                                               property,
+                                               LITERAL(1),
+                                               LITERAL(2),
+                                               memgraph::storage::PointDistanceCondition::INSIDE);
+  this->CheckPlanType(by_distance.get(), RWType::R);
+  EXPECT_TRUE(PlanRequiresStorageAccess(*by_distance));
+
+  std::shared_ptr<LogicalOperator> within_bbox = std::make_shared<ScanAllByPointWithinbbox>(
+      std::make_shared<Once>(), this->GetSymbol("m"), label, property, LITERAL(1), LITERAL(2), LITERAL(true));
+  this->CheckPlanType(within_bbox.get(), RWType::R);
+  EXPECT_TRUE(PlanRequiresStorageAccess(*within_bbox));
+}
+
 TYPED_TEST(ReadWriteTypeCheckTest, CheckUpdateType) {
   std::array<std::array<RWType, 3>, 16> scenarios = {{
       {RWType::NONE, RWType::NONE, RWType::NONE},
