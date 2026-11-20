@@ -56,8 +56,7 @@ void CoordinatorInstanceManagementServerHandlers::Register(CoordinatorInstanceMa
           uint64_t const request_version,
           slk::Reader *req_reader,
           slk::Builder *res_builder) -> void {
-        CoordinatorInstanceManagementServerHandlers::FwdRequestHandler<RegisterInstanceRpc,
-                                                                       RegisterInstanceCoordinatorStatus>(
+        CoordinatorInstanceManagementServerHandlers::FwdRequestHandler<RegisterInstanceRpc>(
             [&coordinator_instance](DataInstanceConfig const &config) -> RegisterInstanceCoordinatorStatus {
               return coordinator_instance.RegisterReplicationInstance(config);
             },
@@ -114,7 +113,7 @@ void CoordinatorInstanceManagementServerHandlers::Register(CoordinatorInstanceMa
                                        uint64_t const request_version,
                                        slk::Reader *req_reader,
                                        slk::Builder *res_builder) -> void {
-    CoordinatorInstanceManagementServerHandlers::FwdRequestHandler<UpdateConfigRpc, UpdateConfigStatus>(
+    CoordinatorInstanceManagementServerHandlers::FwdRequestHandler<UpdateConfigRpc>(
         [&coordinator_instance](UpdateInstanceConfig const &config) -> UpdateConfigStatus {
           return coordinator_instance.UpdateConfig(config);
         },
@@ -269,6 +268,46 @@ void CoordinatorInstanceManagementServerHandlers::Register(CoordinatorInstanceMa
         CoordinatorInstanceManagementServerHandlers::FwdRequestHandler<SetCoordinatorSettingRpc>(
             [&coordinator_instance](std::pair<std::string, std::string> const &arg) -> SetCoordinatorSettingStatus {
               return coordinator_instance.SetCoordinatorSetting(arg.first, arg.second);
+            },
+            request_version,
+            req_reader,
+            res_builder);
+      });
+
+  server.Register<AddRegionRpc>([&](std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+                                    uint64_t const request_version,
+                                    slk::Reader *req_reader,
+                                    slk::Builder *res_builder) -> void {
+    CoordinatorInstanceManagementServerHandlers::FwdRequestHandler<AddRegionRpc>(
+        [&coordinator_instance](std::string_view region_name) -> AddRegionStatus {
+          return coordinator_instance.AddRegion(region_name);
+        },
+        request_version,
+        req_reader,
+        res_builder);
+  });
+
+  server.Register<DropRegionRpc>([&](std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+                                     uint64_t const request_version,
+                                     slk::Reader *req_reader,
+                                     slk::Builder *res_builder) -> void {
+    CoordinatorInstanceManagementServerHandlers::FwdRequestHandler<DropRegionRpc>(
+        [&coordinator_instance](std::string_view region_name) -> DropRegionStatus {
+          return coordinator_instance.DropRegion(region_name);
+        },
+        request_version,
+        req_reader,
+        res_builder);
+  });
+
+  server.Register<ShowRegionInfoRpc>(
+      [&](std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+          uint64_t const request_version,
+          slk::Reader *req_reader,
+          slk::Builder *res_builder) -> void {
+        CoordinatorInstanceManagementServerHandlers::FwdRequestHandler<ShowRegionInfoRpc>(
+            [&coordinator_instance]() -> std::optional<std::vector<RegionInfo>> {
+              return coordinator_instance.ShowRegionInfoAsLeader();
             },
             request_version,
             req_reader,

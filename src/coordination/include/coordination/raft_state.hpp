@@ -106,6 +106,7 @@ class RaftState {
   auto GetInstanceHealthCheckFrequencySec() const -> std::chrono::seconds;
   auto GetGlobalReadOnly() const -> bool;
   auto GetRoles() const -> std::vector<CoordinatorRole>;
+  auto GetRegions() const -> std::set<std::string>;
 
  private:
   // Polls the Raft configuration until the server with the given id is present (or absent, when present is false).

@@ -24,6 +24,7 @@
 #include "coordination/coordinator_slk.hpp"
 #include "coordination/instance_state.hpp"
 #include "coordination/instance_status.hpp"
+#include "coordination/region_info.hpp"
 #include "coordination/replication_lag_info.hpp"
 #include "coordination/utils.hpp"
 #include "replication_coordination_glue/common.hpp"
@@ -82,6 +83,51 @@ struct DowngradeableSingleArgMsg {
   PriorVersionType Downgrade() const { return PriorVersionType{arg_.Downgrade()}; }
 
   ArgType arg_;
+};
+
+// A request whose argument gained fields in this version. The argument type upgrades itself from the prior argument.
+template <rpc::RpcMessage PriorVersionType, typename ArgType>
+struct UpgradeableSingleArgMsg {
+  static constexpr utils::TypeInfo kType{PriorVersionType::kType};
+  static constexpr uint64_t kVersion{PriorVersionType::kVersion + 1};
+
+  static void Save(UpgradeableSingleArgMsg const &self, memgraph::slk::Builder *builder) {
+    memgraph::slk::Save(self.arg_, builder);
+  }
+
+  static void Load(UpgradeableSingleArgMsg *self, memgraph::slk::Reader *reader) {
+    memgraph::slk::Load(&self->arg_, reader);
+  }
+
+  static UpgradeableSingleArgMsg Upgrade(PriorVersionType const &prev) { return {ArgType::Upgrade(prev.arg_)}; }
+
+  UpgradeableSingleArgMsg(ArgType arg) : arg_(std::move(arg)) {}
+
+  UpgradeableSingleArgMsg() = default;
+
+  ArgType arg_;
+};
+
+// A forwarded-write response carrying the leader's exact status, replacing a prior version's bool success flag.
+// An empty status means the receiver couldn't process the request.
+template <rpc::RpcMessage PriorVersionType, typename StatusEnum>
+struct StatusResMsg {
+  static constexpr utils::TypeInfo kType{PriorVersionType::kType};
+  static constexpr uint64_t kVersion{PriorVersionType::kVersion + 1};
+
+  static void Save(StatusResMsg const &self, memgraph::slk::Builder *builder) {
+    memgraph::slk::Save(self.arg_, builder);
+  }
+
+  static void Load(StatusResMsg *self, memgraph::slk::Reader *reader) { memgraph::slk::Load(&self->arg_, reader); }
+
+  StatusResMsg(std::optional<StatusEnum> arg) : arg_(arg) {}
+
+  StatusResMsg() = default;
+
+  PriorVersionType Downgrade() const { return PriorVersionType{arg_ == StatusEnum::SUCCESS}; }
+
+  std::optional<StatusEnum> arg_;
 };
 
 template <utils::TypeId Id, FixedString Name, uint64_t Version>
@@ -506,9 +552,12 @@ using RemoveCoordinatorReq = SingleArgMsg<utils::TypeId::COORD_REMOVE_COORD_REQ,
 using RemoveCoordinatorRes = SingleArgMsg<utils::TypeId::COORD_REMOVE_COORD_RES, "RemoveCoordinatorRes", 1, bool>;
 using RemoveCoordinatorRpc = rpc::RequestResponse<RemoveCoordinatorReq, RemoveCoordinatorRes>;
 
-using RegisterInstanceReq =
-    SingleArgMsg<utils::TypeId::COORD_REGISTER_INSTANCE_REQ, "RegisterInstanceReq", 1, DataInstanceConfig>;
-using RegisterInstanceRes = SingleArgMsg<utils::TypeId::COORD_REGISTER_INSTANCE_RES, "RegisterInstanceRes", 1, bool>;
+// v2 carries the instance's optional region and answers with the leader's exact status.
+using RegisterInstanceReqV1 =
+    SingleArgMsg<utils::TypeId::COORD_REGISTER_INSTANCE_REQ, "RegisterInstanceReq", 1, DataInstanceConfigV1>;
+using RegisterInstanceReq = UpgradeableSingleArgMsg<RegisterInstanceReqV1, DataInstanceConfig>;
+using RegisterInstanceResV1 = SingleArgMsg<utils::TypeId::COORD_REGISTER_INSTANCE_RES, "RegisterInstanceRes", 1, bool>;
+using RegisterInstanceRes = StatusResMsg<RegisterInstanceResV1, RegisterInstanceCoordinatorStatus>;
 using RegisterInstanceRpc = rpc::RequestResponse<RegisterInstanceReq, RegisterInstanceRes>;
 
 using UnregisterInstanceReq =
@@ -541,9 +590,12 @@ using ShowCoordSettingsRes = SingleArgMsg<utils::TypeId::COORD_SHOW_COORD_SETTIN
                                           std::optional<std::vector<std::pair<std::string, std::string>>>>;
 using ShowCoordSettingsRpc = rpc::RequestResponse<ShowCoordSettingsReq, ShowCoordSettingsRes>;
 
-using UpdateConfigReq =
-    SingleArgMsg<utils::TypeId::COORD_UPDATE_CONFIG_REQ, "UpdateConfigReq", 1, UpdateInstanceConfig>;
-using UpdateConfigRes = SingleArgMsg<utils::TypeId::COORD_UPDATE_CONFIG_RES, "UpdateConfigRes", 1, bool>;
+// v2 makes the bolt endpoint optional, carries the optional region change and answers with the leader's exact status.
+using UpdateConfigReqV1 =
+    SingleArgMsg<utils::TypeId::COORD_UPDATE_CONFIG_REQ, "UpdateConfigReq", 1, UpdateInstanceConfigV1>;
+using UpdateConfigReq = UpgradeableSingleArgMsg<UpdateConfigReqV1, UpdateInstanceConfig>;
+using UpdateConfigResV1 = SingleArgMsg<utils::TypeId::COORD_UPDATE_CONFIG_RES, "UpdateConfigRes", 1, bool>;
+using UpdateConfigRes = StatusResMsg<UpdateConfigResV1, UpdateConfigStatus>;
 using UpdateConfigRpc = rpc::RequestResponse<UpdateConfigReq, UpdateConfigRes>;
 
 // v1 answered with a bare map, where an empty map meant both "the leader has no lag data" and "the leader couldn't
@@ -682,6 +734,23 @@ using SetCoordinatorSettingRes =
                  std::optional<SetCoordinatorSettingStatus>>;
 using SetCoordinatorSettingRpc = rpc::RequestResponse<SetCoordinatorSettingReq, SetCoordinatorSettingRes>;
 
+// Region writes carry the region name and follow the write-status convention above.
+using AddRegionReq = SingleArgMsg<utils::TypeId::COORD_ADD_REGION_REQ, "AddRegionReq", 1, std::string>;
+using AddRegionRes =
+    SingleArgMsg<utils::TypeId::COORD_ADD_REGION_RES, "AddRegionRes", 1, std::optional<AddRegionStatus>>;
+using AddRegionRpc = rpc::RequestResponse<AddRegionReq, AddRegionRes>;
+
+using DropRegionReq = SingleArgMsg<utils::TypeId::COORD_DROP_REGION_REQ, "DropRegionReq", 1, std::string>;
+using DropRegionRes =
+    SingleArgMsg<utils::TypeId::COORD_DROP_REGION_RES, "DropRegionRes", 1, std::optional<DropRegionStatus>>;
+using DropRegionRpc = rpc::RequestResponse<DropRegionReq, DropRegionRes>;
+
+using ShowRegionInfoReq = EmptyReq<utils::TypeId::COORD_SHOW_REGION_INFO_REQ, "ShowRegionInfoReq", 1>;
+// nullopt when the leader couldn't serve the request.
+using ShowRegionInfoRes = SingleArgMsg<utils::TypeId::COORD_SHOW_REGION_INFO_RES, "ShowRegionInfoRes", 1,
+                                       std::optional<std::vector<RegionInfo>>>;
+using ShowRegionInfoRpc = rpc::RequestResponse<ShowRegionInfoReq, ShowRegionInfoRes>;
+
 }  // namespace memgraph::coordination
 
 // SLK serialization declarations
@@ -759,11 +828,19 @@ DECLARE_SLK_FREE_FUNCTIONS(coordination::GrantPrivilegeRpc)
 DECLARE_SLK_FREE_FUNCTIONS(coordination::RevokePrivilegeRpc)
 DECLARE_SLK_FREE_FUNCTIONS(coordination::GetRolePrivilegesRpc)
 DECLARE_SLK_FREE_FUNCTIONS(coordination::SetCoordinatorSettingRpc)
+DECLARE_SLK_FREE_FUNCTIONS(coordination::AddRegionRpc)
+DECLARE_SLK_FREE_FUNCTIONS(coordination::DropRegionRpc)
+DECLARE_SLK_FREE_FUNCTIONS(coordination::ShowRegionInfoRpc)
 
 DECLARE_SLK_SERIALIZATION_FUNCTIONS(coordination::UpdateDataInstanceConfigReqV1)
 DECLARE_SLK_SERIALIZATION_FUNCTIONS(coordination::UpdateDataInstanceConfigReq)
 DECLARE_SLK_SERIALIZATION_FUNCTIONS(coordination::UpdateDataInstanceConfigResV1)
 DECLARE_SLK_SERIALIZATION_FUNCTIONS(coordination::UpdateDataInstanceConfigRes)
+
+DECLARE_SLK_SERIALIZATION_FUNCTIONS(coordination::RegisterInstanceReqV1)
+DECLARE_SLK_SERIALIZATION_FUNCTIONS(coordination::RegisterInstanceResV1)
+DECLARE_SLK_SERIALIZATION_FUNCTIONS(coordination::UpdateConfigReqV1)
+DECLARE_SLK_SERIALIZATION_FUNCTIONS(coordination::UpdateConfigResV1)
 
 DECLARE_SLK_SERIALIZATION_FUNCTIONS(coordination::CoordReplicationLagReqV1)
 DECLARE_SLK_SERIALIZATION_FUNCTIONS(coordination::CoordReplicationLagResV1)

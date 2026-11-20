@@ -40,7 +40,9 @@
 #include "utils/synchronized.hpp"
 
 #ifdef MG_ENTERPRISE
+#include "coordination/coordinator_communication_config.hpp"
 #include "coordination/instance_status.hpp"
+#include "coordination/region_info.hpp"
 #include "coordination/replication_lag_info.hpp"
 #include "coordination/utils.hpp"
 #include "metrics/scoped_gauge.hpp"
@@ -157,7 +159,7 @@ class CoordinatorQueryHandler {
   /// @throw QueryRuntimeException if an error occurred.
   virtual void RegisterReplicationInstance(std::string_view bolt_server, std::string_view management_server,
                                            std::string_view replication_server, std::string_view instance_name,
-                                           CoordinatorQuery::SyncMode sync_mode) = 0;
+                                           CoordinatorQuery::SyncMode sync_mode, std::optional<std::string> region) = 0;
 
   /// @throw QueryRuntimeException if an error occurred.
   virtual void UnregisterInstance(std::string_view instance_name) = 0;
@@ -178,7 +180,8 @@ class CoordinatorQueryHandler {
 
   virtual void RemoveCoordinatorInstance(int32_t coordinator_id) = 0;
 
-  virtual void UpdateConfig(std::variant<int32_t, std::string> instance, io::network::Endpoint bolt_endpoint) = 0;
+  /// @throw QueryRuntimeException if an error occurred.
+  virtual void UpdateConfig(coordination::UpdateInstanceConfig const &config) = 0;
 
   virtual void DemoteInstanceToReplica(std::string_view instance_name) = 0;
 
@@ -190,6 +193,15 @@ class CoordinatorQueryHandler {
 
   /// Both return nullopt if the leader couldn't be reached.
   virtual std::optional<std::vector<std::pair<std::string, std::string>>> ShowCoordinatorSettings() = 0;
+
+  /// @throw QueryRuntimeException if an error occurred.
+  virtual void AddRegion(std::string_view region_name) = 0;
+
+  /// @throw QueryRuntimeException if an error occurred.
+  virtual void DropRegion(std::string_view region_name) = 0;
+
+  /// nullopt if the leader couldn't be reached.
+  virtual std::optional<std::vector<coordination::RegionInfo>> ShowRegionInfo() = 0;
 
   /// @throw QueryRuntimeException if an error occurred.
   virtual void CreateRole(std::string_view role_name, bool if_not_exists) = 0;

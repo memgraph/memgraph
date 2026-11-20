@@ -171,6 +171,7 @@ memgraphCypherKeyword : cypherKeyword
                       | READ
                       | READ_FILE
                       | RECOVER
+                      | REGION
                       | REGISTER
                       | RELOAD
                       | RELOAD_TLS
@@ -375,6 +376,9 @@ coordinatorQuery : registerInstanceOnCoordinator
                  | showReplicationLag
                  | showRoutingTable
                  | updateConfig
+                 | addRegion
+                 | dropRegion
+                 | showRegionInfo
                  ;
 
 triggerQuery : createTrigger
@@ -694,6 +698,12 @@ setCoordinatorSetting: SET COORDINATOR SETTING settingName TO settingValue ;
 showCoordinatorSettings: SHOW COORDINATOR SETTINGS ;
 
 showReplicationLag: SHOW REPLICATION LAG ;
+
+addRegion : ADD REGION regionName=literal ;
+
+dropRegion : DROP REGION regionName=literal ;
+
+showRegionInfo : SHOW REGION INFO ;
 
 showRoutingTable: SHOW ROUTING TABLE ;
 

@@ -170,6 +170,7 @@ RANGE                   : R A N G E ;
 READ                    : R E A D ;
 READ_FILE               : R E A D UNDERSCORE F I L E ;
 RECOVER                 : R E C O V E R ;
+REGION                  : R E G I O N ;
 REGISTER                : R E G I S T E R ;
 RELOAD                  : R E L O A D ;
 RELOAD_TLS              : R E L O A D UNDERSCORE T L S ;
