@@ -30,6 +30,7 @@
 
 #include "dbms/database.hpp"
 #include "interpreter_faker.hpp"
+#include "kvstore/kvstore.hpp"
 #include "license/license.hpp"
 #include "query/interpreter.hpp"
 #include "query/interpreter_context.hpp"
@@ -126,7 +127,14 @@ class VersioningFixture : public ::testing::Test {
 
   memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
       memgraph::storage::ReplicationStateRootPath(config)};
-  memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{config};
+  // The DBMS durability store that holds the branch ledger; recreated per test.
+  memgraph::kvstore::KVStore kv{[&] {
+    auto directory = data_directory;
+    directory += "_kv";
+    std::filesystem::remove_all(directory);
+    return directory;
+  }()};
+  memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{config, &kv};
   memgraph::dbms::DatabaseAccess db{[&] {
     auto db_acc_opt = db_gk.access();
     MG_ASSERT(db_acc_opt, "Failed to access db");
@@ -166,26 +174,19 @@ class VersioningFixture : public ::testing::Test {
 
   // Attaches `session` to the existing branch `name` the way a session checkout does.
   void Attach(InterpreterFaker &session, const std::string &name) {
-    auto *version_store = db->version_store();
-    auto info = version_store->TryAcquireCheckout(name);
-    ASSERT_TRUE(info) << info.error();
+    auto checkout = db->version_store()->Checkout(name);
+    ASSERT_TRUE(checkout) << checkout.error();
     auto *main = static_cast<memgraph::storage::InMemoryStorage *>(db->storage());
-    auto core = version_store->GetOrBuildCore(
-        info->id, [&]() -> std::expected<std::shared_ptr<memgraph::versioning::BranchCore>, std::string> {
-          auto built = memgraph::versioning::BranchCore::BuildForCheckout(*main, *info);
-          if (!built) return std::unexpected(std::move(built.error().message));
-          (*built)->SetGidReserver(version_store->GidReserverOf(info->id));
-          return std::move(*built);
-        });
-    if (!core) version_store->ReleaseCheckout(info->id);
+    const auto &info = (*checkout)->info();
+    auto core = (*checkout)->GetOrBuildCore([&]() -> memgraph::versioning::CoreResult {
+      auto built = memgraph::versioning::BranchCore::Build(*main, info.fork, (*checkout)->fork_ts(), info.id);
+      if (!built) return std::unexpected(std::move(built.error().message));
+      return std::move(*built);
+    });
     ASSERT_TRUE(core) << core.error();
-    auto recorded = version_store->RecordGidFloors(info->id, (*core)->vertex_gid_floor(), (*core)->edge_gid_floor());
-    if (!recorded) version_store->ReleaseCheckout(info->id);
-    ASSERT_TRUE(recorded) << recorded.error();
+    const auto number = info.id;
     session.interpreter.current_db_.SetBranchContext(
-        std::make_unique<memgraph::versioning::BranchContext>(std::move(*core), name, info->id),
-        version_store,
-        info->id);
+        std::make_unique<memgraph::versioning::BranchContext>(std::move(*core), name, number), std::move(*checkout));
   }
 
   void Fork(InterpreterFaker &session, const std::string &name = "b") {

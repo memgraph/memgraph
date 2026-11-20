@@ -46,6 +46,7 @@
 #include "metrics/scoped_gauge.hpp"
 #include "utils/resource_monitoring.hpp"
 #include "versioning/branch_engine.hpp"
+#include "versioning/version_store.hpp"
 #endif
 
 namespace memgraph::query {
@@ -397,16 +398,17 @@ struct CurrentDB {
     current_version_.reset();
   }
 
-  // Caller contract: TryAcquireCheckout(context's name) already succeeded, `number` is its checkout number, and any
-  // previous context was released or parked. The context must be built with the branch's name.
-  void SetBranchContext(std::unique_ptr<versioning::BranchContext> context, versioning::VersionStore *version_store,
-                        uint64_t number) {
+  // Caller contract: `checkout` is the checkout of the context's branch, and any previous context was released or
+  // parked. The context must be built with the branch's name.
+  void SetBranchContext(std::unique_ptr<versioning::BranchContext> context, versioning::BranchCheckout checkout) {
     DMG_ASSERT(!context->name().empty(), "SetBranchContext: context has no branch name.");
+    DMG_ASSERT(checkout, "SetBranchContext: the checkout is empty.");
+    auto plan_cache = std::make_unique<query::PlanCacheLRU>(FLAGS_query_plan_cache_max_size);
     branch_context_ = std::move(context);
-    branch_context_version_store_ = version_store;
-    foreign_branch_number_.store(number, std::memory_order_release);
+    foreign_branch_number_.store(checkout->info().id, std::memory_order_release);
+    branch_checkout_ = std::move(checkout);
     current_version_ = branch_context_->name();
-    branch_plan_cache_ = std::make_unique<query::PlanCacheLRU>(FLAGS_query_plan_cache_max_size);
+    branch_plan_cache_ = std::move(plan_cache);
   }
 
   // A branch dropped under the session (DROP BRANCH ... FORCE, replica demotion) never falls back to `main`: every
@@ -466,15 +468,14 @@ struct CurrentDB {
     std::optional<std::string> version;
     std::unique_ptr<versioning::BranchContext> context;
     std::unique_ptr<query::PlanCacheLRU> plan_cache;
-    versioning::VersionStore *version_store{nullptr};
-    uint64_t number{0};
+    versioning::BranchCheckout checkout;
   };
 
   // Out of line so main's SetupDatabaseTransaction pays one check on current_version_.
   void SetupBranchTransaction(std::optional<storage::IsolationLevel> override_isolation_level,
                               storage::StorageAccessType acc_type, std::chrono::seconds timeout);
 
-  // Detaches from the branch (ReleaseCheckout) and tears down the context. No-op when none is held.
+  // Detaches from the branch (releases the checkout) and tears down the context. No-op when none is held.
   void ClearBranchContext();
 
   std::optional<std::string> current_version_;
@@ -484,9 +485,8 @@ struct CurrentDB {
   std::optional<ParkedBranch> parked_branch_;
   std::atomic<uint64_t> foreign_branch_number_{0};
 
-  // Not owned; non-null iff branch_context_ is, so ReleaseCheckout hits the granting VersionStore even after db_acc_
-  // is reassigned.
-  versioning::VersionStore *branch_context_version_store_{nullptr};
+  // Non-empty iff branch_context_ is non-null; releases on the granting VersionStore even after db_acc_ is reassigned.
+  versioning::BranchCheckout branch_checkout_;
 #endif
 };
 

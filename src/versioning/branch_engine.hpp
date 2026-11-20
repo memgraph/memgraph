@@ -77,17 +77,6 @@ class BranchCore {
       storage::InMemoryStorage &main, const ForkPoint &fork, uint64_t fork_ts,
       std::optional<uint64_t> branch_number = std::nullopt);
 
-  // Builds on `info`'s ledger gid floors if it holds them, else main's current counters, so main objects created since
-  // the fork are not taken for base objects.
-  static std::expected<std::shared_ptr<BranchCore>, BuildError> BuildForCheckout(storage::InMemoryStorage &main,
-                                                                                 const BranchInfo &info) {
-    std::optional<RecordedFloors> recorded;
-    if (info.vertex_gid_floor && info.edge_gid_floor) {
-      recorded = RecordedFloors{.vertex_gid_floor = *info.vertex_gid_floor, .edge_gid_floor = *info.edge_gid_floor};
-    }
-    return Build(main, info.fork_ts, info.id, recorded);
-  }
-
   BranchCore(const BranchCore &) = delete;
   BranchCore &operator=(const BranchCore &) = delete;
   BranchCore(BranchCore &&) = delete;

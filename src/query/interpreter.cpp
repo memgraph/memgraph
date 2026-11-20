@@ -280,8 +280,9 @@ void memgraph::query::CurrentDB::SetupBranchTransaction(std::optional<storage::I
                                                         std::chrono::seconds timeout) {
   ThrowIfBranchGone();
   // Lock order: main READ (OpenHistorical) before the diff engine.
-  if (auto opened = branch_context_->OpenHistorical(); !opened) {
-    throw QueryRuntimeException(opened.error().message);
+  auto historical = branch_context_->OpenHistorical();
+  if (!historical) {
+    throw QueryRuntimeException(historical.error().message);
   }
   try {
     auto &diff_engine = branch_context_->diff_engine();
@@ -305,7 +306,7 @@ void memgraph::query::CurrentDB::SetupBranchTransaction(std::optional<storage::I
         throw QueryRuntimeException("Failed to gain storage access! Unknown accessor type.");
     }
     // Published before DbAccessor is constructed so branch object resolution can use it immediately.
-    branch_context_->SetCurrentDiffTxn(db_transactional_accessor_.get());
+    branch_context_->BeginTransaction(std::move(*historical), *db_transactional_accessor_);
     execution_db_accessor_.emplace(db_transactional_accessor_.get(), branch_context_.get());
   } catch (...) {
     // Nothing else ends the half-open transaction, and it holds main's READ guard.
@@ -323,43 +324,32 @@ void memgraph::query::CurrentDB::AttachBranchOf(versioning::VersionStore *versio
                                                 versioning::BranchContext const &outer) {
   MG_ASSERT(!branch_context_, "AttachBranchOf: session is already attached to a branch.");
   auto const &name = outer.name();
-  auto info = version_store->TryAcquireCheckout(name);
-  if (!info) {
-    throw QueryRuntimeException(info.error());
+  auto checkout = version_store->Checkout(name);
+  if (!checkout) {
+    throw QueryRuntimeException(checkout.error());
   }
-  if (info->id != outer.number()) {
+  if ((*checkout)->info().id != outer.number()) {
     // `name` now names a re-created branch; outer.core() belongs to the dropped one.
-    version_store->ReleaseCheckout(info->id);
     throw QueryRuntimeException("Branch '{}' no longer exists.", name);
   }
-  try {
-    SetBranchContext(
-        std::make_unique<versioning::BranchContext>(outer.core(), name, info->id), version_store, info->id);
-  } catch (...) {
-    // Fields may or may not be installed yet: ClearBranchContext releases iff they are.
-    if (branch_context_) {
-      ClearBranchContext();
-    } else {
-      version_store->ReleaseCheckout(info->id);
-    }
-    throw;
-  }
+  const auto number = (*checkout)->info().id;
+  SetBranchContext(std::make_unique<versioning::BranchContext>(outer.core(), name, number), std::move(*checkout));
 }
 
 void memgraph::query::CurrentDB::ClearBranchContext() {
   if (!branch_context_) {
     return;
   }
-  // Drop the context before detaching so this session no longer touches the shared core once the attach count drops.
+  // Drop the context before detaching so this session no longer touches the shared core once the checkout is gone.
   branch_context_.reset();
   branch_plan_cache_.reset();
-  branch_context_version_store_->ReleaseCheckout(foreign_branch_number_.exchange(0, std::memory_order_release));
-  branch_context_version_store_ = nullptr;
+  foreign_branch_number_.store(0, std::memory_order_release);
+  branch_checkout_.reset();
 }
 
 void memgraph::query::CurrentDB::ThrowIfBranchGone(bool const on_replica) {
   if (!current_version_) return;
-  if (branch_context_ && branch_context_version_store_->IsLive(branch_context_->name(), foreign_branch_number())) {
+  if (branch_context_ && !branch_checkout_->dropped()) {
     return;
   }
   // Open transaction: it still reads through the context, which is released once the transaction ends.
@@ -397,11 +387,11 @@ void memgraph::query::CurrentDB::ThrowIfBranchGone(bool const on_replica) {
 
 void memgraph::query::CurrentDB::ParkSessionBranch() {
   RestoreSessionBranch();
+  foreign_branch_number_.store(0, std::memory_order_release);
   parked_branch_.emplace(ParkedBranch{.version = std::move(current_version_),
                                       .context = std::move(branch_context_),
                                       .plan_cache = std::move(branch_plan_cache_),
-                                      .version_store = std::exchange(branch_context_version_store_, nullptr),
-                                      .number = foreign_branch_number_.exchange(0, std::memory_order_release)});
+                                      .checkout = std::move(branch_checkout_)});
   current_version_.reset();
 }
 
@@ -413,8 +403,8 @@ void memgraph::query::CurrentDB::RestoreSessionBranch() {
   current_version_ = std::move(parked.version);
   branch_context_ = std::move(parked.context);
   branch_plan_cache_ = std::move(parked.plan_cache);
-  branch_context_version_store_ = parked.version_store;
-  foreign_branch_number_.store(parked.number, std::memory_order_release);
+  branch_checkout_ = std::move(parked.checkout);
+  foreign_branch_number_.store(branch_checkout_ ? branch_checkout_->info().id : 0, std::memory_order_release);
 }
 
 void memgraph::query::CurrentDB::DiscardParkedBranch() {
@@ -423,7 +413,7 @@ void memgraph::query::CurrentDB::DiscardParkedBranch() {
   parked_branch_.reset();
   parked.context.reset();
   parked.plan_cache.reset();
-  if (parked.version_store != nullptr) parked.version_store->ReleaseCheckout(parked.number);
+  parked.checkout.reset();
 }
 
 #endif
