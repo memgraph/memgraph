@@ -17,7 +17,9 @@
 
 #include <gtest/gtest.h>
 
+#include <chrono>
 #include <stop_token>
+#include <thread>
 
 #include "storage/v2/async_indexer.hpp"
 #include "storage/v2/config.hpp"
@@ -54,4 +56,29 @@ TEST(AsyncIndexer, ShutdownCompletesWhenTheWorkerIsStillStarting) {
     ASSERT_TRUE(indexer.HasThreadStopped())
         << "Shutdown returned on round " << round << " while the worker was still running";
   }
+}
+
+// DROP ALL INDEXES / DROP GRAPH clear the request queue while the worker may be backing off after a
+// failed attempt. A request cleared that way must not be indexed afterwards.
+TEST(AsyncIndexer, ClearDuringBackoffDropsTheRequest) {
+  memgraph::storage::Config config{};
+  config.gc.type = memgraph::storage::Config::Gc::Type::NONE;
+  memgraph::storage::InMemoryStorage storage{config};
+  auto const label = storage.NameToLabel("L");
+
+  std::stop_source stop_source;
+  memgraph::storage::AsyncIndexer indexer;
+  {
+    // Holding unique access makes every attempt time out, so the worker keeps backing off.
+    auto blocker = storage.UniqueAccess();
+    indexer.Start(stop_source.get_token(), &storage);
+    indexer.Enqueue(label);
+    std::this_thread::sleep_for(std::chrono::milliseconds(1500));
+    indexer.Clear();
+  }
+  indexer.CompleteRemaining();
+  indexer.Shutdown();
+
+  auto acc = storage.ReadOnlyAccess();
+  EXPECT_TRUE(acc->ListAllIndices().label.empty());
 }

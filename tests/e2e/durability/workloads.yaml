@@ -20,6 +20,9 @@ workloads:
   - name: "Snapshot creation on a full disk"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["durability/snapshot_no_space.py"]
+  - name: "WAL open failure"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["durability/wal_open_failure.py"]
   - name: "Periodic snapshot"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["durability/periodic_snapshot.py"]
