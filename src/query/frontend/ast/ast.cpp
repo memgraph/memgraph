@@ -344,6 +344,10 @@ constexpr utils::TypeInfo query::LoadParquet::kType{
 constexpr utils::TypeInfo query::LoadJsonl::kType{
     .id = utils::TypeId::AST_LOAD_JSONL, .name = "LoadJsonl", .superclass = &Clause::kType};
 
+constexpr utils::TypeInfo query::ResetQueryPlanCacheQuery::kType{.id = utils::TypeId::AST_RESET_QUERY_PLAN_CACHE_QUERY,
+                                                                 .name = "ResetQueryPlanCacheQuery",
+                                                                 .superclass = &query::Query::kType};
+
 constexpr utils::TypeInfo query::FreeMemoryQuery::kType{
     .id = utils::TypeId::AST_FREE_MEMORY_QUERY, .name = "FreeMemoryQuery", .superclass = &query::Query::kType};
 

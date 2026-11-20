@@ -328,6 +328,7 @@ TEST(QueryStorageAccess, EveryQueryStatesWhatItNeeds) {
   Declares<ReplicationInfoQuery>(NoAccess{}, false);
   Declares<LockPathQuery>(NoAccess{}, false);
   Declares<FreeMemoryQuery>(NoAccess{}, false);
+  Declares<ResetQueryPlanCacheQuery>(NoAccess{}, false);
   DeclaresWithAction<TriggerQuery>(TriggerQuery::Action::CREATE_TRIGGER, FixedAccess{.access = kRead}, true);
   DeclaresWithAction<TriggerQuery>(TriggerQuery::Action::DROP_TRIGGER, NoAccess{}, true);
   DeclaresWithAction<TriggerQuery>(TriggerQuery::Action::SHOW_TRIGGERS, NoAccess{}, true);
