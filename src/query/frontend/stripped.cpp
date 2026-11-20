@@ -286,7 +286,9 @@ StrippedQuery::StrippedQuery(std::string query) : original_(std::move(query)) {
         }
         // The operator-like keyword is itself a name when it follows `.` or `:` (`n.in`, `n:With`).
         auto before = last_non_space;
-        while (before != it && (--before)->first == Token::SPACE) {
+        while (before != it) {
+          --before;
+          if (before->first != Token::SPACE) break;
         }
         return before != last_non_space && (before->second == "." || before->second == ":");
       };
