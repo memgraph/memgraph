@@ -3659,4 +3659,110 @@ TEST_F(VersioningBranchEdgeWriteTest, AnEdgePropertyWriteAtDeletesOnlyEndpointsC
   });
 }
 
+TEST_F(VersioningBranchEdgeWriteTest, BranchCountsDropWithCommittedBaseDeletesOnly) {
+  auto const g = MakeGraph();
+  Fork();
+  EXPECT_EQ(Core().ApproximateCounts(), (mv::ObjectCounts{3, 3}));
+  EXPECT_EQ(Ctx().ApproximateVertexCount(), 3);
+  EXPECT_EQ(Ctx().ApproximateEdgeCount(), 3);
+
+  WriteAndAbort([&] {
+    ASSERT_TRUE(*Ctx().DeleteBaseVertex(g.a, true));
+    ASSERT_TRUE(*Ctx().DeleteBaseEdge(BaseEdge(g.loop)));
+  });
+  EXPECT_EQ(Core().ApproximateCounts(), (mv::ObjectCounts{3, 3}));
+
+  // The edge goes first, then its endpoint: e1 leaves the count once, e2 with the vertex.
+  WriteCounted([&] {
+    ASSERT_TRUE(*Ctx().DeleteBaseEdge(BaseEdge(g.e1)));
+    ASSERT_TRUE(*Ctx().DeleteBaseVertex(g.a, true));
+  });
+  EXPECT_EQ(Core().ApproximateCounts(), (mv::ObjectCounts{2, 1}));
+
+  // A self-loop is one edge.
+  WriteCounted([&] { ASSERT_TRUE(*Ctx().DeleteBaseVertex(g.c, true)); });
+  EXPECT_EQ(Core().ApproximateCounts(), (mv::ObjectCounts{1, 0}));
+  EXPECT_EQ(Ctx().ApproximateVertexCount(), 1);
+  EXPECT_EQ(Ctx().ApproximateEdgeCount(), 0);
+}
+
+TEST_F(VersioningBranchEdgeWriteTest, ADeletedHubTakesEveryEdgeOutOfTheBranchCounts) {
+  auto const hub = CreateMainVertex({}, {});
+  constexpr int kSpokes = 100;
+  for (int i = 0; i < kSpokes; ++i) {
+    auto const leaf = CreateMainVertex({}, {});
+    if (i % 2 == 0) {
+      CreateMainEdge(hub, leaf, "E");
+    } else {
+      CreateMainEdge(leaf, hub, "E");
+    }
+  }
+  Fork();
+  EXPECT_EQ(Core().ApproximateCounts(), (mv::ObjectCounts{kSpokes + 1, kSpokes}));
+  WriteCounted([&] { ASSERT_TRUE(*Ctx().DeleteBaseVertex(hub, true)); });
+  EXPECT_EQ(Core().ApproximateCounts(), (mv::ObjectCounts{kSpokes, 0}));
+}
+
+TEST_F(VersioningBranchEdgeWriteTest, BranchCountsFollowEachPeriodicCommitBatch) {
+  auto const g = MakeGraph();
+  Fork();
+  auto acc = Writer();
+  Begin(acc.get());
+  ASSERT_TRUE(*Ctx().DeleteBaseEdge(BaseEdge(g.e1)));
+  ASSERT_TRUE(Ctx().PeriodicCommitTransaction(memgraph::tests::MakeMainCommitArgs()).has_value());
+  EXPECT_EQ(Core().ApproximateCounts(), (mv::ObjectCounts{3, 2}));
+  ASSERT_TRUE(*Ctx().DeleteBaseVertex(g.c, true));
+  ASSERT_TRUE(Ctx().PeriodicCommitTransaction(memgraph::tests::MakeMainCommitArgs()).has_value());
+  EXPECT_EQ(Core().ApproximateCounts(), (mv::ObjectCounts{2, 1}));
+  ASSERT_TRUE(*Ctx().DeleteBaseVertex(g.b, true));
+  Ctx().EndTransaction();
+  acc->Abort();
+  EXPECT_EQ(Core().ApproximateCounts(), (mv::ObjectCounts{2, 1})) << "the batch that never committed counts nothing";
+}
+
+// An overlay is main's object under a new head, so writing one adds nothing; native objects, even on an overlay, count.
+TEST_F(VersioningBranchEdgeWriteTest, OverlaysAreNotNativeObjectsInTheBranchCounts) {
+  auto const x = Prop("x");
+  auto const g = MakeGraph();
+  Fork();
+  WriteCounted([&] {
+    auto a = *Ctx().FindBaseVertex(g.a);
+    ASSERT_TRUE(Ctx().SetProperty(a, x, Int(1)).has_value());
+    auto e1 = BaseEdge(g.e1);
+    ASSERT_TRUE(Ctx().SetProperty(e1, x, Int(2)).has_value());
+  });
+  EXPECT_NE(Core().edge_overlay_index().Find(g.e1.gid), nullptr);
+  EXPECT_EQ(Core().ApproximateCounts(), (mv::ObjectCounts{3, 3}));
+
+  WriteCounted([&] {
+    auto n1 = Ctx().CreateNativeVertex();
+    auto n2 = Ctx().CreateNativeVertex();
+    ASSERT_TRUE(Ctx().CreateNativeEdge(n1, n2, storage_->NameToEdgeType("N")).has_value());
+    auto overlay = Ctx().EnsureDiffVertex(g.a);
+    ASSERT_TRUE(overlay.has_value());
+    ASSERT_TRUE(Ctx().CreateNativeEdge(*overlay, n1, storage_->NameToEdgeType("N")).has_value());
+  });
+  EXPECT_EQ(Core().ApproximateCounts(), (mv::ObjectCounts{5, 5}));
+}
+
+TEST_F(VersioningBranchEdgeWriteTest, MainsChangesAfterTheForkDoNotMoveTheBranchCounts) {
+  auto const g = MakeGraph();
+  Fork();
+  auto const extra = CreateMainVertex({}, {});
+  CreateMainEdge(extra, g.a, "E");
+  {
+    auto acc = storage_->Access(ms::WRITE);
+    auto b = *acc->FindVertex(g.b, ms::View::NEW);
+    auto c = *acc->FindVertex(g.c, ms::View::NEW);
+    ASSERT_TRUE(acc->DetachDelete({&b, &c}, {}, true).has_value());
+    Commit(*acc);
+  }
+  storage_->FreeMemory({}, false);
+  EXPECT_EQ(Core().ApproximateCounts(), (mv::ObjectCounts{3, 3}));
+  EXPECT_EQ(Ctx().ApproximateVertexCount(), 3);
+  EXPECT_EQ(Ctx().ApproximateEdgeCount(), 3);
+  WriteCounted([&] { ASSERT_TRUE(*Ctx().DeleteBaseVertex(g.a, true)); });
+  EXPECT_EQ(Core().ApproximateCounts(), (mv::ObjectCounts{2, 1}));
+}
+
 }  // namespace

@@ -107,6 +107,11 @@ class BranchCore {
   // The parts of the label+property keys of the indexes the diff engine mirrors.
   const IndexKeyParts &key_parts() const noexcept { return key_parts_; }
 
+  // Main's approximate counts at the fork (its uncollected deleted vertices and open transactions' objects included),
+  // plus the diff engine's (branch-created objects), minus the base vertices and edges deleted or hidden by committed
+  // branch transactions; never below zero. Independent of main's later writes.
+  ObjectCounts ApproximateCounts() const;
+
   // The base vertices and edges deleted by the committed branch transactions so far.
   ObjectCounts BaseDeletes() const noexcept {
     return {.vertices = deleted_base_vertices_.load(std::memory_order_relaxed),
@@ -438,8 +443,7 @@ class BranchContext {
   // Same, walking the FROM vertex's adjacency.
   std::optional<storage::EdgeAccessor> FindDiffEdge(storage::Gid edge_gid, storage::Gid from_gid, storage::View view);
 
-  // Approximate counts, as Storage::Accessor reports them on main: main's current count plus the branch-native objects,
-  // less the base vertices (edges) committed branch transactions deleted (hid).
+  // See BranchCore::ApproximateCounts.
   int64_t ApproximateVertexCount();
   int64_t ApproximateEdgeCount();
 
