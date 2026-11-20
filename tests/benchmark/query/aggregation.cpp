@@ -616,6 +616,90 @@ void TwoHopPathAggregate(benchmark::State &state) {
            "ORDER BY paths DESC");
 }
 
+// ------------------------------------------------------- ordering and writing, which no pass reaches ----
+
+// What an ordering costs by how many times its key names one property. Nothing hangs a pass for an
+// ordering, so the second read is paid per row and the gap between these two is what hanging one
+// there would be worth.
+void OrderByOnePropertyOnce(benchmark::State &state) {
+  RunQuery(state, "MATCH (:Hub)-[:HAS]->(i) WITH i ORDER BY i.quantity LIMIT 100000000 RETURN count(*) AS n");
+}
+
+void OrderByOnePropertyTwice(benchmark::State &state) {
+  RunQuery(state,
+           "MATCH (:Hub)-[:HAS]->(i) WITH i ORDER BY i.quantity + i.quantity LIMIT 100000000 RETURN count(*) AS n");
+}
+
+// The projection ahead of the ordering earns a pass of its own, which says whether what a pass
+// leaves in a row survives an ordering standing above it.
+void OrderByWhatAProjectionRead(benchmark::State &state) {
+  RunQuery(state,
+           "MATCH (:Hub)-[:HAS]->(i) WITH i.quantity AS q, i.value AS v ORDER BY q LIMIT 100000000 "
+           "RETURN count(*) AS n");
+}
+
+/// How many rows the writing cases below take, which is what their per-row cost is divided by.
+constexpr int64_t kWrittenRows = 20'000;
+
+/// A write's cost per row. The transaction is thrown away each time, so one iteration cannot decide
+/// what the next one reads, and both arms pay the same for that.
+void RunWriteQuery(benchmark::State &state, std::string const &query) {
+  auto const &graph = TheGraph();
+  auto planning_dba = graph.db->Access(ms::READ);
+  mq::DbAccessor dba_for_planning(planning_dba.get());
+
+  mq::AstStorage ast;
+  mq::Parameters parameters;
+  auto *cypher_query = ParseCypherQuery(query, &ast);
+  auto symbol_table = mq::MakeSymbolTable(cypher_query);
+  auto planning_context = mq::plan::MakePlanningContext(&ast, &symbol_table, cypher_query, &dba_for_planning);
+  auto plan_and_cost = mq::plan::MakeLogicalPlan(&planning_context, parameters, false);
+
+  memgraph::utils::MonotonicBufferResource per_pull_memory{mq::kExecutionMemoryBlockSize};
+  mq::EvaluationContext evaluation_context{&per_pull_memory};
+  evaluation_context.properties = mq::NamesToProperties(ast.properties_, &dba_for_planning);
+  evaluation_context.labels = mq::NamesToLabels(ast.labels_, &dba_for_planning);
+
+  int64_t rows = 0;
+  for (auto _ : state) {
+    auto storage_dba = graph.db->Access(ms::WRITE);
+    mq::DbAccessor dba(storage_dba.get());
+    mq::ExecutionContext execution_context{.db_accessor = &dba,
+                                           .symbol_table = symbol_table,
+                                           .evaluation_context = evaluation_context,
+                                           .metric_handles = &BenchmarkMetricHandles()};
+    memgraph::utils::MonotonicBufferResource memory{mq::kExecutionMemoryBlockSize};
+    mq::Frame frame(symbol_table.max_position(), &memory);
+    auto cursor = plan_and_cost.plan->MakeCursor(&memory, BenchmarkMetricHandles());
+    while (cursor->Pull(frame, execution_context)) {
+      ++rows;
+      per_pull_memory.Release();
+    }
+    storage_dba->Abort();
+  }
+  state.SetItemsProcessed(state.iterations() * kWrittenRows);
+  state.counters["out_rows"] = static_cast<double>(rows) / static_cast<double>(state.iterations());
+}
+
+// What a write's right-hand side costs by how many times it names one property. A write is not an
+// operator a pass is hung for either, so the second read is paid per row, and these two differ by
+// what hanging one there would save. Bounded by a limit, because every row here writes.
+void SetFromOnePropertyOnce(benchmark::State &state) {
+  RunWriteQuery(state, "MATCH (:Hub)-[:HAS]->(i) WITH i LIMIT 20000 SET i.derived = i.quantity");
+}
+
+void SetFromOnePropertyTwice(benchmark::State &state) {
+  RunWriteQuery(state, "MATCH (:Hub)-[:HAS]->(i) WITH i LIMIT 20000 SET i.derived = i.quantity + i.quantity");
+}
+
+// A predicate ahead of the write earns a pass, and the write reads the record again rather than the
+// slot it filled: what a pass below a write currently leaves unused.
+void SetWhatAPredicateAlreadyRead(benchmark::State &state) {
+  RunWriteQuery(state,
+                "MATCH (:Hub)-[:HAS]->(i) WHERE i.quantity > 0 AND i.quantity < 101 WITH i LIMIT 20000 "
+                "SET i.derived = i.quantity");
+}
+
 constexpr auto kUnit = benchmark::kMillisecond;
 
 BENCHMARK(CountNoGroupKey)->Unit(kUnit);
@@ -657,6 +741,13 @@ BENCHMARK(ShortestPath)->Unit(kUnit);
 BENCHMARK(WeightedShortestPath)->Unit(kUnit);
 BENCHMARK(PathAggregation)->Unit(kUnit);
 BENCHMARK(TwoHopPathAggregate)->Unit(kUnit);
+
+BENCHMARK(OrderByOnePropertyOnce)->Unit(kUnit);
+BENCHMARK(OrderByOnePropertyTwice)->Unit(kUnit);
+BENCHMARK(OrderByWhatAProjectionRead)->Unit(kUnit);
+BENCHMARK(SetFromOnePropertyOnce)->Unit(kUnit);
+BENCHMARK(SetFromOnePropertyTwice)->Unit(kUnit);
+BENCHMARK(SetWhatAPredicateAlreadyRead)->Unit(kUnit);
 
 }  // namespace
 
