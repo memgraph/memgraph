@@ -18,6 +18,11 @@
 #include <filesystem>
 #include <memory>
 #include <optional>
+#include <regex>
+#include <sstream>
+#include <string>
+#include <string_view>
+#include <vector>
 
 #include "disk_test_utils.hpp"
 #include "gmock/gmock.h"
@@ -122,10 +127,150 @@ class QueryExecution : public testing::Test {
 
     return stream.GetResults();
   }
+
+  /// What a query answered, what it left behind, and what it refused: everything about it a reader
+  /// can see, so that two plans for it can be held to answering the same.
+  struct Outcome {
+    std::string rows;
+    std::string graph;
+    std::string refusal;
+  };
+
+  template <class TRows>
+  static std::string Spell(TRows const &rows) {
+    auto out = std::ostringstream{};
+    for (const auto &row : rows) {
+      for (const auto &value : row) out << value << '|';
+      out << ';';
+    }
+    return out.str();
+  }
+
+  /// Three nodes, two of them pointing at the third, which is what lets one record be reached twice
+  /// in a query and so be read after that query has written it.
+  void PlantGraph() {
+    this->Execute("MATCH (n) DETACH DELETE n");
+    this->Execute(
+        "CREATE (a1 {id: 1, p: 3, q: 7}), (a2 {id: 2, p: 3, q: 7}), (b {id: 3, p: 3, q: 7}) "
+        "CREATE (a1)-[:E]->(b) CREATE (a2)-[:E]->(b)");
+  }
+
+  Outcome RunWith(bool pass, const std::string &query) {
+    CachePropertiesFlagGuard guard{pass};
+    PlantGraph();
+    // A plan is held under the query's text, so without this the arm planned second would run the
+    // plan the first one left behind and the two would agree about nothing.
+    db_acc_->get()->plan_cache()->WithLock([](auto &cache) { cache.reset(); });
+
+    auto outcome = Outcome{};
+    try {
+      outcome.rows = Spell(this->Execute(query));
+    } catch (const std::exception &refused) {
+      // The slots a plan takes are named for where they sit, so a refusal naming one would differ
+      // between the arms for saying so rather than for what it refused.
+      outcome.refusal = std::regex_replace(std::string{refused.what()}, std::regex{"anon[0-9]+"}, "slot");
+    }
+    outcome.graph = Spell(this->Execute("MATCH (n) RETURN n.id AS id, n.p AS p, n.q AS q ORDER BY id"));
+    return outcome;
+  }
 };
 
 using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
 TYPED_TEST_SUITE(QueryExecution, StorageTypes);
+
+namespace {
+
+std::string ForRecord(std::string_view shape, std::string_view record) {
+  auto filled = std::string{};
+  for (size_t at = 0; at < shape.size();) {
+    if (shape.compare(at, 3, "{r}") == 0) {
+      filled += record;
+      at += 3;
+      continue;
+    }
+    filled += shape[at++];
+  }
+  return filled;
+}
+
+/// Every query shape along the axes a pass can be wrong on: where the record comes from, what the
+/// predicate asks of it, whether a later clause reads a slot the predicate filled, what the query
+/// writes to the property, and what the query does with the value.
+///
+/// A combination this spells wrongly is kept rather than filtered. Refusing is an answer, and both
+/// plans for a query have to refuse it alike.
+std::vector<std::string> ShapesAPassCouldBeWrongOn() {
+  static constexpr std::string_view kPatterns[] = {"MATCH (a)-[:E]->(b)", "MATCH (a)"};
+  static constexpr std::string_view kRecords[] = {"b", "a"};
+  static constexpr std::string_view kPredicates[] = {
+      "",
+      "WHERE {r}.p > 1 AND {r}.p < 50",
+      "WHERE {r}.p > 1 AND {r}.q < 50",
+      // Starts the scan at a, which leaves the predicate on the record above the expansion.
+      "WHERE a.id >= 1 AND {r}.p > 1 AND {r}.p < 50",
+  };
+  static constexpr std::string_view kMiddles[] = {
+      "",
+      "WITH {r}, {r}.p AS v",
+      // Orders the rows, so what reaches the clause above was rebuilt from what the ordering kept
+      // rather than handed up as the pass left it.
+      "WITH {r}, {r}.p AS v ORDER BY v",
+  };
+  static constexpr std::string_view kWrites[] = {"", "SET {r}.p = 99", "SET {r}.p = {r}.p + 1", "REMOVE {r}.p"};
+  static constexpr std::string_view kTails[] = {
+      "RETURN {r}.p AS x",
+      "RETURN count(*) AS x",
+      "RETURN sum({r}.p) AS x",
+      // Returns what the middle clause projected rather than reading the property again, which is
+      // the only way to see a value a later write would have changed. Nothing projects it without
+      // that clause, and both plans then refuse the query alike.
+      "RETURN v AS x ORDER BY x",
+      // Groups by the property, so the value a slot holds has to survive being a grouping key.
+      "RETURN {r}.p AS x, count(*) AS c ORDER BY x",
+      // Reads the property twice in one aggregation, which is what earns the aggregation a pass of
+      // its own above whatever the clauses below it left.
+      "RETURN sum({r}.p) AS s, max({r}.p) AS m",
+  };
+
+  auto shapes = std::vector<std::string>{};
+  for (size_t which = 0; which != std::size(kPatterns); ++which) {
+    for (const auto predicate : kPredicates) {
+      for (const auto middle : kMiddles) {
+        for (const auto write : kWrites) {
+          for (const auto tail : kTails) {
+            auto parts = std::vector<std::string_view>{kPatterns[which], predicate, middle, write, tail};
+            auto query = std::string{};
+            for (const auto part : parts) {
+              if (part.empty()) continue;
+              if (!query.empty()) query += ' ';
+              query += part;
+            }
+            shapes.push_back(ForRecord(query, kRecords[which]));
+          }
+        }
+      }
+    }
+  }
+  return shapes;
+}
+
+}  // namespace
+
+/// Reading a set of properties in one pass must answer what reading them one at a time answers, for
+/// every shape of query rather than for the shapes somebody thought to write down.
+TYPED_TEST(QueryExecution, OnePassAnswersWhatOneLookupAtATimeAnswers) {
+  const auto shapes = ShapesAPassCouldBeWrongOn();
+  ASSERT_GT(shapes.size(), 100u) << "the shapes are generated, so a drop in their number is a defect in the generator";
+
+  for (const auto &query : shapes) {
+    const auto lookups = this->RunWith(false, query);
+    const auto pass = this->RunWith(true, query);
+
+    EXPECT_EQ(lookups.rows, pass.rows) << query;
+    EXPECT_EQ(lookups.graph, pass.graph) << query;
+    EXPECT_EQ(lookups.refusal, pass.refusal) << query;
+  }
+}
 
 TYPED_TEST(QueryExecution, MissingOptionalIntoExpand) {
   // validating bug where expanding from Null (due to a preceeding optional
