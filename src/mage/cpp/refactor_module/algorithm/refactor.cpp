@@ -138,7 +138,6 @@ void Refactor::RenameLabel(mgp_list *args, mgp_graph * /*memgraph_graph*/, mgp_r
     }
     auto record = record_factory.NewRecord();
     record.Insert(std::string(kRenameLabelResult).c_str(), nodes_changed);
-    record.Insert(std::string(kRenameLabelBatches).c_str(), nodes_changed);
 
   } catch (const std::exception &e) {
     record_factory.SetErrorMessage(e.what());
@@ -171,7 +170,6 @@ void Refactor::RenameNodeProperty(mgp_list *args, mgp_graph * /*memgraph_graph*/
 
     auto record = record_factory.NewRecord();
     record.Insert(std::string(kRenameLabelResult).c_str(), nodes_changed);
-    record.Insert(std::string(kRenameNodePropertyBatches).c_str(), nodes_changed);
 
   } catch (const std::exception &e) {
     record_factory.SetErrorMessage(e.what());
@@ -535,8 +533,6 @@ void Refactor::Collapse(mgp::Graph &graph, const mgp::Node &node, const std::str
   auto record = record_factory.NewRecord();
   record.Insert(std::string(kReturnIdCollapseNode).c_str(), node.Id().AsInt());
   record.Insert(std::string(kReturnRelationshipCollapseNode).c_str(), new_rel);
-  record.Insert(std::string(kReturnInputCollapseNode).c_str(), node.Id().AsInt());
-  record.Insert(std::string(kReturnOutputCollapseNode).c_str(), new_rel);
   graph.DetachDeleteNode(node);
 }
 
@@ -648,7 +644,6 @@ void Refactor::RenameTypeProperty(mgp_list *args, mgp_graph * /*memgraph_graph*/
 
     auto record = record_factory.NewRecord();
     record.Insert(std::string(kRenameTypePropertyResult).c_str(), rels_changed);
-    record.Insert(std::string(kRenameTypePropertyTotal).c_str(), rels_changed);
 
   } catch (const std::exception &e) {
     record_factory.SetErrorMessage(e.what());
@@ -933,7 +928,6 @@ void Refactor::RenameType(mgp_list *args, mgp_graph *memgraph_graph, mgp_result 
 
     auto record = record_factory.NewRecord();
     record.Insert(std::string(kResultRenameType).c_str(), rels_changed);
-    record.Insert(std::string(kRenameTypeTotal).c_str(), rels_changed);
 
   } catch (const std::exception &e) {
     record_factory.SetErrorMessage(e.what());

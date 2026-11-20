@@ -105,8 +105,7 @@ extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *mem
                  {mgp::Parameter(Refactor::kRenameLabelArg1, mgp::Type::String),
                   mgp::Parameter(Refactor::kRenameLabelArg2, mgp::Type::String),
                   mgp::Parameter(Refactor::kRenameLabelArg3, {mgp::Type::List, mgp::Type::Node})},
-                 {mgp::Return(Refactor::kRenameLabelResult, mgp::Type::Int),
-                  mgp::Return(Refactor::kRenameLabelBatches, mgp::Type::Int)},
+                 {mgp::Return(Refactor::kRenameLabelResult, mgp::Type::Int)},
                  module,
                  memory);
 
@@ -116,8 +115,7 @@ extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *mem
                  {mgp::Parameter(Refactor::kRenameNodePropertyArg1, mgp::Type::String),
                   mgp::Parameter(Refactor::kRenameNodePropertyArg2, mgp::Type::String),
                   mgp::Parameter(Refactor::kRenameNodePropertyArg3, {mgp::Type::List, mgp::Type::Node})},
-                 {mgp::Return(Refactor::kRenameNodePropertyResult, mgp::Type::Int),
-                  mgp::Return(Refactor::kRenameNodePropertyBatches, mgp::Type::Int)},
+                 {mgp::Return(Refactor::kRenameNodePropertyResult, mgp::Type::Int)},
                  module,
                  memory);
 
@@ -137,10 +135,7 @@ extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *mem
                  {mgp::Parameter(std::string(Refactor::kArgumentNodesCollapseNode), mgp::Type::Any),
                   mgp::Parameter(std::string(Refactor::kArgumentTypeCollapseNode), mgp::Type::String)},
                  {mgp::Return(std::string(Refactor::kReturnIdCollapseNode), mgp::Type::Int),
-                  mgp::Return(std::string(Refactor::kReturnRelationshipCollapseNode), mgp::Type::Relationship),
-                  mgp::Return(std::string(Refactor::kReturnInputCollapseNode), mgp::Type::Int),
-                  mgp::Return(std::string(Refactor::kReturnOutputCollapseNode), mgp::Type::Relationship),
-                  mgp::Return(std::string(Refactor::kReturnErrorCollapseNode), mgp::Type::String)},
+                  mgp::Return(std::string(Refactor::kReturnRelationshipCollapseNode), mgp::Type::Relationship)},
                  module,
                  memory);
 
@@ -185,8 +180,7 @@ extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *mem
                  {mgp::Parameter(Refactor::kRenameTypeArg1, mgp::Type::String),
                   mgp::Parameter(Refactor::kRenameTypeArg2, mgp::Type::String),
                   mgp::Parameter(Refactor::kRenameTypeArg3, {mgp::Type::List, mgp::Type::Relationship})},
-                 {mgp::Return(Refactor::kResultRenameType, mgp::Type::Int),
-                  mgp::Return(Refactor::kRenameTypeTotal, mgp::Type::Int)},
+                 {mgp::Return(Refactor::kResultRenameType, mgp::Type::Int)},
                  module,
                  memory);
 
@@ -197,8 +191,7 @@ extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *mem
         {mgp::Parameter(std::string(Refactor::kRenameTypePropertyArg1), mgp::Type::String),
          mgp::Parameter(std::string(Refactor::kRenameTypePropertyArg2), mgp::Type::String),
          mgp::Parameter(std::string(Refactor::kRenameTypePropertyArg3), {mgp::Type::List, mgp::Type::Relationship})},
-        {mgp::Return(std::string(Refactor::kRenameTypePropertyResult), mgp::Type::Int),
-         mgp::Return(std::string(Refactor::kRenameTypePropertyTotal), mgp::Type::Int)},
+        {mgp::Return(std::string(Refactor::kRenameTypePropertyResult), mgp::Type::Int)},
         module,
         memory);
 
