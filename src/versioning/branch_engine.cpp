@@ -222,8 +222,8 @@ BranchCore::BranchCore(storage::InMemoryStorage *main, const ForkPoint &fork, ui
 }
 
 ObjectCounts BranchCore::ApproximateCounts() const {
-  // The delete counts and the diff engine's counts are read apart, so a concurrent commit can make the deletes exceed
-  // the objects they are subtracted from for a moment.
+  // Main's edge count drops when an edge is deleted, not when the delete commits, so a delete open at the fork leaves
+  // the recorded counts below the fork-visible edges and the branch's deletes of them can exceed the base.
   const auto net = [](uint64_t base, uint64_t added, uint64_t deleted) {
     return base + added > deleted ? base + added - deleted : 0;
   };

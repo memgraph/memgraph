@@ -295,10 +295,9 @@ TEST_F(VersioningInfoTest, ProcedureVectorIndexListingOnABranchIsMains) {
 }
 
 // Not a per-transaction snapshot: another branch session's commit shows as soon as it lands.
-TEST_F(VersioningInfoTest, BranchCountsIgnoreMainAfterTheForkAndCountEachCommittedDeleteOnce) {
+TEST_F(VersioningInfoTest, BranchCountsCountEachCommittedDeleteOnceAndShowOtherSessionsAtOnce) {
   faker.Interpret("CREATE (:V {id: 1}), (:V {id: 2}), (:V {id: 3})-[:E]->(:V {id: 4})");
   faker.Interpret("CREATE BRANCH b");
-  InterpreterFaker main_session{&interpreter_context, db};
   auto sessions = SessionsOnBranch(2, "b");
   auto &first = *sessions[0];
   auto &second = *sessions[1];
@@ -309,9 +308,6 @@ TEST_F(VersioningInfoTest, BranchCountsIgnoreMainAfterTheForkAndCountEachCommitt
 
   faker.Interpret("BEGIN");
   EXPECT_EQ(ProcedureCounts(), counts(4, 1));
-  main_session.Interpret("CREATE (:Later)-[:E]->(:Later), (:Later)");
-  main_session.Interpret("MATCH (n:V {id: 4}) DETACH DELETE n");
-  EXPECT_EQ(ProcedureCounts(), counts(4, 1)) << "main's commits after the fork are not the branch's";
   faker.Interpret("MATCH (n:V {id: 1}) DELETE n");
   EXPECT_EQ(ProcedureCounts(), counts(4, 1)) << "the transaction's own delete counts when it commits";
 

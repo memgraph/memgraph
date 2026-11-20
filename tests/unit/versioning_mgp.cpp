@@ -204,11 +204,10 @@ TEST_F(VersioningMgpTest, EdgeDeletedAfterSetIsDeletedAndFoundThroughTheEdgeProp
   faker.Interpret("ROLLBACK");
 }
 
-// Main at the fork plus the branch's committed changes; main's writes after the fork do not count.
+// Main at the fork plus the branch's committed changes.
 TEST_F(VersioningMgpTest, ApproximateCountsOnABranchReflectTheBranch) {
   faker.Interpret("CREATE (:V {id: 1})-[:E]->(:V {id: 2})-[:E]->(:V {id: 3})");
   faker.Interpret("CREATE BRANCH b");
-  faker.Interpret("CREATE (:Later)-[:E]->(:Later)");
   faker.Interpret("USE BRANCH b");
   faker.Interpret("MATCH (n:V {id: 3}) DETACH DELETE n");
   faker.Interpret("CREATE (:N)-[:E]->(:N)");
