@@ -216,7 +216,20 @@ std::vector<std::string> ShapesAPassCouldBeWrongOn() {
       // rather than handed up as the pass left it.
       "WITH {r}, {r}.p AS v ORDER BY v",
   };
-  static constexpr std::string_view kWrites[] = {"", "SET {r}.p = 99", "SET {r}.p = {r}.p + 1", "REMOVE {r}.p"};
+  static constexpr std::string_view kWrites[] = {
+      "",
+      "SET {r}.p = 99",
+      "SET {r}.p = {r}.p + 1",
+      // Reads the property twice to write it once, which is the shape that earns a pass elsewhere.
+      "SET {r}.p = {r}.p + {r}.p",
+      "REMOVE {r}.p",
+      // Writes a property no predicate here reads, so a slot holding another one stays good.
+      "SET {r}.q = 99",
+      // Which properties these write is a value rather than something the plan says: the first
+      // replaces every property the record holds, the second updates the ones its map names.
+      "SET {r} = {p: 99}",
+      "SET {r} += {p: 99}",
+  };
   static constexpr std::string_view kTails[] = {
       "RETURN {r}.p AS x",
       "RETURN count(*) AS x",
@@ -751,6 +764,33 @@ TYPED_TEST(QueryExecution, AWriteAboveAFilterLeavesItsReadsAloneWithFlagOn) {
     EXPECT_EQ(rows[0][0].ValueInt(), 3);                                                                        \
     EXPECT_EQ(rows[1][0].ValueInt(), 99);                                                                       \
   } while (false)
+
+/// Each stage of a read-modify-write chain reads what the stage before it wrote, so the value
+/// doubles per stage. The numbers here are known rather than agreed between the two plans, which is
+/// what comparing the plans against each other cannot say on its own.
+#define CHECK_A_CHAIN_OF_READ_MODIFY_WRITES_DOUBLES()                                                            \
+  do {                                                                                                           \
+    this->Execute("MATCH (n) DETACH DELETE n");                                                                  \
+    this->Execute("CREATE ({p: 1})");                                                                            \
+    auto doubled = this->Execute("MATCH (n) SET n.p = n.p + n.p WITH n SET n.p = n.p + n.p RETURN n.p AS p");    \
+    ASSERT_EQ(doubled.size(), 1);                                                                                \
+    EXPECT_EQ(doubled[0][0].ValueInt(), 4);                                                                      \
+    /* Starts from four, and the predicate ahead of the writes is what hangs a pass in the chain. */             \
+    auto again = this->Execute(                                                                                  \
+        "MATCH (n) WHERE n.p > 0 AND n.p < 100 SET n.p = n.p + n.p WITH n SET n.p = n.p + n.p RETURN n.p AS q"); \
+    ASSERT_EQ(again.size(), 1);                                                                                  \
+    EXPECT_EQ(again[0][0].ValueInt(), 16);                                                                       \
+  } while (false)
+
+TYPED_TEST(QueryExecution, AChainOfReadModifyWritesDoublesWithFlagOff) {
+  CachePropertiesFlagGuard guard{false};
+  CHECK_A_CHAIN_OF_READ_MODIFY_WRITES_DOUBLES();
+}
+
+TYPED_TEST(QueryExecution, AChainOfReadModifyWritesDoublesWithFlagOn) {
+  CachePropertiesFlagGuard guard{true};
+  CHECK_A_CHAIN_OF_READ_MODIFY_WRITES_DOUBLES();
+}
 
 TYPED_TEST(QueryExecution, AProjectionDoesNotTakeAFiltersSlotAcrossAWriteWithFlagOff) {
   CachePropertiesFlagGuard guard{false};
