@@ -8212,7 +8212,7 @@ PreparedQuery PrepareVersionQuery(ParsedQuery parsed_query, bool in_explicit_tra
 using InfoHandler = std::function<std::pair<std::vector<std::vector<TypedValue>>, QueryHandlerResult>()>;
 
 // On a branch the label and edge-type listings are main's plus the diff engine's (branch-created objects and labels
-// written on base vertices), minus its reserved marker ids, which are not names. Metadata sets only, no graph scan.
+// written on base vertices). Metadata sets only, no graph scan.
 InfoHandler WithBranchNames(InfoHandler main_names, std::shared_ptr<versioning::BranchCore> core,
                             storage::Storage *main, bool labels) {
   return [main_names = std::move(main_names), core = std::move(core), main, labels] {
@@ -8223,13 +8223,9 @@ InfoHandler WithBranchNames(InfoHandler main_names, std::shared_ptr<versioning::
       if (seen.insert(name).second) rows.push_back({TypedValue(name)});
     };
     if (labels) {
-      for (auto const label : core->diff_engine().ListAllPossiblyPresentVertexLabels()) {
-        if (!storage::IsReservedId(label)) add(main->LabelToName(label));
-      }
+      for (auto const label : core->diff_engine().ListAllPossiblyPresentVertexLabels()) add(main->LabelToName(label));
     } else {
-      for (auto const type : core->diff_engine().ListAllPossiblyPresentEdgeTypes()) {
-        if (!storage::IsReservedId(type)) add(main->EdgeTypeToName(type));
-      }
+      for (auto const type : core->diff_engine().ListAllPossiblyPresentEdgeTypes()) add(main->EdgeTypeToName(type));
     }
     return std::pair{std::move(rows), result};
   };
