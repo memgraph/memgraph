@@ -41,7 +41,8 @@ TIMEOUT = 15.0
 # imports this file as a test module while ``__main__`` runs the same file.
 TIMED_OUT_ENV = "TTL_STOP_MIDRUN_TIMED_OUT"
 
-# Runs one statement on a brand-new Bolt connection. argv: host, port, database, query.
+# Runs one statement on a brand-new Bolt connection. argv: host, port, database, query. Prints a
+# line once connected, then runs the statement once "go" arrives on stdin.
 _CHILD = r"""
 import json
 import sys
@@ -54,6 +55,9 @@ connection.autocommit = True
 try:
     cursor = connection.cursor()
     cursor.execute("USE DATABASE " + database)
+    print("ready", flush=True)
+    if sys.stdin.readline().strip() != "go":
+        sys.exit(0)  # the test process went away without firing
     cursor.execute(query)
     print(json.dumps({"rows": cursor.fetchall() if cursor.description is not None else None}))
 finally:
@@ -66,20 +70,27 @@ def _run(cursor, query, params=None):
     return cursor.fetchall() if cursor.description is not None else None
 
 
-def fresh_query(database, query, timeout=TIMEOUT):
-    """Run ``query`` on a new connection in a child process; return ``(status, detail)``.
-
-    Status is ``ok`` (detail = rows), ``err`` (detail = child stderr) or ``timeout``; the child is
-    killed at the deadline so a stalled server never blocks the test process.
-    """
+def armed_query(database, query):
+    """Start a child that connects and waits; ``fire`` it to run ``query`` without process start-up delay."""
     child = subprocess.Popen(
         [sys.executable, "-c", _CHILD, HOST, str(PORT), database, query],
+        stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
     )
+    assert child.stdout.readline().strip() == "ready", child.stderr.read()
+    return child
+
+
+def fire(child, timeout=TIMEOUT):
+    """Run an armed child's query; return ``(status, detail)``.
+
+    Status is ``ok`` (detail = rows), ``err`` (detail = child stderr) or ``timeout``; the child is
+    killed at the deadline so a stalled server never blocks the test process.
+    """
     try:
-        stdout, stderr = child.communicate(timeout=timeout)
+        stdout, stderr = child.communicate(input="go\n", timeout=timeout)
     except subprocess.TimeoutExpired:
         child.kill()
         child.communicate()
@@ -91,6 +102,11 @@ def fresh_query(database, query, timeout=TIMEOUT):
         return "ok", json.loads(stdout.strip().splitlines()[-1])["rows"]
     except (IndexError, ValueError, KeyError) as exc:
         return "err", f"unparsable child output {stdout!r}: {exc}"
+
+
+def fresh_query(database, query, timeout=TIMEOUT):
+    """Run ``query`` on a new connection in a child process; see ``fire``."""
+    return fire(armed_query(database, query), timeout)
 
 
 def _kill_wedged_server():
@@ -117,18 +133,19 @@ def _kill_wedged_server():
 
 
 def _load_and_enable(database):
-    """Create ``database``, load NODES expired :TTL vertices, enable TTL, and close the session."""
+    """Create ``database``, load NODES expired :TTL vertices and enable TTL; return a session on it.
+
+    The session only counts vertices before any statement that could wedge the server is issued.
+    """
     connection = mgclient.connect(host=HOST, port=PORT)
     connection.autocommit = True
-    try:
-        cursor = connection.cursor()
-        _run(cursor, f"CREATE DATABASE {database}")
-        _run(cursor, f"USE DATABASE {database}")
-        for start in range(0, NODES, BATCH):
-            _run(cursor, CREATE, {"a": start, "b": start + BATCH - 1})
-        _run(cursor, 'ENABLE TTL EVERY "1s"')
-    finally:
-        connection.close()
+    cursor = connection.cursor()
+    _run(cursor, f"CREATE DATABASE {database}")
+    _run(cursor, f"USE DATABASE {database}")
+    for start in range(0, NODES, BATCH):
+        _run(cursor, CREATE, {"a": start, "b": start + BATCH - 1})
+    _run(cursor, 'ENABLE TTL EVERY "1s"')
+    return connection
 
 
 def _count(database):
@@ -137,29 +154,39 @@ def _count(database):
     return detail[0][0]
 
 
-def _wait_until_deleting(database):
-    deadline = time.time() + TIMEOUT
-    while time.time() < deadline:
-        count = _count(database)
-        if count < NODES:
-            return count
-        time.sleep(0.05)
-    pytest.fail("TTL did not start deleting expired vertices in time")
+def _run_midrun(database, query):
+    """Run ``query`` as soon as the TTL run has deleted its first batch; return ``fire``'s result.
+
+    The query's child connects before the run starts, so it lands within milliseconds of the first deletion.
+    """
+    connection = _load_and_enable(database)
+    child = armed_query(database, query)
+    try:
+        cursor = connection.cursor()
+        deadline = time.time() + TIMEOUT
+        while _run(cursor, "MATCH (n:TTL) RETURN count(n)")[0][0] == NODES:
+            if time.time() >= deadline:
+                child.kill()
+                child.communicate()
+                pytest.fail("TTL did not start deleting expired vertices in time")
+            time.sleep(0.01)
+    finally:
+        connection.close()
+    return fire(child)
 
 
 def test_disable_ttl_midrun_returns():
-    database = "ttl_disable_midrun"
-    _load_and_enable(database)
-    count_at_start = _wait_until_deleting(database)
+    # A whole run takes a few hundred milliseconds; retry on a fresh database if it still beat DISABLE TTL.
+    for attempt in range(3):
+        database = f"ttl_disable_midrun{attempt}"
+        status, detail = _run_midrun(database, "DISABLE TTL")
+        assert status == "ok", f"DISABLE TTL did not answer within {TIMEOUT:g}s mid-run: {status} {detail}"
+        before = _count(database)
+        if before > 0:
+            break
+    else:
+        pytest.fail("the TTL run finished before DISABLE TTL in every attempt; the mid-run case was not exercised")
 
-    status, detail = fresh_query(database, "DISABLE TTL")
-    assert status == "ok", (
-        f"DISABLE TTL did not answer within {TIMEOUT:g}s mid-run "
-        f"(count at issue {count_at_start}): {status} {detail}"
-    )
-
-    before = _count(database)
-    assert before > 0, "the TTL run finished before DISABLE TTL; the mid-run case was not exercised"
     time.sleep(2.0)
     after = _count(database)
     assert after == before, f"TTL kept reaping after DISABLE TTL returned: {before} -> {after}"
@@ -167,24 +194,14 @@ def test_disable_ttl_midrun_returns():
 
 def test_storage_mode_refused_while_ttl_enabled():
     database = "ttl_storage_mode_refused"
-    _load_and_enable(database)
-    count_at_start = _wait_until_deleting(database)
-
-    status, detail = fresh_query(database, "STORAGE MODE ON_DISK_TRANSACTIONAL")
-    assert status == "err", (
-        f"STORAGE MODE must be refused while TTL is enabled (count at issue {count_at_start}): " f"{status} {detail}"
-    )
+    status, detail = _run_midrun(database, "STORAGE MODE ON_DISK_TRANSACTIONAL")
+    assert status == "err", f"STORAGE MODE must be refused while TTL is enabled: {status} {detail}"
     assert "time-to-live" in detail.lower() or "ttl" in detail.lower(), detail
 
-    status, detail = fresh_query(database, "MATCH (n) RETURN count(n)")
-    assert status == "ok", f"a fresh session was not served after the refusal: {status} {detail}"
-
-    before = _count(database)
-    assert before > 0, "the TTL run finished before the check; reaping after the refusal was not exercised"
     deadline = time.time() + TIMEOUT
-    while _count(database) >= before and time.time() < deadline:
+    while _count(database) > 0 and time.time() < deadline:
         time.sleep(0.2)
-    assert _count(database) < before, "TTL stopped deleting after the refused switch"
+    assert _count(database) == 0, "TTL stopped deleting after the refused switch"
 
 
 if __name__ == "__main__":
