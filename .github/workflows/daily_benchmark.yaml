@@ -39,6 +39,10 @@ on:
         type: boolean
         description: "mgbench-supernode"
         default: true
+      mgbench_hub_edge_rewrite:
+        type: boolean
+        description: "mgbench-hub-edge-rewrite"
+        default: true
       mgbench:
         type: boolean
         description: "mgbench"
@@ -447,6 +451,20 @@ jobs:
             $BRANCH_NAME \
             mgbench
 
+      - name: Run and upload mgbench-hub-edge-rewrite
+        id: mgbench-hub-edge-rewrite
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.mgbench_hub_edge_rewrite }}
+        continue-on-error: true
+        run: |
+          ./tools/ci/loop-benchmark.sh \
+            mgbench-hub-edge-rewrite \
+            hub-edge-rewrite \
+            ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }} \
+            ${{ github.run_id }} \
+            ${{ github.run_number }} \
+            $BRANCH_NAME \
+            mgbench
+
       - name: Run and upload mgbench
         id: mgbench
         if: ${{ github.event_name != 'workflow_dispatch' || inputs.mgbench }}
@@ -521,6 +539,7 @@ jobs:
           check mgbench-text-search-edge-index   "${{ steps.mgbench-text-search-edge-index.outcome }}"
           check macro-benchmark                  "${{ steps.macro-benchmark.outcome }}"
           check mgbench-supernode                "${{ steps.mgbench-supernode.outcome }}"
+          check mgbench-hub-edge-rewrite        "${{ steps.mgbench-hub-edge-rewrite.outcome }}"
           check mgbench                          "${{ steps.mgbench.outcome }}"
           check planner                          "${{ steps.planner.outcome }}"
           if [ -n "$failed" ]; then

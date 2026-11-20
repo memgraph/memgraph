@@ -2278,6 +2278,30 @@ test_memgraph() {
 
       docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --installation-type native $MGBENCH_CACHE_ARG --num-workers-for-benchmark 1 --export-results $EXPORT_RESULTS_FILE $NO_AUTHORIZATION supernode"
     ;;
+    mgbench-hub-edge-rewrite)
+      shift 1
+      local EXPORT_RESULTS_FILE="$default_benchmark_result_file"
+      local NO_AUTHORIZATION=""
+      while [[ $# -gt 0 ]]; do
+        case "$1" in
+          --export-results-file)
+            EXPORT_RESULTS_FILE="$2"
+            shift 2
+          ;;
+          --no-authorization)
+            NO_AUTHORIZATION="--no-authorization"
+            shift 1
+          ;;
+          *)
+            echo "Error: Unknown flag '$1' for mgbench-hub-edge-rewrite" >&2
+            echo "Supported flags: --export-results-file, --no-authorization" >&2
+            exit 1
+          ;;
+        esac
+      done
+
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && export PYTHONUNBUFFERED=1 && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --installation-type native $MGBENCH_CACHE_ARG --num-workers-for-benchmark 1 --export-results $EXPORT_RESULTS_FILE $NO_AUTHORIZATION hub_edge_rewrite"
+    ;;
     mgbench-load-parquet)
       shift 1
       local EXPORT_RESULTS_FILE="$default_benchmark_result_file"
