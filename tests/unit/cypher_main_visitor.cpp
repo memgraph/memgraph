@@ -510,6 +510,13 @@ TEST_P(CypherMainVisitorTest, ReturnSkip) {
   ASSERT_TRUE(return_clause->body_.skip);
   ast_generator.CheckLiteral(return_clause->body_.skip, 5);
   CheckRWType(query, kRead);
+
+  // OFFSET is a synonym of SKIP.
+  query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("RETURN x OFFSET 5"));
+  ASSERT_TRUE(query && query->single_query_);
+  return_clause = dynamic_cast<Return *>(query->single_query_->clauses_[0]);
+  ASSERT_TRUE(return_clause && return_clause->body_.skip);
+  ast_generator.CheckLiteral(return_clause->body_.skip, 5);
 }
 
 TEST_P(CypherMainVisitorTest, ReturnOrderBy) {
@@ -2398,6 +2405,12 @@ TEST_P(CypherMainVisitorTest, WithBag) {
   ASSERT_TRUE(with->body_.limit);
   ASSERT_TRUE(with->body_.skip);
   CheckRWType(query, kRead);
+
+  query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("WITH n OFFSET 1 RETURN 1"));
+  ASSERT_TRUE(query && query->single_query_);
+  with = dynamic_cast<With *>(query->single_query_->clauses_[0]);
+  ASSERT_TRUE(with && with->body_.skip);
+  ast_generator.CheckLiteral(with->body_.skip, 1);
 }
 
 TEST_P(CypherMainVisitorTest, WithWhere) {
@@ -8769,6 +8782,30 @@ TEST_P(CypherMainVisitorTest, CollectKeywordStaysUsableAsAName) {
   // A map projection on a variable named `collect` is the spelling the brace alternative competes with.
   EXPECT_NO_THROW(ast_generator.ParseQuery("MATCH (collect) RETURN collect {.name};"));
   EXPECT_NO_THROW(ast_generator.ParseQuery("MATCH (collect) RETURN collect {.*};"));
+}
+
+TEST_P(CypherMainVisitorTest, OffsetKeywordStaysUsableAsAName) {
+  auto &ast_generator = *GetParam();
+
+  auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("WITH 1 AS offset RETURN offset"));
+  ASSERT_TRUE(query && query->single_query_);
+  auto *with = dynamic_cast<With *>(query->single_query_->clauses_[0]);
+  ASSERT_TRUE(with);
+  ASSERT_EQ(with->body_.named_expressions.size(), 1U);
+  ASSERT_EQ(with->body_.named_expressions[0]->name_, "offset");
+  auto *ret = dynamic_cast<Return *>(query->single_query_->clauses_[1]);
+  ASSERT_TRUE(ret);
+  auto *identifier = dynamic_cast<Identifier *>(ret->body_.named_expressions[0]->expression_);
+  ASSERT_TRUE(identifier);
+  ASSERT_EQ(identifier->name_, "offset");
+
+  query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("MATCH (n) RETURN n.offset"));
+  ASSERT_TRUE(query && query->single_query_);
+  ret = dynamic_cast<Return *>(query->single_query_->clauses_[1]);
+  ASSERT_TRUE(ret);
+  auto *lookup = dynamic_cast<PropertyLookup *>(ret->body_.named_expressions[0]->expression_);
+  ASSERT_TRUE(lookup);
+  ASSERT_EQ(lookup->property_, ast_generator.Prop("offset"));
 }
 
 TEST_P(CypherMainVisitorTest, ExistsBodyRefusesPeriodicCommit) {

@@ -120,6 +120,7 @@ MERGE          : M E R G E ;
 NODE           : N O D E ;
 NONE           : N O N E ;
 NOT            : N O T ;
+OFFSET         : O F F S E T ;
 ON             : O N ;
 OPTIONAL       : O P T I O N A L ;
 OR             : O R ;

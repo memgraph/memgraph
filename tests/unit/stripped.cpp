@@ -462,6 +462,8 @@ TEST(QueryStripper, ReturnOrderBy) {
 TEST(QueryStripper, ReturnSkip) {
   StrippedQuery stripped("RETURN 2   + 3 SKIP 10");
   EXPECT_THAT(stripped.named_expressions(), UnorderedElementsAre(Pair(1, "2   + 3")));
+  StrippedQuery offset("RETURN 2   + 3 OFFSET 10");
+  EXPECT_THAT(offset.named_expressions(), UnorderedElementsAre(Pair(1, "2   + 3")));
 }
 
 TEST(QueryStripper, ReturnLimit) {
