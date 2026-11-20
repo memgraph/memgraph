@@ -71,6 +71,7 @@
 #include "memory/global_memory_control.hpp"
 #include "memory/query_memory_control.hpp"
 #include "metrics/prometheus_metrics.hpp"
+#include "metrics/scoped_histogram_timer.hpp"
 #include "parameters/parameters.hpp"
 #include "query/auth_checker.hpp"
 #include "query/auth_query_handler.hpp"
@@ -212,6 +213,7 @@ void memgraph::query::CurrentDB::SetupDatabaseTransaction(
     throw DatabaseContextRequiredException("Database required for the transaction setup.");
   }
   auto &db_acc = *db_acc_;
+  metrics::ScopedHistogramTimer const begin_timer{db_acc->metric_handles()->transaction_begin_seconds.histogram};
   const memory::DbArenaScope db_arena_scope{db_acc.get()};
   const auto timeout = memgraph::flags::run_time::GetStorageAccessTimeoutSec();
   switch (acc_type) {

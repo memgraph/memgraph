@@ -521,6 +521,9 @@ class PrometheusMetrics {
   // Per-database metric families — GC histograms
   prometheus::Family<prometheus::Histogram> &gc_latency_family_;
   prometheus::Family<prometheus::Histogram> &gc_skiplist_cleanup_latency_family_;
+  prometheus::Family<prometheus::Histogram> &transaction_begin_family_;
+  prometheus::Family<prometheus::Histogram> &commit_lock_wait_family_;
+  prometheus::Family<prometheus::Histogram> &commit_family_;
   prometheus::Family<prometheus::Counter> &gc_index_sweeps_family_;
 
   // Global metric family — per-instance snapshot throughput (bytes/s)

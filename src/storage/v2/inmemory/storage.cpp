@@ -33,6 +33,7 @@
 #include "flags/run_time_configurable.hpp"
 #include "memory/db_arena_fwd.hpp"
 #include "memory/global_memory_control.hpp"
+#include "metrics/scoped_histogram_timer.hpp"
 #include "replication_coordination_glue/mode.hpp"
 #include "replication_coordination_glue/role.hpp"
 #include "requests/requests.hpp"
@@ -1077,6 +1078,8 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
     return {};
   }
 
+  metrics::ScopedHistogramTimer const commit_timer{mem_storage->metric_handles_.commit_seconds.histogram};
+
   // This is usually done by the MVCC, but it does not handle the metadata deltas
   transaction_.EnsureCommitInfoExists();
 
@@ -1098,9 +1101,10 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
   // Serialize committers across mint->publish: (1) mint order must equal watermark publish order;
   // (2) UniqueConstraintsViolation() must not run while another committer sits between its mint and
   // publish, since its unpublished writes are invisible to MVCC.
+  utils::Timer const commit_lock_timer;
   auto commit_serializer = mem_storage->LockCommitMutexIfNarrowing();
-
   auto engine_guard = std::unique_lock{storage_->engine_lock_};
+  mem_storage->metric_handles_.commit_lock_wait_seconds.Observe(commit_lock_timer.Elapsed().count());
   commit_timestamp_.emplace(mem_storage->GetCommitTimestamp());
 
   // Unique constraints violated

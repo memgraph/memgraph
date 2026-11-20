@@ -249,7 +249,7 @@ def test_all_show_metrics_info_values_are_present(memgraph):
         # TTL
         {"name": "DeletedEdges", "type": "TTL", "metric type": "Counter"},
         {"name": "DeletedNodes", "type": "TTL", "metric type": "Counter"},
-        # Transaction (counters alphabetical, then Gauge)
+        # Transaction (counters alphabetical, then Gauge, then Histogram)
         {"name": "CommitedTransactions", "type": "Transaction", "metric type": "Counter"},
         {"name": "FailedPrepare", "type": "Transaction", "metric type": "Counter"},
         {"name": "FailedPull", "type": "Transaction", "metric type": "Counter"},
@@ -259,6 +259,15 @@ def test_all_show_metrics_info_values_are_present(memgraph):
         {"name": "TransientErrors", "type": "Transaction", "metric type": "Counter"},
         {"name": "WriteWriteConflicts", "type": "Transaction", "metric type": "Counter"},
         {"name": "ActiveTransactions", "type": "Transaction", "metric type": "Gauge"},
+        {"name": "CommitLatency_us_50p", "type": "Transaction", "metric type": "Histogram"},
+        {"name": "CommitLatency_us_90p", "type": "Transaction", "metric type": "Histogram"},
+        {"name": "CommitLatency_us_99p", "type": "Transaction", "metric type": "Histogram"},
+        {"name": "CommitLockWaitLatency_us_50p", "type": "Transaction", "metric type": "Histogram"},
+        {"name": "CommitLockWaitLatency_us_90p", "type": "Transaction", "metric type": "Histogram"},
+        {"name": "CommitLockWaitLatency_us_99p", "type": "Transaction", "metric type": "Histogram"},
+        {"name": "TransactionBeginLatency_us_50p", "type": "Transaction", "metric type": "Histogram"},
+        {"name": "TransactionBeginLatency_us_90p", "type": "Transaction", "metric type": "Histogram"},
+        {"name": "TransactionBeginLatency_us_99p", "type": "Transaction", "metric type": "Histogram"},
         # Trigger
         {"name": "TriggersCreated", "type": "Trigger", "metric type": "Counter"},
         {"name": "TriggersExecuted", "type": "Trigger", "metric type": "Counter"},
@@ -391,6 +400,12 @@ def test_general_gauges_reflect_graph_state(memgraph):
 def test_query_execution_latency_histogram_has_observations(memgraph):
     memgraph.execute("MATCH (n) RETURN n")
     assert get_metric_value(memgraph, "QueryExecutionLatency_us_50p") > 0
+
+
+def test_transaction_latency_histograms_have_observations(memgraph):
+    memgraph.execute("CREATE (:Node)")
+    for name in ("TransactionBeginLatency", "CommitLockWaitLatency", "CommitLatency"):
+        assert get_metric_value(memgraph, f"{name}_us_50p") > 0
 
 
 def test_session_metrics_reflect_active_connection(memgraph):
