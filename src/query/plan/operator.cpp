@@ -59,6 +59,7 @@
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/graph.hpp"
 #include "query/interpret/eval.hpp"
+#include "query/interpret/property_as_value.hpp"
 #include "query/parallel_state.hpp"
 #include "query/parse_config_map.hpp"
 #include "query/path.hpp"
@@ -6006,12 +6007,18 @@ bool CacheProperties::CachePropertiesCursor::Pull(Frame &frame, ExecutionContext
     // Whichever kind of record the row holds, asked once so that the read below and any reference
     // it hands back reach the same record without either of them naming both kinds.
     auto const of_the_record = [&](auto &&with) {
-      return reads_a_vertex ? with(input_value.ValueVertex().impl_) : with(input_value.ValueEdge().impl_);
+      return reads_a_vertex ? with(input_value.ValueVertex()) : with(input_value.ValueEdge());
     };
+
+    auto const shape = PropertyValueShape{.view = self_.view_,
+                                          .references_wanted = lazy_refs,
+                                          .names = name_id_mapper,
+                                          .memory = context.evaluation_context.memory};
 
     // The view the operator this pass reads for evaluates at, so a slot holds what that operator's
     // own lookup would have read of a record this command has written.
-    auto const read = of_the_record([&](auto const &accessor) {
+    auto const read = of_the_record([&](auto const &record) {
+      auto const &accessor = record.impl_;
       return lazy_refs ? accessor.ReadPropertyValuesCompact(group.ordered(), slots, self_.view_)
                        : accessor.ReadPropertyValues(group.ordered(), slots, self_.view_);
     });
@@ -6028,13 +6035,10 @@ bool CacheProperties::CachePropertiesCursor::Pull(Frame &frame, ExecutionContext
 #endif
       if (value.IsNull()) {
         frame_writer.Write(cached.output_symbol, TypedValue(context.evaluation_context.memory));
-      } else if (lazy_refs && value.IsVectorIndexId()) {
-        auto const ref = of_the_record(
-            [&](auto const &accessor) { return VectorRefValue{accessor, cached.property_id, self_.view_}; });
-        frame_writer.Write(cached.output_symbol, TypedValue(ref, context.evaluation_context.memory));
       } else {
-        frame_writer.Write(cached.output_symbol,
-                           TypedValue(std::move(value), name_id_mapper, context.evaluation_context.memory));
+        frame_writer.Write(cached.output_symbol, of_the_record([&](auto const &record) {
+                             return PropertyAsValue(std::move(value), record, cached.property_id, shape);
+                           }));
       }
     }
   }
