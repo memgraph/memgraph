@@ -158,6 +158,7 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
   void Visit(MultiDatabaseQuery &query) override {
     switch (query.action_) {
       case MultiDatabaseQuery::Action::CREATE:
+      case MultiDatabaseQuery::Action::REPLACE:
         AddPrivilege(AuthQuery::Privilege::MULTI_DATABASE_EDIT);
         break;
       case MultiDatabaseQuery::Action::DROP:

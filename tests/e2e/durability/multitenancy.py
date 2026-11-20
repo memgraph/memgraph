@@ -43,6 +43,10 @@ def instance_description(test_name: str):
     }
 
 
+def database_states(cursor):
+    return dict((row[0], row[1]) for row in execute_and_fetch_all(cursor, "SHOW DATABASES"))
+
+
 @pytest.fixture(autouse=True)
 def cleanup_after_test():
     # Run the test
@@ -174,6 +178,32 @@ def test_recovery_on_startup_false_recovers_tenants_but_not_data(test_name):
     assert len(tenant_backup_dirs) == 2, f"Expected .backup/snapshots for 2 tenants, found {len(tenant_backup_dirs)}"
     for backup_dir in tenant_backup_dirs:
         assert len(os.listdir(backup_dir)) > 0, f"Expected snapshot files in {backup_dir}, found none"
+
+
+def test_create_or_replace_database_on_cold_db(test_name):
+    """A suspended (COLD) tenant follows the same drop/create lifecycle: REPLACE brings it back HOT
+    and empty."""
+    instances = instance_description(test_name)
+    instances["instance_1"]["args"] += [
+        "--storage-snapshot-interval-sec=1",
+        "--storage-wal-enabled=true",
+        "--storage-snapshot-on-exit=false",
+    ]
+    interactive_mg_runner.start_all(instances, keep_directories=False)
+
+    cursor = connect(host="localhost", port=7687).cursor()
+    execute_and_fetch_all(cursor, "CREATE DATABASE tenant_cold")
+    execute_and_fetch_all(cursor, "USE DATABASE tenant_cold")
+    execute_and_fetch_all(cursor, "CREATE (:Cold {id: 1})")
+    execute_and_fetch_all(cursor, "USE DATABASE memgraph")
+    execute_and_fetch_all(cursor, "SUSPEND DATABASE tenant_cold")
+    assert database_states(cursor).get("tenant_cold") == "COLD"
+
+    execute_and_fetch_all(cursor, "CREATE OR REPLACE DATABASE tenant_cold")
+
+    assert database_states(cursor).get("tenant_cold") == "HOT"
+    execute_and_fetch_all(cursor, "USE DATABASE tenant_cold")
+    assert execute_and_fetch_all(cursor, "MATCH (n) RETURN count(n)") == [(0,)]
 
 
 if __name__ == "__main__":

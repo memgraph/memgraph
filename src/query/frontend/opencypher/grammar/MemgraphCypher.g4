@@ -838,7 +838,7 @@ multiDatabaseQuery : createDatabase
                    | resumeDatabase
                    ;
 
-createDatabase : CREATE DATABASE databaseName ;
+createDatabase : CREATE ( OR REPLACE )? DATABASE databaseName ;
 
 dropDatabase: DROP DATABASE databaseName ( FORCE)?;
 
