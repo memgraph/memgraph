@@ -29,10 +29,14 @@ void ThrowInvalidTypeException(const mgp::Value &value) {
 }  // namespace
 
 namespace {
-void CopyRelProperties(mgp::Relationship &to, mgp::Relationship const &from) {
-  for (auto const &[k, v] : from.Properties()) {
+void SetRelProperties(mgp::Relationship &to, std::unordered_map<std::string, mgp::Value> const &properties) {
+  for (auto const &[k, v] : properties) {
     to.SetProperty(k, v);
   }
+}
+
+void CopyRelProperties(mgp::Relationship &to, mgp::Relationship const &from) {
+  SetRelProperties(to, from.Properties());
 }
 }  // namespace
 
@@ -58,8 +62,10 @@ void Refactor::From(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *resul
     original_id = relationship.Id().AsInt();
 
     mgp::Graph graph{memgraph_graph};
+    // Read before creating so a deleted source throws before any write.
+    auto const properties = relationship.Properties();
     auto new_relationship = graph.CreateRelationship(new_from, relationship.To(), relationship.Type());
-    CopyRelProperties(new_relationship, relationship);
+    SetRelProperties(new_relationship, properties);
     graph.DeleteRelationship(relationship);
 
     auto record = record_factory.NewRecord();
@@ -90,8 +96,10 @@ void Refactor::To(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result,
     original_id = relationship.Id().AsInt();
 
     mgp::Graph graph{memgraph_graph};
+    // Read before creating so a deleted source throws before any write.
+    auto const properties = relationship.Properties();
     auto new_relationship = graph.CreateRelationship(relationship.From(), new_to, relationship.Type());
-    CopyRelProperties(new_relationship, relationship);
+    SetRelProperties(new_relationship, properties);
     graph.DeleteRelationship(relationship);
 
     auto record = record_factory.NewRecord();
