@@ -90,6 +90,7 @@ int main(int argc, char **argv) {
                                            FLAGS_storage_directory,
                                            memgraph::utils::GenerateUUID(),
                                            memgraph::utils::GetMachineId(),
+                                           memgraph::utils::GetOrCreateInstallId(FLAGS_root_directory),
                                            false,
                                            FLAGS_root_directory,
                                            std::chrono::seconds(FLAGS_interval),

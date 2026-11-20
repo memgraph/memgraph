@@ -44,7 +44,15 @@ def execute_test(**kwargs):
     timeout = duration + STARTUP_ALLOWANCE if "hang" not in kwargs else duration + STARTUP_ALLOWANCE + 60
     success = False
 
-    server_args = [server_binary, "--interval", interval, "--duration", duration]
+    server_args = [
+        server_binary,
+        "--interval",
+        interval,
+        "--duration",
+        duration,
+        "--install-id-file",
+        os.path.join(root_directory, ".memgraph_install_id"),
+    ]
     for flag, value in kwargs.items():
         flag = "--" + flag.replace("_", "-")
         # We handle boolean flags here. The type of value must be `bool`, and
