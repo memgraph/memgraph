@@ -13,6 +13,7 @@
 
 #include <fmt/format.h>
 #include <spdlog/spdlog.h>
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cstddef>
@@ -640,6 +641,19 @@ auto RaftState::GetRoutingTable(std::string_view const db_name,
 }
 
 auto RaftState::GetLeaderId() const -> int32_t { return raft_server_->get_leader(); }
+
+auto RaftState::GetRaftStatus() const -> RaftStatus {
+  auto const last_log_idx = raft_server_->get_last_log_idx();
+  return RaftStatus{
+      .term = raft_server_->get_term(),
+      .has_leader = raft_server_->get_leader() != -1,
+      .followers = raft_server_->get_peer_info_all() | std::views::transform([last_log_idx](auto const &peer) {
+                     return RaftFollower{.name = fmt::format("coordinator_{}", peer.id_),
+                                         .lag_entries = last_log_idx - std::min(peer.last_log_idx_, last_log_idx),
+                                         .last_response_seconds = static_cast<double>(peer.last_succ_resp_us_) / 1e6};
+                   }) |
+                   std::ranges::to<std::vector>()};
+}
 
 auto RaftState::GetEnabledReadsOnMain() const -> bool { return state_machine_->GetEnabledReadsOnMain(); }
 

@@ -21,6 +21,7 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <utility>
 #include <variant>
 #include <vector>
 
@@ -36,7 +37,8 @@
 #ifdef MG_ENTERPRISE
 namespace memgraph::coordination {
 struct InstanceStatus;
-}
+struct RaftStatus;
+}  // namespace memgraph::coordination
 #endif
 
 namespace memgraph::metrics {
@@ -80,6 +82,8 @@ using StorageSnapshotResolver = std::function<std::optional<StorageSnapshot>(uti
 
 #ifdef MG_ENTERPRISE
 using InstanceStatusResolver = std::function<std::vector<coordination::InstanceStatus>()>;
+/// Retrieves this coordinator's `RaftStatus`, or `std::nullopt` on a data instance.
+using RaftStatusResolver = std::function<std::optional<coordination::RaftStatus>()>;
 #endif
 
 struct GlobalMetricHandles {
@@ -245,6 +249,7 @@ class PrometheusMetrics {
   void SetStorageSnapshotResolver(StorageSnapshotResolver resolver);
 #ifdef MG_ENTERPRISE
   void SetInstanceStatusResolver(InstanceStatusResolver resolver);
+  void SetRaftStatusResolver(RaftStatusResolver resolver);
 #endif
 
   // Returns metrics for the current database for SHOW METRICS INFO.
@@ -315,6 +320,7 @@ class PrometheusMetrics {
   std::optional<utils::UUID> default_db_uuid_;
 #ifdef MG_ENTERPRISE
   InstanceStatusResolver instance_status_resolver_;
+  RaftStatusResolver raft_status_resolver_;
 #endif
 
   // Per-database metric families — storage
@@ -536,6 +542,18 @@ class PrometheusMetrics {
   prometheus::Family<prometheus::Gauge> &instance_is_leader_family_;
   prometheus::Family<prometheus::Gauge> &instance_is_main_family_;
   prometheus::Family<prometheus::Gauge> &instance_last_response_seconds_family_;
+
+  // Global metric families — this coordinator's Raft progress
+  prometheus::Family<prometheus::Gauge> &raft_term_family_;
+  prometheus::Family<prometheus::Gauge> &raft_has_leader_family_;
+  prometheus::Family<prometheus::Gauge> &raft_follower_lag_entries_family_;
+  prometheus::Family<prometheus::Gauge> &raft_follower_last_response_seconds_family_;
+
+  struct {
+    std::mutex mutex;
+    // Lag and last-response gauges of each follower, while this coordinator is the leader.
+    std::unordered_map<std::string, std::pair<prometheus::Gauge *, prometheus::Gauge *>> gauges;
+  } raft_followers_;
 
   struct {
     std::mutex mutex;
