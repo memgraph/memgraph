@@ -33,6 +33,7 @@
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/interpret/awesome_memgraph_functions.hpp"
 #include "query/interpret/frame.hpp"
+#include "query/interpret/property_as_value.hpp"
 #include "query/relations/comparability.hpp"
 #include "query/relations/equality.hpp"
 #include "query/typed_value.hpp"
@@ -1215,17 +1216,16 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   }
 #endif
 
-  // The one place a VectorRef is created, only under the lazy-refs gate; eager reads (floats filled) become a List.
+  /// How a value read at this evaluator's view is to be handed back.
+  PropertyValueShape ValueShape() {
+    return PropertyValueShape{
+        .view = view_, .references_wanted = ctx_->lazy_vector_refs, .names = GetNameIdMapper(), .memory = ctx_->memory};
+  }
+
   template <class TRecordAccessor, class TPropertyValue>
   TypedValue MakePropertyValue(const TRecordAccessor &record_accessor, storage::PropertyId prop_id,
                                TPropertyValue &&raw) {
-    if (raw.IsVectorIndexId() && ctx_->lazy_vector_refs) return MakeVectorRef(record_accessor, prop_id);
-    return {std::forward<TPropertyValue>(raw), GetNameIdMapper(), ctx_->memory};
-  }
-
-  template <class TRecordAccessor>
-  TypedValue MakeVectorRef(const TRecordAccessor &record_accessor, storage::PropertyId prop_id) {
-    return TypedValue(VectorRefValue{record_accessor.impl_, prop_id, view_}, ctx_->memory);
+    return PropertyAsValue(std::forward<TPropertyValue>(raw), record_accessor, prop_id, ValueShape());
   }
 
   template <class TRecordAccessor>

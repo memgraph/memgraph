@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "query/interpret/awesome_memgraph_functions.hpp"
+#include "query/interpret/property_as_value.hpp"
 
 #include <algorithm>
 #include <charconv>
@@ -49,6 +50,14 @@
 
 namespace memgraph::query {
 namespace {
+
+/// How a function's reads of a record's properties are to hand their values back.
+PropertyValueShape ValueShapeOf(const FunctionContext &ctx) {
+  return PropertyValueShape{.view = ctx.view,
+                            .references_wanted = ctx.lazy_vector_refs,
+                            .names = ctx.db_accessor->GetStorageAccessor()->GetNameIdMapper(),
+                            .memory = ctx.memory};
+}
 
 ////////////////////////////////////////////////////////////////////////////////
 // eDSL using template magic for describing a type of an awesome memgraph
@@ -479,17 +488,11 @@ TypedValue Properties(const TypedValue *args, int64_t nargs, const FunctionConte
           throw QueryRuntimeException("Unexpected error when getting properties.");
       }
     }
+    const auto shape = ValueShapeOf(ctx);
     for (const auto &property : *maybe_props) {
       auto key = TypedValue::TString(dba->PropertyToName(property.first), ctx.memory);
       if (is_allowed(property.first)) {
-        if (ctx.lazy_vector_refs && property.second.IsVectorIndexId()) {
-          properties.emplace(std::move(key),
-                             TypedValue(VectorRefValue{record_accessor.impl_, property.first, ctx.view}, ctx.memory));
-        } else {
-          auto typed_value =
-              TypedValue(property.second, ctx.db_accessor->GetStorageAccessor()->GetNameIdMapper(), ctx.memory);
-          properties.emplace(std::move(key), std::move(typed_value));
-        }
+        properties.emplace(std::move(key), PropertyAsValue(property.second, record_accessor, property.first, shape));
       } else {
         properties.emplace(std::move(key), TypedValue(ctx.memory));
       }
@@ -1035,14 +1038,9 @@ TypedValue Values(const TypedValue *args, int64_t nargs, const FunctionContext &
           throw QueryRuntimeException("Unexpected error when getting keys.");
       }
     }
+    const auto shape = ValueShapeOf(ctx);
     for (const auto &[key, value] : *maybe_props) {
-      if (is_allowed(key)) {
-        if (ctx.lazy_vector_refs && value.IsVectorIndexId()) {
-          values.emplace_back(VectorRefValue{record_accessor.impl_, key, ctx.view});
-        } else {
-          values.emplace_back(TypedValue(value, ctx.db_accessor->GetStorageAccessor()->GetNameIdMapper(), ctx.memory));
-        }
-      }
+      if (is_allowed(key)) values.emplace_back(PropertyAsValue(value, record_accessor, key, shape));
     }
     return TypedValue(std::move(values));
   };
