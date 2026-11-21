@@ -39,6 +39,7 @@ target_sources(mg-query
     PRIVATE
     auth_query_handler.cpp
     arrow_parquet/reader.cpp
+    checked_arith.cpp
     common.cpp
     context.cpp
     cypher_query_interpreter.cpp

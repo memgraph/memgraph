@@ -325,6 +325,84 @@ void SortStringColumn(benchmark::State &state) {
   state.SetItemsProcessed(state.iterations() * static_cast<int64_t>(source.size()));
 }
 
+// The arithmetic operators over a column of operands. Left operands are large and right operands
+// are small and positive, so nothing overflows and no divisor is 0 or -1.
+constexpr size_t kOperands = 4096;
+
+struct Operands {
+  std::vector<TypedValue> lhs;
+  std::vector<TypedValue> rhs;
+};
+
+Operands IntOperands() {
+  auto operands = Operands{};
+  operands.lhs.reserve(kOperands);
+  operands.rhs.reserve(kOperands);
+  for (size_t i = 0; i != kOperands; ++i) {
+    operands.lhs.emplace_back(int64_t{1'000'000} + static_cast<int64_t>(i) * 7, Mem());
+    operands.rhs.emplace_back(int64_t{2} + static_cast<int64_t>(i % 97), Mem());
+  }
+  return operands;
+}
+
+Operands DoubleOperands() {
+  auto operands = Operands{};
+  operands.lhs.reserve(kOperands);
+  operands.rhs.reserve(kOperands);
+  for (size_t i = 0; i != kOperands; ++i) {
+    operands.lhs.emplace_back(1'000'000.5 + static_cast<double>(i) * 7.25, Mem());
+    operands.rhs.emplace_back(2.5 + static_cast<double>(i % 97), Mem());
+  }
+  return operands;
+}
+
+template <typename Op>
+void RunBinary(benchmark::State &state, Operands const &operands, Op op) {
+  for (auto _ : state) {
+    for (size_t i = 0; i != kOperands; ++i) {
+      auto result = op(operands.lhs[i], operands.rhs[i]);
+      benchmark::DoNotOptimize(result);
+    }
+  }
+  state.SetItemsProcessed(state.iterations() * static_cast<int64_t>(kOperands));
+}
+
+void BM_IntAdd(benchmark::State &state) {
+  RunBinary(state, IntOperands(), [](TypedValue const &a, TypedValue const &b) { return a + b; });
+}
+
+void BM_IntSub(benchmark::State &state) {
+  RunBinary(state, IntOperands(), [](TypedValue const &a, TypedValue const &b) { return a - b; });
+}
+
+void BM_IntMul(benchmark::State &state) {
+  RunBinary(state, IntOperands(), [](TypedValue const &a, TypedValue const &b) { return a * b; });
+}
+
+void BM_IntDiv(benchmark::State &state) {
+  RunBinary(state, IntOperands(), [](TypedValue const &a, TypedValue const &b) { return a / b; });
+}
+
+void BM_IntMod(benchmark::State &state) {
+  RunBinary(state, IntOperands(), [](TypedValue const &a, TypedValue const &b) { return a % b; });
+}
+
+void BM_IntNeg(benchmark::State &state) {
+  auto const operands = IntOperands();
+  for (auto _ : state) {
+    for (auto const &a : operands.lhs) {
+      auto result = -a;
+      benchmark::DoNotOptimize(result);
+    }
+  }
+  state.SetItemsProcessed(state.iterations() * static_cast<int64_t>(kOperands));
+}
+
+// Control: the double path is untouched by checked integer arithmetic.
+void BM_DoubleAdd(benchmark::State &state) {
+  RunBinary(state, DoubleOperands(), [](TypedValue const &a, TypedValue const &b) { return a + b; });
+}
+
 // The label comes from the same token that selects the shape, so the two cannot disagree.
 #define SHAPE(bench, shape) BENCHMARK_TEMPLATE(bench, shape)->Name(#bench "/" #shape)->Unit(benchmark::kNanosecond)
 
@@ -376,6 +454,14 @@ SHAPE(Orderability, NaN);
 SHAPE(Orderability, IntAgainstDouble);
 BENCHMARK(SortColumn)->Unit(benchmark::kNanosecond);
 BENCHMARK(SortStringColumn)->Unit(benchmark::kNanosecond);
+
+BENCHMARK(BM_IntAdd)->Unit(benchmark::kMicrosecond);
+BENCHMARK(BM_IntSub)->Unit(benchmark::kMicrosecond);
+BENCHMARK(BM_IntMul)->Unit(benchmark::kMicrosecond);
+BENCHMARK(BM_IntDiv)->Unit(benchmark::kMicrosecond);
+BENCHMARK(BM_IntMod)->Unit(benchmark::kMicrosecond);
+BENCHMARK(BM_IntNeg)->Unit(benchmark::kMicrosecond);
+BENCHMARK(BM_DoubleAdd)->Unit(benchmark::kMicrosecond);
 
 #undef FOR_EACH_TYPE
 #undef FOR_EACH_COMPARABLE_TYPE
