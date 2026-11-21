@@ -16,6 +16,9 @@
 
 #include "storage/v2/vertex.hpp"
 #include "storage/v2/vertex_accessor.hpp"
+#ifdef MG_ENTERPRISE
+#include "utils/logging.hpp"
+#endif
 
 namespace memgraph::storage {
 
@@ -74,6 +77,13 @@ struct LabelIndexActiveIndices {
   virtual bool IndexExists(LabelId label) const = 0;
 
   virtual bool IndexReady(LabelId label) const = 0;
+
+#ifdef MG_ENTERPRISE
+  // Committed at or before `timestamp`: a branch (historical) read must skip an index rebuilt after its fork.
+  virtual bool IndexVisibleAt(LabelId /*label*/, uint64_t /*timestamp*/) const {
+    LOG_FATAL("IndexVisibleAt is implemented only for in-memory indices");
+  }
+#endif
 
   virtual std::vector<LabelId> ListIndices(uint64_t start_timestamp) const = 0;
 

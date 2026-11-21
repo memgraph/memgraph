@@ -53,4 +53,17 @@ class WriteVertexOperationInEdgeImportModeException : public InvalidOperationExc
   SPECIALIZE_GET_EXCEPTION_NAME(WriteVertexOperationInEdgeImportModeException)
 };
 
+#ifdef MG_ENTERPRISE
+class WriteInHistoricalAccessorException : public InvalidOperationException {
+ public:
+  WriteInHistoricalAccessorException()
+      : InvalidOperationException("Write operations are forbidden on a read-only historical snapshot.") {}
+  SPECIALIZE_GET_EXCEPTION_NAME(WriteInHistoricalAccessorException)
+};
+
+// Text and vector indexes hold only current values, so they cannot answer a historical read.
+inline constexpr auto kTextSearchOnHistorical = "Text search is not supported on a historical snapshot.";
+inline constexpr auto kVectorSearchOnHistorical = "Vector search is not supported on a historical snapshot.";
+#endif
+
 }  // namespace memgraph::storage

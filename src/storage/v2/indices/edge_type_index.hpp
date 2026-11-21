@@ -22,6 +22,9 @@
 
 #include "storage/v2/edge_ref.hpp"
 #include "storage/v2/id_types.hpp"
+#ifdef MG_ENTERPRISE
+#include "utils/logging.hpp"
+#endif
 
 namespace memgraph::storage {
 
@@ -77,6 +80,13 @@ struct EdgeTypeIndexActiveIndices {
   virtual auto ApproximateEdgeCount(EdgeTypeId edge_type) const -> uint64_t = 0;
 
   virtual bool IndexReady(EdgeTypeId edge_type) const = 0;
+
+#ifdef MG_ENTERPRISE
+  virtual bool IndexVisibleAt(EdgeTypeId /*edge_type*/, uint64_t /*timestamp*/) const {
+    LOG_FATAL("IndexVisibleAt is implemented only for in-memory indices");
+  }
+#endif
+
   virtual bool IndexExists(EdgeTypeId edge_type) const = 0;
 
   virtual auto ListIndices(uint64_t start_timestamp) const -> std::vector<EdgeTypeId> = 0;

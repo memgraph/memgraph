@@ -141,6 +141,17 @@ Storage::Accessor::Accessor(Storage *storage, std::optional<IsolationLevel> over
              "an accessor's guard must be a held guard on its own storage's main_lock_");
 }
 
+#ifdef MG_ENTERPRISE
+Storage::Accessor::Accessor(HistoricalAccess /* tag */, Storage *storage,
+                            std::function<Transaction()> build_transaction,
+                            const std::optional<std::chrono::milliseconds> timeout)
+    : storage_(storage),
+      guard_(AcquireGuardOrThrow(storage, StorageAccessType::READ, timeout)),
+      transaction_(build_transaction()),
+      is_transaction_active_(true),
+      original_access_type_(StorageAccessType::READ) {}
+#endif
+
 Storage::Accessor::Accessor(Accessor &&other) noexcept
     : storage_(other.storage_),
       guard_(std::move(other.guard_)),
@@ -684,6 +695,9 @@ void Storage::Accessor::MarkEdgeAsDeleted(Edge *edge) {
 
 std::expected<void, storage::StorageIndexDefinitionError> Storage::Accessor::CreateTextIndex(
     const TextIndexSpec &text_index_info, ProgressCallback const &on_progress) {
+#ifdef MG_ENTERPRISE
+  ThrowIfHistorical();
+#endif
   MG_ASSERT(type() == UNIQUE, "Creating a text index requires unique access to storage!");
 
   // Check for name conflicts with existing text edge indexes
@@ -721,6 +735,9 @@ std::expected<void, storage::StorageIndexDefinitionError> Storage::Accessor::Cre
 
 std::expected<void, storage::StorageIndexDefinitionError> Storage::Accessor::CreateTextEdgeIndex(
     const TextEdgeIndexSpec &text_edge_index_info, ProgressCallback const &on_progress) {
+#ifdef MG_ENTERPRISE
+  ThrowIfHistorical();
+#endif
   MG_ASSERT(type() == UNIQUE, "Creating a text edge index requires unique access to storage!");
 
   // Check for name conflicts with existing text node indexes
@@ -755,6 +772,9 @@ std::expected<void, storage::StorageIndexDefinitionError> Storage::Accessor::Cre
 
 std::expected<void, storage::StorageIndexDefinitionError> Storage::Accessor::DropTextIndex(
     const std::string &index_name) {
+#ifdef MG_ENTERPRISE
+  ThrowIfHistorical();
+#endif
   MG_ASSERT(type() == UNIQUE, "Dropping a text index requires unique access to storage!");
   auto updater = storage_->indices_.MakeUpdater();
   auto &metric_handles = storage_->metric_handles_;

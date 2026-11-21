@@ -555,6 +555,16 @@ class Accessor {
   /// them before acquiring could build a transaction against a mode that has since changed.
   Accessor(Storage *storage, std::optional<IsolationLevel> override_isolation_level, utils::ResourceLockGuard guard);
 
+#ifdef MG_ENTERPRISE
+  // Tag for opening a read-only accessor on an explicit historical Transaction (see InMemoryStorage::HistoricalAccess).
+  static constexpr struct HistoricalAccess {
+  } historical_access;
+
+  // SHARED (READ) guard, not READ_ONLY: coexists with writers and GC, excludes UNIQUE ops (DDL, Clear, SetStorageMode).
+  // `build_transaction` runs after `guard_` is held (member order), so its snapshot cannot race UNIQUE ops.
+  Accessor(HistoricalAccess /* tag */, Storage *storage, std::function<Transaction()> build_transaction,
+           std::optional<std::chrono::milliseconds> timeout = std::nullopt);
+#endif
   Accessor(const Accessor &) = delete;
   Accessor &operator=(const Accessor &) = delete;
   Accessor &operator=(Accessor &&other) = delete;
@@ -773,22 +783,42 @@ class Accessor {
 
   std::vector<TextSearchResult> TextIndexSearch(const std::string &index_name, const std::string &search_query,
                                                 text_search_mode search_mode, const TextSearchConfig &config) const {
+#ifdef MG_ENTERPRISE
+    if (transaction_.is_historical_) [[unlikely]] {
+      throw TextSearchException(kTextSearchOnHistorical);
+    }
+#endif
     return transaction_.active_indices_->text_->Search(index_name, search_query, search_mode, config, transaction_);
   }
 
   std::string TextIndexAggregate(const std::string &index_name, const std::string &search_query,
                                  const std::string &aggregation_query) const {
+#ifdef MG_ENTERPRISE
+    if (transaction_.is_historical_) [[unlikely]] {
+      throw TextSearchException(kTextSearchOnHistorical);
+    }
+#endif
     return transaction_.active_indices_->text_->Aggregate(index_name, search_query, aggregation_query);
   }
 
   std::string TextEdgeIndexAggregate(const std::string &index_name, const std::string &search_query,
                                      const std::string &aggregation_query) const {
+#ifdef MG_ENTERPRISE
+    if (transaction_.is_historical_) [[unlikely]] {
+      throw TextSearchException(kTextSearchOnHistorical);
+    }
+#endif
     return transaction_.active_indices_->text_edge_->Aggregate(index_name, search_query, aggregation_query);
   }
 
   std::vector<TextEdgeSearchResult> SearchEdgeTextIndex(const std::string &index_name, const std::string &search_query,
                                                         text_search_mode search_mode,
                                                         const TextSearchConfig &config) const {
+#ifdef MG_ENTERPRISE
+    if (transaction_.is_historical_) [[unlikely]] {
+      throw TextSearchException(kTextSearchOnHistorical);
+    }
+#endif
     return transaction_.active_indices_->text_edge_->Search(
         index_name, search_query, search_mode, config, transaction_);
   }
@@ -1011,6 +1041,9 @@ class Accessor {
 
   auto CreateEnum(std::string_view name, std::span<std::string const> values)
       -> std::expected<EnumTypeId, EnumStorageError> {
+#ifdef MG_ENTERPRISE
+    ThrowIfHistorical();
+#endif
     auto res = storage_->enum_store_.RegisterEnum(name, values);
     if (res) {
       transaction_.md_deltas.emplace_back(MetadataDelta::enum_create, res.value());
@@ -1020,6 +1053,9 @@ class Accessor {
 
   auto EnumAlterAdd(std::string_view name, std::string_view value)
       -> std::expected<storage::Enum, storage::EnumStorageError> {
+#ifdef MG_ENTERPRISE
+    ThrowIfHistorical();
+#endif
     auto res = storage_->enum_store_.AddValue(name, value);
     if (res) {
       transaction_.md_deltas.emplace_back(MetadataDelta::enum_alter_add, res.value());
@@ -1029,6 +1065,9 @@ class Accessor {
 
   auto EnumAlterUpdate(std::string_view name, std::string_view old_value, std::string_view new_value)
       -> std::expected<storage::Enum, storage::EnumStorageError> {
+#ifdef MG_ENTERPRISE
+    ThrowIfHistorical();
+#endif
     auto res = storage_->enum_store_.UpdateValue(name, old_value, new_value);
     if (res) {
       transaction_.md_deltas.emplace_back(MetadataDelta::enum_alter_update, res.value(), std::string{old_value});
@@ -1039,6 +1078,9 @@ class Accessor {
   auto ShowEnums() { return storage_->enum_store_.AllRegistered(); }
 
   void SetLabelDescription(std::span<std::string const> label_names, std::string_view desc) {
+#ifdef MG_ENTERPRISE
+    ThrowIfHistorical();
+#endif
     auto labels = ResolveLabels(label_names);
     storage_->description_store_.SetLabel(labels, desc);
     transaction_.md_deltas.emplace_back(MetadataDelta::description_set,
@@ -1050,6 +1092,9 @@ class Accessor {
   }
 
   bool DeleteLabelDescription(std::span<std::string const> label_names) {
+#ifdef MG_ENTERPRISE
+    ThrowIfHistorical();
+#endif
     auto labels = ResolveLabels(label_names);
     auto deleted = storage_->description_store_.DeleteLabel(labels);
     if (deleted) {
@@ -1067,6 +1112,9 @@ class Accessor {
   }
 
   void SetEdgeTypeDescription(std::string_view name, std::string_view desc) {
+#ifdef MG_ENTERPRISE
+    ThrowIfHistorical();
+#endif
     auto edge_type = storage_->NameToEdgeType(name);
     storage_->description_store_.SetEdgeType(edge_type, desc);
     transaction_.md_deltas.emplace_back(MetadataDelta::description_set,
@@ -1078,6 +1126,9 @@ class Accessor {
   }
 
   bool DeleteEdgeTypeDescription(std::string_view name) {
+#ifdef MG_ENTERPRISE
+    ThrowIfHistorical();
+#endif
     auto edge_type = storage_->NameToEdgeType(name);
     auto deleted = storage_->description_store_.DeleteEdgeType(edge_type);
     if (deleted) {
@@ -1096,6 +1147,9 @@ class Accessor {
 
   void SetLabelPropertyDescription(std::span<std::string const> label_qualifier, std::string_view prop_name,
                                    std::string_view desc) {
+#ifdef MG_ENTERPRISE
+    ThrowIfHistorical();
+#endif
     auto labels = ResolveLabels(label_qualifier);
     auto prop = storage_->NameToProperty(prop_name);
     storage_->description_store_.SetLabelProperty(labels, prop, desc);
@@ -1108,6 +1162,9 @@ class Accessor {
   }
 
   bool DeleteLabelPropertyDescription(std::span<std::string const> label_qualifier, std::string_view prop_name) {
+#ifdef MG_ENTERPRISE
+    ThrowIfHistorical();
+#endif
     auto labels = ResolveLabels(label_qualifier);
     auto prop = storage_->NameToProperty(prop_name);
     bool deleted = storage_->description_store_.DeleteLabelProperty(labels, prop);
@@ -1129,6 +1186,9 @@ class Accessor {
 
   void SetEdgeTypePropertyDescription(std::string_view edge_type_name, std::string_view prop_name,
                                       std::string_view desc) {
+#ifdef MG_ENTERPRISE
+    ThrowIfHistorical();
+#endif
     auto edge_type = storage_->NameToEdgeType(edge_type_name);
     auto prop = storage_->NameToProperty(prop_name);
     storage_->description_store_.SetEdgeTypeProperty(edge_type, prop, desc);
@@ -1141,6 +1201,9 @@ class Accessor {
   }
 
   bool DeleteEdgeTypePropertyDescription(std::string_view edge_type_name, std::string_view prop_name) {
+#ifdef MG_ENTERPRISE
+    ThrowIfHistorical();
+#endif
     auto edge_type = storage_->NameToEdgeType(edge_type_name);
     auto prop = storage_->NameToProperty(prop_name);
     bool deleted = storage_->description_store_.DeleteEdgeTypeProperty(edge_type, prop);
@@ -1161,6 +1224,9 @@ class Accessor {
   }
 
   void SetPropertyDescription(std::string_view prop_name, std::string_view desc) {
+#ifdef MG_ENTERPRISE
+    ThrowIfHistorical();
+#endif
     auto prop = storage_->NameToProperty(prop_name);
     storage_->description_store_.SetProperty(prop, desc);
     transaction_.md_deltas.emplace_back(MetadataDelta::description_set,
@@ -1172,6 +1238,9 @@ class Accessor {
   }
 
   bool DeletePropertyDescription(std::string_view prop_name) {
+#ifdef MG_ENTERPRISE
+    ThrowIfHistorical();
+#endif
     auto prop = storage_->NameToProperty(prop_name);
     bool deleted = storage_->description_store_.DeleteProperty(prop);
     if (deleted) {
@@ -1190,6 +1259,9 @@ class Accessor {
 
   void SetPropertyValueDescription(std::string_view prop_name, ExternalPropertyValue const &value,
                                    std::string_view desc) {
+#ifdef MG_ENTERPRISE
+    ThrowIfHistorical();
+#endif
     auto prop = storage_->NameToProperty(prop_name);
     storage_->description_store_.SetPropertyValue(prop, value, desc);
     transaction_.md_deltas.emplace_back(MetadataDelta::description_set,
@@ -1204,6 +1276,9 @@ class Accessor {
   }
 
   bool DeletePropertyValueDescription(std::string_view prop_name, ExternalPropertyValue const &value) {
+#ifdef MG_ENTERPRISE
+    ThrowIfHistorical();
+#endif
     auto prop = storage_->NameToProperty(prop_name);
     bool deleted = storage_->description_store_.DeletePropertyValue(prop, value);
     if (deleted) {
@@ -1226,6 +1301,9 @@ class Accessor {
 
   void SetEdgeTypePatternDescription(std::span<std::string const> from_label_names, std::string_view edge_type_name,
                                      std::span<std::string const> to_label_names, std::string_view desc) {
+#ifdef MG_ENTERPRISE
+    ThrowIfHistorical();
+#endif
     auto from_labels = ResolveLabels(from_label_names);
     auto edge_type = storage_->NameToEdgeType(edge_type_name);
     auto to_labels = ResolveLabels(to_label_names);
@@ -1242,6 +1320,9 @@ class Accessor {
 
   bool DeleteEdgeTypePatternDescription(std::span<std::string const> from_label_names, std::string_view edge_type_name,
                                         std::span<std::string const> to_label_names) {
+#ifdef MG_ENTERPRISE
+    ThrowIfHistorical();
+#endif
     auto from_labels = ResolveLabels(from_label_names);
     auto edge_type = storage_->NameToEdgeType(edge_type_name);
     auto to_labels = ResolveLabels(to_label_names);
@@ -1269,6 +1350,9 @@ class Accessor {
                                              std::string_view edge_type_name,
                                              std::span<std::string const> to_label_names, std::string_view prop_name,
                                              std::string_view desc) {
+#ifdef MG_ENTERPRISE
+    ThrowIfHistorical();
+#endif
     auto from_labels = ResolveLabels(from_label_names);
     auto edge_type = storage_->NameToEdgeType(edge_type_name);
     auto to_labels = ResolveLabels(to_label_names);
@@ -1288,6 +1372,9 @@ class Accessor {
                                                 std::string_view edge_type_name,
                                                 std::span<std::string const> to_label_names,
                                                 std::string_view prop_name) {
+#ifdef MG_ENTERPRISE
+    ThrowIfHistorical();
+#endif
     auto from_labels = ResolveLabels(from_label_names);
     auto edge_type = storage_->NameToEdgeType(edge_type_name);
     auto to_labels = ResolveLabels(to_label_names);
@@ -1316,6 +1403,9 @@ class Accessor {
   }
 
   void SetDatabaseDescription(std::string_view desc) {
+#ifdef MG_ENTERPRISE
+    ThrowIfHistorical();
+#endif
     storage_->description_store_.SetDatabase(desc);
     transaction_.md_deltas.emplace_back(MetadataDelta::description_set,
                                         DescriptionTargetKind::DATABASE,
@@ -1326,6 +1416,9 @@ class Accessor {
   }
 
   bool DeleteDatabaseDescription() {
+#ifdef MG_ENTERPRISE
+    ThrowIfHistorical();
+#endif
     bool deleted = storage_->description_store_.DeleteDatabase();
     if (deleted) {
       transaction_.md_deltas.emplace_back(MetadataDelta::description_delete,
@@ -1394,6 +1487,14 @@ class Accessor {
   virtual storage::ttl::TtlInfo GetTtlConfig() const = 0;
 #endif
  protected:
+#ifdef MG_ENTERPRISE
+  // First statement of every metadata writer a SHARED-held historical accessor could reach.
+  void ThrowIfHistorical() const {
+    if (transaction_.is_historical_) [[unlikely]]
+      throw WriteInHistoricalAccessorException();
+  }
+#endif
+
   Storage *storage_;
   /// One guard for all four ways to hold main_lock_. The mode is mutable state, not a property of
   /// this type: a READ_ONLY hold downgrades to READ, and ReleaseUniqueGuard() leaves nothing held.

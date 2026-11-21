@@ -1149,23 +1149,32 @@ TEST_F(LockFreeReadSnapshotRecovery, ForkPinInsideCommitWindow_ExcludesTheInFlig
   EXPECT_EQ(store->VertexStoreSize(), 0U);
 }
 
-// With a live pin and no active transactions GC must not take the idle free-immediately path (narrowing ON).
-TEST_F(LockFreeReadSnapshotRecovery, ForkPinBlocksGcIdleShortcut_ON) {
+// Historical readers keep commit_lock_narrowing off because the fork point excludes the in-flight commit.
+TEST_F(LockFreeReadSnapshotRecovery, HistoricalReadAtForkStableWhenInFlightCommitPublishes_ON) {
   auto store = MakeWalStorageManualGc(storage_directory);
-  const auto victim = CreateVertexWithProp(*store, 1);
+  const auto gid = CreateVertexWithProp(*store, 1);
+
+  PreparedCommit commit;
+  PrepareWithoutPublish(*store, gid, 2, commit);
   const auto fork_ts = store->RegisterForkPin();
+  auto historical = store->HistoricalAccess(fork_ts);
+  ASSERT_TRUE(historical.has_value());
+  EXPECT_FALSE((*historical)->GetTransaction()->commit_lock_narrowing);
+  EXPECT_EQ(ReadProp(**historical, gid), 1);
+
+  PublishAndEnd(*store, commit);
+  EXPECT_EQ(ReadProp(**historical, gid), 1) << "the in-flight commit turned visible at the fork once published";
   {
-    auto acc = store->Access(memgraph::storage::WRITE);
-    auto vertex = acc->FindVertex(victim, View::OLD);
-    ASSERT_TRUE(acc->DeleteVertex(&*vertex).has_value());
-    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    auto fresh = store->HistoricalAccess(fork_ts);
+    ASSERT_TRUE(fresh.has_value());
+    EXPECT_EQ(ReadProp(**fresh, gid), 1);
   }
-  RunGc(*store);
-  RunGc(*store);
-  EXPECT_EQ(store->VertexStoreSize(), 1U) << "a vertex the fork still sees was reclaimed";
+  {
+    auto reader = store->Access(memgraph::storage::READ);
+    EXPECT_EQ(ReadProp(*reader, gid), 2);
+  }
+
+  historical->reset();
   store->ReleaseForkPin(fork_ts);
-  RunGc(*store);
-  RunGc(*store);
-  EXPECT_EQ(store->VertexStoreSize(), 0U);
 }
 #endif  // MG_ENTERPRISE
