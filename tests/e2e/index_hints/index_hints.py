@@ -651,5 +651,104 @@ def test_vertex_property_index_hint_correctness(memgraph):
     assert results[0]["v"] == 3
 
 
+def _explain(memgraph, query):
+    """EXPLAIN the query, failing the test (not erroring out) when the query is rejected."""
+    try:
+        return [row["QUERY PLAN"] for row in memgraph.execute_and_fetch(f"EXPLAIN {query}")]
+    except mgclient.DatabaseError as error:
+        assert False, f"EXPLAIN {query} was rejected instead of planned: {error}"
+
+
+def test_per_match_index_hint(memgraph):
+    """A USING INDEX hint placed at the MATCH it qualifies plans like the query-prefix form."""
+    memgraph.execute("FOREACH (i IN range(1, 50) | CREATE (n:Label1:Label2 {id: i}));")
+    memgraph.execute("FOREACH (i IN range(1, 10) | CREATE (n:Label2 {id: i+50}));")
+    memgraph.execute("CREATE INDEX ON :Label1;")
+    memgraph.execute("CREATE INDEX ON :Label2;")
+
+    expected_explain_no_hint = [
+        " * Produce {n}",
+        " * Filter (n :Label1:Label2)",
+        " * ScanAllByLabel (n :Label1)",
+        " * Once",
+    ]
+    expected_explain_with_hint = [row.replace("(n :Label1)", "(n :Label2)") for row in expected_explain_no_hint]
+
+    def explain(query):
+        return _explain(memgraph, query)
+
+    assert explain("MATCH (n:Label1:Label2) RETURN n;") == expected_explain_no_hint
+
+    # Both spellings, after the pattern; the same query is explained twice to take the AST-cache clone path.
+    per_match_after_pattern = [
+        "MATCH (n:Label1:Label2) USING INDEX :Label2 RETURN n;",
+        "MATCH (n:Label1:Label2) USING INDEX n:Label2 RETURN n;",
+    ]
+    for query in per_match_after_pattern:
+        assert explain(query) == expected_explain_with_hint, query
+        assert explain(query) == expected_explain_with_hint, query
+
+    for query in (
+        "MATCH (n:Label1:Label2) WHERE n.id >= 1 USING INDEX :Label2 RETURN n;",
+        "MATCH (n:Label1:Label2) WHERE n.id >= 1 USING INDEX n:Label2 RETURN n;",
+    ):
+        plan = explain(query)
+        assert any("ScanAllByLabel (n :Label2)" in step for step in plan), (query, plan)
+
+    assert explain("USING INDEX n:Label2 MATCH (n:Label1:Label2) RETURN n;") == expected_explain_with_hint
+
+
+def test_per_match_index_hint_ordering(memgraph):
+    """The first applicable hint wins, and prefix and per-MATCH hints merge into one plan-wide hint set."""
+    memgraph.execute("FOREACH (i IN range(1, 50) | CREATE (n:Label1:Label2:Label3 {id: i}));")
+    memgraph.execute("CREATE INDEX ON :Label1;")
+    memgraph.execute("CREATE INDEX ON :Label2;")
+    memgraph.execute("CREATE INDEX ON :Label3;")
+
+    def explain(query):
+        return _explain(memgraph, query)
+
+    per_match = explain("MATCH (n:Label2:Label3) USING INDEX :Label3, :Label2 RETURN n;")
+    prefix = explain("USING INDEX :Label3, :Label2 MATCH (n:Label2:Label3) RETURN n;")
+    assert per_match == prefix
+    assert any("ScanAllByLabel (n :Label3)" in step for step in per_match)
+
+    # A prefix hint that is not applicable does not stop the per-MATCH hint from being consumed.
+    merged = explain("USING INDEX :Label1 MATCH (n:Label2:Label3) USING INDEX :Label3 RETURN n;")
+    assert any("ScanAllByLabel (n :Label3)" in step for step in merged), merged
+
+
+def test_subquery_index_hint(memgraph):
+    """Hints inside a CALL body reach the plan of that body instead of being silently dropped."""
+    memgraph.execute("FOREACH (i IN range(1, 50) | CREATE (n:Label1:Label2 {id: i}));")
+    memgraph.execute("CREATE INDEX ON :Label1;")
+    memgraph.execute("CREATE INDEX ON :Label2;")
+
+    def explain(query):
+        return _explain(memgraph, query)
+
+    for query in (
+        "CALL { USING INDEX :Label2 MATCH (n:Label1:Label2) RETURN n } RETURN n;",
+        "CALL { MATCH (n:Label1:Label2) USING INDEX :Label2 RETURN n } RETURN n;",
+    ):
+        plan = explain(query)
+        assert any("ScanAllByLabel (n :Label2)" in step for step in plan), (query, plan)
+
+
+def test_union_right_branch_per_match_hint(memgraph):
+    """A per-MATCH hint on the union's right branch plans like the same hint at the query prefix."""
+    memgraph.execute("FOREACH (i IN range(1, 50) | CREATE (n:Label1:Label2 {id: i}));")
+    memgraph.execute("CREATE INDEX ON :Label1;")
+    memgraph.execute("CREATE INDEX ON :Label2;")
+
+    def explain(query):
+        return _explain(memgraph, query)
+
+    per_match = explain("MATCH (n:Label1) RETURN n UNION MATCH (n:Label2) USING INDEX :Label2 RETURN n;")
+    prefix = explain("USING INDEX :Label2 MATCH (n:Label1) RETURN n UNION MATCH (n:Label2) RETURN n;")
+    assert per_match == prefix
+    assert any("ScanAllByLabel (n :Label2)" in step for step in per_match)
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))

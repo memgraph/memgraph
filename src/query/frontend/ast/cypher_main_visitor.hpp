@@ -1524,6 +1524,7 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
 
  private:
   LabelIx AddLabel(const std::string &name);
+  void AddIndexHints(MemgraphCypher::IndexHintsContext *ctx, std::vector<IndexHint> &hints);
   PropertyIx AddProperty(const std::string &name);
   EdgeTypeIx AddEdgeType(const std::string &name);
 
@@ -1566,6 +1567,9 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   bool in_with_ = false;
   // Flag to indicate if we are parsing an EXISTS subquery
   bool parsing_subquery_body_ = false;
+  // Index hints written at a MATCH or in a nested query, waiting to be gathered into the outermost query.
+  std::vector<IndexHint> nested_index_hints_;
+  int cypher_query_depth_ = 0;
   Parameters *parameters_;
   // Token positions of `$name` parameters, mapped to their unescaped names. Stripped literals are not in here.
   std::unordered_map<int32_t, std::string> parameter_names_;
