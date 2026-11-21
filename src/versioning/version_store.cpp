@@ -18,6 +18,7 @@
 #include <system_error>
 
 #include <fmt/format.h>
+#include <fmt/ranges.h>
 #include <spdlog/spdlog.h>
 
 #include "metrics/prometheus_metrics.hpp"
@@ -286,6 +287,28 @@ void VersionStore::Release(Branch *branch) {
     doomed = std::move(*it);
     dropped_.erase(it);
   }
+}
+
+bool DropBranchesOnReplica(VersionStore &store, std::string_view database, std::string_view occasion) {
+  std::vector<std::string> dropped;
+  bool ok = true;
+  for (const auto &listing : store.List()) {
+    const auto result = store.DropBranch(listing.name, true);
+    if (!result) {
+      spdlog::error(
+          "Failed to drop branch '{}' of database {} {}: {}", listing.name, database, occasion, result.error());
+      ok = false;
+    } else if (*result == DropResult::kDropped) {
+      dropped.push_back(listing.name);
+    }
+  }
+  if (!dropped.empty()) {
+    spdlog::warn("Graph Versioning: dropped branches [{}] of database {} {}; a REPLICA has no branches.",
+                 fmt::join(dropped, ", "),
+                 database,
+                 occasion);
+  }
+  return ok;
 }
 
 }  // namespace memgraph::versioning
