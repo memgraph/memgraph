@@ -462,11 +462,33 @@ TEST(QueryStripper, ReturnOrderBy) {
 TEST(QueryStripper, ReturnSkip) {
   StrippedQuery stripped("RETURN 2   + 3 SKIP 10");
   EXPECT_THAT(stripped.named_expressions(), UnorderedElementsAre(Pair(1, "2   + 3")));
+  StrippedQuery offset("RETURN 2   + 3 OFFSET 10");
+  EXPECT_THAT(offset.named_expressions(), UnorderedElementsAre(Pair(1, "2   + 3")));
 }
 
 TEST(QueryStripper, ReturnLimit) {
   StrippedQuery stripped("RETURN 2   + 3 LIMIT 12");
   EXPECT_THAT(stripped.named_expressions(), UnorderedElementsAre(Pair(1, "2   + 3")));
+}
+
+TEST(QueryStripper, KeywordNamesDoNotEndReturnItem) {
+  auto headers = [](const char *q) { return StrippedQuery(q).named_expressions(); };
+  EXPECT_THAT(headers("MATCH (n) RETURN n.offset"), UnorderedElementsAre(Pair(5, "n.offset")));
+  EXPECT_THAT(headers("MATCH (n) RETURN n.skip, n.limit"), UnorderedElementsAre(Pair(5, "n.skip"), Pair(9, "n.limit")));
+  EXPECT_THAT(headers("MATCH (offset) RETURN offset.x"), UnorderedElementsAre(Pair(5, "offset.x")));
+  EXPECT_THAT(headers("RETURN {skip: 1}"), UnorderedElementsAre(Pair(1, "{skip: 1}")));
+  EXPECT_THAT(headers("RETURN 1 AS offset, 2 + 3"), UnorderedElementsAre(Pair(5, "2 + 3")));
+  EXPECT_THAT(headers("MATCH (n) RETURN n:Order"), UnorderedElementsAre(Pair(5, "n:Order")));
+  EXPECT_THAT(headers("MATCH (n) RETURN n.skip SKIP 1"), UnorderedElementsAre(Pair(5, "n.skip")));
+  EXPECT_THAT(headers("RETURN * ORDER BY x"), UnorderedElementsAre(Pair(1, "*")));
+  EXPECT_THAT(headers("WITH 1 AS limit RETURN 2 + limit"), UnorderedElementsAre(Pair(5, "2 + limit")));
+  EXPECT_THAT(headers("WITH 1 AS limit RETURN 2 * limit"), UnorderedElementsAre(Pair(5, "2 * limit")));
+  EXPECT_THAT(headers("WITH 'a' AS skip RETURN 'abc' STARTS WITH skip"),
+              UnorderedElementsAre(Pair(5, "'abc' STARTS WITH skip")));
+  EXPECT_THAT(headers("MATCH (n) RETURN n.in, n:With ORDER BY n.in"),
+              UnorderedElementsAre(Pair(5, "n.in"), Pair(9, "n:With")));
+  EXPECT_THAT(headers("CALL { WITH 1 AS x RETURN x } RETURN x + 1, 2 + 3"),
+              UnorderedElementsAre(Pair(7, "x"), Pair(10, "x + 1"), Pair(14, "2 + 3")));
 }
 
 TEST(QueryStripper, ReturnListsAndFunctionCalls) {

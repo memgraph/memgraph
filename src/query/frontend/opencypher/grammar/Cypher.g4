@@ -157,7 +157,7 @@ returnItem : ( expression AS variable )
 
 order : ORDER BY sortItem ( ',' sortItem )* ;
 
-skip : L_SKIP expression ;
+skip : ( L_SKIP | OFFSET ) expression ;
 
 limit : LIMIT ( expression | parameter ) ;
 
@@ -483,6 +483,7 @@ cypherKeyword : ALL
               | NODE
               | NONE
               | NOT
+              | OFFSET
               | ON
               | OPTIONAL
               | OR

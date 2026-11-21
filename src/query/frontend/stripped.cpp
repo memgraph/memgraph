@@ -12,11 +12,13 @@
 #include "query/frontend/stripped.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <cstddef>
 #include <cstdint>
 #include <span>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -30,6 +32,12 @@ import memgraph.utils.fnv;
 namespace memgraph::query::frontend {
 
 using namespace lexer_constants;
+
+namespace {
+// Keywords after which the next token is an operand, so a clause keyword there is a name.
+constexpr std::array<std::string_view, 13> kOperandExpectingKeywords{
+    "as", "and", "or", "xor", "not", "in", "is", "contains", "with", "case", "when", "then", "else"};
+}  // namespace
 
 StrippedQuery::StrippedQuery(std::string query) : original_(std::move(query)) {
   enum class Token {
@@ -259,11 +267,34 @@ StrippedQuery::StrippedQuery(std::string query) : original_(std::move(query)) {
       int num_open_braces = 0;
       int num_open_parantheses = 0;
       int num_open_brackets = 0;
+      // A clause keyword ends the item only in keyword position: not first, not nested, and after a complete operand,
+      // not after an operator, `.`, `:` or `AS` (where it is a name).
+      auto is_stop_keyword = [&] {
+        if (!utils::IEquals(jt->second, "order") && !utils::IEquals(jt->second, "skip") &&
+            !utils::IEquals(jt->second, "offset") && !utils::IEquals(jt->second, "limit") &&
+            !utils::IEquals(jt->second, "union") && !utils::IEquals(jt->second, "query")) {
+          return false;
+        }
+        if (jt == it || num_open_braces > 0 || num_open_parantheses > 0 || num_open_brackets > 0) return false;
+        const auto &[prev_kind, prev] = *last_non_space;
+        if (prev_kind == Token::SPECIAL) {
+          return prev == ")" || prev == "]" || prev == "}" || (prev == "*" && last_non_space == it);
+        }
+        if (prev_kind != Token::KEYWORD ||
+            std::ranges::none_of(kOperandExpectingKeywords, [&](auto kw) { return utils::IEquals(prev, kw); })) {
+          return true;
+        }
+        // The operator-like keyword is itself a name when it follows `.` or `:` (`n.in`, `n:With`).
+        auto before = last_non_space;
+        while (before != it) {
+          --before;
+          if (before->first != Token::SPACE) break;
+        }
+        return before != last_non_space && (before->second == "." || before->second == ":");
+      };
       for (;
            jt != tokens.end() && (jt->second != "," || num_open_braces || num_open_parantheses || num_open_brackets) &&
-           !utils::IEquals(jt->second, "order") && !utils::IEquals(jt->second, "skip") &&
-           !utils::IEquals(jt->second, "limit") && !utils::IEquals(jt->second, "union") &&
-           !utils::IEquals(jt->second, "query") && jt->second != ";";
+           jt->second != ";" && !is_stop_keyword();
            ++jt) {
         if (jt->second == "(") {
           ++num_open_parantheses;
@@ -278,6 +309,8 @@ StrippedQuery::StrippedQuery(std::string query) : original_(std::move(query)) {
         } else if (jt->second == "}") {
           --num_open_brackets;
         }
+        // A closing bracket without its opening one ends the subquery body this RETURN is in, and so the item.
+        if (num_open_braces < 0 || num_open_parantheses < 0 || num_open_brackets < 0) break;
         has_as |= utils::IEquals(jt->second, "as");
         if (jt->first != Token::SPACE) {
           last_non_space = jt;
