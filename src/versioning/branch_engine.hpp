@@ -210,7 +210,10 @@ class BranchContext {
   static std::expected<std::unique_ptr<BranchContext>, BuildError> BuildFromFork(
       storage::InMemoryStorage &main, uint64_t fork_ts, std::optional<uint64_t> branch_number = std::nullopt);
 
-  explicit BranchContext(std::shared_ptr<BranchCore> core) : core_(std::move(core)) {}
+  // `name` and `number`: the branch this context was attached through (empty/0 for a context attached to none);
+  // AttachBranchOf reuses them and refuses a context whose number is not the live branch's.
+  BranchContext(std::shared_ptr<BranchCore> core, std::string name, uint64_t number)
+      : core_(std::move(core)), name_(std::move(name)), number_(number) {}
 
   BranchContext(const BranchContext &) = delete;
   BranchContext &operator=(const BranchContext &) = delete;
@@ -222,6 +225,10 @@ class BranchContext {
   const std::shared_ptr<BranchCore> &core() const { return core_; }
 
   storage::InMemoryStorage &main() const { return core_->main(); }
+
+  const std::string &name() const { return name_; }
+
+  uint64_t number() const { return number_; }
 
   storage::InMemoryStorage &diff_engine() const { return core_->diff_engine(); }
 
@@ -630,6 +637,8 @@ class BranchContext {
   HiddenBaseEdges ReadHiddenBaseEdges(std::span<storage::Edge *const> candidates, storage::View view);
 
   std::shared_ptr<BranchCore> core_;
+  std::string name_;
+  uint64_t number_;
   std::optional<Txn> txn_;
 };
 

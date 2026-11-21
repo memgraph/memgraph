@@ -414,7 +414,7 @@ std::expected<NativeGidEnds, std::string> ReplayBranchWal(std::shared_ptr<Branch
     const auto files = ListWalFiles(wal_dir);
     CheckWalChain(files);
     if (files.empty()) return NativeGidEnds{};
-    BranchContext ctx{std::move(core)};
+    BranchContext ctx{std::move(core), {}, 0};
     return BranchWalReplayer{ctx}.Run(files);
   } catch (const std::exception &e) {
     return std::unexpected(std::string{e.what()});
