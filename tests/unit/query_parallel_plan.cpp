@@ -733,7 +733,10 @@ TYPED_TEST(TestPlanner, ParallelExecutionSumGroupByWithOrderBy) {
   auto *query = PARALLEL_QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), ret));
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
-  auto aggr = ExpectAggregate({sum_agg}, {n_cat});
+  // Both properties of the record ride one read, so the grouping key reads that slot. This says
+  // what kind of expression the key is rather than which one.
+  auto reads_the_pass = IDENT("read_by_the_pass");
+  auto aggr = ExpectAggregate({sum_agg}, {reads_the_pass});
 
   // SUM with GROUP BY - aggregation is parallelized
   // ORDER BY on aggregate result is NOT parallelized (sort symbol not from scan)
@@ -742,6 +745,7 @@ TYPED_TEST(TestPlanner, ParallelExecutionSumGroupByWithOrderBy) {
             ExpectScanParallel(),
             ExpectParallelMerge(),
             ExpectScanChunk(),
+            ExpectPrefetchProperties("n", 2),
             aggr,
             ExpectAggregateParallel(),
             ExpectProduce(),
@@ -760,7 +764,10 @@ TYPED_TEST(TestPlanner, ParallelExecutionAvgGroupByWithOrderByAndLimit) {
   auto *query = PARALLEL_QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), ret));
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
-  auto aggr = ExpectAggregate({avg_agg}, {n_type});
+  // Both properties of the record ride one read, so the grouping key reads that slot. This says
+  // what kind of expression the key is rather than which one.
+  auto reads_the_pass = IDENT("read_by_the_pass");
+  auto aggr = ExpectAggregate({avg_agg}, {reads_the_pass});
 
   // AVG with GROUP BY - aggregation is parallelized
   // ORDER BY on aggregate result is NOT parallelized (sort symbol not from scan)
@@ -769,6 +776,7 @@ TYPED_TEST(TestPlanner, ParallelExecutionAvgGroupByWithOrderByAndLimit) {
             ExpectScanParallel(),
             ExpectParallelMerge(),
             ExpectScanChunk(),
+            ExpectPrefetchProperties("n", 2),
             aggr,
             ExpectAggregateParallel(),
             ExpectProduce(),

@@ -202,19 +202,6 @@ class PropertyLookupRewriter final : public ExpressionVisitor<void> {
     std::vector<SymbolSlots> by_symbol_;
   };
 
-  /// What an operator does with a value its lookups read, which decides what a pass of its own has
-  /// to save before it pays for itself.
-  enum class ValueUse : uint8_t {
-    /// A projection returns the value, so it was going to put it in a frame slot either way. Any
-    /// saving then pays: a second property to read alongside the first, or a second lookup of one
-    /// property.
-    kKept,
-    /// An aggregation and a filter consume the value and keep none of it, so a slot is a write
-    /// neither would otherwise make. Only a read the pass removes pays for that write, and only a
-    /// property more than one lookup names gives it one.
-    kDiscarded,
-  };
-
   /// A property gathered for a symbol, with how many lookups named it and how many of those every
   /// row reaches.
   struct GatheredProperty {
@@ -241,6 +228,11 @@ class PropertyLookupRewriter final : public ExpressionVisitor<void> {
   struct Gathered {
     Symbol symbol;
     std::vector<GatheredProperty> properties;
+    /// Whether every row reaching the operator tests this symbol's labels, which reads the record
+    /// as a lookup does and so says the record is touched whatever the rows go on to read.
+    bool tests_a_label_on_every_row{false};
+
+    void NoteALabelTest() { tests_a_label_on_every_row = true; }
 
     void Note(AstPropertyIndex property, bool unconditional) {
       auto found = std::ranges::find(properties, property, &GatheredProperty::property);
@@ -253,36 +245,38 @@ class PropertyLookupRewriter final : public ExpressionVisitor<void> {
 
     /// The properties worth reading in one pass, and nothing when none of them are.
     ///
-    /// A pass reads only a property some lookup reads on every row, so what the operator needs
-    /// saved is asked of those alone. Reading one the rows may not ask for would read for rows
-    /// stopping first, which is work the query did not ask for and the one way a pass could reach a
-    /// record it never touched.
-    [[nodiscard]] auto PropertiesWorthOnePass(ValueUse value_use) const -> std::optional<Pass> {
-      auto const read_on_every_row = [](GatheredProperty const &property) {
-        return property.unconditional_lookups > 0;
-      };
-      auto const removes_a_read = std::ranges::any_of(
-          properties, [&](auto const &property) { return read_on_every_row(property) && property.lookups > 1; });
-      auto const pays = value_use == ValueUse::kDiscarded
-                            ? removes_a_read
-                            : removes_a_read || std::ranges::count_if(properties, read_on_every_row) >= 2;
+    /// A pass reads ahead of the operator it serves, so the one thing it must not do is reach a
+    /// record the query never touched: on a deleted record that turns an answer into a refusal.
+    /// Every row reaching the operator touches this record if it reads one of its properties or
+    /// tests its labels, and once it does, a property the rows may not ask for costs reading for
+    /// rows that stop first and nothing worse.
+    [[nodiscard]] auto PropertiesWorthOnePass() const -> std::optional<Pass> {
+      auto const reads_one_on_every_row = std::ranges::any_of(
+          properties, [](GatheredProperty const &property) { return property.unconditional_lookups > 0; });
+      if (!reads_one_on_every_row && !tests_a_label_on_every_row) return std::nullopt;
+
+      auto const removes_a_read =
+          std::ranges::any_of(properties, [](GatheredProperty const &property) { return property.lookups > 1; });
+      // A read every row makes anyway carries the record's other properties for the cost of a slot
+      // each and no read of its own. Where only a label test says the record is touched, the first
+      // property is a read the pass makes itself, so there it takes a read removed to pay.
+      auto const sharing_one_read = reads_one_on_every_row && properties.size() >= 2;
       // Judged before anything is built, since most symbols fall short and a plan is one of hundreds.
-      if (!pays) return std::nullopt;
+      if (!removes_a_read && !sharing_one_read) return std::nullopt;
 
       auto pass = Pass{.symbol = symbol, .properties = {}};
-      for (auto const &gathered : properties) {
-        if (read_on_every_row(gathered)) pass.properties.push_back(gathered.property);
-      }
+      pass.properties.reserve(properties.size());
+      for (auto const &gathered : properties) pass.properties.push_back(gathered.property);
       return pass;
     }
   };
 
   /// The symbols worth a pass of their own, by what the operator does with the values. A symbol
   /// whose lookups save it too little is left out and keeps reading as it did.
-  [[nodiscard]] auto SymbolsWorthOnePass(ValueUse value_use) const -> std::vector<Pass> {
+  [[nodiscard]] auto SymbolsWorthOnePass() const -> std::vector<Pass> {
     auto passes = std::vector<Pass>{};
     for (auto const &gathered : gathered_) {
-      if (auto pass = gathered.PropertiesWorthOnePass(value_use)) passes.push_back(*std::move(pass));
+      if (auto pass = gathered.PropertiesWorthOnePass()) passes.push_back(*std::move(pass));
     }
     return passes;
   }
@@ -473,7 +467,20 @@ class PropertyLookupRewriter final : public ExpressionVisitor<void> {
   // Safe to enter, unlike the groups above, and not yet entered.
   NOT_ENTERED(MapProjectionLiteral)
   NOT_ENTERED(ListSlicingOperator)
-  NOT_ENTERED(LabelsTest)
+
+  // Entered only for the record it tests. A test reads the record as a lookup does, so a row
+  // reaching one has touched the record whether or not it goes on to read a property. Its terms
+  // are left alone: a term naming a property is evaluated along with the test, and gathering it
+  // would read a property of a record this says nothing about.
+  void Visit(LabelsTest &op) override {
+    if (phase_ != Phase::GATHER || conditional_depth_ != 0) return;
+    if (op.expression_->GetTypeInfo() != Identifier::kType) return;
+    auto *identifier = static_cast<Identifier *>(op.expression_);
+    if (identifier->symbol_pos_ < 0) return;
+    auto const &symbol = symbol_table_->at(*identifier);
+    if (!symbol.BindsOneRecord()) return;
+    GatheredFor(symbol).NoteALabelTest();
+  }
   NOT_ENTERED(EdgeTypesTest)
   NOT_ENTERED(RegexMatch)
 
@@ -523,25 +530,24 @@ class PrefetchPropertiesRewriter final : public HierarchicalLogicalOperatorVisit
 
   bool Visit(Once &) override { return true; }
 
-  bool PostVisit(Produce &op) override { return PrefetchFor(op, PropertyLookupRewriter::ValueUse::kKept); }
+  bool PostVisit(Produce &op) override { return PrefetchFor(op); }
 
-  bool PostVisit(Filter &op) override { return PrefetchFor(op, PropertyLookupRewriter::ValueUse::kDiscarded); }
+  bool PostVisit(Filter &op) override { return PrefetchFor(op); }
 
   /// An aggregation gets its pass below itself, which is where the record still is: above it only
   /// the grouping keys and the aggregated values are defined.
-  bool PostVisit(Aggregate &op) override { return PrefetchFor(op, PropertyLookupRewriter::ValueUse::kDiscarded); }
+  bool PostVisit(Aggregate &op) override { return PrefetchFor(op); }
 
  private:
   /// Puts a pass below an operator that evaluates expressions against a record, reading at the view
   /// the operator does and gathering from the expressions it says it holds. Both come from the one
   /// place that answers for every operator, so neither can be restated here and drift.
   template <class TOperator>
-  bool PrefetchFor(TOperator &op, PropertyLookupRewriter::ValueUse value_use) {
+  bool PrefetchFor(TOperator &op) {
     using Evaluation = OperatorEvaluation<TOperator>;
     static_assert(Evaluation::kEvaluatesAt.has_value(),
                   "an operator a pass serves has to say which view it evaluates a record at");
-    PrefetchBelow(
-        op, value_use, kEvaluatedAt<TOperator>, [&op](auto &&each) { Evaluation::ForEachExpression(op, each); });
+    PrefetchBelow(op, kEvaluatedAt<TOperator>, [&op](auto &&each) { Evaluation::ForEachExpression(op, each); });
     return true;
   }
 
@@ -556,8 +562,7 @@ class PrefetchPropertiesRewriter final : public HierarchicalLogicalOperatorVisit
   /// which a projection and an aggregation hold differently. Each is passed by reference, since
   /// both replacing a lookup and copying an expression write back to the operator.
   template <class TForEachExpression>
-  void PrefetchBelow(LogicalOperator &op, PropertyLookupRewriter::ValueUse value_use, storage::View evaluated_at,
-                     TForEachExpression for_each_expression) {
+  void PrefetchBelow(LogicalOperator &op, storage::View evaluated_at, TForEachExpression for_each_expression) {
     auto input = op.input();
     if (!input) return;
 
@@ -572,7 +577,7 @@ class PrefetchPropertiesRewriter final : public HierarchicalLogicalOperatorVisit
 
     // Before a slot is taken or the input is walked, because most operators read nothing worth a
     // pass and should pay only for the gathering that says so.
-    auto const passes = rewriter.SymbolsWorthOnePass(value_use);
+    auto const passes = rewriter.SymbolsWorthOnePass();
     if (passes.empty() && !rewriter.ReadsAFilledSlot()) return;
 
     auto per_record = std::vector<PropertiesOfOneRecord>{};
