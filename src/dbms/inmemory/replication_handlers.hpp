@@ -106,10 +106,6 @@ class InMemoryReplicationHandlers {
                                rpc::ProgressHeartbeat &heartbeat);
 
   static auto TakeSnapshotLock(auto &snapshot_guard, storage::InMemoryStorage *storage) -> bool;
-
-  static std::optional<storage::SingleTxnDeltasProcessingResult> ReadAndApplyDeltasSingleTxn(
-      storage::InMemoryStorage *storage, storage::durability::BaseDecoder *decoder, uint64_t version,
-      rpc::ProgressHeartbeat &heartbeat, bool two_phase_commit, bool loading_wal);
 };
 
 }  // namespace memgraph::dbms
