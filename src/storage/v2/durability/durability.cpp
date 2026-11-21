@@ -615,7 +615,12 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
     memory::ArenaPool *db_arena_pool, uint64_t *wal_seq_num, EnumStore *enum_store, SharedSchemaTracking *schema_info,
     std::function<std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>>(Gid)> find_edge,
     std::string const &db_name, memgraph::storage::ttl::TTL *ttl,
+#ifdef MG_ENTERPRISE
+    memgraph::storage::DescriptionStore *description_store, std::optional<uint64_t> const recovery_history_bound,
+    RecoveryTail *const tail) {
+#else
     memgraph::storage::DescriptionStore *description_store) {
+#endif
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   spdlog::info(
       "Recovering persisted data using snapshot ({}) and WAL directory ({}).", snapshot_directory_, wal_directory_);
@@ -631,7 +636,15 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
   if (!maybe_snapshot_files.has_value()) {
     throw RecoveryFailure("Couldn't recover data because of the failure to read snapshot files");
   }
+#ifdef MG_ENTERPRISE
+  // An eligible snapshot that fails to load stays fatal; with none eligible, recovery runs from the WAL chain alone.
+  auto snapshot_files = *maybe_snapshot_files;
+  if (recovery_history_bound) {
+    std::erase_if(snapshot_files, [&](auto const &file) { return file.durable_timestamp > *recovery_history_bound; });
+  }
+#else
   auto const &snapshot_files = *maybe_snapshot_files;
+#endif
 
   RecoveryInfo recovery_info;
   RecoveredIndicesAndConstraints indices_constraints;
@@ -694,6 +707,14 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
   } else {
     // UUID couldn't be recovered from the snapshot; recovering it from WALs
     spdlog::info("No snapshot file was found, collecting information from WAL directory {}.", wal_directory_);
+#ifdef MG_ENTERPRISE
+    if (!maybe_snapshot_files->empty()) {
+      if (auto const bounded_wal_files = GetWalFiles(wal_directory_);
+          !bounded_wal_files || bounded_wal_files->empty()) {
+        throw RecoveryFailure("No snapshot at or below the recovery bound and no WAL files to recover from!");
+      }
+    }
+#endif
     if (!utils::DirExists(wal_directory_)) return std::nullopt;
 
     // The UUID isn't known yet, so every file in the directory is collected and the unrelated ones dropped below.
@@ -760,6 +781,14 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
         throw RecoveryFailure("You are missing a WAL file with the sequence number {}!", *previous_seq_num + 1);
       }
       previous_seq_num = wal_file.seq_num;
+#ifdef MG_ENTERPRISE
+      // A file straddling the bound is both tailed and loaded up to it, so tail replay resumes from the recovered
+      // durable timestamp; a file wholly past the bound is tail-only.
+      if (recovery_history_bound && wal_file.to_timestamp > *recovery_history_bound) {
+        if (tail) tail->wal_files.push_back(wal_file.path);
+        if (wal_file.from_timestamp > *recovery_history_bound) continue;
+      }
+#endif
 
       try {
         auto info = LoadWal(wal_file.path,
@@ -774,7 +803,12 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
                             schema_info,
                             find_edge,
                             ttl,
+#ifdef MG_ENTERPRISE
+                            description_store,
+                            recovery_history_bound);
+#else
                             description_store);
+#endif
         // Update recovery info data only if WAL file was used and its deltas loaded
 
         bool wal_contains_changes{false};
@@ -854,6 +888,9 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
   r::for_each(repl_storage_state.history, [](auto &&history) {
     spdlog::trace("Epoch id: {}. Commit timestamp: {}.", std::string(history.first), history.second);
   });
+#ifdef MG_ENTERPRISE
+  if (tail) tail->reached_timestamp = recovery_info.last_durable_timestamp;
+#endif
   return recovery_info;
 }
 

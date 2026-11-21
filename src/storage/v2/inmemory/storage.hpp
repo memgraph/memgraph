@@ -159,7 +159,12 @@ class InMemoryStorage final : public Storage {
                            metrics::DatabaseMetricHandles metric_handles = {},
                            std::function<storage::DatabaseProtectorPtr()> database_protector_factory = nullptr,
                            memgraph::memory::ArenaPool *db_arena = nullptr,
-                           utils::MemoryTracker *db_embedding_memory_tracker = nullptr);
+                           utils::MemoryTracker *db_embedding_memory_tracker = nullptr
+#ifdef MG_ENTERPRISE
+                           ,
+                           durability::HistoryBounds history_bounds = {}
+#endif
+  );
 
   InMemoryStorage(const InMemoryStorage &) = delete;
   InMemoryStorage(InMemoryStorage &&) = delete;
@@ -947,6 +952,10 @@ class InMemoryStorage final : public Storage {
   // Takes engine_lock_ (then version_fork_pin_lock_): never call with engine_lock_ held.
   uint64_t RegisterForkPin();
 
+  // RegisterForkPin that also lowers the retention floor to `fork_ts - 1`, inside RegisterForkPin's engine_lock_
+  // section; a snapshot's retention pass reads it after its transaction starts.
+  uint64_t RegisterBranchForkPin();
+
   // Call exactly once per RegisterForkPin pin (a HistoricalAccess self-pin is owned by its accessor's ForkPin);
   // an unregistered fork_ts MG_ASSERTs.
   // Removes one instance of the multiset key, not all equal ones.
@@ -1052,6 +1061,12 @@ class InMemoryStorage final : public Storage {
   [[nodiscard]] uint64_t EdgeStoreSize() const { return edges_.size(); }
 
   [[nodiscard]] uint64_t VertexStoreSize() const { return vertices_.size(); }
+
+#ifdef MG_ENTERPRISE
+  /// Files left out of the recovered state by `HistoryBounds::recovery_bound`. Moves them out: the second
+  /// call, and any call without a bound, returns nullopt.
+  [[nodiscard]] std::optional<durability::RecoveryTail> TakeRecoveryTail() { return std::exchange(recovery_tail_, {}); }
+#endif
 
   // The highest fully-published commit timestamp; under the experiment this is what a snapshot
   // isolation reader freezes as its own boundary at BEGIN.
@@ -1219,6 +1234,10 @@ class InMemoryStorage final : public Storage {
   memory::ArenaAwareUniquePtr<durability::WalFile> wal_file_;
   uint64_t wal_unsynced_transactions_{0};
 
+#ifdef MG_ENTERPRISE
+  std::optional<durability::RecoveryTail> recovery_tail_;
+#endif
+
   utils::FileRetainer file_retainer_;
 
   // Global locker that is used for clients file locking
@@ -1372,6 +1391,7 @@ class InMemoryStorage final : public Storage {
   // always consumes a timestamp (marked finished in the commit log); with narrowing the returned bound is instead the
   // published watermark + 1.
   uint64_t MintForkTsLocked();
+  uint64_t RegisterForkPinImpl(bool lower_retention_floor);
 
   // Live fork pins (branches, historical readers) as a multiset: they may share a fork_ts. GC clamps to the oldest.
   // Lock order: engine_lock_ then version_fork_pin_lock_ (see RegisterForkPin).

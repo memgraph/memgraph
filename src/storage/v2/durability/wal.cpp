@@ -1373,7 +1373,12 @@ std::optional<RecoveryInfo> LoadWal(
     utils::SkipListDb<Edge> *edges, NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
     SalientConfig::Items items, EnumStore *enum_store, SharedSchemaTracking *schema_info,
     std::function<std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>>(Gid)> find_edge,
+#ifdef MG_ENTERPRISE
+    memgraph::storage::ttl::TTL *ttl, memgraph::storage::DescriptionStore *description_store,
+    std::optional<uint64_t> const recovery_history_bound) {
+#else
     memgraph::storage::ttl::TTL *ttl, memgraph::storage::DescriptionStore *description_store) {
+#endif
   spdlog::info("Trying to load WAL file {}.", path);
 
   Decoder wal;
@@ -2227,6 +2232,9 @@ std::optional<RecoveryInfo> LoadWal(
   for (uint64_t i = 0; i < num_deltas; ++i) {
     // Read WAL delta header to find out the delta timestamp.
     if (auto delta_ts = ReadWalDeltaHeader(&wal);
+#ifdef MG_ENTERPRISE
+        (!recovery_history_bound || delta_ts <= *recovery_history_bound) &&
+#endif
         (!last_applied_delta_timestamp || delta_ts > *last_applied_delta_timestamp)) {
       // This delta should be loaded.
       auto delta = ReadWalDeltaData(&wal, version);
