@@ -243,96 +243,105 @@ TYPED_TEST(QueryExecution, ADeepVariableExpansionWalksBothWaysToEveryLength) {
 
 /// The queries the pass is allowed to change the plan of, plus the ones it must leave alone. Each fixture
 /// gets a fresh plan cache, so the flag has to be compared across two tests rather than toggled inside one.
-#define CHECK_PREFETCH_PROPERTIES_RESULTS()                                                                       \
-  do {                                                                                                            \
-    using BoltValue = memgraph::communication::bolt::Value;                                                       \
-    this->Execute("CREATE (:P {id: 1, a: 1, b: 'x'}), (:P {id: 2, a: 2})");                                       \
-    {                                                                                                             \
-      /* Two properties on one symbol, the second missing on one of the nodes. */                                 \
-      auto results = this->Execute("MATCH (n:P) RETURN n.a AS a, n.b AS b ORDER BY a");                           \
-      ASSERT_EQ(results.size(), 2);                                                                               \
-      EXPECT_EQ(results[0][0].ValueInt(), 1);                                                                     \
-      EXPECT_EQ(results[0][1].ValueString(), "x");                                                                \
-      EXPECT_EQ(results[1][0].ValueInt(), 2);                                                                     \
-      EXPECT_EQ(results[1][1].type(), BoltValue::Type::Null);                                                     \
-    }                                                                                                             \
-    {                                                                                                             \
-      /* A single lookup must not earn a pass, but must still answer the same. */                                 \
-      auto results = this->Execute("MATCH (n:P) RETURN n.a AS a ORDER BY a");                                     \
-      ASSERT_EQ(results.size(), 2);                                                                               \
-      EXPECT_EQ(results[0][0].ValueInt(), 1);                                                                     \
-      EXPECT_EQ(results[1][0].ValueInt(), 2);                                                                     \
-    }                                                                                                             \
-    {                                                                                                             \
-      /* A repeated property keeps the rows the two comparisons kept. */                                          \
-      auto results = this->Execute("MATCH (n:P) WHERE n.a > 0 AND n.a < 2 RETURN n.id AS id");                    \
-      ASSERT_EQ(results.size(), 1);                                                                               \
-      EXPECT_EQ(results[0][0].ValueInt(), 1);                                                                     \
-    }                                                                                                             \
-    {                                                                                                             \
-      /* A property absent from a record compares as Null there, so that row is still left out. */                \
-      auto results = this->Execute("MATCH (n:P) WHERE n.b >= 'x' AND n.b <= 'x' RETURN n.id AS id");              \
-      ASSERT_EQ(results.size(), 1);                                                                               \
-      EXPECT_EQ(results[0][0].ValueInt(), 1);                                                                     \
-    }                                                                                                             \
-    {                                                                                                             \
-      /* Both lookups of one property answer it, and a property absent from a record still reads Null. */         \
-      auto results = this->Execute("MATCH (n:P) RETURN n.a AS x, n.a AS y, n.b AS z ORDER BY x");                 \
-      ASSERT_EQ(results.size(), 2);                                                                               \
-      EXPECT_EQ(results[0][0].ValueInt(), 1);                                                                     \
-      EXPECT_EQ(results[0][1].ValueInt(), 1);                                                                     \
-      EXPECT_EQ(results[0][2].ValueString(), "x");                                                                \
-      EXPECT_EQ(results[1][0].ValueInt(), 2);                                                                     \
-      EXPECT_EQ(results[1][1].ValueInt(), 2);                                                                     \
-      EXPECT_EQ(results[1][2].type(), BoltValue::Type::Null);                                                     \
-    }                                                                                                             \
-    {                                                                                                             \
-      /* One lookup each is not worth a pass of its own, whether or not they share a symbol. */                   \
-      auto results = this->Execute("MATCH (n:P), (m:P) RETURN n.id AS x, m.a AS y ORDER BY x, y");                \
-      ASSERT_EQ(results.size(), 4);                                                                               \
-      EXPECT_EQ(results[0][0].ValueInt(), 1);                                                                     \
-      EXPECT_EQ(results[0][1].ValueInt(), 1);                                                                     \
-      EXPECT_EQ(results[3][0].ValueInt(), 2);                                                                     \
-      EXPECT_EQ(results[3][1].ValueInt(), 2);                                                                     \
-    }                                                                                                             \
-    {                                                                                                             \
-      /* The prefetched symbol is Null for every row here. */                                                     \
-      auto results =                                                                                              \
-          this->Execute("MATCH (n:P) OPTIONAL MATCH (n)-[:R]->(o) RETURN o.a AS a, o.b AS b ORDER BY n.id");      \
-      ASSERT_EQ(results.size(), 2);                                                                               \
-      for (const auto &row : results) {                                                                           \
-        EXPECT_EQ(row[0].type(), BoltValue::Type::Null);                                                          \
-        EXPECT_EQ(row[1].type(), BoltValue::Type::Null);                                                          \
-      }                                                                                                           \
-    }                                                                                                             \
-    {                                                                                                             \
-      /* What a predicate read and the row returns is one value, however it reaches the row. */                   \
-      auto results = this->Execute("MATCH (n) WHERE n.a > 0 AND n.a < 2 RETURN n.a AS a, n.a AS b");              \
-      ASSERT_EQ(results.size(), 1);                                                                               \
-      EXPECT_EQ(results[0][0].ValueInt(), 1);                                                                     \
-      EXPECT_EQ(results[0][1].ValueInt(), 1);                                                                     \
-    }                                                                                                             \
-    {                                                                                                             \
-      /* A second predicate reads what the first one's pass left, and the row returns it after both. */           \
-      auto results = this->Execute("MATCH (n) WHERE n.a > 0 AND n.a < 2 WITH n WHERE n.a > 0 RETURN n.a AS a");   \
-      ASSERT_EQ(results.size(), 1);                                                                               \
-      EXPECT_EQ(results[0][0].ValueInt(), 1);                                                                     \
-    }                                                                                                             \
-    {                                                                                                             \
-      /* One property comes from a slot a predicate filled and the other from a pass of this */                   \
-      /* row's own, so each has to answer its own property. */                                                    \
-      auto results = this->Execute("MATCH (n) WHERE n.a > 0 AND n.a < 2 RETURN n.a AS x, n.b + n.b AS y");        \
-      ASSERT_EQ(results.size(), 1);                                                                               \
-      EXPECT_EQ(results[0][0].ValueInt(), 1);                                                                     \
-      EXPECT_EQ(results[0][1].ValueString(), "xx");                                                               \
-    }                                                                                                             \
-    {                                                                                                             \
-      /* A write stands between the predicate and the row, so the row answers what the write left. */             \
-      auto results = this->Execute("MATCH (n) WHERE n.a > 1 AND n.a < 3 SET n.a = 99 RETURN n.a AS a, n.a AS b"); \
-      ASSERT_EQ(results.size(), 1);                                                                               \
-      EXPECT_EQ(results[0][0].ValueInt(), 99);                                                                    \
-      EXPECT_EQ(results[0][1].ValueInt(), 99);                                                                    \
-    }                                                                                                             \
+#define CHECK_PREFETCH_PROPERTIES_RESULTS()                                                                        \
+  do {                                                                                                             \
+    using BoltValue = memgraph::communication::bolt::Value;                                                        \
+    this->Execute("CREATE (:P {id: 1, a: 1, b: 'x'}), (:P {id: 2, a: 2})");                                        \
+    {                                                                                                              \
+      /* Two properties on one symbol, the second missing on one of the nodes. */                                  \
+      auto results = this->Execute("MATCH (n:P) RETURN n.a AS a, n.b AS b ORDER BY a");                            \
+      ASSERT_EQ(results.size(), 2);                                                                                \
+      EXPECT_EQ(results[0][0].ValueInt(), 1);                                                                      \
+      EXPECT_EQ(results[0][1].ValueString(), "x");                                                                 \
+      EXPECT_EQ(results[1][0].ValueInt(), 2);                                                                      \
+      EXPECT_EQ(results[1][1].type(), BoltValue::Type::Null);                                                      \
+    }                                                                                                              \
+    {                                                                                                              \
+      /* A single lookup must not earn a pass, but must still answer the same. */                                  \
+      auto results = this->Execute("MATCH (n:P) RETURN n.a AS a ORDER BY a");                                      \
+      ASSERT_EQ(results.size(), 2);                                                                                \
+      EXPECT_EQ(results[0][0].ValueInt(), 1);                                                                      \
+      EXPECT_EQ(results[1][0].ValueInt(), 2);                                                                      \
+    }                                                                                                              \
+    {                                                                                                              \
+      /* A repeated property keeps the rows the two comparisons kept. */                                           \
+      auto results = this->Execute("MATCH (n:P) WHERE n.a > 0 AND n.a < 2 RETURN n.id AS id");                     \
+      ASSERT_EQ(results.size(), 1);                                                                                \
+      EXPECT_EQ(results[0][0].ValueInt(), 1);                                                                      \
+    }                                                                                                              \
+    {                                                                                                              \
+      /* A property absent from a record compares as Null there, so that row is still left out. */                 \
+      auto results = this->Execute("MATCH (n:P) WHERE n.b >= 'x' AND n.b <= 'x' RETURN n.id AS id");               \
+      ASSERT_EQ(results.size(), 1);                                                                                \
+      EXPECT_EQ(results[0][0].ValueInt(), 1);                                                                      \
+    }                                                                                                              \
+    {                                                                                                              \
+      /* Both lookups of one property answer it, and a property absent from a record still reads Null. */          \
+      auto results = this->Execute("MATCH (n:P) RETURN n.a AS x, n.a AS y, n.b AS z ORDER BY x");                  \
+      ASSERT_EQ(results.size(), 2);                                                                                \
+      EXPECT_EQ(results[0][0].ValueInt(), 1);                                                                      \
+      EXPECT_EQ(results[0][1].ValueInt(), 1);                                                                      \
+      EXPECT_EQ(results[0][2].ValueString(), "x");                                                                 \
+      EXPECT_EQ(results[1][0].ValueInt(), 2);                                                                      \
+      EXPECT_EQ(results[1][1].ValueInt(), 2);                                                                      \
+      EXPECT_EQ(results[1][2].type(), BoltValue::Type::Null);                                                      \
+    }                                                                                                              \
+    {                                                                                                              \
+      /* One lookup each is not worth a pass of its own, whether or not they share a symbol. */                    \
+      auto results = this->Execute("MATCH (n:P), (m:P) RETURN n.id AS x, m.a AS y ORDER BY x, y");                 \
+      ASSERT_EQ(results.size(), 4);                                                                                \
+      EXPECT_EQ(results[0][0].ValueInt(), 1);                                                                      \
+      EXPECT_EQ(results[0][1].ValueInt(), 1);                                                                      \
+      EXPECT_EQ(results[3][0].ValueInt(), 2);                                                                      \
+      EXPECT_EQ(results[3][1].ValueInt(), 2);                                                                      \
+    }                                                                                                              \
+    {                                                                                                              \
+      /* The prefetched symbol is Null for every row here. */                                                      \
+      auto results =                                                                                               \
+          this->Execute("MATCH (n:P) OPTIONAL MATCH (n)-[:R]->(o) RETURN o.a AS a, o.b AS b ORDER BY n.id");       \
+      ASSERT_EQ(results.size(), 2);                                                                                \
+      for (const auto &row : results) {                                                                            \
+        EXPECT_EQ(row[0].type(), BoltValue::Type::Null);                                                           \
+        EXPECT_EQ(row[1].type(), BoltValue::Type::Null);                                                           \
+      }                                                                                                            \
+    }                                                                                                              \
+    {                                                                                                              \
+      /* What a predicate read and the row returns is one value, however it reaches the row. */                    \
+      auto results = this->Execute("MATCH (n) WHERE n.a > 0 AND n.a < 2 RETURN n.a AS a, n.a AS b");               \
+      ASSERT_EQ(results.size(), 1);                                                                                \
+      EXPECT_EQ(results[0][0].ValueInt(), 1);                                                                      \
+      EXPECT_EQ(results[0][1].ValueInt(), 1);                                                                      \
+    }                                                                                                              \
+    {                                                                                                              \
+      /* A second predicate reads what the first one's pass left, and the row returns it after both. */            \
+      auto results = this->Execute("MATCH (n) WHERE n.a > 0 AND n.a < 2 WITH n WHERE n.a > 0 RETURN n.a AS a");    \
+      ASSERT_EQ(results.size(), 1);                                                                                \
+      EXPECT_EQ(results[0][0].ValueInt(), 1);                                                                      \
+    }                                                                                                              \
+    {                                                                                                              \
+      /* One property comes from a slot a predicate filled and the other from a pass of this */                    \
+      /* row's own, so each has to answer its own property. */                                                     \
+      auto results = this->Execute("MATCH (n) WHERE n.a > 0 AND n.a < 2 RETURN n.a AS x, n.b + n.b AS y");         \
+      ASSERT_EQ(results.size(), 1);                                                                                \
+      EXPECT_EQ(results[0][0].ValueInt(), 1);                                                                      \
+      EXPECT_EQ(results[0][1].ValueString(), "xx");                                                                \
+    }                                                                                                              \
+    {                                                                                                              \
+      /* A write stands between the predicate and the row, so the row answers what the write left. */              \
+      auto results = this->Execute("MATCH (n) WHERE n.a > 1 AND n.a < 3 SET n.a = 99 RETURN n.a AS a, n.a AS b");  \
+      ASSERT_EQ(results.size(), 1);                                                                                \
+      EXPECT_EQ(results[0][0].ValueInt(), 99);                                                                     \
+      EXPECT_EQ(results[0][1].ValueInt(), 99);                                                                     \
+    }                                                                                                              \
+    {                                                                                                              \
+      /* An expansion stands between the predicate and the row. It binds its own edge and node, so */              \
+      /* the row answers the property of the node the expansion started from. */                                   \
+      this->Execute("MATCH (p:P {id: 1}), (q:P {id: 2}) CREATE (p)-[:R]->(q)");                                    \
+      auto results = this->Execute("MATCH (n:P)-[:R]->(m:P) WHERE n.a > 0 AND n.a < 2 RETURN n.a AS x, n.a AS y"); \
+      ASSERT_EQ(results.size(), 1);                                                                                \
+      EXPECT_EQ(results[0][0].ValueInt(), 1);                                                                      \
+      EXPECT_EQ(results[0][1].ValueInt(), 1);                                                                      \
+    }                                                                                                              \
   } while (false)
 
 TYPED_TEST(QueryExecution, PrefetchPropertiesResultsWithFlagOff) {
