@@ -14,12 +14,16 @@
 #include <atomic>
 #include <cstdint>
 #include <memory>
+#include <random>
 #include <span>
 #include <thread>
 #include <vector>
 
+#include <absl/container/inlined_vector.h>
 #include <gtest/gtest.h>
 
+#include "storage/v2/edge.hpp"
+#include "storage/v2/edge_direction.hpp"
 #include "storage/v2/id_types.hpp"
 #include "versioning/overlay_index.hpp"
 
@@ -32,6 +36,8 @@ ms::Gid G(uint64_t gid) { return ms::Gid::FromUint(gid); }
 
 // Base pointers are never dereferenced; only compared.
 ms::Vertex *FakeBase(uint64_t gid) { return reinterpret_cast<ms::Vertex *>((gid + 1) * 16 + 8); }
+
+ms::Edge *FakeEdge(uint64_t id) { return reinterpret_cast<ms::Edge *>((id + 1) * 16); }
 
 const auto kLabelA = ms::LabelId::FromUint(1);
 const auto kLabelB = ms::LabelId::FromUint(2);
@@ -140,5 +146,83 @@ TEST_F(VersioningOverlayIndexTest, RacingCreatorsSeeOneOverlayWithTheWinnersLabe
     const auto labels = SortedLabels(overlay);
     ASSERT_EQ(labels.size(), 2U) << gid;
     EXPECT_EQ(labels[0], kLabelA);
+  }
+}
+
+TEST_F(VersioningOverlayIndexTest, DeleteCandidateOnAbsentGidMakesAnEntryButNoOverlayAndSurvivesOverlayCreation) {
+  constexpr auto kOut = ms::EdgeDirection::OUT;
+  constexpr auto kIn = ms::EdgeDirection::IN;
+  index.AppendDeleteCandidate(G(7), kOut, FakeEdge(1));
+
+  EXPECT_EQ(index.FindOverlay(G(7)), nullptr);
+  EXPECT_EQ(index.FindBase(G(7)), nullptr);
+  EXPECT_TRUE(index.HasEntry(G(7)));
+  EXPECT_FALSE(index.HasEntry(G(8)));
+  EXPECT_EQ(index.FindForExpansion(G(7), kOut, true).candidates, (absl::InlinedVector<ms::Edge *, 16>{FakeEdge(1)}));
+  EXPECT_TRUE(index.FindForExpansion(G(7), kIn, true).candidates.empty());
+  EXPECT_TRUE(index.FindForExpansion(G(7), kOut, false).candidates.empty());
+  EXPECT_TRUE(index.ForEachOverlay([](ms::Vertex *) { return false; })) << "a deletes entry is not an overlay";
+
+  auto *overlay = Create(7, std::array{kLabelA});
+  const auto expansion = index.FindForExpansion(G(7), kOut, true);
+  EXPECT_EQ(expansion.overlay, overlay);
+  EXPECT_EQ(expansion.base_vertex, FakeBase(7));
+  EXPECT_EQ(expansion.candidates, (absl::InlinedVector<ms::Edge *, 16>{FakeEdge(1)}));
+  EXPECT_EQ(SortedLabels(overlay), std::vector{kLabelA});
+}
+
+TEST_F(VersioningOverlayIndexTest, ConcurrentAppendsOverlaysAndExpansionsLoseNothingAndCreateOneOverlay) {
+  constexpr size_t kThreads = 8;
+  constexpr uint64_t kGids = 64;
+  // Four shards (gid % 64), sixteen gids each, so threads contend on the shard locks.
+  constexpr auto kGidOf = [](uint64_t i) { return (i % 4) + (i / 4) * 64; };
+  constexpr int kOpsPerThread = 4000;
+  std::vector<std::vector<std::pair<uint64_t, ms::Edge *>>> appended(kThreads);
+  std::vector<std::vector<ms::Vertex *>> overlays(kThreads, std::vector<ms::Vertex *>(kGids, nullptr));
+  {
+    std::vector<std::jthread> threads;
+    for (size_t t = 0; t < kThreads; ++t) {
+      threads.emplace_back([&, t] {
+        std::mt19937_64 rng{t};
+        uint64_t next_edge = t << 32;
+        for (int i = 0; i < kOpsPerThread; ++i) {
+          const uint64_t idx = rng() % kGids;
+          const uint64_t gid = kGidOf(idx);
+          switch (rng() % 3) {
+            case 0: {
+              auto *edge = FakeEdge(next_edge++);
+              index.AppendDeleteCandidate(G(gid), ms::EdgeDirection::OUT, edge);
+              appended[t].emplace_back(idx, edge);
+              break;
+            }
+            case 1:
+              overlays[t][idx] = Create(gid);
+              break;
+            default: {
+              const auto found = index.FindForExpansion(G(gid), ms::EdgeDirection::OUT, true);
+              if (found.overlay != nullptr) EXPECT_EQ(found.base_vertex, FakeBase(gid));
+              break;
+            }
+          }
+        }
+      });
+    }
+  }
+
+  std::vector<std::vector<ms::Edge *>> expected(kGids);
+  for (const auto &per_thread : appended) {
+    for (const auto &[idx, edge] : per_thread) expected[idx].push_back(edge);
+  }
+  for (uint64_t idx = 0; idx < kGids; ++idx) {
+    const uint64_t gid = kGidOf(idx);
+    auto candidates = index.FindForExpansion(G(gid), ms::EdgeDirection::OUT, true).candidates;
+    EXPECT_TRUE(index.FindForExpansion(G(gid), ms::EdgeDirection::IN, true).candidates.empty());
+    std::ranges::sort(candidates);
+    std::ranges::sort(expected[idx]);
+    EXPECT_TRUE(std::ranges::equal(candidates, expected[idx])) << gid;
+    auto *overlay = index.FindOverlay(G(gid));
+    for (size_t t = 0; t < kThreads; ++t) {
+      if (overlays[t][idx] != nullptr) EXPECT_EQ(overlays[t][idx], overlay) << gid;
+    }
   }
 }
