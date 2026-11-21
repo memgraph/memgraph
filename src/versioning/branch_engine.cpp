@@ -221,6 +221,18 @@ BranchCore::BranchCore(storage::InMemoryStorage *main, const ForkPoint &fork, ui
   atomic_fetch_max_explicit(&diff_engine_->edge_id_, fork_.edge_gid_floor, std::memory_order_acq_rel);
 }
 
+ObjectCounts BranchCore::ApproximateCounts() const {
+  // Main's edge count drops when an edge is deleted, not when the delete commits, so a delete open at the fork leaves
+  // the recorded counts below the fork-visible edges and the branch's deletes of them can exceed the base.
+  const auto net = [](uint64_t base, uint64_t added, uint64_t deleted) {
+    return base + added > deleted ? base + added - deleted : 0;
+  };
+  const auto native = diff_engine_->GetApproximateCounts();
+  const auto deleted = BaseDeletes();
+  return {.vertices = net(fork_.counts.vertices, native.vertices, deleted.vertices),
+          .edges = net(fork_.counts.edges, native.edges, deleted.edges)};
+}
+
 // Reset first: the diff engine's deltas and indexes point at overlays owned by the overlay indexes.
 BranchCore::~BranchCore() {
   teardown_scope_.emplace(main_->DbArenaPool());
@@ -230,8 +242,12 @@ BranchCore::~BranchCore() {
 std::expected<std::unique_ptr<BranchContext>, BranchContext::BuildError> BranchContext::BuildFromFork(
     storage::InMemoryStorage &main, uint64_t fork_ts, std::optional<uint64_t> branch_number) {
   // Read after the fork pin, as the registry does: every gid visible at fork_ts is below the floors.
-  ForkPoint const fork{.vertex_gid_floor = main.vertex_id_.load(std::memory_order_acquire),
-                       .edge_gid_floor = main.edge_id_.load(std::memory_order_acquire)};
+  auto const vertex_gid_floor = main.vertex_id_.load(std::memory_order_acquire);
+  auto const edge_gid_floor = main.edge_id_.load(std::memory_order_acquire);
+  auto const counts = main.GetApproximateCounts();
+  ForkPoint const fork{.vertex_gid_floor = vertex_gid_floor,
+                       .edge_gid_floor = edge_gid_floor,
+                       .counts = {.vertices = counts.vertices, .edges = counts.edges}};
   auto core = BranchCore::Build(main, fork, fork_ts, branch_number);
   if (!core) return std::unexpected(std::move(core.error()));
   return std::make_unique<BranchContext>(std::move(*core), std::string{}, branch_number.value_or(0));
@@ -414,17 +430,9 @@ std::optional<storage::EdgeAccessor> BranchContext::ResolveEdge(storage::Gid edg
   return edge;
 }
 
-int64_t BranchContext::ApproximateVertexCount() {
-  auto const deleted = core_->BaseDeletes().vertices;
-  auto const total = historical().ApproximateVertexCount() + current_diff_txn()->ApproximateVertexCount();
-  return static_cast<int64_t>(total > deleted ? total - deleted : 0);
-}
+int64_t BranchContext::ApproximateVertexCount() { return static_cast<int64_t>(core_->ApproximateCounts().vertices); }
 
-int64_t BranchContext::ApproximateEdgeCount() {
-  auto const deleted = core_->BaseDeletes().edges;
-  auto const total = historical().ApproximateEdgeCount() + current_diff_txn()->ApproximateEdgeCount();
-  return static_cast<int64_t>(total > deleted ? total - deleted : 0);
-}
+int64_t BranchContext::ApproximateEdgeCount() { return static_cast<int64_t>(core_->ApproximateCounts().edges); }
 
 std::optional<storage::EdgeAccessor> BranchContext::FindEdgeInAnchors(storage::Gid edge_gid, storage::View view) {
   std::optional<storage::EdgeAccessor> found;

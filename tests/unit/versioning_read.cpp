@@ -2068,7 +2068,7 @@ TEST_F(VersioningReadReferenceEdgeTest, EdgeByIdOnABranchAnswersAsMainDoes) {
   EXPECT_EQ(IntRows(faker, "MATCH ()-[e:E]->() RETURN count(e)").at(0).at(0), 1) << "the edge is on the branch";
 }
 
-// A branch's approximate count is main's plus the branch-native objects less the base objects the branch deleted,
+// A branch's approximate count is main's at the fork plus native objects less the base objects the branch deleted,
 // not the diff engine's alone.
 TEST_F(VersioningReadTest, ApproximateCountsOnABranchCoverTheBaseState) {
   faker.Interpret("UNWIND range(1, 20) AS i CREATE (:C {i: i})-[:R]->(:D)");
