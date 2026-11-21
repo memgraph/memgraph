@@ -155,6 +155,7 @@ class CreateExpand;
 class ScanAll;
 class ScanAllByLabel;
 class ScanAllByLabelProperties;
+class ScanAllByIndexDisjunction;
 class ScanAllById;
 class ScanAllByEdge;
 class ScanAllByEdgeType;
@@ -220,16 +221,17 @@ class ScanChunk;
 class ScanChunkByEdge;
 
 using LogicalOperatorCompositeVisitor = utils::CompositeVisitor<
-    Once, CreateNode, CreateExpand, ScanAll, ScanAllByLabel, ScanAllByLabelProperties, ScanAllById, ScanAllByEdge,
-    ScanAllByEdgeType, ScanAllByEdgeTypeProperty, ScanAllByEdgeProperty, ScanAllByEdgeId, ScanAllByVertexProperty,
-    ScanAllByPointDistance, ScanAllByPointWithinbbox, Expand, ExpandVariable, ConstructNamedPath, Filter, Produce,
-    Delete, SetProperty, SetProperties, SetLabels, RemoveProperty, RemoveLabels, EdgeUniquenessFilter, Accumulate,
-    Aggregate, Skip, Limit, OrderBy, Merge, Optional, Unwind, CardinalityScale, Distinct, Union, Cartesian,
-    CallProcedure, LoadCsv, Foreach, EmptyResult, EvaluatePatternFilter, Apply, IndexedJoin, HashJoin, RollUpApply,
-    Conditional, PeriodicCommit, PeriodicSubquery, SetNestedProperty, RemoveNestedProperty, LoadParquet, LoadJsonl,
-    AggregateParallel, OrderByParallel, ScanParallel, ScanParallelByLabel, ScanParallelByLabelProperties,
-    ScanParallelByEdgeType, ScanParallelByEdgeTypeProperty, ScanParallelByEdge, ScanParallelByEdgeProperty,
-    ScanParallelByVertexProperty, ScanChunk, ScanChunkByEdge, ParallelMerge, CacheProperties>;
+    Once, CreateNode, CreateExpand, ScanAll, ScanAllByLabel, ScanAllByLabelProperties, ScanAllByIndexDisjunction,
+    ScanAllById, ScanAllByEdge, ScanAllByEdgeType, ScanAllByEdgeTypeProperty, ScanAllByEdgeProperty, ScanAllByEdgeId,
+    ScanAllByVertexProperty, ScanAllByPointDistance, ScanAllByPointWithinbbox, Expand, ExpandVariable,
+    ConstructNamedPath, Filter, Produce, Delete, SetProperty, SetProperties, SetLabels, RemoveProperty, RemoveLabels,
+    EdgeUniquenessFilter, Accumulate, Aggregate, Skip, Limit, OrderBy, Merge, Optional, Unwind, CardinalityScale,
+    Distinct, Union, Cartesian, CallProcedure, LoadCsv, Foreach, EmptyResult, EvaluatePatternFilter, Apply, IndexedJoin,
+    HashJoin, RollUpApply, Conditional, PeriodicCommit, PeriodicSubquery, SetNestedProperty, RemoveNestedProperty,
+    LoadParquet, LoadJsonl, AggregateParallel, OrderByParallel, ScanParallel, ScanParallelByLabel,
+    ScanParallelByLabelProperties, ScanParallelByEdgeType, ScanParallelByEdgeTypeProperty, ScanParallelByEdge,
+    ScanParallelByEdgeProperty, ScanParallelByVertexProperty, ScanChunk, ScanChunkByEdge, ParallelMerge,
+    CacheProperties>;
 
 using LogicalOperatorLeafVisitor = utils::LeafVisitor<Once>;
 
@@ -830,6 +832,52 @@ class ScanAllByLabelProperties : public memgraph::query::plan::ScanAll {
   std::vector<storage::PropertyPath> properties_;
   std::vector<ExpressionRange> expression_ranges_;
   storage::IndexOrder index_order_{storage::IndexOrder::ASC};
+
+  std::string ToString(const DbAccessor *dba) const override;
+
+  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
+};
+
+/// One index access of a @c ScanAllByIndexDisjunction: a label index when @c properties is
+/// empty, a label-property index otherwise.
+struct IndexDisjunctionBranch {
+  /// An `x IN list` slot: @c deduped is toSet(coalesce(list, [])); each of its elements is written
+  /// to @c symbol, which the slot's range reads.
+  struct MembershipSlot {
+    Expression *deduped{nullptr};
+    Symbol symbol;
+  };
+
+  storage::LabelId label;
+  std::vector<storage::PropertyPath> properties;
+  std::vector<ExpressionRange> expression_ranges;
+  std::vector<MembershipSlot> membership_slots;
+  storage::IndexOrder index_order{storage::IndexOrder::ASC};
+
+  bool IsLabelOnly() const { return properties.empty(); }
+
+  /// A copy whose expressions live in @p storage.
+  IndexDisjunctionBranch Clone(AstStorage &storage) const;
+};
+
+/// Produces, for each input row, every vertex that at least one branch yields, once.
+///
+/// @sa ScanAllByLabel
+/// @sa ScanAllByLabelProperties
+class ScanAllByIndexDisjunction : public memgraph::query::plan::ScanAll {
+ public:
+  static const utils::TypeInfo kType;
+
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  ScanAllByIndexDisjunction() = default;
+  ScanAllByIndexDisjunction(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol,
+                            std::vector<IndexDisjunctionBranch> branches, storage::View view = storage::View::OLD);
+
+  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
+
+  std::vector<IndexDisjunctionBranch> branches_;
 
   std::string ToString(const DbAccessor *dba) const override;
 
