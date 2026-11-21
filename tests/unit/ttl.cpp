@@ -14,6 +14,7 @@
 #include <unistd.h>
 #include <chrono>
 #include <filesystem>
+#include <future>
 #include <string>
 #include <thread>
 #include <tuple>
@@ -373,6 +374,41 @@ TYPED_TEST(TTLFixture, Periodic) {
   // newer timestamp is 3s in future, so wait up to 4s total
   ASSERT_TRUE(WaitForVertexCount(this->db_, 4, std::chrono::seconds(4)))
       << "Failed to observe second TTL deletion (expected 4 vertices)";
+}
+
+TYPED_TEST(TTLFixture, DisableWhileUniqueAccessHeld) {
+  const auto expired_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+                              (std::chrono::system_clock::now() - std::chrono::seconds(10)).time_since_epoch())
+                              .count();
+  {
+    auto acc = this->db_->Access(memgraph::storage::WRITE);
+    auto ttl_lbl = this->db_->storage()->NameToLabel("TTL");
+    auto ttl_prop = this->db_->storage()->NameToProperty("ttl");
+    for (int i = 0; i < 3; ++i) {
+      auto v = acc->CreateVertex();
+      ASSERT_TRUE(v.AddLabel(ttl_lbl).has_value());
+      ASSERT_TRUE(v.SetProperty(ttl_prop, memgraph::storage::PropertyValue(expired_ts)).has_value());
+    }
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+  this->ttl_->Enable();
+  this->ttl_->Configure(this->RunEdgeTTL());
+  EXPECT_NO_THROW(this->ttl_->SetInterval(std::chrono::milliseconds(100)));
+  this->EnsureTTLIndicesReady();
+
+  // The worker parks on its batch Access(WRITE) behind this UNIQUE; Disable() must still return.
+  auto unique = this->db_->storage()->UniqueAccess();
+  this->ttl_->Resume();
+  std::this_thread::sleep_for(std::chrono::milliseconds(500));
+
+  auto disabled = std::async(std::launch::async, [&] { this->ttl_->Disable(); });
+  if (disabled.wait_for(std::chrono::seconds(5)) != std::future_status::ready) {
+    unique.reset();  // unblock the pre-fix worker so the test binary can exit
+    disabled.wait();
+    FAIL() << "TTL Disable() hung while a UNIQUE accessor was held";
+  }
+  EXPECT_FALSE(this->ttl_->Enabled());
+  unique.reset();
 }
 
 TYPED_TEST(TTLFixture, StartTime) {

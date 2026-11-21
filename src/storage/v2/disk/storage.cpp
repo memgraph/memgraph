@@ -2555,33 +2555,33 @@ uint64_t DiskStorage::GetCommitTimestamp() { return timestamp_++; }
 
 std::unique_ptr<Storage::Accessor> DiskStorage::Access(StorageAccessType rw_type,
                                                        std::optional<IsolationLevel> override_isolation_level,
-                                                       std::optional<std::chrono::milliseconds> /*timeout*/) {
+                                                       std::optional<std::chrono::milliseconds> timeout) {
   auto isolation_level = override_isolation_level.value_or(isolation_level_);
   if (isolation_level != IsolationLevel::SNAPSHOT_ISOLATION) {
     throw utils::NotYetImplemented("Disk storage supports only SNAPSHOT isolation level. {}", kErrorMessage);
   }
   return std::unique_ptr<DiskAccessor>(
-      new DiskAccessor{this, override_isolation_level, AcquireGuardOrThrow(this, rw_type, std::nullopt)});
+      new DiskAccessor{this, override_isolation_level, AcquireGuardOrThrow(this, rw_type, timeout)});
 }
 
 std::unique_ptr<Storage::Accessor> DiskStorage::UniqueAccess(std::optional<IsolationLevel> override_isolation_level,
-                                                             std::optional<std::chrono::milliseconds> /*timeout*/) {
+                                                             std::optional<std::chrono::milliseconds> timeout) {
   auto isolation_level = override_isolation_level.value_or(isolation_level_);
   if (isolation_level != IsolationLevel::SNAPSHOT_ISOLATION) {
     throw utils::NotYetImplemented("Disk storage supports only SNAPSHOT isolation level. {}", kErrorMessage);
   }
-  return std::unique_ptr<DiskAccessor>(new DiskAccessor{
-      this, override_isolation_level, AcquireGuardOrThrow(this, StorageAccessType::UNIQUE, std::nullopt)});
+  return std::unique_ptr<DiskAccessor>(
+      new DiskAccessor{this, override_isolation_level, AcquireGuardOrThrow(this, StorageAccessType::UNIQUE, timeout)});
 }
 
 std::unique_ptr<Storage::Accessor> DiskStorage::ReadOnlyAccess(std::optional<IsolationLevel> override_isolation_level,
-                                                               std::optional<std::chrono::milliseconds> /*timeout*/) {
+                                                               std::optional<std::chrono::milliseconds> timeout) {
   auto isolation_level = override_isolation_level.value_or(isolation_level_);
   if (isolation_level != IsolationLevel::SNAPSHOT_ISOLATION) {
     throw utils::NotYetImplemented("Disk storage supports only SNAPSHOT isolation level. {}", kErrorMessage);
   }
   return std::unique_ptr<DiskAccessor>(new DiskAccessor{
-      this, override_isolation_level, AcquireGuardOrThrow(this, StorageAccessType::READ_ONLY, std::nullopt)});
+      this, override_isolation_level, AcquireGuardOrThrow(this, StorageAccessType::READ_ONLY, timeout)});
 }
 
 bool DiskStorage::DiskAccessor::LabelPropertyIndexExists(LabelId label,
