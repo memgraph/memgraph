@@ -117,7 +117,10 @@ setItem : ( propertyExpression '=' expression )
         | ( variable '=' expression )
         | ( variable '+=' expression )
         | ( variable nodeLabels )
+        | setItemDynamic
         ;
+
+setItemDynamic : variable '[' expression ']' '=' expression ;
 
 cypherDelete : DETACH? DELETE expression ( ',' expression )* ;
 

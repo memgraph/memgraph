@@ -652,6 +652,16 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     return true;
   }
 
+  bool PreVisit(SetPropertyDynamic &op) override {
+    prev_ops_.push_back(&op);
+    return true;
+  }
+
+  bool PostVisit(SetPropertyDynamic &) override {
+    prev_ops_.pop_back();
+    return true;
+  }
+
   bool PreVisit(SetProperties &op) override {
     prev_ops_.push_back(&op);
     return true;

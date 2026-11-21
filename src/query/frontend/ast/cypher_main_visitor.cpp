@@ -2126,6 +2126,7 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(MemgraphCypher::SingleQueryCon
       check_write_procedure("MATCH");
     } else if (utils::IsSubtype(clause_type, Create::kType) || utils::IsSubtype(clause_type, Delete::kType) ||
                utils::IsSubtype(clause_type, SetProperty::kType) ||
+               utils::IsSubtype(clause_type, SetPropertyDynamic::kType) ||
                utils::IsSubtype(clause_type, SetProperties::kType) || utils::IsSubtype(clause_type, SetLabels::kType) ||
                utils::IsSubtype(clause_type, RemoveProperty::kType) ||
                utils::IsSubtype(clause_type, RemoveLabels::kType) || utils::IsSubtype(clause_type, Merge::kType) ||
@@ -4549,6 +4550,15 @@ antlrcpp::Any CypherMainVisitor::visitSet(MemgraphCypher::SetContext *ctx) {
 }
 
 antlrcpp::Any CypherMainVisitor::visitSetItem(MemgraphCypher::SetItemContext *ctx) {
+  // SetProperty with a runtime-computed key
+  if (auto *dynamic = ctx->setItemDynamic()) {
+    auto *set_property = storage_->Create<SetPropertyDynamic>();
+    set_property->lhs_ = storage_->Create<Identifier>(std::any_cast<std::string>(dynamic->variable()->accept(this)));
+    set_property->key_ = std::any_cast<Expression *>(dynamic->expression(0)->accept(this));
+    set_property->rhs_ = std::any_cast<Expression *>(dynamic->expression(1)->accept(this));
+    return static_cast<Clause *>(set_property);
+  }
+
   // SetProperty
   if (ctx->propertyExpression()) {
     auto *set_property = storage_->Create<SetProperty>();

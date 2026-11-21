@@ -283,6 +283,9 @@ constexpr utils::TypeInfo query::Delete::kType{utils::TypeId::AST_DELETE, "Delet
 constexpr utils::TypeInfo query::SetProperty::kType{
     .id = utils::TypeId::AST_SET_PROPERTY, .name = "SetProperty", .superclass = &query::Clause::kType};
 
+constexpr utils::TypeInfo query::SetPropertyDynamic::kType{
+    .id = utils::TypeId::AST_SET_PROPERTY_DYNAMIC, .name = "SetPropertyDynamic", .superclass = &query::Clause::kType};
+
 constexpr utils::TypeInfo query::SetProperties::kType{
     .id = utils::TypeId::AST_SET_PROPERTIES, .name = "SetProperties", .superclass = &query::Clause::kType};
 

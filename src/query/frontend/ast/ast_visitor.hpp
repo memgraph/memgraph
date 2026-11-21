@@ -74,6 +74,7 @@ class IfOperator;
 class Delete;
 class Where;
 class SetProperty;
+class SetPropertyDynamic;
 class SetProperties;
 class SetLabels;
 class RemoveProperty;
@@ -157,9 +158,9 @@ using TreeCompositeVisitor = utils::CompositeVisitor<
     UnaryMinusOperator, IsNullOperator, ListLiteral, MapLiteral, MapProjectionLiteral, PropertyLookup,
     AllPropertiesLookup, LabelsTest, Aggregation, Function, Reduce, Coalesce, Extract, All, Single, Any, None,
     ListComprehension, CallProcedure, Create, Match, Return, With, Pattern, NodeAtom, EdgeAtom, Delete, Where,
-    SetProperty, SetProperties, SetLabels, RemoveProperty, RemoveLabels, Merge, Unwind, RegexMatch, LoadCsv, Foreach,
-    SubqueryExpression, CallSubquery, CypherQuery, PatternComprehension, LoadParquet, EdgeTypesTest, LoadJsonl,
-    ConditionalBranches>;
+    SetProperty, SetPropertyDynamic, SetProperties, SetLabels, RemoveProperty, RemoveLabels, Merge, Unwind, RegexMatch,
+    LoadCsv, Foreach, SubqueryExpression, CallSubquery, CypherQuery, PatternComprehension, LoadParquet, EdgeTypesTest,
+    LoadJsonl, ConditionalBranches>;
 
 using TreeLeafVisitor = utils::LeafVisitor<Identifier, PrimitiveLiteral, ParameterLookup, EnumValueAccess>;
 

@@ -22,10 +22,10 @@ bool IsWritingClause(const Clause &clause) {
     return call_proc->graph_access_ == GraphAccess::Write;
   }
   return utils::Downcast<const Create>(&clause) || utils::Downcast<const Delete>(&clause) ||
-         utils::Downcast<const SetProperty>(&clause) || utils::Downcast<const SetProperties>(&clause) ||
-         utils::Downcast<const SetLabels>(&clause) || utils::Downcast<const RemoveProperty>(&clause) ||
-         utils::Downcast<const RemoveLabels>(&clause) || utils::Downcast<const Merge>(&clause) ||
-         utils::Downcast<const Foreach>(&clause);
+         utils::Downcast<const SetProperty>(&clause) || utils::Downcast<const SetPropertyDynamic>(&clause) ||
+         utils::Downcast<const SetProperties>(&clause) || utils::Downcast<const SetLabels>(&clause) ||
+         utils::Downcast<const RemoveProperty>(&clause) || utils::Downcast<const RemoveLabels>(&clause) ||
+         utils::Downcast<const Merge>(&clause) || utils::Downcast<const Foreach>(&clause);
 }
 
 bool RWChecker::PreVisit(SingleQuery &single_query) {

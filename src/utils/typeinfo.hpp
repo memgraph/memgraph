@@ -110,6 +110,7 @@ enum class TypeId : uint64_t {
   ORDERBY_PARALLEL,
   CONDITIONAL,
   CACHE_PROPERTIES,
+  SET_PROPERTY_DYNAMIC,
 
   // Replication
   // NOTE: these NEED to be stable in the 2000+ range (see rpc version)
@@ -385,6 +386,7 @@ enum class TypeId : uint64_t {
   REP_RESUME_DATABASE_RES,
   AST_SESSION_QUERY,
   AST_CONDITIONAL_BRANCHES,
+  AST_SET_PROPERTY_DYNAMIC,
 
   // Symbol
   SYMBOL = 4000,

@@ -286,6 +286,11 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
     return false;
   }
 
+  bool PreVisit(SetPropertyDynamic & /*unused*/) override {
+    AddPrivilege(AuthQuery::Privilege::SET);
+    return false;
+  }
+
   bool PreVisit(SetProperties & /*unused*/) override {
     AddPrivilege(AuthQuery::Privilege::SET);
     return false;

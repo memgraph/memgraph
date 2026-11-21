@@ -203,6 +203,35 @@ def test_set_property_allowed_succeeds():
         )
 
 
+def test_set_property_dynamic_denied_throws():
+    """SET n[computed_key] fails when user lacks SET PROPERTY permission on that property."""
+    admin = admin_cursor()
+    common.execute_and_fetch_all(admin, "GRANT SET PROPERTY {*} ON NODES CONTAINING LABELS :Employee TO user;")
+    common.execute_and_fetch_all(admin, "DENY SET PROPERTY {ssn} ON NODES CONTAINING LABELS :Employee TO user;")
+    try:
+        with pytest.raises(Exception, match="missing SET PROPERTY permission on property"):
+            common.execute_and_fetch_all(user_cursor(), "MATCH (n:Employee) WITH n, 'ssn' AS k SET n[k] = 'new-ssn';")
+    finally:
+        common.execute_and_fetch_all(admin, "REVOKE SET PROPERTY {*} ON NODES CONTAINING LABELS :Employee FROM user;")
+        common.execute_and_fetch_all(admin, "REVOKE SET PROPERTY {ssn} ON NODES CONTAINING LABELS :Employee FROM user;")
+
+
+def test_set_property_dynamic_allowed_succeeds():
+    """SET n[computed_key] succeeds when user has SET PROPERTY permission on that property."""
+    admin = admin_cursor()
+    common.execute_and_fetch_all(admin, "GRANT SET PROPERTY {name} ON NODES CONTAINING LABELS :Employee TO user;")
+    try:
+        common.execute_and_fetch_all(user_cursor(), "MATCH (n:Employee) WITH n, 'name' AS k SET n[k] = 'Bob';")
+        result = common.execute_and_fetch_all(admin_cursor(), "MATCH (n:Employee) RETURN n.name;")
+        assert result[0][0] == "Bob"
+    finally:
+        # Restore original value
+        common.execute_and_fetch_all(admin, "MATCH (n:Employee) SET n.name = 'Alice';")
+        common.execute_and_fetch_all(
+            admin, "REVOKE SET PROPERTY {name} ON NODES CONTAINING LABELS :Employee FROM user;"
+        )
+
+
 def test_set_property_no_write_rules_denied():
     """SET n.prop fails when no SET PROPERTY rules exist (no rules = no access)."""
     with pytest.raises(Exception, match="(?i)property"):
