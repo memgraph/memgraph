@@ -4293,6 +4293,34 @@ class MultiDatabaseQuery : public memgraph::query::Query {
   }
 };
 
+class VersioningQuery : public memgraph::query::Query {
+ public:
+  static const utils::TypeInfo kType;
+
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  DEFVISITABLE(QueryVisitor<void>);
+
+  QueryTraits Traits() const override { return {.access = NoAccess{}, .operates_on_graph_data = false}; }
+
+  enum class Action : uint8_t { SHOW_BRANCH, SHOW_BRANCHES };
+
+  memgraph::query::VersioningQuery::Action action_;
+  // An Expression (PrimitiveLiteral or ParameterLookup), never a resolved string: the AST is cached across executions
+  // with different stripped-literal values. Null for SHOW BRANCH(ES) without a name.
+  memgraph::query::Expression *name_{nullptr};
+  /// A plain identifier, never stripped into a parameter, so it is resolved at parse time.
+  std::optional<std::string> for_database_;
+
+  VersioningQuery *Clone(AstStorage *storage) const override {
+    auto *object = storage->Create<VersioningQuery>();
+    object->action_ = action_;
+    object->name_ = name_ ? name_->Clone(storage) : nullptr;
+    object->for_database_ = for_database_;
+    return object;
+  }
+};
+
 class UseDatabaseQuery : public memgraph::query::Query {
  public:
   static const utils::TypeInfo kType;

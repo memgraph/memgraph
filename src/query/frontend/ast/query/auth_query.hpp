@@ -11,6 +11,9 @@
 
 #pragma once
 
+#ifdef MG_ENTERPRISE
+#include "flags/experimental.hpp"
+#endif
 #include "query/frontend/ast/query/expression.hpp"
 #include "query/frontend/ast/query/query.hpp"
 
@@ -104,6 +107,7 @@ class AuthQuery : public memgraph::query::Query {
     SERVER_SIDE_PARAMETERS,
     SERVER_SIDE_DESCRIPTIONS,
     RELOAD_TLS,
+    BRANCH_USE,
     // Coordinator-only privileges (READ / WRITE in the grammar). Not part of kPrivilegesAll, so GRANT ALL PRIVILEGES on
     // a data instance does not grant them; they gate queries only on coordinators.
     COORDINATOR_READ,
@@ -324,5 +328,34 @@ const std::vector<AuthQuery::Privilege> kPrivilegesAll = {
     AuthQuery::Privilege::SERVER_SIDE_DESCRIPTIONS,
     AuthQuery::Privilege::RELOAD_TLS,
 };
+
+#ifdef MG_ENTERPRISE
+/// Deliberately not in kPrivilegesAll; see PrivilegesAll.
+const std::vector<AuthQuery::Privilege> kBranchPrivileges = {
+    AuthQuery::Privilege::BRANCH_USE,
+};
+#endif
+
+/// What GRANT ALL and SHOW PRIVILEGES cover: graph versioning's privileges only while versioning is enabled, so that
+/// with it off nothing is granted or shown that did not exist before the feature.
+inline std::vector<AuthQuery::Privilege> PrivilegesAll() {
+  auto all = kPrivilegesAll;
+#ifdef MG_ENTERPRISE
+  if (flags::AreExperimentsEnabled(flags::Experiments::VERSIONING)) {
+    all.insert(all.end(), kBranchPrivileges.begin(), kBranchPrivileges.end());
+  }
+#endif
+  return all;
+}
+
+/// What DENY ALL and REVOKE ALL cover: graph versioning's privileges even while versioning is off, since a privilege
+/// hidden from SHOW PRIVILEGES can still be held and would resurface when versioning is enabled again.
+inline std::vector<AuthQuery::Privilege> PrivilegesDeniedOrRevokedByAll() {
+  auto all = kPrivilegesAll;
+#ifdef MG_ENTERPRISE
+  all.insert(all.end(), kBranchPrivileges.begin(), kBranchPrivileges.end());
+#endif
+  return all;
+}
 
 }  // namespace memgraph::query
