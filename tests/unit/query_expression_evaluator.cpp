@@ -3825,6 +3825,14 @@ TYPED_TEST(FunctionTest, Reverse) {
   EXPECT_TRUE(this->EvaluateFunction("REVERSE", TypedValue()).IsNull());
   EXPECT_EQ(this->EvaluateFunction("REVERSE", "abc").ValueString(), "cba");
   EXPECT_THROW(this->EvaluateFunction("REVERSE", "x", "y"), QueryRuntimeException);
+
+  EXPECT_THROW(this->EvaluateFunction("REVERSE", 132), QueryRuntimeException);
+  CompareList(this->EvaluateFunction("REVERSE", MakeTypedValueList(3, 4, 5)), MakeTypedValueList(5, 4, 3));
+  CompareList(this->EvaluateFunction("REVERSE", MakeTypedValueList()), MakeTypedValueList());
+  const auto nested = this->EvaluateFunction("REVERSE", MakeTypedValueList(MakeTypedValueList(1, 2), 3)).ValueList();
+  ASSERT_EQ(nested.size(), 2U);
+  EXPECT_EQ(nested[0].ValueInt(), 3);
+  CompareList(nested[1], MakeTypedValueList(1, 2));
 }
 
 TYPED_TEST(FunctionTest, ReverseNonAscii) {

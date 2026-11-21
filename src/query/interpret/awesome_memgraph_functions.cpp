@@ -1573,6 +1573,11 @@ TypedValue Trim(const TypedValue *args, int64_t nargs, const FunctionContext &ct
 }
 
 TypedValue Reverse(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
+  FType<Or<Null, String, List>>("reverse", args, nargs);
+  if (args[0].IsList()) {
+    const auto &list = args[0].ValueList();
+    return TypedValue(TypedValue::TVector(list.rbegin(), list.rend(), ctx.memory));
+  }
   return CallStringFunction(args, nargs, ctx.memory, "reverse", [&](const auto &str) {
     TypedValue::TString res(ctx.memory);
     utils::ReverseUtf8(&res, str);
