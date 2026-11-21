@@ -184,6 +184,7 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
         // FORCE also terminates other sessions' transactions, like DROP DATABASE ... FORCE.
         if (query.force_) AddPrivilege(AuthQuery::Privilege::TRANSACTION_MANAGEMENT);
         break;
+      case VersioningQuery::Action::USE_BRANCH:
       case VersioningQuery::Action::SHOW_BRANCH:
       case VersioningQuery::Action::SHOW_BRANCHES:
         AddPrivilege(AuthQuery::Privilege::BRANCH_USE);
