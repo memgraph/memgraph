@@ -13,6 +13,7 @@ target_sources(mg-versioning
         edge_overlay_index.hpp
         gate.hpp
         index_key_parts.hpp
+        main_constraints.hpp
         overlay_state.hpp
         overlay_mark_deleted.hpp
         overlay_index.hpp
