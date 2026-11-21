@@ -50,8 +50,14 @@ std::string ForRecord(std::string_view shape, std::string_view record) {
 /// A combination this spells wrongly is kept rather than filtered. Refusing is an answer, and both
 /// plans for a query have to refuse it alike.
 std::vector<std::string> ShapesAPassCouldBeWrongOn() {
-  static constexpr std::string_view kPatterns[] = {"MATCH (a)-[:E]->(b)", "MATCH (a)"};
-  static constexpr std::string_view kRecords[] = {"b", "a"};
+  static constexpr std::string_view kPatterns[] = {
+      "MATCH (a)-[:E]->(b)",
+      "MATCH (a)",
+      // Leaves the record Null wherever the expansion found nothing, so a pass has to answer a
+      // whole record's slots with Null for some rows of the same query and read for the rest.
+      "MATCH (a) OPTIONAL MATCH (a)-[:E]->(b)",
+  };
+  static constexpr std::string_view kRecords[] = {"b", "a", "b"};
   static constexpr std::string_view kPredicates[] = {
       "",
       "WHERE {r}.p > 1 AND {r}.p < 50",
