@@ -325,7 +325,7 @@ TEST_F(VersioningBranchCoreNoEdgePropertiesTest, DiffEngineForcesPropertiesOnEdg
   auto acc = Diff().Access(ms::WRITE);
   auto *from = core_->overlay_index().GetOrCreateOverlay(ms::Gid::FromUint(0), nullptr, {});
   auto *to = core_->overlay_index().GetOrCreateOverlay(ms::Gid::FromUint(1), nullptr, {});
-  auto *edge = core_->edge_overlay_index().GetOrCreate(ms::Gid::FromUint(0));
+  auto *edge = core_->edge_overlay_index().GetOrCreate(ms::Gid::FromUint(0), ms::EdgeRef{ms::Gid::FromUint(0)});
   auto accessor = ms::EdgeAccessor::Create(
       ms::EdgeRef{edge}, core_->NameToEdgeType("E"), from, to, &Diff(), acc->GetTransaction(), ms::View::NEW);
   ASSERT_TRUE(accessor.has_value());
@@ -428,13 +428,14 @@ void WriteThroughOverlays(mv::BranchCore &core, ms::InMemoryStorage &diff) {
   ms::VertexAccessor va{vertex_overlay, &diff, acc->GetTransaction()};
   ASSERT_TRUE(va.AddLabel(label).has_value());
   ASSERT_TRUE(va.SetProperty(pid, ms::PropertyValue{1}).has_value());
-  auto accessor = ms::EdgeAccessor::Create(ms::EdgeRef{core.edge_overlay_index().GetOrCreate(ms::Gid::FromUint(0))},
-                                           core.NameToEdgeType("E"),
-                                           vertex_overlay,
-                                           other_overlay,
-                                           &diff,
-                                           acc->GetTransaction(),
-                                           ms::View::NEW);
+  auto accessor = ms::EdgeAccessor::Create(
+      ms::EdgeRef{core.edge_overlay_index().GetOrCreate(ms::Gid::FromUint(0), ms::EdgeRef{ms::Gid::FromUint(0)})},
+      core.NameToEdgeType("E"),
+      vertex_overlay,
+      other_overlay,
+      &diff,
+      acc->GetTransaction(),
+      ms::View::NEW);
   ASSERT_TRUE(accessor.has_value());
   ASSERT_TRUE(accessor->SetProperty(pid, ms::PropertyValue{2}).has_value());
   ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
