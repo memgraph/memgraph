@@ -237,6 +237,21 @@ TEST_F(VersionStoreTest, DropIsRefusedWhileCheckedOutUnlessForced) {
   EXPECT_TRUE((*session)->dropped());
 }
 
+TEST_F(VersionStoreTest, OwnCheckoutsDoNotMakeADropInUseAndAStaleIdIsNotFound) {
+  auto store = MakeStore();
+  const auto created = store->CreateBranch("a");
+  ASSERT_TRUE(created);
+  auto mine = store->Checkout("a");
+  auto theirs = store->Checkout("a");
+  ASSERT_TRUE(mine && theirs);
+
+  EXPECT_EQ(store->DropBranch("a", false, /*own_checkouts=*/1), DropResult::kInUse) << "another session is on it";
+  EXPECT_EQ(store->DropBranch("a", false, /*own_checkouts=*/2, created->id + 1), DropResult::kNotFound);
+  theirs->reset();
+  EXPECT_EQ(store->DropBranch("a", false, /*own_checkouts=*/1, created->id), DropResult::kDropped);
+  EXPECT_TRUE((*mine)->dropped());
+}
+
 TEST_F(VersionStoreTest, DropIsAllowedOnceTheCheckoutIsGone) {
   auto store = MakeStore();
   ASSERT_TRUE(store->CreateBranch("a"));
