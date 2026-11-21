@@ -15,12 +15,12 @@
 #include <atomic>
 #include <concepts>
 #include <cstddef>
+#include <cstdint>
 #include <functional>
 #include <mutex>
 #include <optional>
 #include <shared_mutex>
 #include <utility>
-#include <vector>
 
 #include <boost/unordered/unordered_flat_map.hpp>
 
@@ -35,23 +35,27 @@
 
 namespace memgraph::versioning {
 
+enum ListSide : uint8_t { kNoSide = 0, kFromSide = 1, kToSide = 2, kBothSides = 3 };
+
 // A branch's base-edge overlays: delta-less heap Edges keyed by base edge gid. Insert-only; owns the overlays, so
 // declare it after the diff engine and the teardown arena scope (overlay delta chains point at these Edges).
 class EdgeOverlayIndex {
  public:
   // Every Edge* this index hands out points at the base of one of these.
   struct BaseEdgeOverlay : storage::Edge {
-    BaseEdgeOverlay(storage::Gid gid, std::optional<storage::EdgeRef> base_edge) noexcept
+    BaseEdgeOverlay(storage::Gid gid, storage::EdgeRef base_edge) noexcept
         : storage::Edge(gid, nullptr), base_edge(base_edge) {}
 
-    std::optional<storage::EdgeRef> base_edge;
+    storage::EdgeRef base_edge;  // as main holds it: a pointer, or a bare gid when main has no edge properties
 
-    // Whether this overlay has been appended to its endpoints' candidate lists (see ListBaseEdgeDelete).
-    std::atomic<bool> listed{false};
+    // Bit s set: this edge is in side s's endpoint list. Set after the append, never cleared (see ListBaseEdgeDelete).
+    std::atomic<uint8_t> listed_sides{kNoSide};
   };
 
+  static_assert(sizeof(BaseEdgeOverlay) == 48, "the 48 B jemalloc class");
+
   // `overlay` must come from this index.
-  static std::optional<storage::EdgeRef> BaseOf(const storage::Edge *overlay) noexcept {
+  static storage::EdgeRef BaseOf(const storage::Edge *overlay) noexcept {
     return static_cast<const BaseEdgeOverlay *>(overlay)->base_edge;
   }
 
@@ -62,16 +66,17 @@ class EdgeOverlayIndex {
     return it == shard.map.end() ? nullptr : it->second.get();
   }
 
-  // The base edge `gid`'s overlay was created for, as main holds it. Empty if none or created without one.
+  // The base edge `gid`'s overlay was created for, as main holds it. Empty if there is no overlay.
   std::optional<storage::EdgeRef> FindBase(storage::Gid gid) const {
     const auto *overlay = Find(gid);
-    return overlay == nullptr ? std::nullopt : BaseOf(overlay);
+    if (overlay == nullptr) return std::nullopt;
+    return BaseOf(overlay);
   }
 
   // Returns the overlay for `gid`, creating one if none exists; `base_edge` is recorded only by the creating call.
   // boost's strong guarantee means a throw publishes nothing.
   // @throw utils::OutOfMemoryException
-  storage::Edge *GetOrCreate(storage::Gid gid, std::optional<storage::EdgeRef> base_edge = std::nullopt) {
+  storage::Edge *GetOrCreate(storage::Gid gid, storage::EdgeRef base_edge) {
     if (auto *found = Find(gid); found != nullptr) return found;
     Shard &shard = ShardFor(gid);
     auto candidate = memory::MakeDbAwareUnique<BaseEdgeOverlay>(gid, base_edge);
@@ -94,45 +99,23 @@ class EdgeOverlayIndex {
   std::array<Shard, kShards> shards_;
 };
 
-// Records `edge_overlay` as a possibly-deleted base edge of both endpoints, before the caller marks it deleted, so a
-// visible delete mark is always listed. A self-loop gets one entry in each list. Never nests with the edge overlay's
-// lock. Both vertices MUST be OverlayIndex::BaseVertexOverlays and `edge_overlay` an EdgeOverlayIndex::BaseEdgeOverlay.
-// Concurrent first callers may both append (a duplicate is harmless, a missing entry is not). OOM-blocked: a refusal is
-// reported only after both entries are published.
+// Records `edge_overlay` as a possibly-deleted base edge on the requested endpoint sides, before the caller marks it
+// deleted, so a visible delete mark is always listed on every side that was asked for. The caller has set the branched
+// bit of each requested endpoint. A self-loop appends once to each list. Never nests with the edge overlay's lock;
+// the two appends take their shard locks in sequence. Concurrent first callers may both append (a duplicate is
+// harmless, a missing entry is not). OOM-blocked: a refusal is reported only after the appends and bits are published.
+// `edge_overlay` MUST be an EdgeOverlayIndex::BaseEdgeOverlay.
 // @throw utils::OutOfMemoryException
-inline void ListBaseEdgeDelete(storage::Vertex *from_overlay, storage::Vertex *to_overlay,
-                               storage::Edge *edge_overlay) {
+inline void ListBaseEdgeDelete(OverlayIndex &index, storage::Gid from, storage::Gid to, storage::Edge *edge_overlay,
+                               ListSide sides = kBothSides) {
   auto *edge = static_cast<EdgeOverlayIndex::BaseEdgeOverlay *>(edge_overlay);
-  if (edge->listed.load(std::memory_order_acquire)) return;
-  auto *from = static_cast<OverlayIndex::BaseVertexOverlay *>(from_overlay);
-  auto *to = static_cast<OverlayIndex::BaseVertexOverlay *>(to_overlay);
+  const auto want = static_cast<uint8_t>(sides & ~edge->listed_sides.load(std::memory_order_acquire));
+  if (want == 0) return;
   utils::AtomicMemoryBlock([&] {
-    {
-      std::unique_lock guard{from->lock};
-      from->deleted_out.push_back(edge_overlay);
-    }
-    {
-      std::unique_lock guard{to->lock};
-      to->deleted_in.push_back(edge_overlay);
-    }
-    edge->listed.store(true, std::memory_order_release);
+    if (want & kFromSide) index.AppendDeleteCandidate(from, storage::EdgeDirection::OUT, edge_overlay);
+    if (want & kToSide) index.AppendDeleteCandidate(to, storage::EdgeDirection::IN, edge_overlay);
+    edge->listed_sides.fetch_or(want, std::memory_order_release);
   });
-}
-
-// A copy of `overlay`'s candidates in `direction`, taken under the overlay's shared lock; the caller checks each edge
-// overlay's deleted state after the lock is released (never nested). `overlay` MUST be a
-// OverlayIndex::BaseVertexOverlay.
-inline std::vector<storage::Edge *> BaseEdgeDeleteCandidates(storage::Vertex *overlay,
-                                                             storage::EdgeDirection direction) {
-  auto *vertex_overlay = static_cast<OverlayIndex::BaseVertexOverlay *>(overlay);
-  std::shared_lock guard{vertex_overlay->lock};
-  const auto &list =
-      direction == storage::EdgeDirection::OUT ? vertex_overlay->deleted_out : vertex_overlay->deleted_in;
-  if (list.empty()) return {};
-  std::vector<storage::Edge *> out;
-  out.reserve(list.size());
-  for (auto *edge : list) out.push_back(edge);
-  return out;
 }
 
 }  // namespace memgraph::versioning
