@@ -1,0 +1,49 @@
+// Copyright 2026 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
+#pragma once
+
+#include <cstdint>
+#include <expected>
+#include <string>
+#include <string_view>
+
+#include "storage/v2/config.hpp"
+
+namespace memgraph::versioning {
+
+enum class GateError : uint8_t { kDisabled, kNoLicense, kUnsupportedStorageMode };
+
+// kCreate and kObserve differ only by the license: only kCreate needs it.
+enum class GateOperation : uint8_t { kObserve, kCreate };
+
+struct GateState {
+  bool flag_enabled;
+  bool enterprise_valid;
+  bool is_in_memory_transactional;
+};
+
+// Ok when `op` is allowed. First failure wins: flag, license (kCreate only), storage mode.
+// Durability is not checked here: startup refuses non-durable settings (ValidateStartupConfig) and they are immutable
+// afterwards. The caller refuses replicas afterwards. Takes primitives to stay free of Storage/license.
+std::expected<void, GateError> CheckVersioningGate(GateOperation op, GateState const &state);
+
+std::string_view GateErrorMessage(GateError err);
+
+// Branches survive a restart: WAL on (PERIODIC_SNAPSHOT_WITH_WAL) and --data-recovery-on-startup=true.
+bool BranchesDurable(const storage::Config &config);
+
+// With versioning on, why the startup settings cannot host branches (storage mode, then WAL and recovery on startup),
+// naming the setting; ok when they can. Storage mode uses the CREATE BRANCH gate's reason. Checked once at startup,
+// before any database is built: nothing is read from disk, so it is the same with or without branch files.
+std::expected<void, std::string> ValidateStartupConfig(storage::StorageMode mode, const storage::Config &config);
+
+}  // namespace memgraph::versioning
