@@ -989,6 +989,11 @@ add_unit_test(storage_v2_index_arming
 )
 
 if (MG_ENTERPRISE)
+add_unit_test(storage_v2_property_store_explicit_null
+    SOURCES storage_v2_property_store_explicit_null.cpp
+    LINK_TARGETS mg::storage
+)
+
 add_unit_test(versioning_historical_access
     SOURCES versioning_historical_access.cpp
     LINK_TARGETS mg::storage storage_test_utils
@@ -1026,6 +1031,16 @@ add_unit_test(versioning_ledger
 
 add_unit_test(versioning_version_store
     SOURCES versioning_version_store.cpp
+    LINK_TARGETS mg::versioning mg::storage
+)
+
+add_unit_test(versioning_overlay_state
+    SOURCES versioning_overlay_state.cpp
+    LINK_TARGETS mg::versioning mg::storage
+)
+
+add_unit_test(versioning_overlay_mark_deleted
+    SOURCES versioning_overlay_mark_deleted.cpp
     LINK_TARGETS mg::versioning mg::storage
 )
 endif ()

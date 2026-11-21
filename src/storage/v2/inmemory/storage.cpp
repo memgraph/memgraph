@@ -320,7 +320,7 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
                                  utils::MemoryTracker *db_embedding_memory_tracker
 #ifdef MG_ENTERPRISE
                                  ,
-                                 durability::HistoryBounds history_bounds
+                                 durability::HistoryBounds history_bounds, RetainedGidFloors retained_gid_floors
 #endif
                                  )
     : Storage(config, config.salient.storage_mode, std::move(invalidator), metric_handles, db_arena,
@@ -335,7 +335,13 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
                 .wal_directory_ = config.durability.storage_directory / durability::kWalDirectory},
       lock_file_path_(config.durability.storage_directory / durability::kLockFile),
       snapshot_periodic_observer_(std::make_shared<PeriodicSnapshotObserver>(snapshot_runner_)),
-      global_locker_(file_retainer_.AddLocker()) {
+      global_locker_(file_retainer_.AddLocker())
+#ifdef MG_ENTERPRISE
+      ,
+      retained_vertex_floor_(retained_gid_floors.vertex),
+      retained_edge_floor_(retained_gid_floors.edge)
+#endif
+{
   MG_ASSERT(config.salient.storage_mode != StorageMode::ON_DISK_TRANSACTIONAL,
             "Invalid storage mode sent to InMemoryStorage constructor!");
   MG_ASSERT(!config_.salient.items.storage_light_edge || config_.salient.items.properties_on_edges,
@@ -1669,7 +1675,14 @@ void InMemoryStorage::InMemoryAccessor::Abort(ProgressCallback const &on_progres
                 index_abort_processor.CollectOnEdgePropertyChange(
                     prop_id, *current->property.value, from_vertex, edge, transaction_.deltas);
 
-                edge->properties.SetProperty(prop_id, *current->property.value);
+#ifdef MG_ENTERPRISE
+                if (IsExplicitNullBeforeImage(current->property.value)) {
+                  edge->properties.SetExplicitNull(prop_id);
+                } else
+#endif
+                {
+                  edge->properties.SetProperty(prop_id, *current->property.value);
+                }
 
                 break;
               }
@@ -1754,7 +1767,14 @@ void InMemoryStorage::InMemoryAccessor::Abort(ProgressCallback const &on_progres
             //  value
             index_abort_processor.CollectOnPropertyChange(current->property.key, *current->property.value, vertex);
             // Setting the correct value
-            vertex->properties.SetProperty(current->property.key, *current->property.value);
+#ifdef MG_ENTERPRISE
+            if (IsExplicitNullBeforeImage(current->property.value)) {
+              vertex->properties.SetExplicitNull(current->property.key);
+            } else
+#endif
+            {
+              vertex->properties.SetProperty(current->property.key, *current->property.value);
+            }
             break;
           }
           case Delta::Action::ADD_IN_EDGE: {
@@ -3813,6 +3833,34 @@ void InMemoryStorage::CollectGarbage(utils::ResourceLockGuard main_guard, bool p
   // On object deletion, theses indexes MUST be cleaned for functional correctness, their entries with raw pointers to
   // the actual objects need removing before the object is removed itself. Also moving from IN_MEMORY_ANALYTICAL to
   // IN_MEMORY_TRANSACTIONAL any object could have been deleted so also index cleanup is required for correctness.
+#ifdef MG_ENTERPRISE
+  // A marked-deleted overlay reaches the deleted lists through its RECREATE_OBJECT delta, but it is not in
+  // `vertices_`/`edges_`, so retiring it would fail the skip-list MG_ASSERT in RetireVertices/RetireEdges. Overlays are
+  // owned by the branch's overlay indexes; the floor tells them apart, as native gids are at or above it.
+  bool overlays_filtered_vertices = false;
+  bool overlays_filtered_edges = false;
+  if (retained_vertex_floor_ != 0 || retained_edge_floor_ != 0) [[unlikely]] {
+    BatchedList<Gid> kept_vertices;
+    for (auto const gid : current_deleted_vertices.elements()) {
+      if (gid.AsUint() >= retained_vertex_floor_) {
+        kept_vertices.push_back(gid);
+      } else {
+        overlays_filtered_vertices = true;
+      }
+    }
+    current_deleted_vertices.swap(kept_vertices);
+    BatchedList<Edge *> kept_edges;
+    for (auto *const edge : current_deleted_edges.elements()) {
+      if (edge->gid.AsUint() >= retained_edge_floor_) {
+        kept_edges.push_back(edge);
+      } else {
+        overlays_filtered_edges = true;
+      }
+    }
+    current_deleted_edges.swap(kept_edges);
+  }
+#endif
+
   bool const index_cleanup_vertex_needed = need_full_scan_vertices || !current_deleted_vertices.empty();
   bool const index_cleanup_edge_needed = need_full_scan_edges || !current_deleted_edges.empty();
 
@@ -3825,6 +3873,11 @@ void InMemoryStorage::CollectGarbage(utils::ResourceLockGuard main_guard, bool p
   sweep_arming |= cycle_arming;
   if (index_cleanup_vertex_needed) sweep_arming.arm_all_vertex_indexes();
   if (index_cleanup_edge_needed) sweep_arming.arm_all_edge_indexes();
+#ifdef MG_ENTERPRISE
+  // A filtered overlay may still have index entries, so the read-only stale-entry sweep is armed to remove them.
+  if (overlays_filtered_vertices) sweep_arming.arm_all_vertex_indexes();
+  if (overlays_filtered_edges) sweep_arming.arm_all_edge_indexes();
+#endif
 
   auto index_cleanup_vertex_performance = sweep_arming.arms_vertex_indexes();
   auto index_cleanup_edge_performance = sweep_arming.arms_edge_indexes();
