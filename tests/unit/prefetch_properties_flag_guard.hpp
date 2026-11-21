@@ -14,16 +14,16 @@
 #include "flags/general.hpp"
 
 /// Restores the flag whatever the test does, so a failing EXPECT cannot leak the rewrite into later tests.
-class CachePropertiesFlagGuard {
+class PrefetchPropertiesFlagGuard {
  public:
-  explicit CachePropertiesFlagGuard(bool value) : previous_(FLAGS_query_cache_properties) {
-    FLAGS_query_cache_properties = value;
+  explicit PrefetchPropertiesFlagGuard(bool value) : previous_(FLAGS_query_prefetch_properties) {
+    FLAGS_query_prefetch_properties = value;
   }
 
-  ~CachePropertiesFlagGuard() { FLAGS_query_cache_properties = previous_; }
+  ~PrefetchPropertiesFlagGuard() { FLAGS_query_prefetch_properties = previous_; }
 
-  CachePropertiesFlagGuard(const CachePropertiesFlagGuard &) = delete;
-  CachePropertiesFlagGuard &operator=(const CachePropertiesFlagGuard &) = delete;
+  PrefetchPropertiesFlagGuard(const PrefetchPropertiesFlagGuard &) = delete;
+  PrefetchPropertiesFlagGuard &operator=(const PrefetchPropertiesFlagGuard &) = delete;
 
  private:
   bool previous_;

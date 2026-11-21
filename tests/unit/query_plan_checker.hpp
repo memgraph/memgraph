@@ -129,7 +129,7 @@ class PlanChecker : public virtual HierarchicalLogicalOperatorVisitor {
   PRE_VISIT(ConstructNamedPath);
   PRE_VISIT(EmptyResult);
   PRE_VISIT(Produce);
-  PRE_VISIT(CacheProperties);
+  PRE_VISIT(PrefetchProperties);
   PRE_VISIT(SetProperty);
   PRE_VISIT(SetProperties);
   PRE_VISIT(SetLabels);
@@ -343,24 +343,25 @@ class ExpectScanAllById : public OpChecker<ScanAllById> {
   bool expects_string_id_;
 };
 
-class ExpectCacheProperties : public OpChecker<CacheProperties> {
+class ExpectPrefetchProperties : public OpChecker<PrefetchProperties> {
  public:
-  ExpectCacheProperties(std::string input_symbol_name, size_t cached_count)
-      : groups_{{std::move(input_symbol_name), cached_count}} {}
+  ExpectPrefetchProperties(std::string input_symbol_name, size_t prefetched_count)
+      : per_record_{{std::move(input_symbol_name), prefetched_count}} {}
 
   /// One pass may read several symbols, each with its own properties, in the order they were met.
-  explicit ExpectCacheProperties(std::vector<std::pair<std::string, size_t>> groups) : groups_(std::move(groups)) {}
+  explicit ExpectPrefetchProperties(std::vector<std::pair<std::string, size_t>> per_record)
+      : per_record_(std::move(per_record)) {}
 
-  void ExpectOp(CacheProperties &op, const SymbolTable &) override {
-    ASSERT_EQ(op.groups_.size(), groups_.size());
-    for (size_t group = 0; group != groups_.size(); ++group) {
-      EXPECT_EQ(op.groups_[group].input_symbol().name(), groups_[group].first);
-      EXPECT_EQ(op.groups_[group].properties().size(), groups_[group].second);
+  void ExpectOp(PrefetchProperties &op, const SymbolTable &) override {
+    ASSERT_EQ(op.per_record_.size(), per_record_.size());
+    for (size_t at = 0; at != per_record_.size(); ++at) {
+      EXPECT_EQ(op.per_record_[at].input_symbol().name(), per_record_[at].first);
+      EXPECT_EQ(op.per_record_[at].properties().size(), per_record_[at].second);
     }
   }
 
  private:
-  std::vector<std::pair<std::string, size_t>> groups_;
+  std::vector<std::pair<std::string, size_t>> per_record_;
 };
 
 using ExpectExpand = OpChecker<Expand>;

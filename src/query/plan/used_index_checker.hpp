@@ -66,7 +66,7 @@ struct UsedIndexChecker : public virtual HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(EmptyResult &) override;
   bool PreVisit(Produce &) override;
-  bool PreVisit(CacheProperties &) override;
+  bool PreVisit(PrefetchProperties &) override;
   bool PreVisit(Accumulate &) override;
   bool PreVisit(Aggregate &) override;
   bool PreVisit(Skip &) override;

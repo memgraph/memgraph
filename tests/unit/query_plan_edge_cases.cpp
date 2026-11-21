@@ -26,7 +26,7 @@
 #include "query_execution_fixture.hpp"
 
 DECLARE_bool(query_cost_planner);
-DECLARE_bool(query_cache_properties);
+DECLARE_bool(query_prefetch_properties);
 
 template <typename StorageType>
 class QueryExecution : public QueryExecutionFixture<StorageType> {
@@ -241,9 +241,9 @@ TYPED_TEST(QueryExecution, ADeepVariableExpansionWalksBothWaysToEveryLength) {
   EXPECT_EQ(reached, expected);
 }
 
-/// The queries the property cache is allowed to change the plan of, plus the ones it must leave alone. Each fixture
+/// The queries the pass is allowed to change the plan of, plus the ones it must leave alone. Each fixture
 /// gets a fresh plan cache, so the flag has to be compared across two tests rather than toggled inside one.
-#define CHECK_CACHE_PROPERTIES_RESULTS()                                                                          \
+#define CHECK_PREFETCH_PROPERTIES_RESULTS()                                                                       \
   do {                                                                                                            \
     using BoltValue = memgraph::communication::bolt::Value;                                                       \
     this->Execute("CREATE (:P {id: 1, a: 1, b: 'x'}), (:P {id: 2, a: 2})");                                       \
@@ -257,7 +257,7 @@ TYPED_TEST(QueryExecution, ADeepVariableExpansionWalksBothWaysToEveryLength) {
       EXPECT_EQ(results[1][1].type(), BoltValue::Type::Null);                                                     \
     }                                                                                                             \
     {                                                                                                             \
-      /* A single lookup must not be cached, but must still answer the same. */                                   \
+      /* A single lookup must not earn a pass, but must still answer the same. */                                 \
       auto results = this->Execute("MATCH (n:P) RETURN n.a AS a ORDER BY a");                                     \
       ASSERT_EQ(results.size(), 2);                                                                               \
       EXPECT_EQ(results[0][0].ValueInt(), 1);                                                                     \
@@ -296,7 +296,7 @@ TYPED_TEST(QueryExecution, ADeepVariableExpansionWalksBothWaysToEveryLength) {
       EXPECT_EQ(results[3][1].ValueInt(), 2);                                                                     \
     }                                                                                                             \
     {                                                                                                             \
-      /* The cached symbol is Null for every row here. */                                                         \
+      /* The prefetched symbol is Null for every row here. */                                                     \
       auto results =                                                                                              \
           this->Execute("MATCH (n:P) OPTIONAL MATCH (n)-[:R]->(o) RETURN o.a AS a, o.b AS b ORDER BY n.id");      \
       ASSERT_EQ(results.size(), 2);                                                                               \
@@ -335,19 +335,19 @@ TYPED_TEST(QueryExecution, ADeepVariableExpansionWalksBothWaysToEveryLength) {
     }                                                                                                             \
   } while (false)
 
-TYPED_TEST(QueryExecution, CachePropertiesResultsWithFlagOff) {
-  CachePropertiesFlagGuard guard{false};
-  CHECK_CACHE_PROPERTIES_RESULTS();
+TYPED_TEST(QueryExecution, PrefetchPropertiesResultsWithFlagOff) {
+  PrefetchPropertiesFlagGuard guard{false};
+  CHECK_PREFETCH_PROPERTIES_RESULTS();
 }
 
-TYPED_TEST(QueryExecution, CachePropertiesResultsWithFlagOn) {
-  CachePropertiesFlagGuard guard{true};
-  CHECK_CACHE_PROPERTIES_RESULTS();
+TYPED_TEST(QueryExecution, PrefetchPropertiesResultsWithFlagOn) {
+  PrefetchPropertiesFlagGuard guard{true};
+  CHECK_PREFETCH_PROPERTIES_RESULTS();
 }
 
 /// What an aggregation answers, with the pass reading its properties and without. Each fixture gets
 /// a fresh plan cache, so the two have to be separate tests rather than one toggling the flag.
-#define CHECK_AGGREGATION_CACHE_RESULTS()                                                                    \
+#define CHECK_AGGREGATION_PREFETCH_RESULTS()                                                                 \
   do {                                                                                                       \
     using BoltValue = memgraph::communication::bolt::Value;                                                  \
     this->Execute("CREATE (:P {id: 1, a: 10, b: 'x'}), (:P {id: 2, a: 20, b: 'y'}), (:P {id: 3, b: 'x'})");  \
@@ -402,14 +402,14 @@ TYPED_TEST(QueryExecution, CachePropertiesResultsWithFlagOn) {
     }                                                                                                        \
   } while (false)
 
-TYPED_TEST(QueryExecution, AggregationCacheResultsWithFlagOff) {
-  CachePropertiesFlagGuard guard{false};
-  CHECK_AGGREGATION_CACHE_RESULTS();
+TYPED_TEST(QueryExecution, AggregationPrefetchResultsWithFlagOff) {
+  PrefetchPropertiesFlagGuard guard{false};
+  CHECK_AGGREGATION_PREFETCH_RESULTS();
 }
 
-TYPED_TEST(QueryExecution, AggregationCacheResultsWithFlagOn) {
-  CachePropertiesFlagGuard guard{true};
-  CHECK_AGGREGATION_CACHE_RESULTS();
+TYPED_TEST(QueryExecution, AggregationPrefetchResultsWithFlagOn) {
+  PrefetchPropertiesFlagGuard guard{true};
+  CHECK_AGGREGATION_PREFETCH_RESULTS();
 }
 
 // A lookup the pass cannot take, because it sits where it may never be evaluated, still answers
@@ -459,7 +459,7 @@ TYPED_TEST(QueryExecution, AggregationCacheResultsWithFlagOn) {
   } while (false)
 
 TYPED_TEST(QueryExecution, ADeletedRecordRefusesWithFlagOff) {
-  CachePropertiesFlagGuard guard{false};
+  PrefetchPropertiesFlagGuard guard{false};
   CHECK_A_DELETED_RECORD_REFUSES("RETURN n.a AS a, n.b AS b");
   CHECK_A_DELETED_RECORD_REFUSES("RETURN sum(n.a) AS s, max(n.a) AS m");
   CHECK_A_DELETED_RECORD_REFUSES("WITH n WHERE n.a > 0 AND n.a < 10 RETURN n.b AS b");
@@ -467,7 +467,7 @@ TYPED_TEST(QueryExecution, ADeletedRecordRefusesWithFlagOff) {
 }
 
 TYPED_TEST(QueryExecution, ADeletedRecordRefusesWithFlagOn) {
-  CachePropertiesFlagGuard guard{true};
+  PrefetchPropertiesFlagGuard guard{true};
   CHECK_A_DELETED_RECORD_REFUSES("RETURN n.a AS a, n.b AS b");
   CHECK_A_DELETED_RECORD_REFUSES("RETURN sum(n.a) AS s, max(n.a) AS m");
   CHECK_A_DELETED_RECORD_REFUSES("WITH n WHERE n.a > 0 AND n.a < 10 RETURN n.b AS b");
@@ -489,12 +489,12 @@ TYPED_TEST(QueryExecution, ADeletedRecordRefusesWithFlagOn) {
   } while (false)
 
 TYPED_TEST(QueryExecution, AWriteAboveAFilterLeavesItsReadsAloneWithFlagOff) {
-  CachePropertiesFlagGuard guard{false};
+  PrefetchPropertiesFlagGuard guard{false};
   CHECK_A_WRITE_ABOVE_A_FILTER_LEAVES_ITS_READS_ALONE();
 }
 
 TYPED_TEST(QueryExecution, AWriteAboveAFilterLeavesItsReadsAloneWithFlagOn) {
-  CachePropertiesFlagGuard guard{true};
+  PrefetchPropertiesFlagGuard guard{true};
   CHECK_A_WRITE_ABOVE_A_FILTER_LEAVES_ITS_READS_ALONE();
 }
 
@@ -534,40 +534,40 @@ TYPED_TEST(QueryExecution, AWriteAboveAFilterLeavesItsReadsAloneWithFlagOn) {
   } while (false)
 
 TYPED_TEST(QueryExecution, AChainOfReadModifyWritesDoublesWithFlagOff) {
-  CachePropertiesFlagGuard guard{false};
+  PrefetchPropertiesFlagGuard guard{false};
   CHECK_A_CHAIN_OF_READ_MODIFY_WRITES_DOUBLES();
 }
 
 TYPED_TEST(QueryExecution, AChainOfReadModifyWritesDoublesWithFlagOn) {
-  CachePropertiesFlagGuard guard{true};
+  PrefetchPropertiesFlagGuard guard{true};
   CHECK_A_CHAIN_OF_READ_MODIFY_WRITES_DOUBLES();
 }
 
 TYPED_TEST(QueryExecution, AProjectionDoesNotTakeAFiltersSlotAcrossAWriteWithFlagOff) {
-  CachePropertiesFlagGuard guard{false};
+  PrefetchPropertiesFlagGuard guard{false};
   CHECK_A_PROJECTION_DOES_NOT_TAKE_A_FILTERS_SLOT_ACROSS_A_WRITE();
 }
 
 TYPED_TEST(QueryExecution, AProjectionDoesNotTakeAFiltersSlotAcrossAWriteWithFlagOn) {
-  CachePropertiesFlagGuard guard{true};
+  PrefetchPropertiesFlagGuard guard{true};
   CHECK_A_PROJECTION_DOES_NOT_TAKE_A_FILTERS_SLOT_ACROSS_A_WRITE();
 }
 
 TYPED_TEST(QueryExecution, LeftoverLookupResultsWithFlagOff) {
-  CachePropertiesFlagGuard guard{false};
+  PrefetchPropertiesFlagGuard guard{false};
   CHECK_LEFTOVER_LOOKUP_RESULTS();
 }
 
 TYPED_TEST(QueryExecution, LeftoverLookupResultsWithFlagOn) {
-  CachePropertiesFlagGuard guard{true};
+  PrefetchPropertiesFlagGuard guard{true};
   CHECK_LEFTOVER_LOOKUP_RESULTS();
 }
 
-TYPED_TEST(QueryExecution, CachePropertiesReadsARelationshipsProperties) {
+TYPED_TEST(QueryExecution, PrefetchPropertiesReadsARelationshipsProperties) {
   // A relationship keeps its properties in the same store a node does, so a projection of two of
   // them is the same shape the rewrite is for. The second is missing on one relationship, so the
   // slots have to answer Null there rather than drop the column.
-  CachePropertiesFlagGuard guard{true};
+  PrefetchPropertiesFlagGuard guard{true};
   using BoltValue = memgraph::communication::bolt::Value;
 
   this->Execute("CREATE (:P)-[:R {a: 1, b: 'x'}]->(:P), (:P)-[:R {a: 2}]->(:P)");
@@ -580,7 +580,7 @@ TYPED_TEST(QueryExecution, CachePropertiesReadsARelationshipsProperties) {
   EXPECT_EQ(results[1][1].type(), BoltValue::Type::Null);
 }
 
-TYPED_TEST(QueryExecution, CachePropertiesReachesTheRealPlanForARelationship) {
+TYPED_TEST(QueryExecution, PrefetchPropertiesReachesTheRealPlanForARelationship) {
   // Guards the test above from passing because the rewrite never fired. The two runs must not share
   // a plan cache entry, so they differ in the returned column names.
   auto explained = [this](const std::string &query) {
@@ -591,23 +591,23 @@ TYPED_TEST(QueryExecution, CachePropertiesReachesTheRealPlanForARelationship) {
   };
 
   {
-    CachePropertiesFlagGuard guard{false};
-    EXPECT_EQ(explained("EXPLAIN MATCH ()-[r:R]->() RETURN r.a AS a, r.b AS b").find("CacheProperties"),
+    PrefetchPropertiesFlagGuard guard{false};
+    EXPECT_EQ(explained("EXPLAIN MATCH ()-[r:R]->() RETURN r.a AS a, r.b AS b").find("PrefetchProperties"),
               std::string::npos);
   }
   {
-    CachePropertiesFlagGuard guard{true};
-    EXPECT_NE(explained("EXPLAIN MATCH ()-[r:R]->() RETURN r.a AS c, r.b AS d").find("CacheProperties"),
+    PrefetchPropertiesFlagGuard guard{true};
+    EXPECT_NE(explained("EXPLAIN MATCH ()-[r:R]->() RETURN r.a AS c, r.b AS d").find("PrefetchProperties"),
               std::string::npos);
   }
 }
 
-TYPED_TEST(QueryExecution, CachePropertiesUnderASunkOrderByWithALimit) {
+TYPED_TEST(QueryExecution, PrefetchPropertiesUnderASunkOrderByWithALimit) {
   // An ORDER BY with a LIMIT sinks below the projection so that only the rows it keeps are
-  // projected, and it has to carry forward everything above it still reads. The cache reads the
+  // projected, and it has to carry forward everything above it still reads. The pass reads the
   // record, so what it needs carried is the symbol itself rather than the properties the
   // projection used to read. An omission here does not fail the query: the rows come back Null.
-  CachePropertiesFlagGuard guard{true};
+  PrefetchPropertiesFlagGuard guard{true};
 
   this->Execute("CREATE (:P {id: 1, a: 10, b: 'x'}), (:P {id: 2, a: 20, b: 'y'}), (:P {id: 3, a: 30, b: 'z'})");
 
@@ -619,11 +619,11 @@ TYPED_TEST(QueryExecution, CachePropertiesUnderASunkOrderByWithALimit) {
   EXPECT_EQ(results[1][1].ValueString(), "y");
 }
 
-TYPED_TEST(QueryExecution, CachePropertiesGroupsTwoSymbols) {
+TYPED_TEST(QueryExecution, PrefetchPropertiesGroupsTwoSymbols) {
   // Two symbols are two records and so two reads whichever way the plan is built. Gathering them
   // into one operator keeps that to one pull per row, and a symbol with only one lookup of its own
   // is left alone, since one pass for one property is what a lookup already does.
-  CachePropertiesFlagGuard guard{true};
+  PrefetchPropertiesFlagGuard guard{true};
   using BoltValue = memgraph::communication::bolt::Value;
 
   this->Execute("CREATE (:P {id: 1, a: 1, b: 'x'})");
@@ -645,7 +645,7 @@ TYPED_TEST(QueryExecution, CachePropertiesGroupsTwoSymbols) {
 
 // A lookup reachable only through an AND or an OR keeps its own lookup, while the same properties
 // read outside one still get their pass.
-TYPED_TEST(QueryExecution, CachePropertiesLeavesLookupsBehindAShortCircuit) {
+TYPED_TEST(QueryExecution, PrefetchPropertiesLeavesLookupsBehindAShortCircuit) {
   this->Execute("CREATE (:Q {a: 1, b: 2}), (:G {t: true})");
 
   auto explained = [this](const std::string &query) {
@@ -655,19 +655,19 @@ TYPED_TEST(QueryExecution, CachePropertiesLeavesLookupsBehindAShortCircuit) {
     return joined;
   };
 
-  CachePropertiesFlagGuard guard{true};
+  PrefetchPropertiesFlagGuard guard{true};
   // The first operand is read from another node, so it is not folded away before planning.
-  EXPECT_EQ(explained("EXPLAIN MATCH (n:Q), (g:G) RETURN g.t OR n.a AS x, n.b AS y").find("CacheProperties"),
+  EXPECT_EQ(explained("EXPLAIN MATCH (n:Q), (g:G) RETURN g.t OR n.a AS x, n.b AS y").find("PrefetchProperties"),
             std::string::npos);
-  EXPECT_EQ(explained("EXPLAIN MATCH (n:Q), (g:G) RETURN g.t AND n.a AS p, n.b AS q").find("CacheProperties"),
+  EXPECT_EQ(explained("EXPLAIN MATCH (n:Q), (g:G) RETURN g.t AND n.a AS p, n.b AS q").find("PrefetchProperties"),
             std::string::npos);
 
   // A projection reading the same properties outside a short circuit still gets its pass.
-  EXPECT_NE(explained("EXPLAIN MATCH (n:Q) RETURN n.a AS r, n.b AS s").find("CacheProperties"), std::string::npos);
+  EXPECT_NE(explained("EXPLAIN MATCH (n:Q) RETURN n.a AS r, n.b AS s").find("PrefetchProperties"), std::string::npos);
 }
 
 // A lookup inside the body of a reduce or an extract keeps its own lookup.
-TYPED_TEST(QueryExecution, CachePropertiesLeavesLookupsInsideAListBody) {
+TYPED_TEST(QueryExecution, PrefetchPropertiesLeavesLookupsInsideAListBody) {
   this->Execute("CREATE (:Q {a: 1, b: 2})");
 
   auto explained = [this](const std::string &query) {
@@ -676,13 +676,13 @@ TYPED_TEST(QueryExecution, CachePropertiesLeavesLookupsInsideAListBody) {
     return joined;
   };
 
-  CachePropertiesFlagGuard guard{true};
+  PrefetchPropertiesFlagGuard guard{true};
   EXPECT_EQ(explained("EXPLAIN MATCH (n:Q) RETURN reduce(s = 0, x IN [] | s + n.a) AS u, "
                       "reduce(s = 0, y IN [] | s + n.b) AS v")
-                .find("CacheProperties"),
+                .find("PrefetchProperties"),
             std::string::npos);
   EXPECT_EQ(explained("EXPLAIN MATCH (n:Q) RETURN extract(x IN [] | n.a) AS p, extract(y IN [] | n.b) AS q")
-                .find("CacheProperties"),
+                .find("PrefetchProperties"),
             std::string::npos);
 }
 
@@ -696,7 +696,7 @@ TYPED_TEST(QueryExecution, CachePropertiesLeavesLookupsInsideAListBody) {
 // position of a MATCH decide whether a query is refused. The two spellings answer alike, or one of
 // them is wrong.
 TYPED_TEST(QueryExecution, ASubqueryBodyAnswersAsAnOrdinaryMatchDoes) {
-  CachePropertiesFlagGuard guard{true};
+  PrefetchPropertiesFlagGuard guard{true};
 
   this->Execute(
       "CREATE (a:P {name: 'a', w: 1})-[:R {amount: 1, fee: 1, w: 1}]->(b:P {name: 'b', w: 2}), "
@@ -766,7 +766,7 @@ TYPED_TEST(QueryExecution, ASubqueryBodyAnswersAsAnOrdinaryMatchDoes) {
 }
 
 TYPED_TEST(QueryExecution, ReadingTwoPropertiesOfAListOfRelationshipsIsRefused) {
-  CachePropertiesFlagGuard guard{true};
+  PrefetchPropertiesFlagGuard guard{true};
 
   this->Execute("CREATE (:Person)-[:PAID {amount: 10, fee: 1}]->(:Person)");
 
@@ -775,12 +775,12 @@ TYPED_TEST(QueryExecution, ReadingTwoPropertiesOfAListOfRelationshipsIsRefused) 
                memgraph::query::QueryRuntimeException);
 }
 
-TYPED_TEST(QueryExecution, CachePropertiesReadsAGroupWhoseOrderIsNotTheRecordsOrder) {
+TYPED_TEST(QueryExecution, PrefetchPropertiesReadsAGroupWhoseOrderIsNotTheRecordsOrder) {
   // One pass over a record finds each property from where the last one stopped, so it cannot go
   // back for one it has already passed. A projection names its properties in whatever order the
   // query was written in, which has nothing to do with the order the record holds them. Asking both
   // ways means one of these two is against the record's order whichever way the names interned.
-  CachePropertiesFlagGuard guard{true};
+  PrefetchPropertiesFlagGuard guard{true};
 
   this->Execute("CREATE (:Z {zebra: 1, apple: 'x'})");
 
@@ -796,7 +796,7 @@ TYPED_TEST(QueryExecution, CachePropertiesReadsAGroupWhoseOrderIsNotTheRecordsOr
   EXPECT_EQ(reverse[0][1].ValueInt(), 1);
 }
 
-TYPED_TEST(QueryExecution, CachePropertiesGroupsTwoSymbolsInTheRealPlan) {
+TYPED_TEST(QueryExecution, PrefetchPropertiesGroupsTwoSymbolsInTheRealPlan) {
   // Guards the test above from passing because the rewrite never fired.
   auto explained = [this](const std::string &query) {
     auto results = this->Execute(query);
@@ -806,20 +806,20 @@ TYPED_TEST(QueryExecution, CachePropertiesGroupsTwoSymbolsInTheRealPlan) {
   };
 
   {
-    CachePropertiesFlagGuard guard{false};
-    EXPECT_EQ(
-        explained("EXPLAIN MATCH (n:P), (m:P) RETURN n.a AS a, n.b AS b, m.a AS c, m.b AS d").find("CacheProperties"),
-        std::string::npos);
+    PrefetchPropertiesFlagGuard guard{false};
+    EXPECT_EQ(explained("EXPLAIN MATCH (n:P), (m:P) RETURN n.a AS a, n.b AS b, m.a AS c, m.b AS d")
+                  .find("PrefetchProperties"),
+              std::string::npos);
   }
   {
-    CachePropertiesFlagGuard guard{true};
-    EXPECT_NE(
-        explained("EXPLAIN MATCH (n:P), (m:P) RETURN n.a AS e, n.b AS f, m.a AS g, m.b AS h").find("CacheProperties"),
-        std::string::npos);
+    PrefetchPropertiesFlagGuard guard{true};
+    EXPECT_NE(explained("EXPLAIN MATCH (n:P), (m:P) RETURN n.a AS e, n.b AS f, m.a AS g, m.b AS h")
+                  .find("PrefetchProperties"),
+              std::string::npos);
   }
 }
 
-TYPED_TEST(QueryExecution, CachePropertiesReachesTheRealPlan) {
+TYPED_TEST(QueryExecution, PrefetchPropertiesReachesTheRealPlan) {
   // Guards the results tests above from passing because the rewrite never fired.
   // The two runs must not share a plan cache entry, so they differ in the returned column names.
   auto explained = [this](const std::string &query) {
@@ -830,11 +830,11 @@ TYPED_TEST(QueryExecution, CachePropertiesReachesTheRealPlan) {
   };
 
   {
-    CachePropertiesFlagGuard guard{false};
-    EXPECT_EQ(explained("EXPLAIN MATCH (n:P) RETURN n.a AS a, n.b AS b").find("CacheProperties"), std::string::npos);
+    PrefetchPropertiesFlagGuard guard{false};
+    EXPECT_EQ(explained("EXPLAIN MATCH (n:P) RETURN n.a AS a, n.b AS b").find("PrefetchProperties"), std::string::npos);
   }
   {
-    CachePropertiesFlagGuard guard{true};
-    EXPECT_NE(explained("EXPLAIN MATCH (n:P) RETURN n.a AS c, n.b AS d").find("CacheProperties"), std::string::npos);
+    PrefetchPropertiesFlagGuard guard{true};
+    EXPECT_NE(explained("EXPLAIN MATCH (n:P) RETURN n.a AS c, n.b AS d").find("PrefetchProperties"), std::string::npos);
   }
 }

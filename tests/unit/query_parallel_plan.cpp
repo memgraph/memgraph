@@ -11,7 +11,7 @@
 
 #include "storage/v2/config.hpp"
 #ifdef MG_ENTERPRISE
-#include "cache_properties_flag_guard.hpp"
+#include "prefetch_properties_flag_guard.hpp"
 #include "query_plan_checker.hpp"
 
 #include <iostream>
@@ -311,7 +311,7 @@ TYPED_TEST(TestPlanner, MultiAgg) {
             ExpectScanParallel(),
             ExpectParallelMerge(),
             ExpectScanChunk(),
-            ExpectCacheProperties("n", 1),
+            ExpectPrefetchProperties("n", 1),
             ExpectAggregate({min_agg, max_agg, count_agg}, {}),
             ExpectAggregateParallel(),
             ExpectProduce());
@@ -714,7 +714,7 @@ TYPED_TEST(TestPlanner, ParallelExecutionMinMaxWithOrderBy) {
             ExpectScanParallel(),
             ExpectParallelMerge(),
             ExpectScanChunk(),
-            ExpectCacheProperties("n", 1),
+            ExpectPrefetchProperties("n", 1),
             ExpectAggregate({min_agg, max_agg}, {}),
             ExpectAggregateParallel(),
             ExpectProduce(),
@@ -1059,7 +1059,7 @@ TEST_F(ParallelConditionalOnMainChain, ConflictInABranchOrAFoldKeepsTheScanSeria
 // includes what the earlier clause bound, and then no single scan binds them all.
 TYPED_TEST(TestPlanner, ParallelExecutionTracesAnAggregationPastAPass) {
   LicenseWrapper license_wrapper;
-  CachePropertiesFlagGuard guard{true};
+  PrefetchPropertiesFlagGuard guard{true};
   // Test USING PARALLEL EXECUTION MATCH (a) WITH a MATCH (n) RETURN min(n.x), max(n.x)
   FakeDbAccessor dba;
   auto prop_x = dba.Property("x");

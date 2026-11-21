@@ -27,7 +27,6 @@
 #include "query/plan/operator.hpp"
 #include "query/plan/preprocess.hpp"
 #include "query/plan/pretty_print.hpp"
-#include "query/plan/rewrite/cache_properties.hpp"
 #include "query/plan/rewrite/edge_index_lookup.hpp"
 #include "query/plan/rewrite/enum.hpp"
 #include "query/plan/rewrite/index_lookup.hpp"
@@ -35,6 +34,7 @@
 #include "query/plan/rewrite/parallel_rewrite.hpp"
 #include "query/plan/rewrite/periodic_delete.hpp"
 #include "query/plan/rewrite/plan_validator.hpp"
+#include "query/plan/rewrite/prefetch_properties.hpp"
 #include "query/plan/rewrite/pruning_bfs.hpp"
 #include "query/plan/rule_based_planner.hpp"
 #include "query/plan/variable_start_planner.hpp"
@@ -89,7 +89,7 @@ class PostProcessor final {
            [&](auto p) { return RewriteWithEdgeIndexRewriter(std::move(p), symbol_table, ast, db, parallel_exec); } |
            [&](auto p) { return RewritePeriodicDelete(std::move(p), symbol_table, ast, db); } |
            [&](auto p) { return RewriteWithPruningBFS(std::move(p), symbol_table); } |
-           [&](auto p) { return RewriteCacheProperties(std::move(p), symbol_table, ast, db, &pass_planning_); }
+           [&](auto p) { return RewritePrefetchProperties(std::move(p), symbol_table, ast, db, &pass_planning_); }
 #ifdef MG_ENTERPRISE
            |
            // Keep at the end

@@ -72,10 +72,10 @@ struct FlagScope {
   FlagScope(FlagScope const &) = delete;
   FlagScope &operator=(FlagScope const &) = delete;
 
-  ~FlagScope() { FLAGS_query_cache_properties = held_; }
+  ~FlagScope() { FLAGS_query_prefetch_properties = held_; }
 
  private:
-  bool held_{FLAGS_query_cache_properties};
+  bool held_{FLAGS_query_prefetch_properties};
 };
 
 memgraph::storage::Config MakeConfig(
@@ -268,7 +268,7 @@ TEST_F(AiLicenseEmbeddingMemoryTest, Variant1Lazy_OrderByBoundedThroughInterpret
   QueryEnv env{data_dir_, "t7", kNumVerticesBig, kDimBig};
 
   const int64_t retained_bytes = static_cast<int64_t>(kNumVerticesBig) * kDimBig * sizeof(float);
-  // Headroom covers the O(N) VectorRef cache but not O(N*dim) materialization.
+  // Headroom covers the O(N) VectorRef handles but not O(N*dim) materialization.
   const int64_t headroom = 8 * kOneMiB;
   Stabilize(env.db.get());
   const int64_t limit = Graph() + headroom;
@@ -382,11 +382,11 @@ TEST_F(AiLicenseEmbeddingTest, Variant1Lazy_OnePassAnswersWhatTheLookupsDid) {
 
   auto run = [&](bool pass, std::string_view alias) {
     const auto restore = FlagScope{};
-    FLAGS_query_cache_properties = pass;
+    FLAGS_query_prefetch_properties = pass;
     const auto plan = env.faker.Interpret("EXPLAIN " + query(alias));
     bool planned_a_pass = false;
     for (const auto &row : plan.GetResults()) {
-      if (std::string_view{row[0].ValueString()}.find("CacheProperties") != std::string_view::npos) {
+      if (std::string_view{row[0].ValueString()}.find("PrefetchProperties") != std::string_view::npos) {
         planned_a_pass = true;
       }
     }
@@ -447,7 +447,7 @@ TEST_F(AiLicenseEmbeddingTest, Variant1Lazy_MaterializationIgnoresOtherTransacti
   EXPECT_FLOAT_EQ(ref.ReadVectorRef().front(), 0.5F);
 }
 
-// Write plans must stay eager (EvaluationContext::lazy_vector_refs): a lazy ref held across a rewrite/delete
+// Write plans must stay eager (EvaluationContext::compact_property_values): a lazy ref held across a rewrite/delete
 // would re-read storage and miss the original vector.
 TEST_F(AiLicenseEmbeddingTest, Variant1Lazy_WritePlansStayEager) {
   constexpr int kCount = 3;
