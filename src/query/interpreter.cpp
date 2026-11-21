@@ -283,7 +283,7 @@ void memgraph::query::CurrentDB::SetupBranchTransaction(std::optional<storage::I
                                                         std::chrono::seconds timeout) {
   ThrowIfBranchGone();
   // Lock order: main READ (OpenHistorical) before the diff engine.
-  auto historical = branch_context_->OpenHistorical();
+  auto historical = branch_context_->OpenHistorical(timeout);
   if (!historical) {
     throw QueryRuntimeException(historical.error().message);
   }
@@ -9836,7 +9836,8 @@ void AttachBranchEngine(CurrentDB &current_db, versioning::VersionStore *version
   const auto &info = (*checkout)->info();
   auto core = (*checkout)->GetOrBuildCore([&]() -> versioning::CoreResult {
     auto built = versioning::BranchCore::Build(
-        *static_cast<storage::InMemoryStorage *>(main), info.fork, (*checkout)->fork_ts(), info.id);
+        *static_cast<storage::InMemoryStorage *>(main), info.fork, (*checkout)->fork_ts(), info.id,
+        flags::run_time::GetStorageAccessTimeoutSec());
     if (!built) return std::unexpected(std::move(built.error().message));
     return std::move(*built);
   });

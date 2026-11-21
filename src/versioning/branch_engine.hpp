@@ -12,6 +12,7 @@
 #pragma once
 
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <expected>
 #include <functional>
@@ -75,10 +76,12 @@ class BranchCore {
   // `branch_number` and a WAL-enabled main: its WAL is then under <main storage dir>/branches/<branch_number>/wal/. The
   // engine has properties_on_edges and heavy edges whatever main's config says, so code that interprets an EdgeRef read
   // from main must consult MAIN's config (`main().config_`). `fork_ts` is the branch's runtime fork pin
-  // (Branch::fork_ts()).
+  // (Branch::fork_ts()). `timeout` bounds the wait for main's READ guard (throws like main's accessors); a build under
+  // an open transaction must pass it, or it can wait forever behind a queued UNIQUE.
   static std::expected<std::shared_ptr<BranchCore>, BuildError> Build(
       storage::InMemoryStorage &main, const ForkPoint &fork, uint64_t fork_ts,
-      std::optional<uint64_t> branch_number = std::nullopt);
+      std::optional<uint64_t> branch_number = std::nullopt,
+      std::optional<std::chrono::milliseconds> timeout = std::nullopt);
 
   BranchCore(const BranchCore &) = delete;
   BranchCore &operator=(const BranchCore &) = delete;
@@ -254,8 +257,10 @@ class BranchContext {
 
   // Ends any open transaction, then opens main at fork_ts; fails, leaving nothing open, if it is no longer pinned.
   // Call BEFORE opening the diff-engine accessor (lock order: main READ -> diff engine), then pass both to
-  // BeginTransaction.
-  std::expected<HistoricalAccessor, BuildError> OpenHistorical();
+  // BeginTransaction. `timeout` bounds the wait for main's READ guard (see InMemoryStorage::HistoricalAccess): a session
+  // opening a second branch transaction under an open one must pass it, or it can wait forever behind a queued UNIQUE.
+  std::expected<HistoricalAccessor, BuildError> OpenHistorical(
+      std::optional<std::chrono::milliseconds> timeout = std::nullopt);
 
   // `diff_txn` is the session's diff-engine accessor, not owned; it must outlive the transaction.
   void BeginTransaction(HistoricalAccessor historical, storage::Storage::Accessor &diff_txn);
