@@ -1107,3 +1107,65 @@ TEST_F(LockFreeReadSnapshotRecovery, NoTransactionBeginsInsideADdlCommitWindow_O
 
   PublishAndEnd(*store, index_commit);
 }
+
+#ifdef MG_ENTERPRISE
+namespace {
+
+void PrepareDeleteWithoutPublish(InMemoryStorage &store, Gid gid, PreparedCommit &out) {
+  out.durable_ts = store.LastCommittedMvccTimestamp() + 1;
+  out.writer = store.Access(memgraph::storage::WRITE);
+  auto vertex = out.writer->FindVertex(gid, View::OLD);
+  ASSERT_TRUE(vertex.has_value());
+  ASSERT_TRUE(out.writer->DeleteVertex(&*vertex).has_value());
+  ASSERT_TRUE(out.writer
+                  ->PrepareForCommitPhase(memgraph::storage::CommitArgs::make_replica_write(
+                      out.durable_ts, /*two_phase_commit=*/true, [] {}))
+                  .has_value());
+}
+
+}  // namespace
+
+// A fork taken while commit C is minted but unpublished is what a BEGIN now would see (watermark + 1 <= C),
+// so C stays undone for a reader at the fork and neither fast-discard nor GC may drop its deltas.
+TEST_F(LockFreeReadSnapshotRecovery, ForkPinInsideCommitWindow_ExcludesTheInFlightCommit_ON) {
+  auto store = MakeWalStorageManualGc(storage_directory);
+  const auto victim = CreateVertexWithProp(*store, 1);
+  const auto watermark = store->LastCommittedMvccTimestamp();
+
+  PreparedCommit commit;
+  PrepareDeleteWithoutPublish(*store, victim, commit);
+  const auto fork_ts = store->RegisterForkPin();
+  EXPECT_EQ(fork_ts, watermark + 1) << "the fork point passed a commit that was not yet published";
+  PublishAndEnd(*store, commit);
+  EXPECT_LE(fork_ts, store->LastCommittedMvccTimestamp());
+
+  RunGc(*store);
+  RunGc(*store);
+  EXPECT_EQ(store->VertexStoreSize(), 1U) << "a vertex the fork still sees was reclaimed";
+
+  store->ReleaseForkPin(fork_ts);
+  RunGc(*store);
+  RunGc(*store);
+  EXPECT_EQ(store->VertexStoreSize(), 0U);
+}
+
+// With a live pin and no active transactions GC must not take the idle free-immediately path (narrowing ON).
+TEST_F(LockFreeReadSnapshotRecovery, ForkPinBlocksGcIdleShortcut_ON) {
+  auto store = MakeWalStorageManualGc(storage_directory);
+  const auto victim = CreateVertexWithProp(*store, 1);
+  const auto fork_ts = store->RegisterForkPin();
+  {
+    auto acc = store->Access(memgraph::storage::WRITE);
+    auto vertex = acc->FindVertex(victim, View::OLD);
+    ASSERT_TRUE(acc->DeleteVertex(&*vertex).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+  RunGc(*store);
+  RunGc(*store);
+  EXPECT_EQ(store->VertexStoreSize(), 1U) << "a vertex the fork still sees was reclaimed";
+  store->ReleaseForkPin(fork_ts);
+  RunGc(*store);
+  RunGc(*store);
+  EXPECT_EQ(store->VertexStoreSize(), 0U);
+}
+#endif  // MG_ENTERPRISE

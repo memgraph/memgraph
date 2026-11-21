@@ -11,6 +11,9 @@
 
 #pragma once
 
+#ifdef MG_ENTERPRISE
+#include <atomic>
+#endif
 #include <cstdint>
 
 namespace memgraph::utils {
@@ -28,6 +31,29 @@ class PointerPack {
 
   uintptr_t storage_{0};
 
+#ifdef MG_ENTERPRISE
+  static_assert(std::atomic_ref<uintptr_t>::is_always_lock_free,
+                "lock-free PointerPack access requires lock-free atomics");
+#endif
+
+  // Enterprise: keeps writes well-defined against the lock-free GetRelaxed reader.
+  void Store(uintptr_t value) {
+#ifdef MG_ENTERPRISE
+    std::atomic_ref<uintptr_t>(storage_).store(value, std::memory_order_relaxed);
+#else
+    storage_ = value;
+#endif
+  }
+
+  uintptr_t Load() const {
+#ifdef MG_ENTERPRISE
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast) -- atomic_ref needs a non-const T&; the object is mutable.
+    return std::atomic_ref<uintptr_t>(const_cast<uintptr_t &>(storage_)).load(std::memory_order_relaxed);
+#else
+    return storage_;
+#endif
+  }
+
  public:
   PointerPack() = default;
 
@@ -36,7 +62,10 @@ class PointerPack {
 
   T *GetPtr() const { return reinterpret_cast<T *>(storage_ & kPtrMask); }
 
-  void SetPtr(T *ptr) { storage_ = reinterpret_cast<uintptr_t>(ptr) | (storage_ & kFlagsMask); }
+  /// Write contract (`SetPtr`, `Set`, `operator=(T *)`): the caller must hold the owning object's lock. The only
+  /// lock-free writers are the enterprise `Atomic*` helpers (fast-discard cleanup, which runs without the object
+  /// lock); the only lock-free reader is `GetRelaxed`.
+  void SetPtr(T *ptr) { Store(reinterpret_cast<uintptr_t>(ptr) | (Load() & kFlagsMask)); }
 
   /// Extracts the bit field at position @p Pos with @p Size bits.
   template <int Pos, int Size = 1>
@@ -50,7 +79,41 @@ class PointerPack {
   void Set(uintptr_t value) {
     static_assert(Pos >= 0 && Size > 0 && Pos + Size <= NumFlagBits);
     const uintptr_t field_mask = ((1UL << Size) - 1) << Pos;
-    storage_ = (storage_ & ~field_mask) | ((value << Pos) & field_mask);
+    Store((Load() & ~field_mask) | ((value << Pos) & field_mask));
+  }
+
+#ifdef MG_ENTERPRISE
+  /// Lock-free RMW: sets the bit at @p Pos without losing concurrent updates to other bits or the pointer.
+  template <int Pos>
+  void AtomicSetBit() {
+    static_assert(Pos >= 0 && Pos < NumFlagBits);
+    std::atomic_ref<uintptr_t>(storage_).fetch_or(1UL << Pos, std::memory_order_relaxed);
+  }
+
+  /// Lock-free RMW: clears the bit at @p Pos without losing concurrent updates to other bits or the pointer.
+  template <int Pos>
+  void AtomicClearBit() {
+    static_assert(Pos >= 0 && Pos < NumFlagBits);
+    std::atomic_ref<uintptr_t>(storage_).fetch_and(~(1UL << Pos), std::memory_order_relaxed);
+  }
+
+  /// Lock-free replace of the pointer, preserving flag bits set concurrently.
+  void AtomicSetPtr(T *ptr) {
+    std::atomic_ref<uintptr_t> ref(storage_);
+    auto cur = ref.load(std::memory_order_relaxed);
+    while (!ref.compare_exchange_weak(
+        cur, reinterpret_cast<uintptr_t>(ptr) | (cur & kFlagsMask), std::memory_order_relaxed)) {
+    }
+  }
+#endif
+
+  /// Lock-free read of the bit at @p Pos. Relaxed: a non-torn flag only, no ordering with prior writes.
+  /// Safe only because every mutator goes through `atomic_ref` in enterprise builds; community has no lock-free
+  /// readers.
+  template <int Pos>
+  bool GetRelaxed() const {
+    static_assert(Pos >= 0 && Pos < NumFlagBits);
+    return ((Load() >> Pos) & 1UL) != 0;
   }
 
   operator T *() const { return GetPtr(); }  // NOLINT(google-explicit-constructor)

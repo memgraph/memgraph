@@ -3440,3 +3440,49 @@ TEST(StorageV2PropertySet, AnEdgeAnswersPropertiesAskedForInAnyOrder) {
   EXPECT_EQ(ValueOf(ordered, values, zebra).ValueInt(), 1);
   EXPECT_EQ(ValueOf(ordered, values, apple).ValueInt(), 2);
 }
+
+#ifdef MG_ENTERPRISE
+// The branched hint shares the delta pointer word with the deleted / non-sequential-deltas bits.
+TEST(StorageV2BranchedHint, VertexBitIsIndependentOfOtherFlagsAndDelta) {
+  memgraph::storage::Vertex vertex{memgraph::storage::Gid::FromUint(0), nullptr};
+  vertex.SetDeleted(true);
+  vertex.set_has_uncommitted_non_sequential_deltas(true);
+  EXPECT_FALSE(vertex.branched());
+
+  vertex.SetBranched();
+  EXPECT_TRUE(vertex.branched());
+  EXPECT_TRUE(vertex.deleted());
+  EXPECT_TRUE(vertex.has_uncommitted_non_sequential_deltas());
+  EXPECT_EQ(vertex.delta(), nullptr);
+
+  vertex.SetDeleted(false);
+  vertex.set_has_uncommitted_non_sequential_deltas(false);
+  EXPECT_TRUE(vertex.branched());
+}
+
+// Without properties on edges the EdgeRef holds a Gid, not an Edge*, so there is no bit to read.
+TEST(StorageV2BranchedHint, EdgeAccessorHintFollowsEdgeBit) {
+  auto make_edge = [](memgraph::storage::InMemoryStorage &store) {
+    auto acc = store.Access(memgraph::storage::WRITE);
+    auto from = acc->CreateVertex();
+    auto to = acc->CreateVertex();
+    auto edge = acc->CreateEdge(&from, &to, acc->NameToEdgeType("T"));
+    EXPECT_TRUE(edge.has_value());
+    return std::make_pair(std::move(acc), *edge);
+  };
+
+  memgraph::storage::InMemoryStorage store;
+  auto [acc, edge] = make_edge(store);
+  EXPECT_FALSE(edge.MaybeBranchedHint());
+  auto *raw = edge.edge_.ptr;
+  raw->SetBranched();
+  EXPECT_TRUE(edge.MaybeBranchedHint());
+  EXPECT_FALSE(raw->deleted());
+
+  memgraph::storage::Config config;
+  config.salient.items.properties_on_edges = false;
+  memgraph::storage::InMemoryStorage no_props_store{config};
+  auto [acc2, edge2] = make_edge(no_props_store);
+  EXPECT_FALSE(edge2.MaybeBranchedHint());
+}
+#endif  // MG_ENTERPRISE

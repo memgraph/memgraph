@@ -10,6 +10,12 @@
 // licenses/APL.txt.
 
 #include <cstdint>
+#ifdef MG_ENTERPRISE
+#include <atomic>
+#include <mutex>
+#include <thread>
+#include <vector>
+#endif
 
 #include "gtest/gtest.h"
 
@@ -79,6 +85,12 @@ TEST_F(PointerPackTest, SetAndGetIndividualBits) {
   EXPECT_EQ(pp.Get<1>(), 1u);
   EXPECT_EQ(pp.Get<2>(), 1u);
   EXPECT_EQ(pp.GetPtr(), &a);
+
+#ifdef MG_ENTERPRISE
+  EXPECT_FALSE(pp.GetRelaxed<0>());
+  EXPECT_TRUE(pp.GetRelaxed<1>());
+  EXPECT_TRUE(pp.GetRelaxed<2>());
+#endif
 }
 
 TEST_F(PointerPackTest, MultiBitField) {
@@ -105,6 +117,10 @@ TEST_F(PointerPackTest, SetPtrPreservesFlags) {
   EXPECT_EQ(pp.GetPtr(), &b);
   EXPECT_EQ(pp.Get<0>(), 1u);
   EXPECT_EQ(pp.Get<1>(), 1u);
+#ifdef MG_ENTERPRISE
+  EXPECT_TRUE(pp.GetRelaxed<0>());
+  EXPECT_TRUE(pp.GetRelaxed<1>());
+#endif
 }
 
 TEST_F(PointerPackTest, SetFlagsPreservesPointer) {
@@ -182,3 +198,79 @@ TEST_F(PointerPackTest, SingleBitPack) {
   EXPECT_EQ(pp.Get<0>(), 0u);
   EXPECT_EQ(pp.GetPtr(), &a);
 }
+
+#ifdef MG_ENTERPRISE
+// Lock-free GetRelaxed reader vs locked writers rewriting the other flags and pointer: TSan reports any
+// non-atomic write to the packed word; in every build a set bit must never be observed cleared.
+TEST_F(PointerPackTest, RelaxedReaderVsLockedWriters) {
+  constexpr int kWriters = 2;
+  constexpr int kIterations = 20'000;
+
+  PointerPack<Dummy, 3> pp(&a);
+  std::mutex lock;
+  std::atomic<bool> done{false};
+  std::atomic<bool> reader_saw_clear_after_set{false};
+
+  std::thread reader([&] {
+    bool seen_set = false;
+    while (!done.load(std::memory_order_acquire)) {
+      bool const now = pp.GetRelaxed<2>();
+      if (seen_set && !now) reader_saw_clear_after_set.store(true, std::memory_order_relaxed);
+      seen_set = seen_set || now;
+    }
+  });
+
+  std::vector<std::thread> writers;
+  writers.reserve(kWriters);
+  for (int w = 0; w < kWriters; ++w) {
+    writers.emplace_back([&, w] {
+      for (int i = 0; i < kIterations; ++i) {
+        auto guard = std::lock_guard{lock};
+        pp.Set<0>(i & 1);
+        pp.Set<1>((i >> 1) & 1);
+        pp.SetPtr((i & 1) != 0 ? &a : &b);
+        if (w == 0 && i == kIterations / 2) pp.Set<2>(1);
+      }
+    });
+  }
+  for (auto &t : writers) t.join();
+  done.store(true, std::memory_order_release);
+  reader.join();
+
+  EXPECT_FALSE(reader_saw_clear_after_set.load());
+  auto guard = std::lock_guard{lock};
+  EXPECT_TRUE(pp.GetRelaxed<2>());
+}
+
+// The lock-free RMW helpers (fast-discard cleanup) must never lose a concurrently set bit.
+TEST_F(PointerPackTest, AtomicRmwNeverLosesConcurrentBit) {
+  constexpr int kIterations = 50'000;
+
+  for (int round = 0; round < 20; ++round) {
+    PointerPack<Dummy, 3> pp(&a);
+    std::atomic<bool> go{false};
+
+    std::thread setter([&] {
+      while (!go.load(std::memory_order_acquire)) {
+      }
+      pp.AtomicSetBit<2>();
+    });
+    std::thread cleaner([&] {
+      while (!go.load(std::memory_order_acquire)) {
+      }
+      for (int i = 0; i < kIterations; ++i) {
+        pp.AtomicSetPtr((i & 1) != 0 ? &a : &b);
+        pp.AtomicClearBit<1>();
+        pp.AtomicSetBit<0>();
+      }
+    });
+    go.store(true, std::memory_order_release);
+    setter.join();
+    cleaner.join();
+
+    EXPECT_TRUE(pp.GetRelaxed<2>());
+    EXPECT_TRUE(pp.Get<0>() != 0);
+    EXPECT_EQ(pp.Get<1>(), 0u);
+  }
+}
+#endif
