@@ -987,6 +987,16 @@ class InMemoryStorage final : public Storage {
     return {.vertex = retained_vertex_floor_, .edge = retained_edge_floor_};
   }
 
+  struct ApproximateCounts {
+    uint64_t vertices;
+    uint64_t edges;
+  };
+
+  // What Accessor::ApproximateVertexCount and ApproximateEdgeCount return, read without a transaction.
+  ApproximateCounts GetApproximateCounts() const {
+    return {.vertices = vertices_.size(), .edges = edge_count_.load(std::memory_order_acquire)};
+  }
+
   enum class HistoricalAccessError : uint8_t {
     // `fork_ts` is not a live pin: never registered, or already released.
     ForkTimestampNotPinned,

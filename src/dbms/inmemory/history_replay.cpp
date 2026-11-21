@@ -71,6 +71,13 @@ bool ReplayWalFile(storage::InMemoryStorage &storage, std::filesystem::path cons
   return delta_idx == wal_info.num_deltas;
 }
 
+std::optional<uint64_t> BranchRecoveryBound(const versioning::LedgerContents &ledger) {
+  if (ledger.branches.empty()) return std::nullopt;
+  const auto earliest =
+      std::ranges::min(ledger.branches, std::less{}, [](const auto &b) { return b.info.fork.durable_fork_ts; });
+  return versioning::RecoverableBelow(earliest.info);
+}
+
 std::expected<std::vector<uint64_t>, std::string> ReplayHistoryTail(storage::InMemoryStorage &storage,
                                                                     const storage::durability::RecoveryTail &tail,
                                                                     std::span<const uint64_t> fork_ts) {
