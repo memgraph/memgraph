@@ -36,10 +36,12 @@
 #include "storage/v2/durability/wal.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/property_value.hpp"
+#include "utils/atomic_utils.hpp"
 #include "utils/crc_accumulator.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/variant_helpers.hpp"
 #include "versioning/branch_engine.hpp"
+#include "versioning/version_store.hpp"
 
 namespace memgraph::versioning {
 
@@ -271,6 +273,7 @@ class BranchWalReplayer {
                 throw utils::BasicException("The branch WAL creates vertex {}, a gid of the base state.",
                                             d.gid.AsUint());
               }
+              CheckVertexGidFreeInMain(d.gid);
               if (!acc.CreateVertexEx(d.gid)) {
                 throw utils::BasicException("Vertex {} already exists in the branch.", d.gid.AsUint());
               }
@@ -315,6 +318,7 @@ class BranchWalReplayer {
               if (ctx_.FindDiffEdge(d.gid, d.from_vertex, storage::View::NEW)) {
                 throw utils::BasicException("Edge {} already exists in the branch.", d.gid.AsUint());
               }
+              CheckEdgeGidFreeInMain(d.gid);
               auto from = ctx_.EnsureDiffVertex(d.from_vertex);
               if (!from) throw utils::BasicException("{}", from.error().message);
               auto to = ctx_.EnsureDiffVertex(d.to_vertex);
@@ -353,6 +357,27 @@ class BranchWalReplayer {
         delta.data_);
   }
 
+  // Main recovers independently of branches, so it may already hold a gid the branch created natively; both objects
+  // would then answer to it. The branch is refused, never remapped.
+  storage::Storage::Accessor &MainAccessor() {
+    if (!main_acc_) main_acc_ = core_.main().Access(storage::READ);
+    return *main_acc_;
+  }
+
+  void CheckVertexGidFreeInMain(storage::Gid gid) {
+    if (MainAccessor().FindVertex(gid, storage::View::NEW)) {
+      throw utils::BasicException("gid conflict with main: vertex {} exists in main", gid.AsUint());
+    }
+  }
+
+  // Found by gid alone: the colliding main edge has other endpoints than the branch's. Main finds an edge this way
+  // only with properties_on_edges, a metadata index or light edges, so otherwise no edge clash is seen.
+  void CheckEdgeGidFreeInMain(storage::Gid gid) {
+    if (MainAccessor().FindEdge(gid, storage::View::NEW)) {
+      throw utils::BasicException("gid conflict with main: edge {} exists in main", gid.AsUint());
+    }
+  }
+
   void Commit(TxnState &txn) {
     // Not a detach, as stock replay (InMemoryStorage wal_apply.cpp, WalVertexDelete -> Accessor::DeleteVertex): the WAL
     // records every edge delete of the vertex, applied above, so an edge left over is an inconsistent WAL and fails the
@@ -377,6 +402,7 @@ class BranchWalReplayer {
   storage::NameIdMapper *mapper_;
   std::unordered_map<uint64_t, storage::Vertex *> base_vertices_;
   NativeGidEnds native_ends_;
+  std::unique_ptr<storage::Storage::Accessor> main_acc_;
 };
 
 }  // namespace
@@ -392,6 +418,69 @@ std::expected<NativeGidEnds, std::string> ReplayBranchWal(std::shared_ptr<Branch
     return BranchWalReplayer{ctx}.Run(files);
   } catch (const std::exception &e) {
     return std::unexpected(std::string{e.what()});
+  }
+}
+
+namespace {
+
+// False when the branch never committed (no WAL file). Throws when the directory cannot be inspected.
+bool HasWalFiles(const std::filesystem::path &dir) {
+  std::error_code ec;
+  if (!std::filesystem::exists(dir, ec)) {
+    if (ec) throw utils::BasicException("Cannot inspect '{}': {}", dir.string(), ec.message());
+    return false;
+  }
+  for (std::filesystem::directory_iterator it{dir, ec}, end; !ec && it != end; it.increment(ec)) {
+    if (it->is_regular_file(ec)) return true;
+  }
+  if (ec) throw utils::BasicException("Cannot list '{}': {}", dir.string(), ec.message());
+  return false;
+}
+
+// Builds `name`'s core in the store with its WAL replayed and returns the native gids it holds, or the reason it
+// cannot.
+std::expected<NativeGidEnds, std::string> RecoverBranch(VersionStore &store, storage::InMemoryStorage &main,
+                                                        const std::string &name, const std::filesystem::path &wal_dir) {
+  try {
+    if (!HasWalFiles(wal_dir)) return NativeGidEnds{};
+    auto branch = store.Checkout(name);
+    if (!branch) return std::unexpected(std::move(branch.error()));
+    const auto &info = (*branch)->info();
+    NativeGidEnds ends;
+    const auto core = (*branch)->GetOrBuildCore([&]() -> CoreResult {
+      auto built = BranchCore::Build(main, info.fork, (*branch)->fork_ts(), info.id);
+      if (!built) return std::unexpected(std::move(built.error().message));
+      auto replayed = ReplayBranchWal(*built, wal_dir);
+      if (!replayed) return std::unexpected(std::move(replayed.error()));
+      ends = *replayed;
+      return std::move(*built);
+    });
+    if (!core) return std::unexpected(core.error());
+    return ends;
+  } catch (const std::exception &e) {
+    return std::unexpected(std::string{e.what()});
+  }
+}
+
+}  // namespace
+
+void RecoverBranches(VersionStore &store, storage::InMemoryStorage &main) {
+  const memory::DbArenaScope arena_scope{main.DbArenaPool()};
+  const auto branches_dir = main.config_.durability.storage_directory / "branches";
+  for (const auto &listing : store.List()) {
+    if (listing.unavailable_reason) continue;
+    const auto &info = listing.info;
+    const auto ends = RecoverBranch(store, main, listing.name, branches_dir / std::to_string(info.id) / "wal");
+    if (!ends) {
+      store.MarkUnavailable(info.id, ends.error());
+      spdlog::warn("Graph Versioning: branch '{}' of database '{}' cannot be recovered and is unavailable: {}.",
+                   listing.name,
+                   main.config_.salient.name.str(),
+                   ends.error());
+      continue;
+    }
+    atomic_fetch_max_explicit(&main.vertex_id_, ends->vertex, std::memory_order_acq_rel);
+    atomic_fetch_max_explicit(&main.edge_id_, ends->edge, std::memory_order_acq_rel);
   }
 }
 
