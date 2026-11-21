@@ -250,17 +250,16 @@ Symbol table:
 | s | SECONDS |
 |---|---------|
 
-Additionally, seconds can be defined as decimal fractions with 3 or 6 digits after the decimal point.
-First 3 digits represent milliseconds, while the second 3 digits represent microseconds.)help";
+Additionally, seconds can be defined as decimal fractions with 1 to 9 digits after the decimal point.
+Digits beyond microseconds (the 7th to 9th) are truncated.)help";
 
 }  // namespace
 
 std::pair<LocalTimeParameters, bool> ParseLocalTimeParameters(std::string_view local_time_string) {
   // https://en.wikipedia.org/wiki/ISO_8601#Times
   // supported formats:
-  //  hh:mm:ss.ssssss | hhmmss.ssssss
-  //  hh:mm:ss.sss    | hhmmss.sss
-  //  hh:mm           | hhmm
+  //  hh:mm:ss.s | hhmmss.s  (1 to 9 fraction digits)
+  //  hh:mm      | hhmm
   //  hh
   // Times without the separator are in BASIC format
   // Times with ':' as a separator are in EXTENDED format.
@@ -335,25 +334,20 @@ std::pair<LocalTimeParameters, bool> ParseLocalTimeParameters(std::string_view l
   }
   local_time_string.remove_prefix(1);
 
-  const auto maybe_milliseconds = ParseNumber<int64_t>(local_time_string, 3);
-  if (!maybe_milliseconds) {
-    throw temporal::InvalidArgumentException("Invalid milliseconds in the string. {}",
+  const auto fraction_digits = std::min(local_time_string.find_first_not_of("0123456789"), local_time_string.size());
+  if (fraction_digits == 0 || fraction_digits > 9) {
+    throw temporal::InvalidArgumentException("Invalid fraction of a second in the string. {}",
                                              kSupportedTimeFormatsHelpMessage);
   }
-  local_time_parameters.millisecond = *maybe_milliseconds;
-  local_time_string.remove_prefix(3);
-
-  if (local_time_string.empty()) {
-    return {local_time_parameters, *using_colon};
+  // Memgraph stores microseconds, so shorter fractions are right-padded and digits 7-9 are truncated.
+  const auto used_digits = std::min<size_t>(fraction_digits, 6);
+  auto fraction_microseconds = *ParseNumber<int64_t>(local_time_string, used_digits);
+  for (auto i = used_digits; i < 6; ++i) {
+    fraction_microseconds *= 10;
   }
-
-  const auto maybe_microseconds = ParseNumber<int64_t>(local_time_string, 3);
-  if (!maybe_microseconds) {
-    throw temporal::InvalidArgumentException("Invalid microseconds in the string. {}",
-                                             kSupportedTimeFormatsHelpMessage);
-  }
-  local_time_parameters.microsecond = *maybe_microseconds;
-  local_time_string.remove_prefix(3);
+  local_time_parameters.millisecond = fraction_microseconds / 1000;
+  local_time_parameters.microsecond = fraction_microseconds % 1000;
+  local_time_string.remove_prefix(fraction_digits);
 
   if (!local_time_string.empty()) {
     throw temporal::InvalidArgumentException("Extra characters present at the end of the string.");
@@ -450,12 +444,15 @@ String representing LocalDateTime should be in one of the following formats:
 
 - YYYY-MM-DDThh:mm:ss
 - YYYY-MM-DDThh:mm
+- YYYY-MM-DD
+- YYYY-MM
 
 or
 
 - YYYYMMDDThhmmss
 - YYYYMMDDThhmm
 - YYYYMMDDThh
+- YYYYMMDD
 
 Symbol table:
 |---|---------|
@@ -472,8 +469,10 @@ Symbol table:
 | s | SECONDS |
 |---|---------|
 
-Additionally, seconds can be defined as decimal fractions with 3 or 6 digits after the decimal point.
-First 3 digits represent milliseconds, while the second 3 digits represent microseconds.
+Additionally, seconds can be defined as decimal fractions with 1 to 9 digits after the decimal point.
+Digits beyond microseconds (the 7th to 9th) are truncated.
+
+A date without a time part is parsed as midnight at the start of that day.
 
 It's important to note that the date and time parts should use both the corresponding separators
 or both parts should be written in their basic forms without the separators.)help";
@@ -481,13 +480,11 @@ or both parts should be written in their basic forms without the separators.)hel
 }  // namespace
 
 std::pair<DateParameters, LocalTimeParameters> ParseLocalDateTimeParameters(std::string_view string) {
-  auto t_position = string.find('T');
-  if (t_position == std::string_view::npos) {
-    throw temporal::InvalidArgumentException("Invalid LocalDateTime format. {}",
-                                             kSupportedLocalDateTimeFormatsHelpMessage);
-  }
-
   try {
+    const auto t_position = string.find('T');
+    if (t_position == std::string_view::npos) {
+      return {ParseDateParameters(string).first, LocalTimeParameters{}};
+    }
     auto [date_parameters, extended_date_format] = ParseDateParameters(string.substr(0, t_position));
     // https://en.wikipedia.org/wiki/ISO_8601#Combined_date_and_time_representations
     // ISO8601 specifies that you cannot mix extended and basic format of date and time
@@ -629,12 +626,15 @@ The <DateTime> substring should use one of the following formats:
 
 - YYYY-MM-DDThh:mm:ss
 - YYYY-MM-DDThh:mm
+- YYYY-MM-DD
+- YYYY-MM
 
 or
 
 - YYYYMMDDThhmmss
 - YYYYMMDDThhmm
 - YYYYMMDDThh
+- YYYYMMDD
 
 The <timezone> substring should use one of the following formats:
 
@@ -666,8 +666,11 @@ Symbol table:
 
 ZoneName is a standardized timezone name from the IANA time zone database, given without quote marks.
 
-Additionally, seconds can be defined as decimal fractions with 3 or 6 digits after the decimal point.
-First 3 digits represent milliseconds, while the second 3 digits represent microseconds.
+Additionally, seconds can be defined as decimal fractions with 1 to 9 digits after the decimal point.
+Digits beyond microseconds (the 7th to 9th) are truncated.
+
+A date without a time part is parsed as midnight at the start of that day.
+Such a date takes no timezone and is in UTC.
 
 It's important to note that the date and time parts should use both the corresponding separators
 or both parts should be written in their basic forms without the separators.)help";
@@ -803,6 +806,12 @@ ZonedDateTimeParameters ParseZonedDateTimeParameters(std::string_view string) {
   } else {
     ldt_substring = string;
     string = "";
+  }
+
+  // As in Neo4j, a timezone needs a time part; a date-only string is UTC.
+  if (!string.empty() && !ldt_substring.contains('T')) {
+    throw temporal::InvalidArgumentException("Invalid ZonedDateTime format. A timezone requires a time part. {}",
+                                             kSupportedZonedDateTimeFormatsHelpMessage);
   }
 
   auto [date_parameters, local_time_parameters] = ParseLocalDateTimeParameters(ldt_substring);

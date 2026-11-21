@@ -542,6 +542,13 @@ inline constexpr std::array parsing_test_dates_basic{
 inline constexpr std::array parsing_test_local_time_extended{
     std::make_pair("19:23:21.123456"sv, memgraph::utils::LocalTimeParameters{19, 23, 21, 123, 456}),
     std::make_pair("19:23:21.123"sv, memgraph::utils::LocalTimeParameters{19, 23, 21, 123}),
+    // Fractions of 1-9 digits are right-padded to microseconds; 7-9 digits truncate at microseconds.
+    std::make_pair("19:23:21.5"sv, memgraph::utils::LocalTimeParameters{19, 23, 21, 500, 0}),
+    std::make_pair("19:23:21.12"sv, memgraph::utils::LocalTimeParameters{19, 23, 21, 120, 0}),
+    std::make_pair("19:23:21.1234"sv, memgraph::utils::LocalTimeParameters{19, 23, 21, 123, 400}),
+    std::make_pair("19:23:21.12345"sv, memgraph::utils::LocalTimeParameters{19, 23, 21, 123, 450}),
+    std::make_pair("19:23:21.1234567"sv, memgraph::utils::LocalTimeParameters{19, 23, 21, 123, 456}),
+    std::make_pair("19:23:21.123456789"sv, memgraph::utils::LocalTimeParameters{19, 23, 21, 123, 456}),
     std::make_pair("19:23:21"sv, memgraph::utils::LocalTimeParameters{19, 23, 21}),
     std::make_pair("19:23"sv, memgraph::utils::LocalTimeParameters{19, 23}),
     std::make_pair("00:00:00.000000"sv, memgraph::utils::LocalTimeParameters{0, 0, 0, 0, 0}),
@@ -551,6 +558,8 @@ inline constexpr std::array parsing_test_local_time_extended{
 inline constexpr std::array parsing_test_local_time_basic{
     std::make_pair("192321.123456"sv, memgraph::utils::LocalTimeParameters{19, 23, 21, 123, 456}),
     std::make_pair("192321.123"sv, memgraph::utils::LocalTimeParameters{19, 23, 21, 123}),
+    std::make_pair("192321.5"sv, memgraph::utils::LocalTimeParameters{19, 23, 21, 500, 0}),
+    std::make_pair("192321.123456789"sv, memgraph::utils::LocalTimeParameters{19, 23, 21, 123, 456}),
     std::make_pair("192321"sv, memgraph::utils::LocalTimeParameters{19, 23, 21}),
     std::make_pair("1923"sv, memgraph::utils::LocalTimeParameters{19, 23}),
     std::make_pair("19"sv, memgraph::utils::LocalTimeParameters{19}),
@@ -591,6 +600,8 @@ TEST(TemporalTest, LocalTimeParsing) {
 
   ASSERT_THROW(memgraph::utils::ParseLocalTimeParameters("19:20:21s"), memgraph::utils::BasicException);
   ASSERT_THROW(memgraph::utils::ParseLocalTimeParameters("1920:21"), memgraph::utils::BasicException);
+  ASSERT_THROW(memgraph::utils::ParseLocalTimeParameters("19:20:21."), memgraph::utils::BasicException);
+  ASSERT_THROW(memgraph::utils::ParseLocalTimeParameters("19:20:21.1234567890"), memgraph::utils::BasicException);
 }
 
 void test_LocalDateTimeParsing() {
@@ -611,6 +622,20 @@ void test_LocalDateTimeParsing() {
   check_local_date_time_combinations(parsing_test_dates_extended, parsing_test_local_time_extended, true);
   check_local_date_time_combinations(parsing_test_dates_basic, parsing_test_local_time_extended, false);
   check_local_date_time_combinations(parsing_test_dates_extended, parsing_test_local_time_basic, false);
+
+  const auto date_only = memgraph::utils::ParseLocalDateTimeParameters("2024-01-02");
+  EXPECT_EQ(date_only.first, (memgraph::utils::DateParameters{2024, 1, 2}));
+  EXPECT_EQ(date_only.second, memgraph::utils::LocalTimeParameters{});
+
+  EXPECT_THROW(memgraph::utils::ParseLocalDateTimeParameters("2024-01-02.5"),
+               memgraph::utils::temporal::InvalidArgumentException);
+  EXPECT_THROW(memgraph::utils::ParseLocalDateTimeParameters("2024-01-02Z"),
+               memgraph::utils::temporal::InvalidArgumentException);
+
+  EXPECT_EQ(memgraph::utils::ParseLocalDateTimeParameters("2024-01").first,
+            (memgraph::utils::DateParameters{2024, 1, 1}));
+  EXPECT_EQ(memgraph::utils::ParseLocalDateTimeParameters("20240102").first,
+            (memgraph::utils::DateParameters{2024, 1, 2}));
 }
 
 TEST(TemporalTest, LocalDateTimeParsing) { test_LocalDateTimeParsing(); }
@@ -697,6 +722,13 @@ TEST(TemporalTest, ZonedDateTimeParsing) {
 
   check_timezone_parsing_cases(timezone_parsing_cases);
   check_faulty_timezones(faulty_timezone_cases);
+
+  const auto date_only_utc =
+      ZonedDateTimeParameters{DateParameters{2024, 1, 2}, LocalTimeParameters{}, Timezone("Etc/UTC")};
+  EXPECT_EQ(ParseZonedDateTimeParameters("2024-01-02"), date_only_utc);
+  for (const auto *input : {"2024-01-02+01:00", "2024-01-02Z", "2024-01-02[Europe/Zagreb]"}) {
+    EXPECT_THROW(ParseZonedDateTimeParameters(input), memgraph::utils::temporal::InvalidArgumentException) << input;
+  }
 }
 
 TEST(TemporalTest, ZonedDateTimeSupportsLocalTimeAndDate_UTC) {
