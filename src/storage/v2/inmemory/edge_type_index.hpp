@@ -26,6 +26,7 @@
 #include "storage/v2/index_arming.hpp"
 #include "storage/v2/indices/edge_type_index.hpp"
 #include "storage/v2/indices/errors.hpp"
+#include "storage/v2/indices/indices_utils.hpp"
 #include "storage/v2/inmemory/indices_mvcc.hpp"
 #include "storage/v2/inmemory/light_edge_guard.hpp"
 #include "storage/v2/vertex_accessor.hpp"
@@ -99,6 +100,7 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
     Storage *storage_;
     Transaction *transaction_;
     Gid max_gid_;
+    ScanStart scan_start_;  // see CanSeeEntityWithTimestamp
   };
 
   class ChunkedIterable {
@@ -165,6 +167,7 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
     Transaction *transaction_;
     utils::SkipListDb<Entry>::ChunkCollection chunks_;
     Gid max_gid_;
+    ScanStart scan_start_;  // see CanSeeEntityWithTimestamp
   };
 
  public:

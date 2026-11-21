@@ -87,10 +87,42 @@ class SubqueryReadSymbolsCollector : public UsedSymbolsCollector {
     return true;
   }
 
+  // The AST's Accept skips dynamic labels, dynamic edge types and lambdas; each may read a bound symbol.
+  bool PreVisit(NodeAtom &atom) override {
+    if (auto const labels = atom.LabelConjunction()) WalkDynamic(*labels);
+    return true;
+  }
+
+  bool PreVisit(EdgeAtom &atom) override {
+    for (auto &type : atom.edge_types_) {
+      if (auto *const *expression = std::get_if<Expression *>(&type)) (*expression)->Accept(*this);
+    }
+    for (auto *lambda : {&atom.filter_lambda_, &atom.weight_lambda_}) {
+      if (lambda->expression) lambda->expression->Accept(*this);
+    }
+    return true;
+  }
+
+  bool PreVisit(query::SetLabels &set) override {
+    WalkDynamic(set.labels_);
+    return true;
+  }
+
+  bool PreVisit(query::RemoveLabels &remove) override {
+    WalkDynamic(remove.labels_);
+    return true;
+  }
+
   /// Whether the expression holds a subquery or pattern comprehension, which the planner plans as a branch.
   bool has_branch_{false};
 
  private:
+  void WalkDynamic(const std::vector<QueryLabelType> &labels) {
+    for (const auto &label : labels) {
+      if (auto *const *expression = std::get_if<Expression *>(&label)) (*expression)->Accept(*this);
+    }
+  }
+
   // A depth, not a flag: bodies nest.
   int in_subquery_depth_{0};
 };
@@ -865,8 +897,7 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
     if (it == pending.end()) {
       return;
     }
-    auto op = subquery_ctx_->planner->Plan(
-        it->second, SubqueryView(it->second, subquery_ctx_->write_occurred), BranchBoundSymbols());
+    auto op = subquery_ctx_->planner->Plan(it->second, ViewAfterWrite(subquery_ctx_->reads_new), BranchBoundSymbols());
     Bucket(position_).comprehensions.emplace_back(std::move(op), result_sym, it->second.expansion_symbols);
     pending.erase(it);
   }
@@ -882,8 +913,7 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
     if (it == subquery_ctx_->pending_subqueries.end()) {
       return;
     }
-    auto op =
-        subquery_ctx_->planner->PlanSubqueryBranch(it->second, subquery_ctx_->write_occurred, BranchBoundSymbols());
+    auto op = subquery_ctx_->planner->PlanSubqueryBranch(it->second, subquery_ctx_->reads_new, BranchBoundSymbols());
     auto const fold = impl::ToOperatorFold(it->second.fold);
     // Read before the operator is moved out, and only for the fold that has a column to read.
     auto const collected_column =
@@ -978,7 +1008,8 @@ bool CanDeferProjection(const ReturnBodyContext &body) {
 /// Puts the projection and the ordering on top of @p input_op, in one of two orders depending on
 /// whether the projection can wait until after the limit.
 std::unique_ptr<LogicalOperator> PlanProjectionAndOrdering(std::unique_ptr<LogicalOperator> input_op,
-                                                           const ReturnBodyContext &body, auto &&splice_branches) {
+                                                           const ReturnBodyContext &body, auto &&splice_branches,
+                                                           storage::View read_view) {
   using BodyPosition = ReturnBodyContext::BodyPosition;
   auto last_op = std::move(input_op);
 
@@ -992,11 +1023,14 @@ std::unique_ptr<LogicalOperator> PlanProjectionAndOrdering(std::unique_ptr<Logic
       last_op = std::make_unique<Skip>(std::move(last_op), body.skip());
     }
     last_op = std::make_unique<Limit>(std::move(last_op), body.limit());
-    last_op = std::make_unique<Produce>(std::move(last_op), body.named_expressions());
-    return last_op;
+    auto produce = std::make_unique<Produce>(std::move(last_op), body.named_expressions());
+    produce->view_ = read_view;
+    return produce;
   }
 
-  last_op = std::make_unique<Produce>(std::move(last_op), body.named_expressions());
+  auto produce = std::make_unique<Produce>(std::move(last_op), body.named_expressions());
+  produce->view_ = read_view;
+  last_op = std::move(produce);
   // Distinct in ReturnBody only makes Produce values unique, so plan after it.
   if (body.distinct()) {
     last_op = std::make_unique<Distinct>(std::move(last_op), body.output_symbols());
@@ -1035,7 +1069,8 @@ std::unique_ptr<LogicalOperator> PlanProjectionAndOrdering(std::unique_ptr<Logic
 
 std::unique_ptr<LogicalOperator> GenReturnBody(std::unique_ptr<LogicalOperator> input_op, bool advance_command,
                                                const ReturnBodyContext &body, bool accumulate,
-                                               Expression *commit_frequency) {
+                                               Expression *commit_frequency, storage::View read_view,
+                                               bool write_visibility_advance = false) {
   std::vector<Symbol> used_symbols(body.used_symbols().begin(), body.used_symbols().end());
   using BodyPosition = ReturnBodyContext::BodyPosition;
   auto last_op = std::move(input_op);
@@ -1043,7 +1078,9 @@ std::unique_ptr<LogicalOperator> GenReturnBody(std::unique_ptr<LogicalOperator> 
     // We only advance the command in Accumulate. This is done for WITH clause,
     // when the first part updated the database. RETURN clause may only need an
     // accumulation after updates, without advancing the command.
-    last_op = std::make_unique<Accumulate>(std::move(last_op), used_symbols, advance_command);
+    last_op = write_visibility_advance
+                  ? Accumulate::Barrier(std::move(last_op), used_symbols, advance_command)
+                  : std::make_unique<Accumulate>(std::move(last_op), used_symbols, advance_command);
   }
   // A planned branch, folded onto last_op: the list fold reads a column, the column-less folds do not, and that is
   // the whole difference between the two RollUpApply constructors.
@@ -1107,7 +1144,9 @@ std::unique_ptr<LogicalOperator> GenReturnBody(std::unique_ptr<LogicalOperator> 
       }
     }
 
-    last_op = std::make_unique<Aggregate>(std::move(last_op), body.aggregations(), body.group_by(), remember);
+    auto aggregate = std::make_unique<Aggregate>(std::move(last_op), body.aggregations(), body.group_by(), remember);
+    aggregate->view_ = read_view;
+    last_op = std::move(aggregate);
   }
 
   // Splices a list-fold RollUpApply for each planned comprehension onto last_op, then each planned subquery with
@@ -1136,7 +1175,7 @@ std::unique_ptr<LogicalOperator> GenReturnBody(std::unique_ptr<LogicalOperator> 
     last_op = std::make_unique<PeriodicCommit>(std::move(last_op), commit_frequency);
   }
 
-  return PlanProjectionAndOrdering(std::move(last_op), body, splice_branches);
+  return PlanProjectionAndOrdering(std::move(last_op), body, splice_branches, read_view);
 }
 
 /// The ON CREATE / ON MATCH clauses of every MERGE in @p clause, descending into FOREACH bodies.
@@ -1181,21 +1220,162 @@ std::unordered_set<Symbol> CollectPatternComprehensionSymbols(const std::vector<
   return symbols;
 }
 
-storage::View PatternComprehensionView(const PatternComprehensionMatching &pc, storage::View preferred,
-                                       const std::unordered_set<Symbol> &bound_symbols,
-                                       const std::unordered_set<Symbol> &write_bound_symbols) {
-  if (!HasVariableLengthExpansion(pc)) return preferred;
-  // View::OLD cannot see a node a write clause of this query part bound, and View::NEW is not available here.
-  auto const unseeable = std::ranges::find_if(pc.expansion_symbols, [&](const Symbol &sym) {
-    return bound_symbols.contains(sym) && write_bound_symbols.contains(sym);
-  });
-  if (unseeable != pc.expansion_symbols.end()) {
-    throw QueryException(
-        "A variable-length pattern cannot expand from '{}', which a write clause of this query part binds. Close that "
-        "clause with a WITH before the pattern.",
-        unseeable->name());
+namespace {
+
+/// Sets View::NEW on every read of a writing CALL body tree or an EXISTS branch planned after a write. It runs before
+/// the rewriters, so it lists only what the planner builds; a rewriter copies the view of what it replaces.
+class ReadNewViewSetter final : public HierarchicalLogicalOperatorVisitor {
+ public:
+  using HierarchicalLogicalOperatorVisitor::PostVisit;
+  using HierarchicalLogicalOperatorVisitor::PreVisit;
+  using HierarchicalLogicalOperatorVisitor::Visit;
+
+  bool Visit(Once & /*op*/) override { return true; }
+
+#define MG_READ_NEW(Op)            \
+  bool PreVisit(Op &op) override { \
+    op.view_ = storage::View::NEW; \
+    return true;                   \
   }
-  return storage::View::OLD;
+  MG_READ_NEW(ScanAll)
+  MG_READ_NEW(ScanAllByEdge)
+  MG_READ_NEW(Expand)
+  MG_READ_NEW(ExpandVariable)
+  MG_READ_NEW(Filter)
+  MG_READ_NEW(Produce)
+  MG_READ_NEW(Aggregate)
+  MG_READ_NEW(OrderBy)
+  MG_READ_NEW(Unwind)
+  MG_READ_NEW(CreateNode)
+  MG_READ_NEW(CreateExpand)
+  MG_READ_NEW(CallProcedure)
+  MG_READ_NEW(Conditional)
+#undef MG_READ_NEW
+};
+
+}  // namespace
+
+void ReadNewThroughout(LogicalOperator &plan) {
+  ReadNewViewSetter setter;
+  plan.Accept(setter);
+}
+
+std::optional<std::unordered_set<Symbol>> SymbolsReadAfter(const QueryPart &query_part, size_t part,
+                                                           const SingleQueryPart *matched_after,
+                                                           std::span<Clause *const> rest,
+                                                           const SymbolTable &symbol_table) {
+  if (query_part.conditional) return std::nullopt;
+  SubqueryReadSymbolsCollector reads{symbol_table};
+  std::unordered_set<Symbol> read;
+  // A comprehension may be planned before the barrier; the clause then reads its result symbol. An EXISTS result
+  // symbol is bound after the barrier, so it is not collected.
+  SubqueryResultSymbolCollector results{symbol_table, read};
+  auto const walk = [&](auto &tree) {
+    tree.Accept(reads);
+    tree.Accept(results);
+  };
+  auto const walk_clauses = [&](std::span<Clause *const> clauses) {
+    for (auto *clause : clauses) {
+      if (utils::Downcast<CallSubquery>(clause) || utils::Downcast<ConditionalBranches>(clause)) return false;
+      auto *with = utils::Downcast<With>(clause);
+      auto *ret = utils::Downcast<Return>(clause);
+      if ((with && with->body_.all_identifiers) || (ret && ret->body_.all_identifiers)) return false;
+      walk(*clause);
+    }
+    return true;
+  };
+  auto const walk_matching = [&](const Matching &matching) {
+    for (const auto &expansion : matching.expansions) {
+      for (auto *atom : {static_cast<PatternAtom *>(expansion.node1),
+                         static_cast<PatternAtom *>(expansion.edge),
+                         static_cast<PatternAtom *>(expansion.node2)}) {
+        if (atom) read.insert(symbol_table.at(*atom->identifier_));
+      }
+      if (expansion.edge) {
+        for (auto *lambda : {&expansion.edge->filter_lambda_, &expansion.edge->weight_lambda_}) {
+          if (lambda->expression) walk(*lambda->expression);
+        }
+      }
+    }
+    for (const auto &filter : matching.filters) {
+      read.insert(filter.used_symbols.begin(), filter.used_symbols.end());
+      if (filter.expression) walk(*filter.expression);
+    }
+  };
+  auto const walk_part = [&](const SingleQueryPart &single) {
+    walk_matching(single.matching);
+    for (const auto &optional : single.optional_matching) walk_matching(optional);
+    return walk_clauses(single.remaining_clauses);
+  };
+
+  if (matched_after) {
+    walk_matching(matched_after->matching);
+    for (const auto &optional : matched_after->optional_matching) walk_matching(optional);
+  }
+  if (!walk_clauses(rest)) return std::nullopt;
+  for (auto i = part + 1; i < query_part.single_query_parts.size(); ++i) {
+    if (!walk_part(query_part.single_query_parts[i])) return std::nullopt;
+  }
+  read.insert(reads.symbols_.begin(), reads.symbols_.end());
+  return read;
+}
+
+namespace {
+
+/// Operators that emit at most one row per input row and leave every symbol bound below them as it was.
+bool NeverRepeatsARow(const LogicalOperator &op) {
+  return utils::IsSubtype(op, Filter::kType) || utils::IsSubtype(op, plan::SetProperty::kType) ||
+         utils::IsSubtype(op, plan::SetProperties::kType) || utils::IsSubtype(op, plan::SetLabels::kType) ||
+         utils::IsSubtype(op, plan::RemoveProperty::kType) || utils::IsSubtype(op, plan::RemoveLabels::kType) ||
+         utils::IsSubtype(op, plan::SetNestedProperty::kType) ||
+         utils::IsSubtype(op, plan::RemoveNestedProperty::kType) || utils::IsSubtype(op, Accumulate::kType) ||
+         utils::IsSubtype(op, EvaluatePatternFilter::kType) || utils::IsSubtype(op, RollUpApply::kType) ||
+         utils::IsSubtype(op, CacheProperties::kType) || utils::IsSubtype(op, ConstructNamedPath::kType) ||
+         utils::IsSubtype(op, EdgeUniquenessFilter::kType) || utils::IsSubtype(op, Skip::kType) ||
+         utils::IsSubtype(op, Limit::kType) || utils::IsSubtype(op, OrderBy::kType) ||
+         utils::IsSubtype(op, plan::CreateNode::kType) || utils::IsSubtype(op, plan::CreateExpand::kType) ||
+         utils::IsSubtype(op, plan::Delete::kType) || utils::IsSubtype(op, Distinct::kType);
+}
+
+/// Whether @p op produces at most one row: an Once, under operators that never repeat a row.
+bool AtMostOneRow(const LogicalOperator *op) {
+  while (op && NeverRepeatsARow(*op)) op = op->input().get();
+  return op && utils::IsSubtype(*op, Once::kType);
+}
+
+}  // namespace
+
+bool IsRowUnique(const LogicalOperator &plan, const Symbol &symbol) {
+  auto position = symbol.position();
+  for (const LogicalOperator *op = &plan; op != nullptr;) {
+    if (auto const *scan = utils::Downcast<const ScanAll>(op); scan && scan->output_symbol_.position() == position) {
+      return scan->view_ == storage::View::OLD && AtMostOneRow(scan->input().get());
+    }
+    if (auto const *aggregate = utils::Downcast<const Aggregate>(op)) {
+      if (aggregate->group_by_.size() != 1) return false;
+      auto *key = utils::Downcast<Identifier>(aggregate->group_by_.front());
+      return key && key->symbol_pos_ == position;
+    }
+    if (auto const *distinct = utils::Downcast<const Distinct>(op);
+        distinct && distinct->value_symbols_.size() == 1 && distinct->value_symbols_.front().position() == position) {
+      return true;
+    }
+    if (auto const *produce = utils::Downcast<const Produce>(op)) {
+      // A projection that binds the symbol hands it on from the variable it names, or makes it from anything else.
+      for (auto const *named : produce->named_expressions_) {
+        if (named->symbol_pos_ != position) continue;
+        auto *source = utils::Downcast<Identifier>(named->expression_);
+        if (!source) return false;
+        position = source->symbol_pos_;
+        break;
+      }
+      op = op->input().get();
+      continue;
+    }
+    if (!NeverRepeatsARow(*op)) return false;
+    op = op->input().get();
+  }
+  return false;
 }
 
 bool HasBoundFilterSymbols(const std::unordered_set<Symbol> &bound_symbols, const FilterInfo &filter) {
@@ -1248,10 +1428,20 @@ std::unordered_set<Symbol> GetSubqueryBoundSymbols(const std::vector<SingleQuery
     SubqueryContext subquery_ctx{.pending_comprehensions = empty_pending_pc,
                                  .pending_subqueries = empty_pending_subqueries,
                                  .planner = nullptr,
-                                 .write_occurred = false};
+                                 .reads_new = false};
     // No planning context here, hence no scoped `CALL` imports either.
-    auto input_op =
-        impl::GenWith(*with, nullptr, symbol_table, false, bound_symbols, storage, subquery_ctx, nullptr, false, {});
+    auto input_op = impl::GenWith(*with,
+                                  nullptr,
+                                  symbol_table,
+                                  false,
+                                  bound_symbols,
+                                  storage,
+                                  subquery_ctx,
+                                  nullptr,
+                                  false,
+                                  {},
+                                  storage::View::NEW,
+                                  /*may_advance=*/true);
     return bound_symbols;
   }
 
@@ -1283,7 +1473,8 @@ std::unique_ptr<LogicalOperator> GenNamedPaths(std::unique_ptr<LogicalOperator> 
 std::unique_ptr<LogicalOperator> GenReturn(Return &ret, std::unique_ptr<LogicalOperator> input_op,
                                            SymbolTable &symbol_table, bool is_write,
                                            const std::unordered_set<Symbol> &bound_symbols, AstStorage &storage,
-                                           SubqueryContext &subquery_ctx, Expression *commit_frequency) {
+                                           SubqueryContext &subquery_ctx, Expression *commit_frequency,
+                                           storage::View read_view, bool advance_command) {
   // Similar to WITH clause, but we want to accumulate when the query writes to
   // the database. This way we handle the case when we want to return
   // expressions with the latest updated results. For example, `MATCH (n) -- ()
@@ -1292,31 +1483,40 @@ std::unique_ptr<LogicalOperator> GenReturn(Return &ret, std::unique_ptr<LogicalO
   // final result of 'k' increments.
   bool const has_periodic_commit = commit_frequency != nullptr;
   bool const accumulate = is_write && !has_periodic_commit;
-  bool advance_command = false;
+  // At the root the drain also advances, so ORDER BY keys and a later UNION leg read every write through View::OLD
+  // (subqueries, also in ORDER BY, read NEW). A body's RETURN runs once per outer row: an advance would move its scan.
   const ReturnBodyContext body(ret.body_, symbol_table, bound_symbols, storage, &subquery_ctx);
-  return GenReturnBody(std::move(input_op), advance_command, body, accumulate, commit_frequency);
+  return GenReturnBody(std::move(input_op),
+                       advance_command,
+                       body,
+                       accumulate,
+                       commit_frequency,
+                       read_view,
+                       /*write_visibility_advance=*/true);
 }
 
 std::unique_ptr<LogicalOperator> GenWith(With &with, std::unique_ptr<LogicalOperator> input_op,
                                          SymbolTable &symbol_table, bool is_write,
                                          std::unordered_set<Symbol> &bound_symbols, AstStorage &storage,
                                          SubqueryContext &subquery_ctx, Expression *commit_frequency,
-                                         bool in_subquery_body, const std::unordered_set<Symbol> &scoped_call_imports) {
+                                         bool in_subquery_body, const std::unordered_set<Symbol> &scoped_call_imports,
+                                         storage::View read_view, bool may_advance) {
   // WITH clause is Accumulate/Aggregate (advance_command) + Produce and
   // optional Filter. In case of update and aggregation, we want to accumulate
   // first, so that when aggregating, we get the latest results. Similar to
   // RETURN clause.
   bool const has_periodic_commit = commit_frequency != nullptr;
   bool const accumulate = is_write && !has_periodic_commit;
-  // No need to advance the command if we only performed reads.
-  bool advance_command = is_write;
+  // No need to advance the command if we only performed reads. A writing CALL body never advances: it runs once per
+  // outer row, and an advance would change what the outer scan still has to visit.
+  bool advance_command = is_write && may_advance;
   // Split into the clause that owns the expression, because planning runs once per start node the
   // variable-start planner tries.
   if (with.where_) {
     with.where_->expression_ = SplitLabelsTests(with.where_->expression_, storage);
   }
   const ReturnBodyContext body(with.body_, symbol_table, bound_symbols, storage, &subquery_ctx, with.where_);
-  auto last_op = GenReturnBody(std::move(input_op), advance_command, body, accumulate, commit_frequency);
+  auto last_op = GenReturnBody(std::move(input_op), advance_command, body, accumulate, commit_frequency, read_view);
 
   // In EXISTS subqueries, we need to preserve outer scope variables
   if (in_subquery_body) {
@@ -1350,12 +1550,14 @@ std::unique_ptr<LogicalOperator> GenWith(With &with, std::unique_ptr<LogicalOper
 }
 
 std::unique_ptr<LogicalOperator> GenUnion(const CypherUnion &cypher_union, std::shared_ptr<LogicalOperator> left_op,
-                                          std::shared_ptr<LogicalOperator> right_op, SymbolTable &symbol_table) {
+                                          std::shared_ptr<LogicalOperator> right_op, SymbolTable &symbol_table,
+                                          bool advance_command) {
   return std::make_unique<Union>(left_op,
                                  right_op,
                                  cypher_union.union_symbols_,
                                  left_op->OutputSymbols(symbol_table),
-                                 right_op->OutputSymbols(symbol_table));
+                                 right_op->OutputSymbols(symbol_table),
+                                 advance_command);
 }
 
 Symbol GetSymbol(NodeAtom *atom, const SymbolTable &symbol_table) { return symbol_table.at(*atom->identifier_); }

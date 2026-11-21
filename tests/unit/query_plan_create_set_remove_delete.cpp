@@ -1398,6 +1398,64 @@ TYPED_TEST(QueryPlanTest, SetLabelsWithFineGrained) {
                  QueryRuntimeException);
   }
 }
+
+// The SET/REMOVE label access check reads the labels earlier rows and earlier clauses gave the node (View::NEW): a
+// user denied :Hid may not change a node once :Hid is on it, even when this query put it there.
+namespace {
+memgraph::auth::User UserDeniedChangesToHid() {
+  memgraph::auth::User user{"test"};
+  user.fine_grained_access_handler().label_permissions().Grant({"PM"}, memgraph::auth::kAllLabelPermissions);
+  user.fine_grained_access_handler().label_permissions().Grant({"Oth"}, memgraph::auth::kAllLabelPermissions);
+  // :Hid may be added (CREATE on the target label), but a node carrying it may not be changed: a DENY wins over the
+  // grant :PM gives.
+  user.fine_grained_access_handler().label_permissions().Grant(
+      {"Hid"}, memgraph::auth::FineGrainedPermission::READ | memgraph::auth::FineGrainedPermission::CREATE);
+  user.fine_grained_access_handler().label_permissions().Deny(
+      {"Hid"}, memgraph::auth::FineGrainedPermission::SET_LABEL | memgraph::auth::FineGrainedPermission::REMOVE_LABEL);
+  return user;
+}
+}  // namespace
+
+TYPED_TEST(QueryPlanTest, SetLabelCheckSeesAnEarlierRow) {
+  memgraph::license::global_license_checker.EnableTesting();
+  auto const user = UserDeniedChangesToHid();
+  // Two rows set :Hid on the same node: the second row's check sees :Hid.
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
+  memgraph::query::DbAccessor dba(storage_dba.get());
+  auto pm = dba.NameToLabel("PM");
+  ASSERT_TRUE(dba.InsertVertex().AddLabel(pm).has_value());
+  ASSERT_TRUE(dba.InsertVertex().AddLabel(pm).has_value());
+  dba.AdvanceCommand();
+  SymbolTable symbol_table;
+  auto m = MakeScanAll(this->storage, symbol_table, "m");
+  auto n = MakeScanAll(this->storage, symbol_table, "n", m.op_);
+  auto set = std::make_shared<plan::SetLabels>(n.op_, n.sym_, std::vector<StorageLabelType>{dba.NameToLabel("Hid")});
+  memgraph::glue::FineGrainedAuthChecker auth_checker{user, &dba};
+  auto context = MakeContextWithFineGrainedChecker(this->storage, symbol_table, &dba, &auth_checker);
+  EXPECT_THAT([&] { PullAll(*set, &context); },
+              testing::ThrowsMessage<QueryRuntimeException>(testing::HasSubstr("missing SET LABEL")));
+}
+
+TYPED_TEST(QueryPlanTest, RemoveLabelCheckSeesAnEarlierClause) {
+  memgraph::license::global_license_checker.EnableTesting();
+  auto const user = UserDeniedChangesToHid();
+  // A REMOVE after a SET of :Hid in the same row sees :Hid.
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
+  memgraph::query::DbAccessor dba(storage_dba.get());
+  auto vertex = dba.InsertVertex();
+  ASSERT_TRUE(vertex.AddLabel(dba.NameToLabel("PM")).has_value());
+  ASSERT_TRUE(vertex.AddLabel(dba.NameToLabel("Oth")).has_value());
+  dba.AdvanceCommand();
+  SymbolTable symbol_table;
+  auto n = MakeScanAll(this->storage, symbol_table, "n");
+  auto set = std::make_shared<plan::SetLabels>(n.op_, n.sym_, std::vector<StorageLabelType>{dba.NameToLabel("Hid")});
+  auto remove =
+      std::make_shared<plan::RemoveLabels>(set, n.sym_, std::vector<StorageLabelType>{dba.NameToLabel("Oth")});
+  memgraph::glue::FineGrainedAuthChecker auth_checker{user, &dba};
+  auto context = MakeContextWithFineGrainedChecker(this->storage, symbol_table, &dba, &auth_checker);
+  EXPECT_THAT([&] { PullAll(*remove, &context); },
+              testing::ThrowsMessage<QueryRuntimeException>(testing::HasSubstr("missing REMOVE LABEL")));
+}
 #endif
 
 TYPED_TEST(QueryPlanTest, RemoveProperty) {

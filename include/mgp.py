@@ -2207,7 +2207,9 @@ class FuncCtx:
 
     Access to a FuncCtx is only valid during a single execution of a function in
     a query. You should not globally store a FuncCtx instance. The graph object
-    within the FuncCtx is not mutable.
+    within the FuncCtx is not mutable. A function reads the graph only through
+    its arguments: `_graph` is private, and the query does not order reads
+    through it after its own writes.
     """
 
     __slots__ = "_graph"

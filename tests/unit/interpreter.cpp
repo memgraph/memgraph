@@ -15,12 +15,15 @@
 #include <filesystem>
 #include <future>
 #include <map>
+#include <optional>
 #include <set>
 #include <sstream>
 #include <string>
 #include <thread>
 #include <utility>
 #include <vector>
+
+#include <fmt/format.h>
 
 #include "auth_query_handler_fixture.hpp"
 #include "auth_test_utils.hpp"
@@ -582,6 +585,216 @@ TYPED_TEST(InterpreterTest, WriteBelowProcedureInsideSubqueryRunsForEveryInputRo
   this->Interpret("MATCH (n) DETACH DELETE n");
 }
 
+// A write, then a batched update over an index: each node is updated once, as it was before write visibility.
+// Setup: index :L(p), p = 1, 2. `rows`: the final p values, ascending.
+TYPED_TEST(InterpreterTest, AWriteBeforeAnInTransactionsCallIsUpdatedOnce) {
+  if constexpr (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
+    GTEST_SKIP() << "On-disk storage has no periodic commit.";
+  } else {
+    constexpr auto kBody = "MATCH (n:L) WHERE n.p > 0 CALL (n) { SET n.p = n.p + 10 } IN TRANSACTIONS OF 1 ROWS";
+    constexpr auto kPeriodic = "MATCH (n:L) WHERE n.p > 0 SET n.p = n.p + 10";
+
+    struct Case {
+      std::string id;
+      std::string query;
+      std::vector<int64_t> rows;
+      bool analytical{false};
+      std::optional<size_t> result_rows{};
+    };
+
+    auto const cases = std::vector<Case>{
+        {"U1", fmt::format("CREATE (:Z) UNION ALL {}", kBody), {11, 12}},
+        {"U4 analytical", fmt::format("OPTIONAL MATCH (z:Absent) SET z.x = 1 UNION ALL {}", kBody), {11, 12}, true},
+        {"U5", fmt::format("CREATE (:Z) RETURN 1 AS k UNION ALL {} RETURN 2 AS k", kBody), {11, 12}, false, 3},
+        {"U6", fmt::format("CREATE (:Z) UNION ALL MATCH (q:Absent) SET q.x = 1 UNION ALL {}", kBody), {11, 12}},
+        {"C0", kBody, {11, 12}},
+        {"P0", fmt::format("USING PERIODIC COMMIT 1 {}", kPeriodic), {11, 12}},
+        {"P8", "USING PERIODIC COMMIT 1 CREATE (:L {p: 5}) MERGE (m:L {p: 5}) ON MATCH SET m.p = 50", {1, 2, 50}},
+        {"M12", "USING PERIODIC COMMIT 10 UNWIND [1, 1] AS i MERGE (n:L {p: 9})", {1, 2, 9}},
+        // Known gap: a scan opened after a write and a WITH updates the first batch's node twice (rule 11, 12, 15;
+        // 21, 22, 25 before write visibility). The deferred per-command index stamp fixes it.
+        {"F3",
+         "CREATE (:L {p: 5}) WITH 1 AS x MATCH (n:L) WHERE n.p > 0 AND n.p < 20 CALL (n) { SET n.p = n.p + 10 } IN "
+         "TRANSACTIONS OF 1 ROWS",
+         {12, 15, 21}},
+    };
+
+    auto values = [this](std::string const &query) {
+      std::vector<int64_t> out;
+      for (auto const &row : this->Interpret(query).GetResults()) out.push_back(row[0].ValueInt());
+      return out;
+    };
+    auto reset = [this] {
+      this->Interpret("STORAGE MODE IN_MEMORY_TRANSACTIONAL");
+      this->Interpret("MATCH (n) DETACH DELETE n");
+    };
+
+    this->Interpret("CREATE INDEX ON :L(p)");
+    for (auto const &c : cases) {
+      SCOPED_TRACE(c.id);
+      reset();
+      this->Interpret("UNWIND [1, 2] AS i CREATE (:L {p: i})");
+      if (c.analytical) this->Interpret("STORAGE MODE IN_MEMORY_ANALYTICAL");
+      auto const returned = this->Interpret(c.query).GetResults().size();
+      if (c.result_rows) EXPECT_EQ(returned, *c.result_rows);
+      EXPECT_EQ(values("MATCH (n:L) RETURN n.p AS p ORDER BY p"), c.rows);
+    }
+
+    // F1: the first batch fails, so the earlier write rolls back with it.
+    reset();
+    this->Interpret("UNWIND [1, 2] AS i CREATE (:L {p: i})");
+    EXPECT_ANY_THROW(this->Interpret(
+        "CREATE (:Z) UNION ALL MATCH (n:L) WHERE n.p > 0 CALL (n) { SET n.p = 1 / (n.p - 1) } IN TRANSACTIONS OF 1 "
+        "ROWS"));
+    EXPECT_EQ(values("MATCH (n:L) RETURN n.p AS p ORDER BY p"), (std::vector<int64_t>{1, 2}));
+    EXPECT_EQ(values("MATCH (z:Z) RETURN count(z) AS c"), (std::vector<int64_t>{0}));
+
+    reset();
+    this->Interpret("DROP INDEX ON :L(p)");
+  }
+}
+
+// Analytical mode keeps no deltas: after a write-visibility advance an index scan meets its own writes again, so it
+// skips those advances (unbounded forms would loop, bounded ones fail on a value). Other advances still advance.
+TYPED_TEST(InterpreterTest, AnalyticalModeSkipsTheWriteVisibilityAdvances) {
+  if constexpr (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
+    GTEST_SKIP() << "On-disk storage has no analytical mode.";
+  } else {
+    constexpr auto kX1 = "CREATE (:Z) UNION ALL MATCH (n:L) WHERE n.p > 0 AND n.p < 30 SET n.p = n.p + 10";
+    constexpr auto kA1b =
+        "CREATE (:L {p: 5}) CALL () { MATCH (n:L) WHERE n.p > 0 AND n.p < 100 RETURN n } SET n.p = n.p + 10";
+    constexpr auto kV1 = "CREATE (:L {p: 5}) RETURN 0 AS c UNION ALL MATCH (n:L) WHERE n.p > 0 RETURN count(*) AS c";
+    constexpr auto kD2 =
+        "CREATE (:L {p: 5}) CALL () { MATCH (n:L) WHERE n.p > 0 RETURN count(*) AS c } WITH c MATCH (m:L) WHERE m.p > "
+        "0 "
+        "RETURN c, count(m) AS d";
+    constexpr auto kC1 = "CREATE (:L {p: 5}) RETURN COUNT { MATCH (n:L) WHERE n.p > 0 } AS c";
+    constexpr auto kN2 =
+        "CREATE (:L {p: 5}) RETURN COUNT { MATCH (n:L) WHERE n.p > 0 } AS c UNION ALL MATCH (n:L) WHERE n.p > 0 AND "
+        "n.p < 30 SET n.p = n.p + 10 RETURN n.p AS c";
+    using Rows = std::vector<std::vector<int64_t>>;
+
+    struct Case {
+      std::string id;
+      std::string query;
+      bool analytical;
+      std::vector<int64_t> values;
+      Rows rows{};
+    };
+
+    auto const cases = std::vector<Case>{
+        {"X1", kX1, true, {11, 12, 13, 14}},
+        {"X2",
+         "MATCH (a:Z) SET a.p = 0 RETURN 1 AS k UNION ALL MATCH (n:L) WHERE n.p > 0 AND n.p < 30 SET n.p = n.p + 10 "
+         "RETURN 2 AS k",
+         true,
+         {11, 12, 13, 14},
+         {{1}, {2}, {2}, {2}, {2}}},
+        {"X3",
+         "CREATE (:L {p: 5}) UNION ALL MATCH (n:L) WHERE n.p > 0 AND n.p < 30 CALL (n) { SET n.p = n.p + 10 }",
+         true,
+         {5, 11, 12, 13, 14}},
+        {"A1b", kA1b, true, {5, 11, 12, 13, 14}},
+        {"L1b",
+         "CREATE (:L {p: 5}) CALL () { MATCH (n:L) WHERE n.p > 0 AND n.p < 100 RETURN n } WITH n SET n.p = n.p + 10",
+         true,
+         {5, 11, 12, 13, 14}},
+        {"V1", kV1, true, {1, 2, 3, 4, 5}, {{0}, {4}}},
+        // (4, 5) before write visibility: its WITH advanced. Here the barrier took that advance and is skipped, so the
+        // (m:L) scan misses the new node (stamp_deferral.md, analytical section).
+        {"D2", kD2, true, {1, 2, 3, 4, 5}, {{4, 4}}},
+        // A WITH advance, unmarked: it still advances, so the scan meets its own writes.
+        {"WC",
+         "CREATE (:Z) WITH 1 AS x MATCH (n:L) WHERE n.p > 0 AND n.p < 100 SET n.p = n.p + 10",
+         true,
+         {101, 102, 103, 104}},
+        // A root RETURN's subqueries read View::NEW after a write: they see the query's writes without
+        // the skipped advance. N2's writing leg still meets none of its own writes.
+        {"C1", kC1, true, {1, 2, 3, 4, 5}, {{5}}},
+        {"C2",
+         "MATCH (n:L) SET n.p = n.p + 10 RETURN n.p AS p, COUNT { MATCH (m:L) WHERE m.p > 10 } AS c ORDER BY p",
+         true,
+         {11, 12, 13, 14},
+         {{11, 4}, {12, 4}, {13, 4}, {14, 4}}},
+        {"N2", kN2, true, {5, 11, 12, 13, 14}, {{5}, {11}, {12}, {13}, {14}}},
+        {"E1",
+         "CREATE (:L {p: 5}) RETURN CASE WHEN EXISTS { MATCH (n:L) WHERE n.p = 5 } THEN 1 ELSE 0 END AS e",
+         true,
+         {1, 2, 3, 4, 5},
+         {{1}}},
+        {"O1",
+         "MATCH (n:L) SET n.p = n.p + 10 RETURN n.p AS p ORDER BY COUNT { MATCH (m:L) WHERE m.p > n.p } LIMIT 2",
+         true,
+         {11, 12, 13, 14},
+         {{14}, {13}}},
+        {"B5",
+         "CREATE (:L {p: 5}) CALL () { MATCH (n:L) WHERE n.p > 0 RETURN count(n) AS c } RETURN c, COUNT { MATCH (m:L) "
+         "WHERE m.p > 0 } AS d",
+         true,
+         {1, 2, 3, 4, 5},
+         {{4, 5}}},
+        {"X1 tx", kX1, false, {11, 12, 13, 14}},
+        {"C1 tx", kC1, false, {1, 2, 3, 4, 5}, {{5}}},
+        {"N2 tx", kN2, false, {11, 12, 13, 14, 15}, {{5}, {11}, {12}, {13}, {14}, {15}}},
+        {"A1b tx", kA1b, false, {11, 12, 13, 14, 15}},
+        {"V1 tx", kV1, false, {1, 2, 3, 4, 5}, {{0}, {5}}},
+        {"D2 tx", kD2, false, {1, 2, 3, 4, 5}, {{5, 5}}},
+    };
+
+    auto values = [this](std::string const &query) {
+      std::vector<int64_t> out;
+      for (auto const &row : this->Interpret(query).GetResults()) out.push_back(row[0].ValueInt());
+      return out;
+    };
+    auto setup = [this](bool analytical) {
+      this->Interpret("STORAGE MODE IN_MEMORY_TRANSACTIONAL");
+      this->Interpret("MATCH (n) DETACH DELETE n");
+      this->Interpret("UNWIND range(1, 4) AS i CREATE (:L {p: i})");
+      this->Interpret("CREATE (:Z)");
+      if (analytical) this->Interpret("STORAGE MODE IN_MEMORY_ANALYTICAL");
+    };
+    auto plans = [this] { return this->db->plan_cache()->WithLock([](auto &cache) { return cache.size(); }); };
+
+    this->Interpret("CREATE INDEX ON :L(p)");
+
+    // Cache: the analytical run reuses the plan cached by the transactional run, so the check must be at run time.
+    setup(false);
+    auto const before = plans();
+    this->Interpret(kA1b);
+    EXPECT_EQ(plans(), before + 1);
+    EXPECT_EQ(values("MATCH (n:L) RETURN n.p AS p ORDER BY p"), (std::vector<int64_t>{11, 12, 13, 14, 15}));
+    setup(true);
+    auto const cached = plans();
+    this->Interpret(kA1b);
+    EXPECT_EQ(plans(), cached);
+    EXPECT_EQ(values("MATCH (n:L) RETURN n.p AS p ORDER BY p"), (std::vector<int64_t>{5, 11, 12, 13, 14}));
+
+    for (auto const &c : cases) {
+      SCOPED_TRACE(c.id);
+      setup(c.analytical);
+      Rows rows;
+      for (auto const &row : this->Interpret(c.query).GetResults()) {
+        rows.emplace_back();
+        for (auto const &value : row) rows.back().push_back(value.ValueInt());
+      }
+      EXPECT_EQ(rows, c.rows);
+      EXPECT_EQ(values("MATCH (n:L) RETURN n.p AS p ORDER BY p"), c.values);
+    }
+
+    // A point-index subquery after a write plans Filter + ScanAll at View::NEW, and sees the new point.
+    this->Interpret("CREATE POINT INDEX ON :P(loc)");
+    setup(true);
+    EXPECT_EQ(values("CREATE (:P {loc: point({x: 1, y: 1})}) RETURN COUNT { MATCH (n:P) WHERE "
+                     "point.distance(n.loc, point({x: 0, y: 0})) < 5 } AS c"),
+              (std::vector<int64_t>{1}));
+
+    this->Interpret("STORAGE MODE IN_MEMORY_TRANSACTIONAL");
+    this->Interpret("MATCH (n) DETACH DELETE n");
+    this->Interpret("DROP POINT INDEX ON :P(loc)");
+    this->Interpret("DROP INDEX ON :L(p)");
+  }
+}
+
 namespace {
 
 namespace procedure = memgraph::query::procedure;
@@ -651,6 +864,98 @@ void AddBatchedProbe(ProbeModule &module, const char *name, BatchedProbe *probe)
   module.procedures.emplace(name, std::move(proc));
 }
 
+// Probe module functions that read through the module API:
+// - `getx(v)` and `lastx(a, v)`: property `x` of the vertex `v`;
+// - `startx(es)`: property `x` of the start node of the first edge in the list `es`;
+// - `indegree(a, v)`: the in-degree of the vertex `v`;
+// - `labelcount(v)`: the number of labels of the vertex `v`.
+mgp_vertex *LastVertexArg(mgp_list *args) {
+  size_t size{0};
+  mgp_value *arg{nullptr};
+  mgp_vertex *vertex{nullptr};
+  if (mgp_list_size(args, &size) != mgp_error::MGP_ERROR_NO_ERROR || size == 0 ||
+      mgp_list_at(args, size - 1, &arg) != mgp_error::MGP_ERROR_NO_ERROR ||
+      mgp_value_get_vertex(arg, &vertex) != mgp_error::MGP_ERROR_NO_ERROR) {
+    return nullptr;
+  }
+  return vertex;
+}
+
+mgp_vertex *FirstEdgeStart(mgp_list *args) {
+  mgp_value *arg{nullptr};
+  mgp_list *edges{nullptr};
+  mgp_value *first{nullptr};
+  mgp_edge *edge{nullptr};
+  mgp_vertex *from{nullptr};
+  if (mgp_list_at(args, 0, &arg) != mgp_error::MGP_ERROR_NO_ERROR ||
+      mgp_value_get_list(arg, &edges) != mgp_error::MGP_ERROR_NO_ERROR ||
+      mgp_list_at(edges, 0, &first) != mgp_error::MGP_ERROR_NO_ERROR ||
+      mgp_value_get_edge(first, &edge) != mgp_error::MGP_ERROR_NO_ERROR ||
+      mgp_edge_get_from(edge, &from) != mgp_error::MGP_ERROR_NO_ERROR) {
+    return nullptr;
+  }
+  return from;
+}
+
+template <mgp_vertex *(*TVertex)(mgp_list *)>
+void ReturnX(mgp_list *args, mgp_func_context * /*ctx*/, mgp_func_result *result, mgp_memory *memory) {
+  mgp_vertex *vertex = TVertex(args);
+  mgp_value *x{nullptr};
+  if (!vertex || mgp_vertex_get_property(vertex, "x", memory, &x) != mgp_error::MGP_ERROR_NO_ERROR) {
+    MG_ASSERT(mgp_func_result_set_error_msg(result, "could not read x", memory) == mgp_error::MGP_ERROR_NO_ERROR);
+    return;
+  }
+  MG_ASSERT(mgp_func_result_set_value(result, x, memory) == mgp_error::MGP_ERROR_NO_ERROR);
+  mgp_value_destroy(x);
+}
+
+void ReturnInDegree(mgp_list *args, mgp_func_context * /*ctx*/, mgp_func_result *result, mgp_memory *memory) {
+  mgp_vertex *vertex = LastVertexArg(args);
+  size_t degree{0};
+  mgp_value *value{nullptr};
+  if (!vertex || mgp_vertex_get_in_degree(vertex, &degree) != mgp_error::MGP_ERROR_NO_ERROR ||
+      mgp_value_make_int(static_cast<int64_t>(degree), memory, &value) != mgp_error::MGP_ERROR_NO_ERROR) {
+    MG_ASSERT(mgp_func_result_set_error_msg(result, "could not read the degree", memory) ==
+              mgp_error::MGP_ERROR_NO_ERROR);
+    return;
+  }
+  MG_ASSERT(mgp_func_result_set_value(result, value, memory) == mgp_error::MGP_ERROR_NO_ERROR);
+  mgp_value_destroy(value);
+}
+
+void ReturnLabelCount(mgp_list *args, mgp_func_context * /*ctx*/, mgp_func_result *result, mgp_memory *memory) {
+  mgp_vertex *vertex = LastVertexArg(args);
+  size_t count{0};
+  mgp_value *value{nullptr};
+  if (!vertex || mgp_vertex_labels_count(vertex, &count) != mgp_error::MGP_ERROR_NO_ERROR ||
+      mgp_value_make_int(static_cast<int64_t>(count), memory, &value) != mgp_error::MGP_ERROR_NO_ERROR) {
+    MG_ASSERT(mgp_func_result_set_error_msg(result, "could not read the labels", memory) ==
+              mgp_error::MGP_ERROR_NO_ERROR);
+    return;
+  }
+  MG_ASSERT(mgp_func_result_set_value(result, value, memory) == mgp_error::MGP_ERROR_NO_ERROR);
+  mgp_value_destroy(value);
+}
+
+void AddFunction(ProbeModule &module, const char *name, mgp_func_cb callback, int arity) {
+  mgp_func func(name, callback, memgraph::utils::NewDeleteResource());
+  mgp_type *any_type{nullptr};
+  MG_ASSERT(mgp_type_any(&any_type) == mgp_error::MGP_ERROR_NO_ERROR);
+  for (int i = 0; i != arity; ++i) {
+    auto const arg = fmt::format("a{}", i);
+    MG_ASSERT(mgp_func_add_arg(&func, arg.c_str(), any_type) == mgp_error::MGP_ERROR_NO_ERROR);
+  }
+  module.functions.emplace(name, std::move(func));
+}
+
+void AddProbeFunctions(ProbeModule &module) {
+  AddFunction(module, "getx", ReturnX<LastVertexArg>, 1);
+  AddFunction(module, "lastx", ReturnX<LastVertexArg>, 2);
+  AddFunction(module, "startx", ReturnX<FirstEdgeStart>, 1);
+  AddFunction(module, "indegree", ReturnInDegree, 2);
+  AddFunction(module, "labelcount", ReturnLabelCount, 1);
+}
+
 }  // namespace
 
 // Registering a module is private to the registry, so the probes are set up from the fixture, which
@@ -670,6 +975,13 @@ class ProcedureTeardownTest : public InterpreterTest<memgraph::storage::InMemory
     }
     const std::unique_lock registry_lock{procedure::gModuleRegistry.lock_};
     ASSERT_TRUE(procedure::gModuleRegistry.RegisterModule("probe_module", std::move(module)));
+  }
+
+  void RegisterProbeFunctions() {
+    auto module = std::make_unique<ProbeModule>();
+    AddProbeFunctions(*module);
+    const std::unique_lock registry_lock{procedure::gModuleRegistry.lock_};
+    ASSERT_TRUE(procedure::gModuleRegistry.RegisterModule("probe_fn", std::move(module)));
   }
 
   // Set by a test that ends with a stream still live, to pin where that stream is torn down.
@@ -766,6 +1078,94 @@ TEST_F(ProcedureTeardownTest, ProcedureStreamOutlivesTheQueryUntilTheInterpreter
   Pull(&stream, 1, qid);
   ASSERT_EQ(probe.inits, 1);
   ASSERT_GT(probe.remaining, 0);
+}
+
+class ModuleFunctionTest : public ProcedureTeardownTest {
+ protected:
+  bool PlanHasAccumulate(const std::string &query) {
+    memgraph::storage::ExternalPropertyValue::map_t params;
+    params.emplace("p", memgraph::storage::ExternalPropertyValue(int64_t{1}));
+    auto stream = Interpret("EXPLAIN " + query, params);
+    return std::ranges::any_of(stream.GetResults(), [](const auto &row) {
+      return row[0].ValueString().find("Accumulate") != std::string::npos;
+    });
+  }
+};
+
+// A CREATE map reads View::OLD, where a node the same CREATE made does not exist yet: the read falls back to
+// View::NEW, as a property lookup does.
+TEST_F(ModuleFunctionTest, ReadsANodeTheSameCreateMade) {
+  RegisterProbeFunctions();
+  auto stream = Interpret("CREATE (a {x: 5}), (b {v: probe_fn.getx(a)}) RETURN b.v AS v");
+  ASSERT_EQ(stream.GetResults().size(), 1U);
+  EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 5);
+}
+
+// A C module function reaches the graph only through its arguments.
+TEST_F(ModuleFunctionTest, ReadsTheGraphOnlyThroughAnArgumentThatMayHoldAnEntity) {
+  RegisterProbeFunctions();
+  EXPECT_FALSE(PlanHasAccumulate("UNWIND [1, 2] AS i MERGE (n:L {id: i}) SET n.s = probe_fn.getx('x')"));
+  EXPECT_FALSE(PlanHasAccumulate("UNWIND [1, 2] AS i MERGE (n:L {id: i}) SET n.s = probe_fn.getx([$p, {k: 1}])"));
+  EXPECT_FALSE(PlanHasAccumulate("UNWIND [1, 2] AS i MERGE (n:L {id: i}) SET n.s = probe_fn.getx(n.x)"));
+  EXPECT_TRUE(PlanHasAccumulate("UNWIND [1, 2] AS i MERGE (n:L {id: i}) SET n.s = probe_fn.getx(n)"));
+  EXPECT_TRUE(PlanHasAccumulate("UNWIND [1, 2] AS i MERGE (n:L {id: i}) SET n.s = probe_fn.getx([n])"));
+  EXPECT_TRUE(
+      PlanHasAccumulate("MATCH p = (a)-[r*1]->(b) UNWIND [1, 2] AS i SET a.x = i CREATE (:M {v: probe_fn.getx(r)})"));
+  EXPECT_TRUE(
+      PlanHasAccumulate("MATCH p = (a)-->(b) UNWIND [1, 2] AS i SET a.x = i CREATE (:M {v: probe_fn.getx(p)})"));
+  EXPECT_FALSE(PlanHasAccumulate(
+      "LOAD CSV FROM '/x.csv' WITH HEADER AS row MERGE (n:L {id: row.id}) SET n.s = probe_fn.getx(row.json)"));
+  EXPECT_FALSE(PlanHasAccumulate(
+      "LOAD CSV FROM '/x.csv' WITH HEADER AS row MERGE (n:L {id: row.id}) SET n.s = probe_fn.getx(row['json'])"));
+}
+
+// A module function over a variable-length edge list sees an earlier clause's write for every row.
+TEST_F(ModuleFunctionTest, ReadsThroughAnEdgeListAfterAnEarlierWrite) {
+  RegisterProbeFunctions();
+  Interpret("CREATE (:A)-[:R]->(:B)");
+  auto stream = Interpret(
+      "MATCH (a:A)-[r*1]->(b) UNWIND [1, 2] AS i SET a.x = i CREATE (m:M {i: i, v: probe_fn.startx(r)}) "
+      "RETURN m.v AS v ORDER BY m.i");
+  ASSERT_EQ(stream.GetResults().size(), 2U);
+  for (const auto &row : stream.GetResults()) {
+    ASSERT_EQ(row[0].type(), memgraph::communication::bolt::Value::Type::Int);
+    EXPECT_EQ(row[0].ValueInt(), 2);
+  }
+}
+
+// A module reads the labels and degree of a vertex the same CREATE made at View::NEW, as a built-in does.
+TEST_F(ModuleFunctionTest, ReadsTheLabelsAndDegreeOfANodeTheSameCreateMade) {
+  RegisterProbeFunctions();
+  auto stream = Interpret(
+      "CREATE (a:A:B)-[:R]->(b), (c {n: probe_fn.labelcount(a), d: probe_fn.indegree(b, b)}) RETURN c.n AS n, c.d AS "
+      "d");
+  ASSERT_EQ(stream.GetResults().size(), 1U);
+  EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 2);
+  EXPECT_EQ(stream.GetResults()[0][1].ValueInt(), 1);
+}
+
+// A node the same CREATE made does not make the function read its other arguments at View::NEW: they still do not see
+// a later clause's write, nor the same CREATE's earlier rows.
+TEST_F(ModuleFunctionTest, ReadsAnotherArgumentsPropertyAtTheClausesView) {
+  RegisterProbeFunctions();
+  Interpret("CREATE (:O)");
+  auto stream = Interpret(
+      "MATCH (o:O) UNWIND [1, 2] AS i CREATE (a:A {i: i}), (c:C {i: i, v: probe_fn.lastx(a, o)}) SET o.x = i "
+      "RETURN c.v AS v ORDER BY c.i");
+  ASSERT_EQ(stream.GetResults().size(), 2U);
+  EXPECT_EQ(stream.GetResults()[0][0].type(), memgraph::communication::bolt::Value::Type::Null);
+  EXPECT_EQ(stream.GetResults()[1][0].type(), memgraph::communication::bolt::Value::Type::Null);
+}
+
+TEST_F(ModuleFunctionTest, ReadsAnotherArgumentsDegreeAtTheClausesView) {
+  RegisterProbeFunctions();
+  Interpret("CREATE (:O)");
+  auto stream = Interpret(
+      "MATCH (o:O) UNWIND [1, 2] AS i CREATE (a:D {i: i})-[:R]->(o), (c:E {i: i, d: probe_fn.indegree(a, o)}) "
+      "RETURN c.d AS d ORDER BY c.i");
+  ASSERT_EQ(stream.GetResults().size(), 2U);
+  EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 0);
+  EXPECT_EQ(stream.GetResults()[1][0].ValueInt(), 0);
 }
 
 // Column headers from the accessor-free path must be byte-identical to the normal path's (clients

@@ -18,14 +18,17 @@
 namespace memgraph::query::plan {
 
 UnwoundMembershipList UnwindMembershipList(SymbolTable &symbol_table, AstStorage *ast_storage,
-                                           std::shared_ptr<LogicalOperator> input, Expression *list_expr) {
+                                           std::shared_ptr<LogicalOperator> input, Expression *list_expr,
+                                           storage::View view) {
   auto const &symbol = symbol_table.CreateAnonymousSymbol();
   auto *element = ast_storage->Create<Identifier>(symbol.name());
   element->MapTo(symbol);
   auto *empty_list = ast_storage->Create<ListLiteral>(std::vector<Expression *>{});
   auto *guarded = ast_storage->Create<Coalesce>(std::vector<Expression *>{list_expr, empty_list});
   auto *deduped = ast_storage->Create<Function>("TOSET", std::vector<Expression *>{guarded});
-  return {.op = std::make_shared<Unwind>(std::move(input), deduped, symbol), .element = element};
+  auto unwind = std::make_shared<Unwind>(std::move(input), deduped, symbol);
+  unwind->view_ = view;
+  return {.op = std::move(unwind), .element = element};
 }
 
 ExpressionRemovalResult RemoveExpressions(Expression *expr, const std::unordered_set<Expression *> &exprs_to_remove,

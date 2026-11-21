@@ -29,19 +29,21 @@ class LogicalOperator;
 /// because we don't have support for visiting a const LogicalOperator.
 /// `parameters`, where an execution supplies them, let an operator whose shape
 /// is settled during execution name what it will do rather than what it may.
+/// `print_views` appends ` [view: OLD|NEW]` to each operator with a planner-set view.
 void PrettyPrint(const DbAccessor &dba, const LogicalOperator *plan_root, std::ostream *out,
-                 Parameters const *parameters = nullptr);
+                 Parameters const *parameters = nullptr, bool print_views = false);
 
 // Pointer overload tolerating a null accessor, for a plan that runs without one.
 void PrettyPrint(const DbAccessor *dba, const LogicalOperator *plan_root, std::ostream *out,
-                 Parameters const *parameters = nullptr);
+                 Parameters const *parameters = nullptr, bool print_views = false);
 
 struct PlanPrinter final : virtual HierarchicalLogicalOperatorVisitor {
   using HierarchicalLogicalOperatorVisitor::PostVisit;
   using HierarchicalLogicalOperatorVisitor::PreVisit;
   using HierarchicalLogicalOperatorVisitor::Visit;
 
-  PlanPrinter(const DbAccessor *dba, std::ostream *out, Parameters const *parameters = nullptr);
+  PlanPrinter(const DbAccessor *dba, std::ostream *out, Parameters const *parameters = nullptr,
+              bool print_views = false);
 
   bool DefaultPreVisit() override;
 
@@ -137,6 +139,17 @@ struct PlanPrinter final : virtual HierarchicalLogicalOperatorVisitor {
     *out_ << std::endl;
   }
 
+  /// WithPrintLn for an operator line: appends the operator's view when print_views_ is set.
+  template <class TFun>
+  void WithPrintLn(const LogicalOperator &op, TFun fun) {
+    WithPrintLn([&](auto &out) {
+      fun(out);
+      if (auto const view = op.ReadView(); print_views_ && view) {
+        out << (*view == storage::View::NEW ? " [view: NEW]" : " [view: OLD]");
+      }
+    });
+  }
+
   /// Forward this printer to another operator branch by incrementing the depth
   /// and printing the branch name.
   void Branch(LogicalOperator &op, const std::string &branch_name = "");
@@ -148,6 +161,7 @@ struct PlanPrinter final : virtual HierarchicalLogicalOperatorVisitor {
   std::ostream *out_{nullptr};
   Parameters const *parameters_{nullptr};
   bool is_parallel_{false};
+  bool print_views_{false};
 };
 
 }  // namespace plan

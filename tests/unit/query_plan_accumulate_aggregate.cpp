@@ -13,6 +13,8 @@
 #include <cmath>
 #include <iterator>
 #include <memory>
+#include <string_view>
+#include <utility>
 #include <vector>
 
 #include "disk_test_utils.hpp"
@@ -175,6 +177,141 @@ TYPED_TEST(QueryPlanTest, AccumulateAdvance) {
   check(false);
   check(true);
 }
+
+// 'MATCH (n) DELETE n <drain>' with three nodes: the nodes left after the drain's first Pull, then after its last.
+template <class TStorage>
+std::pair<int, int> NodesLeftAroundAReplay(QueryPlanTest<TStorage> &test, uint64_t delete_owner, uint64_t drain,
+                                           bool access_check_only = false) {
+  auto storage_dba = test.db->Access(memgraph::storage::WRITE);
+  memgraph::query::DbAccessor dba(storage_dba.get());
+  for (int i = 0; i < 3; ++i) dba.InsertVertex();
+  dba.AdvanceCommand();
+  SymbolTable symbol_table;
+  auto n = MakeScanAll(test.storage, symbol_table, "n");
+  auto n_get = test.storage.template Create<Identifier>("n")->MapTo(n.sym_);
+  auto delete_op = std::make_shared<plan::Delete>(n.op_, std::vector<Expression *>{n_get}, false);
+  delete_op->deferred_to_ = delete_owner;
+  auto accumulate = std::make_shared<Accumulate>(delete_op, std::vector<Symbol>{n.sym_}, false);
+  accumulate->owned_deletes_drain_id_ = drain;
+  accumulate->access_check_only_ = access_check_only;
+  auto context = MakeContext(test.storage, symbol_table, &dba);
+  Frame frame(context.symbol_table.max_position());
+  auto cursor = accumulate->MakeCursor(memgraph::utils::NewDeleteResource(), TestMetricHandles());
+  auto const left = [&] { return static_cast<int>(CountIterable(dba.Vertices(memgraph::storage::View::NEW))); };
+  EXPECT_TRUE(cursor->Pull(frame, context));
+  auto const after_first = left();
+  while (cursor->Pull(frame, context)) {
+  }
+  EXPECT_TRUE(context.delete_owners.empty());
+  return {after_first, left()};
+}
+
+TYPED_TEST(QueryPlanTest, AnOwnerDrainAppliesItsDeletesAfterItsReplay) {
+  EXPECT_EQ(NodesLeftAroundAReplay(*this, 7, 7), std::pair(3, 0));
+  // Another drain's id, or none: the Delete applies when its input ends, inside the fill.
+  EXPECT_EQ(NodesLeftAroundAReplay(*this, 7, 8), std::pair(0, 0));
+  EXPECT_EQ(NodesLeftAroundAReplay(*this, 0, 7), std::pair(0, 0));
+  // A passing drain still owns: the deletes land when its input ends, not before.
+  EXPECT_EQ(NodesLeftAroundAReplay(*this, 7, 7, true), std::pair(3, 0));
+}
+
+// A body's passing drain sits between a Delete and a filling outer drain: the Delete goes to its own drain only.
+TYPED_TEST(QueryPlanTest, ADeleteDefersOnlyToTheDrainOnTop) {
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
+  memgraph::query::DbAccessor dba(storage_dba.get());
+  for (int i = 0; i < 3; ++i) dba.InsertVertex();
+  dba.AdvanceCommand();
+  SymbolTable symbol_table;
+  auto n = MakeScanAll(this->storage, symbol_table, "n");
+  auto n_get = this->storage.template Create<Identifier>("n")->MapTo(n.sym_);
+  auto delete_op = std::make_shared<plan::Delete>(n.op_, std::vector<Expression *>{n_get}, false);
+  delete_op->deferred_to_ = 1;
+  auto inner = std::make_shared<Accumulate>(delete_op, std::vector<Symbol>{n.sym_}, false);
+  inner->owned_deletes_drain_id_ = 1;
+  inner->access_check_only_ = true;
+  auto outer = std::make_shared<Accumulate>(inner, std::vector<Symbol>{n.sym_}, false);
+  outer->owned_deletes_drain_id_ = 2;
+  auto context = MakeContext(this->storage, symbol_table, &dba);
+  Frame frame(context.symbol_table.max_position());
+  auto cursor = outer->MakeCursor(memgraph::utils::NewDeleteResource(), TestMetricHandles());
+  ASSERT_TRUE(cursor->Pull(frame, context));
+  EXPECT_EQ(CountIterable(dba.Vertices(memgraph::storage::View::NEW)), 0);
+}
+
+// A throw inside the fill leaves no owner behind for the next Delete to find.
+TYPED_TEST(QueryPlanTest, AThrowInsideAnOwnerDrainPopsIt) {
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
+  memgraph::query::DbAccessor dba(storage_dba.get());
+  dba.InsertVertex();
+  dba.AdvanceCommand();
+  SymbolTable symbol_table;
+  auto n = MakeScanAll(this->storage, symbol_table, "n");
+  auto delete_op = std::make_shared<plan::Delete>(n.op_, std::vector<Expression *>{LITERAL(5)}, false);
+  delete_op->deferred_to_ = 3;
+  auto accumulate = std::make_shared<Accumulate>(delete_op, std::vector<Symbol>{n.sym_}, false);
+  accumulate->owned_deletes_drain_id_ = 3;
+  auto context = MakeContext(this->storage, symbol_table, &dba);
+  EXPECT_THROW(PullAll(*accumulate, &context), QueryRuntimeException);
+  EXPECT_TRUE(context.delete_owners.empty());
+}
+
+#ifdef MG_ENTERPRISE
+// A barrier planned only for the fine-grained access check passes rows through when no check runs, and drains and
+// advances like any other when one does. 'CREATE (n) <barrier> MATCH (m)': m sees n only after the advance.
+TYPED_TEST(QueryPlanTest, AccessCheckOnlyAccumulatePassesThroughWithoutAChecker) {
+  memgraph::license::global_license_checker.EnableTesting();
+  auto count = [&](bool access_check_only, bool with_checker) {
+    this->db.reset();
+    this->CleanStorageDirs();
+    this->db = std::make_unique<TypeParam>(this->config);
+    auto storage_dba = this->db->Access(memgraph::storage::WRITE);
+    memgraph::query::DbAccessor dba(storage_dba.get());
+    SymbolTable symbol_table;
+    NodeCreationInfo node;
+    node.symbol = symbol_table.CreateSymbol("n", true);
+    auto create = std::make_shared<CreateNode>(nullptr, node);
+    auto accumulate = std::make_shared<Accumulate>(create, std::vector<Symbol>{node.symbol}, true);
+    accumulate->access_check_only_ = access_check_only;
+    auto match = MakeScanAll(this->storage, symbol_table, "m", accumulate);
+    AllowEverythingFineGrainedAuthChecker auth_checker;
+    auto context = MakeContext(this->storage, symbol_table, &dba);
+    if (with_checker) context.auth_checker = &auth_checker;
+    return PullAll(*match.op_, &context);
+  };
+  EXPECT_EQ(count(true, false), 0);
+  EXPECT_EQ(count(true, true), 1);
+  EXPECT_EQ(count(false, false), 1);
+}
+
+// The barrier decides once per run whether to pass rows through: a licence that lapses after it cached its input
+// must not send the next Pull to the exhausted input and lose the cached rows.
+TYPED_TEST(QueryPlanTest, AccessCheckOnlyAccumulateKeepsItsCachedRowsWhenTheLicenceLapses) {
+  memgraph::license::global_license_checker.EnableTesting();
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
+  memgraph::query::DbAccessor dba(storage_dba.get());
+  SymbolTable symbol_table;
+  auto input_expr = this->storage.template Create<PrimitiveLiteral>(
+      std::vector<memgraph::storage::ExternalPropertyValue>{memgraph::storage::ExternalPropertyValue(1),
+                                                            memgraph::storage::ExternalPropertyValue(2),
+                                                            memgraph::storage::ExternalPropertyValue(3)});
+  auto x = symbol_table.CreateSymbol("x", true);
+  auto unwind = std::make_shared<plan::Unwind>(nullptr, input_expr, x);
+  auto accumulate = std::make_shared<Accumulate>(unwind, std::vector<Symbol>{x}, true);
+  accumulate->access_check_only_ = true;
+  AllowEverythingFineGrainedAuthChecker auth_checker;
+  auto context = MakeContext(this->storage, symbol_table, &dba);
+  context.auth_checker = &auth_checker;
+  Frame frame(context.symbol_table.max_position());
+  auto cursor = accumulate->MakeCursor(memgraph::utils::NewDeleteResource(), TestMetricHandles());
+
+  ASSERT_TRUE(cursor->Pull(frame, context));
+  memgraph::license::global_license_checker.DisableTesting();
+  int rows = 1;
+  while (cursor->Pull(frame, context)) ++rows;
+  memgraph::license::global_license_checker.EnableTesting();
+  EXPECT_EQ(rows, 3);
+}
+#endif
 
 /** Test fixture for all the aggregation ops in one return. */
 template <typename StorageType>
@@ -1570,7 +1707,18 @@ TYPED_TEST(QueryPlanTest, CachePropertiesWholeGroupDeniedIsNull) {
   EXPECT_TRUE(results[0][1].IsNull());
 }
 
-TYPED_TEST(QueryPlanTest, CachePropertiesWholeGroupDeniedNeverReadsTheRecord) {
+// Whether @p run raises the deleted-object error, not some other query error.
+template <class TRun>
+bool RaisesDeletedObject(TRun &&run) {
+  try {
+    run();
+  } catch (QueryRuntimeException const &e) {
+    return std::string_view{e.what()}.find("deleted object") != std::string_view::npos;
+  }
+  return false;
+}
+
+TYPED_TEST(QueryPlanTest, CachePropertiesWholeGroupDeniedOnADeletedVertexRaises) {
   auto storage_dba = this->db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());
   auto label = dba.NameToLabel("Person");
@@ -1594,21 +1742,98 @@ TYPED_TEST(QueryPlanTest, CachePropertiesWholeGroupDeniedNeverReadsTheRecord) {
       NEXPR("ssn", IDENT("cached_ssn")->MapTo(cached_ssn_sym))->MapTo(symbol_table.CreateSymbol("ssn_ne", true));
   auto produce = MakeProduce(cache, ssn_ne);
 
-  // The row's record is already deleted. A read the caller was never allowed to make must not be
-  // what reports that, so a wholly denied group answers Null without reaching the record.
+  // The row's record is already deleted, and a property rule must not hide that: the group raises
+  // as it does for a caller without property rules.
   memgraph::tests::StubPropertyFGAChecker<memgraph::query::DbAccessor> checker(&dba, {{"Person", "ssn"}});
   auto context = MakeContext(this->storage, symbol_table, &dba);
   context.auth_checker = &checker;
-  auto results = CollectProduce(*produce, &context);
-  ASSERT_EQ(results.size(), 1);
-  ASSERT_EQ(results[0].size(), 1);
-  EXPECT_TRUE(results[0][0].IsNull());
+  EXPECT_TRUE(RaisesDeletedObject([&] { CollectProduce(*produce, &context); }));
 }
 
-// A relationship's permissions come from its type, which a deleted relationship still answers, so
-// here nothing fails before the group is read. Answering Null for the whole group is the only
-// thing keeping a read the caller was never allowed to make from reporting the deletion.
-TYPED_TEST(QueryPlanTest, CachePropertiesWholeGroupDeniedOnADeletedEdge) {
+// A single lookup of a denied property on a vertex deleted in this command raises, as an allowed one does.
+TYPED_TEST(QueryPlanTest, DeniedPropertyLookupOnADeletedVertexRaises) {
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
+  memgraph::query::DbAccessor dba(storage_dba.get());
+  auto label = dba.NameToLabel("Person");
+  auto prop_name = dba.NameToProperty("name");
+  auto prop_ssn = dba.NameToProperty("ssn");
+
+  auto v = dba.InsertVertex();
+  ASSERT_TRUE(v.AddLabel(label).has_value());
+  ASSERT_TRUE(v.SetProperty(prop_name, memgraph::storage::PropertyValue("Alice")).has_value());
+  ASSERT_TRUE(v.SetProperty(prop_ssn, memgraph::storage::PropertyValue("secret")).has_value());
+  dba.AdvanceCommand();
+  ASSERT_TRUE(dba.RemoveVertex(&v).has_value());
+
+  memgraph::tests::StubPropertyFGAChecker<memgraph::query::DbAccessor> checker(&dba, {{"Person", "ssn"}});
+  auto lookup = [&](memgraph::storage::PropertyId prop) {
+    SymbolTable symbol_table;
+    auto n = MakeScanAll(this->storage, symbol_table, "n");
+    auto output =
+        NEXPR("p", PROPERTY_LOOKUP(dba, IDENT("n")->MapTo(n.sym_), prop))->MapTo(symbol_table.CreateSymbol("p", true));
+    auto context = MakeContext(this->storage, symbol_table, &dba);
+    context.auth_checker = &checker;
+    return CollectProduce(*MakeProduce(n.op_, output), &context);
+  };
+  EXPECT_TRUE(RaisesDeletedObject([&] { lookup(prop_name); }));
+  EXPECT_TRUE(RaisesDeletedObject([&] { lookup(prop_ssn); }));
+}
+
+// At View::OLD a vertex deleted in this command is still there: a group and a lookup mask the denied property.
+TYPED_TEST(QueryPlanTest, PropertyReadsAtOldOnAVertexDeletedThisCommandMaskTheDeniedOne) {
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
+  memgraph::query::DbAccessor dba(storage_dba.get());
+  auto label = dba.NameToLabel("Person");
+  auto prop_name = dba.NameToProperty("name");
+  auto prop_ssn = dba.NameToProperty("ssn");
+
+  auto v = dba.InsertVertex();
+  ASSERT_TRUE(v.AddLabel(label).has_value());
+  ASSERT_TRUE(v.SetProperty(prop_name, memgraph::storage::PropertyValue("Alice")).has_value());
+  ASSERT_TRUE(v.SetProperty(prop_ssn, memgraph::storage::PropertyValue("secret")).has_value());
+  dba.AdvanceCommand();
+  ASSERT_TRUE(dba.RemoveVertex(&v).has_value());
+
+  memgraph::tests::StubPropertyFGAChecker<memgraph::query::DbAccessor> checker(&dba, {{"Person", "ssn"}});
+  {
+    SymbolTable symbol_table;
+    auto n = MakeScanAll(this->storage, symbol_table, "n");
+    auto cached_name_sym = symbol_table.CreateSymbol("cached_name", true);
+    auto cached_ssn_sym = symbol_table.CreateSymbol("cached_ssn", true);
+    auto cache = std::make_shared<CacheProperties>(
+        n.op_, n.sym_, std::vector<CachedProperty>{{prop_name, cached_name_sym}, {prop_ssn, cached_ssn_sym}});
+    cache->view_ = memgraph::storage::View::OLD;
+    auto name_ne =
+        NEXPR("name", IDENT("cached_name")->MapTo(cached_name_sym))->MapTo(symbol_table.CreateSymbol("name_ne", true));
+    auto ssn_ne =
+        NEXPR("ssn", IDENT("cached_ssn")->MapTo(cached_ssn_sym))->MapTo(symbol_table.CreateSymbol("ssn_ne", true));
+    auto produce = MakeProduce(cache, name_ne, ssn_ne);
+    produce->view_ = memgraph::storage::View::OLD;
+    auto context = MakeContext(this->storage, symbol_table, &dba);
+    context.auth_checker = &checker;
+    auto results = CollectProduce(*produce, &context);
+    ASSERT_EQ(results.size(), 1);
+    EXPECT_EQ(results[0][0].ValueString(), "Alice");
+    EXPECT_TRUE(results[0][1].IsNull());
+  }
+  for (auto [prop, expected] : {std::pair{prop_name, true}, std::pair{prop_ssn, false}}) {
+    SymbolTable symbol_table;
+    auto n = MakeScanAll(this->storage, symbol_table, "n");
+    auto output =
+        NEXPR("p", PROPERTY_LOOKUP(dba, IDENT("n")->MapTo(n.sym_), prop))->MapTo(symbol_table.CreateSymbol("p", true));
+    auto produce = MakeProduce(n.op_, output);
+    produce->view_ = memgraph::storage::View::OLD;
+    auto context = MakeContext(this->storage, symbol_table, &dba);
+    context.auth_checker = &checker;
+    auto results = CollectProduce(*produce, &context);
+    ASSERT_EQ(results.size(), 1);
+    EXPECT_EQ(results[0][0].IsNull(), !expected);
+  }
+}
+
+// A relationship's permissions come from its type, which a deleted relationship still answers: a
+// property rule must not hide the deletion, so a denied group and a denied lookup raise as for every caller.
+TYPED_TEST(QueryPlanTest, CachePropertiesWholeGroupDeniedOnADeletedEdgeRaises) {
   // An expansion on disk storage does not reach a relationship removed in this transaction, so the
   // row this needs cannot be produced there.
   if constexpr (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
@@ -1649,14 +1874,50 @@ TYPED_TEST(QueryPlanTest, CachePropertiesWholeGroupDeniedOnADeletedEdge) {
   auto account_ne = NEXPR("account", IDENT("cached_account")->MapTo(cached_account_sym))
                         ->MapTo(symbol_table.CreateSymbol("account_ne", true));
   auto produce = MakeProduce(cache, account_ne);
+  auto lookup_ne = NEXPR("lookup", PROPERTY_LOOKUP(dba, IDENT("r")->MapTo(r_m.edge_sym_), prop_account))
+                       ->MapTo(symbol_table.CreateSymbol("lookup_ne", true));
 
   memgraph::tests::StubPropertyFGAChecker<memgraph::query::DbAccessor> checker(&dba, {{"Pays", "account"}});
   auto context = MakeContext(this->storage, symbol_table, &dba);
   context.auth_checker = &checker;
+  EXPECT_TRUE(RaisesDeletedObject([&] { CollectProduce(*produce, &context); }));
+  EXPECT_TRUE(RaisesDeletedObject([&] { CollectProduce(*MakeProduce(r_m.op_, lookup_ne), &context); }));
+}
+
+// A View::OLD group over a vertex this command created decides its permissions from the created labels.
+TYPED_TEST(QueryPlanTest, CachePropertiesAtOldOnACreatedVertexKeepsItsAllowedProperty) {
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
+  memgraph::query::DbAccessor dba(storage_dba.get());
+  auto label = dba.NameToLabel("Person");
+  auto prop_name = dba.NameToProperty("name");
+  auto prop_ssn = dba.NameToProperty("ssn");
+
+  auto v = dba.InsertVertex();
+  ASSERT_TRUE(v.AddLabel(label).has_value());
+  ASSERT_TRUE(v.SetProperty(prop_name, memgraph::storage::PropertyValue("Alice")).has_value());
+  ASSERT_TRUE(v.SetProperty(prop_ssn, memgraph::storage::PropertyValue("secret")).has_value());
+
+  SymbolTable symbol_table;
+  auto n = MakeScanAll(this->storage, symbol_table, "n", nullptr, memgraph::storage::View::NEW);
+  auto cached_name_sym = symbol_table.CreateSymbol("cached_name", true);
+  auto cached_ssn_sym = symbol_table.CreateSymbol("cached_ssn", true);
+  auto cache = std::make_shared<CacheProperties>(
+      n.op_, n.sym_, std::vector<CachedProperty>{{prop_name, cached_name_sym}, {prop_ssn, cached_ssn_sym}});
+  cache->view_ = memgraph::storage::View::OLD;
+  auto name_ne =
+      NEXPR("name", IDENT("cached_name")->MapTo(cached_name_sym))->MapTo(symbol_table.CreateSymbol("name_ne", true));
+  auto ssn_ne =
+      NEXPR("ssn", IDENT("cached_ssn")->MapTo(cached_ssn_sym))->MapTo(symbol_table.CreateSymbol("ssn_ne", true));
+  auto produce = MakeProduce(cache, name_ne, ssn_ne);
+
+  memgraph::tests::StubPropertyFGAChecker<memgraph::query::DbAccessor> checker(&dba, {{"Person", "ssn"}});
+  auto context = MakeContext(this->storage, symbol_table, &dba);
+  context.auth_checker = &checker;
   auto results = CollectProduce(*produce, &context);
   ASSERT_EQ(results.size(), 1);
-  ASSERT_EQ(results[0].size(), 1);
-  EXPECT_TRUE(results[0][0].IsNull());
+  ASSERT_EQ(results[0].size(), 2);
+  EXPECT_EQ(results[0][0].ValueString(), "Alice");
+  EXPECT_TRUE(results[0][1].IsNull());
 }
 
 TYPED_TEST(QueryPlanTest, CachePropertiesDeniedEdgePropertyIsNull) {

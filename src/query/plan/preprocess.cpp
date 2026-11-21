@@ -1467,7 +1467,8 @@ QueryParts CollectQueryParts(SymbolTable &symbol_table, AstStorage &storage, Cyp
         CollectQueryPart(symbol_table, storage, single_query, cypher_union, is_subquery, commit_frequency));
   }
 
-  bool const writes = std::ranges::any_of(query_parts, PartWrites);
+  for (auto &part : query_parts) part.writes = PartWrites(part);
+  bool const writes = std::ranges::any_of(query_parts, &QueryPart::writes);
   return QueryParts{.query_parts = query_parts,
                     .distinct = distinct,
                     .commit_frequency = commit_frequency,

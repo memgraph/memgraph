@@ -117,6 +117,7 @@ class InMemoryLabelIndex : public LabelIndex {
     Storage *storage_;
     Transaction *transaction_;
     Gid max_gid_;
+    ScanStart scan_start_;  // see CanSeeEntityWithTimestamp
   };
 
   class ChunkedIterable {
@@ -179,6 +180,7 @@ class InMemoryLabelIndex : public LabelIndex {
     Transaction *transaction_;
     utils::SkipListDb<Entry>::ChunkCollection chunks_;
     Gid max_gid_;
+    ScanStart scan_start_;  // see CanSeeEntityWithTimestamp
   };
 
   struct ActiveIndices : LabelIndex::ActiveIndices {

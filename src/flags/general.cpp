@@ -36,6 +36,9 @@
 DEFINE_HIDDEN_bool(h, false, "Print usage and exit.");
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_HIDDEN_bool(query_plan_print_views, false, "EXPLAIN appends the view each operator reads the graph at.");
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_string(monitoring_address, "0.0.0.0",
               "IP address on which the websocket server for Memgraph monitoring should listen.");
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)

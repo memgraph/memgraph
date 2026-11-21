@@ -363,5 +363,182 @@ def test_role_merge_deny_wins():
         common.execute_and_fetch_all(admin, "DROP ROLE role_b;")
 
 
+def test_create_after_a_label_write_masks_a_property_the_label_denies():
+    # The CREATE reads a after the SET made it :Employee, whose ssn the user may not read.
+    admin = admin_cursor()
+    common.execute_and_fetch_all(admin, "GRANT SET PROPERTY {v} ON NODES CONTAINING LABELS :WvLeakCopy TO user;")
+    common.execute_and_fetch_all(admin, "CREATE (:WvLeakSrc {ssn: 'S1'});")
+    try:
+        result = common.execute_and_fetch_all(
+            user_cursor(),
+            "MATCH (a:WvLeakSrc) SET a:Employee CREATE (x:WvLeakCopy {v: a{.*}.ssn}) RETURN x.v AS v;",
+        )
+        assert result == [(None,)]
+    finally:
+        common.execute_and_fetch_all(admin, "MATCH (n) WHERE n:WvLeakSrc OR n:WvLeakCopy DETACH DELETE n;")
+        common.execute_and_fetch_all(admin, "REVOKE SET PROPERTY {v} ON NODES CONTAINING LABELS :WvLeakCopy FROM user;")
+
+
+def test_a_union_leg_after_a_label_write_masks_a_property_the_label_denies():
+    # The second leg runs after the first made a :Employee, whose ssn the user may not read.
+    admin = admin_cursor()
+    common.execute_and_fetch_all(admin, "GRANT SET PROPERTY {v} ON NODES CONTAINING LABELS :WvLeakCopy TO user;")
+    common.execute_and_fetch_all(admin, "CREATE (:WvLeakSrc {ssn: 'S1'});")
+    try:
+        common.execute_and_fetch_all(
+            user_cursor(),
+            "MATCH (a:WvLeakSrc) SET a:Employee UNION ALL MATCH (a:WvLeakSrc) CREATE (:WvLeakCopy {v: a.ssn});",
+        )
+        result = common.execute_and_fetch_all(admin, "MATCH (x:WvLeakCopy) RETURN x.v AS v;")
+        assert result == [(None,)]
+    finally:
+        common.execute_and_fetch_all(admin, "MATCH (n) WHERE n:WvLeakSrc OR n:WvLeakCopy DETACH DELETE n;")
+        common.execute_and_fetch_all(admin, "REVOKE SET PROPERTY {v} ON NODES CONTAINING LABELS :WvLeakCopy FROM user;")
+
+
+def test_create_edge_after_a_label_write_checks_the_new_label():
+    # Clause order makes node 1 :WvSecretE (row a=3) before row a=1 creates an edge from it, which the user may not.
+    admin = admin_cursor()
+    for query in [
+        "CREATE USER wv_edge IDENTIFIED BY 'test';",
+        "GRANT ALL PRIVILEGES TO wv_edge;",
+        "GRANT DATABASE * TO wv_edge;",
+        "GRANT CREATE, READ, UPDATE, DELETE ON NODES CONTAINING LABELS * TO wv_edge;",
+        "GRANT CREATE, READ, UPDATE, DELETE ON EDGES OF TYPE * TO wv_edge;",
+        "GRANT READ, SET PROPERTY {*} ON NODES CONTAINING LABELS * TO wv_edge;",
+        "GRANT CREATE, READ, UPDATE ON NODES CONTAINING LABELS :WvSecretE TO wv_edge;",
+        "DENY CREATE EDGE ON NODES CONTAINING LABELS :WvSecretE TO wv_edge;",
+        "UNWIND [1, 2, 3] AS i CREATE (:WvE {id: i});",
+    ]:
+        common.execute_and_fetch_all(admin, query)
+    try:
+        cursor = common.connect(username="wv_edge", password="test").cursor()
+        with pytest.raises(Exception, match="CREATE EDGE"):
+            common.execute_and_fetch_all(
+                cursor,
+                "MATCH (a:WvE) WHERE a.id IN [1, 3] WITH a ORDER BY a.id "
+                "MATCH (b:WvE {id: CASE a.id WHEN 1 THEN 2 ELSE 1 END}) SET b:WvSecretE CREATE (a)-[:WvR]->(:WvEx);",
+            )
+    finally:
+        common.execute_and_fetch_all(admin, "MATCH (n) WHERE n:WvE OR n:WvEx DETACH DELETE n;")
+        common.execute_and_fetch_all(admin, "DROP USER wv_edge;")
+
+
+def _wv_delete_user(name, *grants):
+    admin = admin_cursor()
+    for query in [
+        f"CREATE USER {name} IDENTIFIED BY 'test';",
+        f"GRANT ALL PRIVILEGES TO {name};",
+        f"GRANT DATABASE * TO {name};",
+        f"GRANT CREATE, READ, UPDATE, DELETE ON NODES CONTAINING LABELS * TO {name};",
+        f"GRANT CREATE, READ, UPDATE, DELETE ON EDGES OF TYPE * TO {name};",
+        f"GRANT READ, SET PROPERTY {{*}} ON NODES CONTAINING LABELS * TO {name};",
+        *(grant.format(name=name) for grant in grants),
+    ]:
+        common.execute_and_fetch_all(admin, query)
+    return common.connect(username=name, password="test").cursor()
+
+
+WV_PAIRS = "MATCH (a:WvDel), (b:WvDel) WHERE a.id <> b.id "
+
+
+# Each drain above the DELETE checks or reads before the later write; the deletes still land at the end of the part.
+@pytest.mark.parametrize(
+    "query",
+    [
+        WV_PAIRS + "DELETE b SET a:WvDelZ",
+        WV_PAIRS + "DETACH DELETE b SET a:WvDelZ",
+        WV_PAIRS + "SET a.k = 1 DELETE b SET a:WvDelZ",
+        WV_PAIRS + "DELETE b SET a.k = 1 SET a:WvDelZ",
+        WV_PAIRS + "DELETE b SET a:WvDelY SET a.k = 1",
+        WV_PAIRS + "DELETE b SET a:WvDelY SET a.k = 1 SET a:WvDelZ",
+        WV_PAIRS + "SET a:WvDelQ DELETE b SET a:WvDelZ",
+        WV_PAIRS + "DELETE b SET a:WvDelZ RETURN count(*) AS c",
+        "MATCH p = (a:WvDel)-[:WvDelR]->(), q = (b:WvDel)-[:WvDelR]->() WHERE a.id <> b.id DETACH DELETE q SET a:WvDelZ",
+    ],
+)
+def test_a_drain_above_a_delete_does_not_apply_it_early(query):
+    admin = admin_cursor()
+    if "WvDelR" in query:
+        common.execute_and_fetch_all(admin, "CREATE (a:WvDel {id: 1})-[:WvDelR]->(b:WvDel {id: 2})-[:WvDelR]->(a);")
+    else:
+        common.execute_and_fetch_all(admin, "CREATE (:WvDel {id: 1}), (:WvDel {id: 2});")
+    try:
+        cursor = _wv_delete_user("wv_del", "DENY DELETE ON NODES CONTAINING LABELS :WvDelUnrelated TO {name};")
+        common.execute_and_fetch_all(cursor, query)
+        assert common.execute_and_fetch_all(admin, "MATCH (n:WvDel) RETURN count(n);") == [(0,)]
+    finally:
+        common.execute_and_fetch_all(admin, "MATCH (n:WvDel) DETACH DELETE n;")
+        common.execute_and_fetch_all(admin, "DROP USER wv_del;")
+
+
+def test_a_delete_checks_its_permission_before_a_later_label_removal():
+    # Row a=2 removes :WvDelSecret from node 2 before row a=1 deletes it; the check must see the label.
+    admin = admin_cursor()
+    common.execute_and_fetch_all(admin, "CREATE (:WvDel {id: 1}), (:WvDel:WvDelSecret {id: 2});")
+    try:
+        cursor = _wv_delete_user(
+            "wv_del",
+            "GRANT CREATE, READ, UPDATE ON NODES CONTAINING LABELS :WvDel, :WvDelSecret MATCHING EXACTLY TO {name};",
+            "DENY DELETE ON NODES CONTAINING LABELS :WvDel, :WvDelSecret MATCHING EXACTLY TO {name};",
+        )
+        with pytest.raises(Exception, match="DELETE permission"):
+            common.execute_and_fetch_all(
+                cursor, WV_PAIRS + "WITH a, b ORDER BY a.id DESC DELETE b REMOVE a:WvDelSecret"
+            )
+        assert common.execute_and_fetch_all(admin, "MATCH (n:WvDel) RETURN count(n);") == [(2,)]
+    finally:
+        common.execute_and_fetch_all(admin, "MATCH (n:WvDel) DETACH DELETE n;")
+        common.execute_and_fetch_all(admin, "DROP USER wv_del;")
+
+
+def test_a_delete_checks_its_permission_on_the_labels_its_clause_sees():
+    # Each node has only :WvDel when its DELETE runs; the label a later clause adds does not count.
+    admin = admin_cursor()
+    common.execute_and_fetch_all(admin, "CREATE (:WvDel {id: 1}), (:WvDel {id: 2});")
+    try:
+        cursor = _wv_delete_user(
+            "wv_del",
+            "GRANT CREATE, READ, UPDATE ON NODES CONTAINING LABELS :WvDel, :WvDelSecret MATCHING EXACTLY TO {name};",
+            "DENY DELETE ON NODES CONTAINING LABELS :WvDel, :WvDelSecret MATCHING EXACTLY TO {name};",
+        )
+        common.execute_and_fetch_all(cursor, WV_PAIRS + "DELETE b SET a:WvDelSecret")
+        assert common.execute_and_fetch_all(admin, "MATCH (n:WvDel) RETURN count(n);") == [(0,)]
+    finally:
+        common.execute_and_fetch_all(admin, "MATCH (n:WvDel) DETACH DELETE n;")
+        common.execute_and_fetch_all(admin, "DROP USER wv_del;")
+
+
+def test_a_property_read_of_a_deleted_node_raises_for_a_user_with_property_rules():
+    # Row a=2 reads node 2 after row a=1 deleted it: the read raises, as it does for admin, and nothing commits.
+    admin = admin_cursor()
+    common.execute_and_fetch_all(admin, "CREATE (:WvDel {id: 1}), (:WvDel {id: 2});")
+    try:
+        cursor = _wv_delete_user(
+            "wv_del", "DENY SET PROPERTY {{x}} ON NODES CONTAINING LABELS :WvDelUnrelated TO {name};"
+        )
+        with pytest.raises(Exception, match="deleted"):
+            common.execute_and_fetch_all(cursor, WV_PAIRS + "DETACH DELETE b CREATE (:WvDelOut {v: a.id})")
+        assert common.execute_and_fetch_all(admin, "MATCH (n:WvDel) RETURN count(n);") == [(2,)]
+        assert common.execute_and_fetch_all(admin, "MATCH (n:WvDelOut) RETURN count(n);") == [(0,)]
+    finally:
+        common.execute_and_fetch_all(admin, "MATCH (n) WHERE n:WvDel OR n:WvDelOut DETACH DELETE n;")
+        common.execute_and_fetch_all(admin, "DROP USER wv_del;")
+
+
+def test_a_with_ends_what_a_later_drain_may_defer():
+    # The WITH applies the deletes, so the later label write meets a deleted node.
+    admin = admin_cursor()
+    common.execute_and_fetch_all(admin, "CREATE (:WvDel {id: 1}), (:WvDel {id: 2});")
+    try:
+        cursor = _wv_delete_user("wv_del", "DENY DELETE ON NODES CONTAINING LABELS :WvDelUnrelated TO {name};")
+        with pytest.raises(Exception, match="deleted"):
+            common.execute_and_fetch_all(cursor, WV_PAIRS + "DELETE b WITH a SET a.k = 1 SET a:WvDelZ")
+        assert common.execute_and_fetch_all(admin, "MATCH (n:WvDel) RETURN count(n);") == [(2,)]
+    finally:
+        common.execute_and_fetch_all(admin, "MATCH (n:WvDel) DETACH DELETE n;")
+        common.execute_and_fetch_all(admin, "DROP USER wv_del;")
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))
