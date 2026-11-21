@@ -1369,6 +1369,11 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   // when returning an `OLD` view: `return old ? old : new`. That means that if the `OLD` view didn't exist, it
   // returned the NEW view. With this hack we simulate that behavior.
   // TODO: Remove once MERGE is reimplemented.
+#ifdef MG_ENTERPRISE
+  // The query accessor's branch test grows HasLabel past the inliner's budget at its LabelsTest call sites; a
+  // call per row on a main read costs ~2% on label-filtered expands.
+  [[gnu::always_inline]]
+#endif
   bool HasLabel(const VertexAccessor &vertex, const LabelIx &label) const {
     auto result = vertex.HasLabel(view_, GetLabel(label));
     if (result == std::unexpected{storage::Error::NONEXISTENT_OBJECT}) {
