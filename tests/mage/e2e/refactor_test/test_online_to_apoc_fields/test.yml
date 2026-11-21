@@ -1,0 +1,22 @@
+- query: >-
+    MATCH ()-[r:R]->() WITH collect(r)[0] AS r MATCH (c:Node {id: 2}) WITH r, id(r) AS rid, c UNWIND [r, r] AS x CALL refactor.to(x, c) YIELD relationship, input, output, error RETURN input = rid AS input_is_original, startNode(output).id AS from_id, endNode(output).id AS to_id, output.w AS w, relationship IS NULL AS relationship_is_null, error IS NOT NULL AS failed;
+  output:
+    - input_is_original: true
+      from_id: 0
+      to_id: 2
+      w: 1
+      relationship_is_null: false
+      failed: false
+    - input_is_original: true
+      from_id: null
+      to_id: null
+      w: null
+      relationship_is_null: true
+      failed: true
+
+- query: >-
+    MATCH (a)-[q:R]->(b) RETURN a.id AS from_id, b.id AS to_id, q.w AS w;
+  output:
+    - from_id: 0
+      to_id: 2
+      w: 1

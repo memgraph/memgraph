@@ -21,8 +21,12 @@ extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *mem
                  Refactor::kProcedureFrom,
                  mgp::ProcedureType::Write,
                  {mgp::Parameter(Refactor::kFromArg1, mgp::Type::Relationship),
-                  mgp::Parameter(Refactor::kFromArg2, mgp::Type::Node)},
-                 {mgp::Return(Refactor::kFromResult, mgp::Type::Relationship)},
+                  mgp::Parameter(Refactor::kFromArg2, mgp::Type::Node),
+                  mgp::Parameter(Refactor::kFromArg3, mgp::Type::Map, mgp::Value(mgp::Map{}))},
+                 {mgp::Return(Refactor::kFromResult, mgp::Type::Relationship),
+                  mgp::Return(Refactor::kFromResultInput, mgp::Type::Int),
+                  mgp::Return(Refactor::kFromResultOutput, mgp::Type::Relationship),
+                  mgp::Return(Refactor::kFromResultError, mgp::Type::String)},
                  module,
                  memory);
 
@@ -30,8 +34,12 @@ extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *mem
                  Refactor::kProcedureTo,
                  mgp::ProcedureType::Write,
                  {mgp::Parameter(Refactor::kToArg1, mgp::Type::Relationship),
-                  mgp::Parameter(Refactor::kToArg2, mgp::Type::Node)},
-                 {mgp::Return(Refactor::kToResult, mgp::Type::Relationship)},
+                  mgp::Parameter(Refactor::kToArg2, mgp::Type::Node),
+                  mgp::Parameter(Refactor::kToArg3, mgp::Type::Map, mgp::Value(mgp::Map{}))},
+                 {mgp::Return(Refactor::kToResult, mgp::Type::Relationship),
+                  mgp::Return(Refactor::kToResultInput, mgp::Type::Int),
+                  mgp::Return(Refactor::kToResultOutput, mgp::Type::Relationship),
+                  mgp::Return(Refactor::kToResultError, mgp::Type::String)},
                  module,
                  memory);
 
