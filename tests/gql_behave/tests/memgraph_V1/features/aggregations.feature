@@ -185,6 +185,58 @@ Feature: Aggregations
             | avg(null) |
             | null      |
 
+    Scenario: StDev test 01:
+        Given an empty graph
+        And having executed
+            """
+            CREATE ({x: 0}), ({x: 0}), ({x: 6}), ({x: 6}), ({x: null}), ()
+            """
+        When executing query:
+            """
+            MATCH (n) RETURN stDev(n.x) AS s, stDevP(n.x) AS p, stDevP(DISTINCT n.x) AS d
+            """
+        Then the result should be:
+            | s                  | p   | d   |
+            | 3.4641016151377544 | 3.0 | 3.0 |
+
+    Scenario: StDev test 02:
+        Given an empty graph
+        And having executed
+            """
+            CREATE ({g: 'a', x: 0}), ({g: 'a', x: 6}), ({g: 'b', x: 5}), ({g: 'c', x: null})
+            """
+        When executing query:
+            """
+            MATCH (n) RETURN n.g AS g, stDev(n.x) AS s, stDevP(n.x) AS p ORDER BY g
+            """
+        Then the result should be, in order:
+            | g   | s                 | p    |
+            | 'a' | 4.242640687119285 | 3.0  |
+            | 'b' | 0.0               | 0.0  |
+            | 'c' | null              | null |
+
+    Scenario: StDev test 03:
+        Given an empty graph
+        When executing query:
+            """
+            MATCH (n) RETURN stDev(n.x) AS s, stDevP(n.x) AS p
+            """
+        Then the result should be:
+            | s    | p    |
+            | null | null |
+
+    Scenario: StDev test 04:
+        Given an empty graph
+        And having executed
+            """
+            CREATE ({x: 1}), ({x: 'a'})
+            """
+        When executing query:
+            """
+            MATCH (n) RETURN stDev(n.x) AS s
+            """
+        Then an error should be raised
+
     Scenario: Min test 01:
         Given an empty graph
         And having executed
