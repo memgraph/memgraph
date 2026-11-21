@@ -1070,6 +1070,49 @@ class InMemoryStorage final : public Storage {
   [[nodiscard]] std::optional<durability::RecoveryTail> TakeRecoveryTail() { return std::exchange(recovery_tail_, {}); }
 #endif
 
+#ifdef MG_ENTERPRISE
+  /// While alive, no snapshot runs: new periodic ticks are paused and an in-flight snapshot is asked to abort and
+  /// waited out (unbounded), since holding `snapshot_lock_` also blocks any that is about to start. A snapshot taken
+  /// mid-replay would capture a half-replayed state. Restores the runner to the state it had at construction (it may
+  /// already be paused, e.g. analytical mode, and Scheduler's pause is a flag, not a counter, so this is not nestable).
+  class PauseSnapshotsScope {
+   public:
+    explicit PauseSnapshotsScope(InMemoryStorage &storage)
+        : storage_{storage}, was_paused_{storage.snapshot_runner_.IsPaused()} {
+      storage_.snapshot_runner_.Pause();
+      snapshot_guard_ = std::unique_lock{storage_.snapshot_lock_, std::try_to_lock};
+      if (!snapshot_guard_.owns_lock()) {
+        // One-shot flag: set only on contention, or it would abort the next snapshot.
+        storage_.abort_snapshot_.store(true, std::memory_order_release);
+        snapshot_guard_.lock();
+        // The holder may not have been a snapshot, or finished before seeing the flag; do not leak it past the scope.
+        storage_.abort_snapshot_.store(false, std::memory_order_release);
+      }
+    }
+
+    ~PauseSnapshotsScope() {
+      snapshot_guard_.unlock();
+      if (!was_paused_) storage_.snapshot_runner_.Resume();
+    }
+
+    PauseSnapshotsScope(PauseSnapshotsScope const &) = delete;
+    PauseSnapshotsScope &operator=(PauseSnapshotsScope const &) = delete;
+    PauseSnapshotsScope(PauseSnapshotsScope &&) = delete;
+    PauseSnapshotsScope &operator=(PauseSnapshotsScope &&) = delete;
+
+   private:
+    InMemoryStorage &storage_;
+    std::unique_lock<utils::ResourceLock> snapshot_guard_;
+    bool was_paused_;
+  };
+
+  /// Moves the transaction clock to at least max(last durable timestamp + 1, `min_next`); replayed commits take local
+  /// MVCC ids but record main's durable timestamps, so the clock can trail them. Requires no transaction in flight.
+  /// Mirrors the clock move on promotion in replication_handler.cpp (MarkFinishedInRange +
+  /// SetTimestampQuiescent(ldt + 1)).
+  void BumpClockPastDurable(uint64_t min_next = 0);
+#endif
+
   // The highest fully-published commit timestamp; under the experiment this is what a snapshot
   // isolation reader freezes as its own boundary at BEGIN.
   [[nodiscard]] uint64_t LastCommittedMvccTimestamp() const {
@@ -1081,6 +1124,12 @@ class InMemoryStorage final : public Storage {
     if (!config_.experimental_commit_lock_narrowing) return std::nullopt;
     return std::unique_lock{commit_mutex_};
   }
+
+  // Applies one transaction's deltas read from `decoder` (a replication stream or a WAL file, see
+  // WalApplyOptions::mode). The count of consumed deltas also includes skipped (already applied) ones.
+  // Returns nullopt if applying a delta failed.
+  std::optional<SingleTxnDeltasProcessingResult> ApplyWalTransaction(durability::BaseDecoder *decoder, uint64_t version,
+                                                                     const WalApplyOptions &options);
 
  private:
   /// @throw std::system_error
@@ -1136,12 +1185,6 @@ class InMemoryStorage final : public Storage {
   uint64_t GetCommitTimestamp();
 
   void PrepareForNewEpoch() override;
-
-  // Applies one transaction's deltas read from `decoder` (a replication stream or a WAL file, see
-  // WalApplyOptions::mode). The count of consumed deltas also includes skipped (already applied) ones.
-  // Returns nullopt if applying a delta failed.
-  std::optional<SingleTxnDeltasProcessingResult> ApplyWalTransaction(durability::BaseDecoder *decoder, uint64_t version,
-                                                                     const WalApplyOptions &options);
 
   EdgeInfo FindEdge(Gid edge_gid);
 

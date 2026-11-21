@@ -32,6 +32,12 @@ struct WalApplyOptions {
   std::function<void()> on_progress;
   // Polled by long-running index/constraint builds; returning true abandons the build.
   std::function<bool()> should_cancel;
+  // Called once per transaction with its durable timestamp, before its first delta is applied. Skipped
+  // (already applied) transactions are not reported.
+  std::function<void(uint64_t)> on_txn_begin;
+  // false commits without appending to the WAL, for transactions that already come from WAL files. Not combinable
+  // with kStreamTwoPhase.
+  bool persist_wal{true};
 };
 
 // Reads one WAL delta. Throws utils::BasicException on truncated or invalid data.
