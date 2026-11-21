@@ -10004,6 +10004,15 @@ TEST_P(CypherMainVisitorTest, CreateDatabaseStillWorks) {
   }
 }
 
+TEST_P(CypherMainVisitorTest, CreateOrReplaceDatabase) {
+  auto &ast_generator = *GetParam();
+
+  auto *query = dynamic_cast<MultiDatabaseQuery *>(ast_generator.ParseQuery("CREATE OR REPLACE DATABASE testdb"));
+  ASSERT_NE(query, nullptr);
+  EXPECT_EQ(query->action_, MultiDatabaseQuery::Action::REPLACE);
+  EXPECT_EQ(query->db_name_, "testdb");
+}
+
 TEST_P(CypherMainVisitorTest, SuspendResumeDatabase) {
   auto &ast_generator = *GetParam();
 

@@ -21,6 +21,7 @@
 #include "communication/result_stream_faker.hpp"
 #include "dbms/dbms_handler.hpp"
 #include "flags/run_time_configurable.hpp"
+#include "glue/auth_checker.hpp"
 #include "glue/communication.hpp"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
@@ -260,6 +261,39 @@ TEST_F(MultiTenantTest, SimpleCreateDrop) {
 
   ASSERT_THROW(DropDatabase(interpreter1, "db2", ""), memgraph::query::QueryRuntimeException);  // i2 using db2
   ASSERT_THROW(DropDatabase(interpreter1, "db4", ""), memgraph::query::QueryRuntimeException);  // i1 using db4
+}
+
+TEST_F(MultiTenantTest, CreateOrReplaceNeedsCreatePrivilegeOnSystemDb) {
+  // MULTI_DATABASE_EDIT comes only from a role assigned on another database, so plain CREATE is refused and
+  // REPLACE of an absent name must be refused as well.
+  auto admin = this->NewInterpreter();
+  RunMtQuery(admin, "CREATE DATABASE tenant", "Successfully created database tenant");
+  {
+    auto locked_auth = min_mg->auth.Lock();
+    auto base = *locked_auth->AddRole("base");
+    base.db_access().Grant(memgraph::dbms::kDefaultDB);
+    locked_auth->SaveRole(base);
+    auto tenant_admin = *locked_auth->AddRole("tenant_admin");
+    tenant_admin.permissions().Grant(memgraph::auth::Permission::MULTI_DATABASE_EDIT);
+    tenant_admin.db_access().Grant("tenant");
+    locked_auth->SaveRole(tenant_admin);
+    auto user = *locked_auth->AddUserWithHash("scoped", std::nullopt);
+    user.AddMultiTenantRole(base, std::string{memgraph::dbms::kDefaultDB});
+    user.AddMultiTenantRole(tenant_admin, "tenant");
+    locked_auth->SaveUser(user);
+  }
+  memgraph::glue::AuthChecker auth_checker{&min_mg->auth};
+  auto scoped = this->NewInterpreter();
+  scoped.interpreter.SetUser(auth_checker.GenQueryUser("scoped", {}));
+  // Prepare plus the authorization check, as a Bolt session runs them.
+  auto prepare = [&](const std::string &query) {
+    auto result =
+        scoped.interpreter.Prepare(query, [](auto *) { return memgraph::storage::ExternalPropertyValue::map_t{}; }, {});
+    scoped.interpreter.CheckAuthorized(result.privileges, result.db);
+  };
+
+  EXPECT_THROW(prepare("CREATE DATABASE fresh"), memgraph::query::QueryException);
+  EXPECT_THROW(prepare("CREATE OR REPLACE DATABASE fresh"), memgraph::query::QueryException);
 }
 
 TEST_F(MultiTenantTest, DbmsNewTryDelete) {
@@ -840,6 +874,8 @@ TEST_F(MultiTenantTest, InvalidDatabaseNames) {
       "", " ", " lead", "trail ", "new\nline", std::string("a\0b", 3), std::string(64, 'x')};
   for (const auto &name : invalid) {
     ASSERT_THROW(RunMtQuery(interpreter, "CREATE DATABASE " + quote(name)), memgraph::query::QueryRuntimeException);
+    ASSERT_THROW(RunMtQuery(interpreter, "CREATE OR REPLACE DATABASE " + quote(name)),
+                 memgraph::query::QueryRuntimeException);
   }
 
   ASSERT_NO_THROW(RunMtQuery(interpreter, "CREATE DATABASE " + quote(std::string(63, 'x'))));

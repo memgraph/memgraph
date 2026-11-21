@@ -475,6 +475,12 @@ class DbmsHandler {
    */
   bool IsSuspended(std::string_view name) const { return GetColdUuid(name).has_value(); }
 
+  /// True iff @p name is held by a HOT or COLD database, i.e. CREATE DATABASE would report that it exists.
+  bool Has(std::string_view name) const {
+    auto rd = std::shared_lock{lock_};
+    return db_handler_.Has(name);
+  }
+
  private:
   // Find the suspended (COLD) entry whose salient uuid matches @p uuid, or suspended_.end().
   // Caller MUST hold lock_. (Defined here, ahead of IsKnownTenant, because the deduced return type

@@ -8856,6 +8856,89 @@ bool IsValidDatabaseName(std::string_view name) {
     return u < 0x20 || u == 0x7F;
   });
 }
+
+namespace {
+void RunDropHalf(dbms::DbmsHandler *db_handler, AuthQueryHandler *auth, Interpreter *interpreter,
+                 InterpreterContext *interpreter_context, const std::string &db_name, bool force, bool allow_absent) {
+  if (!interpreter->system_transaction_) {
+    throw QueryException("Expected to be in a system transaction");
+  }
+  try {
+    // Remove database
+    dbms::DbmsHandler::DeleteResult success;
+    if (force) {
+      success = db_handler->Delete(db_name, interpreter->system_transaction_ptr());
+      if (success) {
+        // Try to terminate all interpreters using the database
+        // Best effort approach, if it fails, user will continue using the db until they commit/abort
+        // Get access to the interpreter context to notify all active interpreters
+        interpreter_context->interpreters.WithLock([db_name, interpreter_context, interpreter](auto &interpreters) {
+          auto privilege_checker = [](QueryUserOrRole *user_or_role, std::string const &db_name) {
+            return user_or_role &&
+                   user_or_role->IsAuthorized(
+                       {query::AuthQuery::Privilege::TRANSACTION_MANAGEMENT}, db_name, &query::up_to_date_policy);
+          };
+          interpreter_context->TerminateTransactions(
+              interpreters,
+              InterpreterContext::ShowTransactionsUsingDBName(interpreters, db_name),
+              interpreter->user_or_role_.get(),
+              privilege_checker);
+        });
+      }
+    } else {
+      success = db_handler->TryDelete(db_name, interpreter->system_transaction_ptr());
+    }
+    if (success) {
+      // Remove from auth
+      if (auth) auth->DeleteDatabase(db_name, interpreter->system_transaction_ptr());
+      return;
+    }
+    switch (success.error()) {
+      case dbms::DeleteError::DEFAULT_DB:
+        throw QueryRuntimeException("Cannot delete the default database.");
+      case dbms::DeleteError::NON_EXISTENT:
+        if (allow_absent) return;
+        throw QueryRuntimeException("{} does not exist.", db_name);
+      case dbms::DeleteError::ALREADY_DROPPING:
+        throw QueryRuntimeException("Database {} is currently being dropped.", db_name);
+      case dbms::DeleteError::USING:
+        throw QueryRuntimeException("Cannot delete {}, it is currently being used.", db_name);
+      case dbms::DeleteError::FAIL:
+        throw QueryRuntimeException("Failed while deleting {}", db_name);
+      case dbms::DeleteError::DISK_FAIL:
+        throw QueryRuntimeException("Failed to clean storage of {}", db_name);
+    }
+  } catch (const utils::BasicException &e) {
+    throw QueryRuntimeException(e.what());
+  }
+}
+
+std::string RunCreateHalf(dbms::DbmsHandler *db_handler, Interpreter *interpreter, const std::string &db_name) {
+  if (!interpreter->system_transaction_) {
+    throw QueryException("Expected to be in a system transaction");
+  }
+  std::string res;
+  const auto success = db_handler->New(db_name, interpreter->system_transaction_ptr());
+  if (!success) {
+    switch (success.error()) {
+      case dbms::NewError::EXISTS:
+        res = db_name + " already exists.";
+        break;
+      case dbms::NewError::DEFUNCT:
+        throw QueryRuntimeException(
+            "{} is broken and in an unknown state. Try to delete it again or clean up storage and restart "
+            "Memgraph.");
+      case dbms::NewError::GENERIC:
+        throw QueryRuntimeException("Failed while creating {}", db_name);
+      case dbms::NewError::NO_CONFIGS:
+        throw QueryRuntimeException("No configuration found while trying to create {}", db_name);
+    }
+  } else {
+    res = "Successfully created database " + db_name;
+  }
+  return res;
+}
+}  // namespace
 #endif
 
 PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterContext *interpreter_context,
@@ -8880,33 +8963,46 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
       return PreparedQuery{
           .header = {"STATUS"},
           .privileges = std::move(parsed_query.required_privileges),
-          .query_handler = [db_name = query->db_name_, db_handler, interpreter = &interpreter, interpreter_context](
+          .query_handler = [db_name = query->db_name_, db_handler, interpreter = &interpreter](
                                AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
-            if (!interpreter->system_transaction_) {
-              throw QueryException("Expected to be in a system transaction");
-            }
             std::vector<std::vector<TypedValue>> status;
-            std::string res;
-
-            const auto success = db_handler->New(db_name, interpreter->system_transaction_ptr());
-            if (!success) {
-              switch (success.error()) {
-                case dbms::NewError::EXISTS:
-                  res = db_name + " already exists.";
-                  break;
-                case dbms::NewError::DEFUNCT:
-                  throw QueryRuntimeException(
-                      "{} is broken and in an unknown state. Try to delete it again or clean up storage and restart "
-                      "Memgraph.");
-                case dbms::NewError::GENERIC:
-                  throw QueryRuntimeException("Failed while creating {}", db_name);
-                case dbms::NewError::NO_CONFIGS:
-                  throw QueryRuntimeException("No configuration found while trying to create {}", db_name);
-              }
-            } else {
-              res = "Successfully created database " + db_name;
+            status.emplace_back(std::vector<TypedValue>{TypedValue(RunCreateHalf(db_handler, interpreter, db_name))});
+            auto pull_plan = std::make_shared<PullPlanVector>(std::move(status));
+            if (pull_plan->Pull(stream, n)) {
+              return QueryHandlerResult::COMMIT;
             }
-            status.emplace_back(std::vector<TypedValue>{TypedValue(res)});
+            return std::nullopt;
+          },
+          .rw_type = RWType::W,
+          .db = std::string(dbms::kSystemDB)};
+    }
+    case MultiDatabaseQuery::Action::REPLACE: {
+      if (is_replica) {
+        throw QueryException("Query forbidden on the replica!");
+      }
+      if (!IsValidDatabaseName(query->db_name_)) throw QueryRuntimeException(kInvalidDatabaseNameMsg);
+      // Replacing an existing database drops it, so the target needs the privileges DROP checks there.
+      if (db_handler->Has(query->db_name_)) {
+        interpreter.CheckAuthorized(parsed_query.required_privileges, query->db_name_);
+      }
+      return PreparedQuery{
+          .header = {"STATUS"},
+          .privileges = std::move(parsed_query.required_privileges),
+          .query_handler = [db_name = query->db_name_,
+                            db_handler,
+                            interpreter = &interpreter,
+                            interpreter_context,
+                            auth = interpreter_context->auth](
+                               AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
+            RunDropHalf(db_handler,
+                        auth,
+                        interpreter,
+                        interpreter_context,
+                        db_name,
+                        /*force=*/false,
+                        /*allow_absent=*/true);
+            std::vector<std::vector<TypedValue>> status;
+            status.emplace_back(std::vector<TypedValue>{TypedValue(RunCreateHalf(db_handler, interpreter, db_name))});
             auto pull_plan = std::make_shared<PullPlanVector>(std::move(status));
             if (pull_plan->Pull(stream, n)) {
               return QueryHandlerResult::COMMIT;
@@ -8931,61 +9027,9 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
                             auth = interpreter_context->auth,
                             interpreter = &interpreter](
                                AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
-            if (!interpreter->system_transaction_) {
-              throw QueryException("Expected to be in a system transaction");
-            }
+            RunDropHalf(db_handler, auth, interpreter, interpreter_context, db_name, force, /*allow_absent=*/false);
+
             std::vector<std::vector<TypedValue>> status;
-
-            try {
-              // Remove database
-              dbms::DbmsHandler::DeleteResult success;
-              if (force) {
-                success = db_handler->Delete(db_name, interpreter->system_transaction_ptr());
-                if (success) {
-                  // Try to terminate all interpreters using the database
-                  // Best effort approach, if it fails, user will continue using the db until they commit/abort
-                  // Get access to the interpreter context to notify all active interpreters
-                  interpreter_context->interpreters.WithLock(
-                      [db_name, interpreter_context, interpreter](auto &interpreters) {
-                        auto privilege_checker = [](QueryUserOrRole *user_or_role, std::string const &db_name) {
-                          return user_or_role &&
-                                 user_or_role->IsAuthorized({query::AuthQuery::Privilege::TRANSACTION_MANAGEMENT},
-                                                            db_name,
-                                                            &query::up_to_date_policy);
-                        };
-                        interpreter_context->TerminateTransactions(
-                            interpreters,
-                            InterpreterContext::ShowTransactionsUsingDBName(interpreters, db_name),
-                            interpreter->user_or_role_.get(),
-                            privilege_checker);
-                      });
-                }
-              } else {
-                success = db_handler->TryDelete(db_name, interpreter->system_transaction_ptr());
-              }
-              if (success) {
-                // Remove from auth
-                if (auth) auth->DeleteDatabase(db_name, interpreter->system_transaction_ptr());
-              } else {
-                switch (success.error()) {
-                  case dbms::DeleteError::DEFAULT_DB:
-                    throw QueryRuntimeException("Cannot delete the default database.");
-                  case dbms::DeleteError::NON_EXISTENT:
-                    throw QueryRuntimeException("{} does not exist.", db_name);
-                  case dbms::DeleteError::ALREADY_DROPPING:
-                    throw QueryRuntimeException("Database {} is currently being dropped.", db_name);
-                  case dbms::DeleteError::USING:
-                    throw QueryRuntimeException("Cannot delete {}, it is currently being used.", db_name);
-                  case dbms::DeleteError::FAIL:
-                    throw QueryRuntimeException("Failed while deleting {}", db_name);
-                  case dbms::DeleteError::DISK_FAIL:
-                    throw QueryRuntimeException("Failed to clean storage of {}", db_name);
-                }
-              }
-            } catch (const utils::BasicException &e) {
-              throw QueryRuntimeException(e.what());
-            }
-
             status.emplace_back(std::vector<TypedValue>{TypedValue("Successfully deleted " + db_name)});
             auto pull_plan = std::make_shared<PullPlanVector>(std::move(status));
             if (pull_plan->Pull(stream, n)) {
