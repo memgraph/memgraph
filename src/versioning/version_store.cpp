@@ -249,6 +249,12 @@ bool VersionStore::Empty() const {
   return branches_.empty();
 }
 
+std::unique_lock<std::shared_mutex> VersionStore::LockIfEmpty() {
+  std::unique_lock guard{mutex_};
+  if (!branches_.empty()) guard.unlock();
+  return guard;
+}
+
 std::expected<BranchCheckout, std::string> VersionStore::Checkout(std::string_view name) {
   const std::shared_lock guard{mutex_};
   const auto it = branches_.find(name);
