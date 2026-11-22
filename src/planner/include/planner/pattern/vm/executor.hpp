@@ -561,8 +561,6 @@ auto VMExecutor<Symbol, Analysis, DevMode>::exec_next_symbol_eclass(Instruction 
   if constexpr (DevMode) {
     collector_.on_iter_advance(state_.pc, iter.remaining());
   }
-  // Canonicalise: a merge earlier in this pass is not retired from the index
-  // until the pass ends, and its absorbed id no longer names a class.
   state_.eclass_regs[instr.dst] = egraph_->find(iter.current());
   return true;
 }

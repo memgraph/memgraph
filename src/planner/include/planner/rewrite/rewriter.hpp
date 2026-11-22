@@ -379,8 +379,6 @@ class Rewriter {
       graph_->core().rebuild(proc_ctx_);
     }
 
-    // Drop index entries for the ids those merges absorbed, so every entry the
-    // matcher iterates names a live class exactly once.
     graph_->core().retired_eclasses_into(retired_scratch_);
     if (!retired_scratch_.empty()) {
       retired_ids_.assign(retired_scratch_.begin(), retired_scratch_.end());
@@ -408,16 +406,16 @@ class Rewriter {
    */
   [[nodiscard]] auto num_rules() const -> std::size_t { return rules_.size(); }
 
+  /// The symbol index the matcher iterates. Every entry names a live e-class:
+  /// the pass drops what its merges absorbed.
+  [[nodiscard]] auto matcher_index() const -> MatcherIndex<Symbol, Analysis> const & { return matcher_; }
+
   /**
    * @brief Rebuild the matcher index
    *
    * Call after external modifications to the e-graph that bypass
    * the rewriter (e.g., manual merges or adding nodes).
    */
-  /// The symbol index the matcher iterates. Every entry names a live e-class:
-  /// the pass drops what its merges absorbed.
-  [[nodiscard]] auto matcher_index() const -> MatcherIndex<Symbol, Analysis> const & { return matcher_; }
-
   void rebuild_index() { matcher_.rebuild_index(); }
 
   /**

@@ -102,11 +102,10 @@ TEST_P(PatternVM_MatchingParam, Case) {
   }
 }
 
-// Which pattern anchors a multi-pattern rule is a cost decision: compute_join_plan
-// ranks by variable count and breaks ties on declaration order, so reversing the
-// declaration order can pick a different anchor and a different traversal. The
-// match set it yields must be identical, duplicates included, since the rewrite
-// engine's behaviour must not depend on how a rule happened to list its patterns.
+// The match set must not depend on how a rule lists its patterns. Reversing them
+// can pick a different anchor, and so a different traversal, because
+// compute_join_plan ranks by variable count and breaks ties on declaration order.
+// Equality here includes duplicates.
 TEST_P(PatternVM_MatchingParam, PatternOrderDoesNotChangeMatches) {
   auto const &test_case = GetParam();
   if (!(test_case.tags & Multi)) {
