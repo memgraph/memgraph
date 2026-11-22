@@ -25,6 +25,7 @@
 
 #include "flags/general.hpp"
 #include "query/plan/operator.hpp"
+#include "query/plan/operator_evaluation.hpp"
 #include "query/plan/property_writes.hpp"
 
 namespace memgraph::query::plan {
@@ -522,39 +523,28 @@ class PrefetchPropertiesRewriter final : public HierarchicalLogicalOperatorVisit
 
   bool Visit(Once &) override { return true; }
 
-  bool PostVisit(Produce &op) override {
-    PrefetchBelow(op, PropertyLookupRewriter::ValueUse::kKept, storage::View::NEW, [&op](auto &&each) {
-      for (auto *&named_expression : op.named_expressions_) each(named_expression);
-    });
-    return true;
-  }
+  bool PostVisit(Produce &op) override { return PrefetchFor(op, PropertyLookupRewriter::ValueUse::kKept); }
 
-  bool PostVisit(Filter &op) override {
-    if (!op.expression_) return true;
+  bool PostVisit(Filter &op) override { return PrefetchFor(op, PropertyLookupRewriter::ValueUse::kDiscarded); }
 
-    PrefetchBelow(op, PropertyLookupRewriter::ValueUse::kDiscarded, storage::View::OLD, [&op](auto &&each) {
-      each(op.expression_);
-    });
-    return true;
-  }
-
-  /// Below the aggregation, which is where the record still is: above it only the grouping keys
-  /// and the aggregated values are defined.
-  bool PostVisit(Aggregate &op) override {
-    PrefetchBelow(op, PropertyLookupRewriter::ValueUse::kDiscarded, storage::View::NEW, [&op](auto &&each) {
-      // A secondary argument, which a map collection and the graph projections take, is left out
-      // however many lookups it holds. It is reached only once the row's first value is accepted,
-      // so a Null value, or a repeat a distinct aggregation ignores, never evaluates it, and
-      // reading ahead would reach a record such a row never asks about.
-      for (auto &aggregation : op.aggregations_) {
-        if (aggregation.arg1) each(aggregation.arg1);
-      }
-      for (auto *&group_by : op.group_by_) each(group_by);
-    });
-    return true;
-  }
+  /// An aggregation gets its pass below itself, which is where the record still is: above it only
+  /// the grouping keys and the aggregated values are defined.
+  bool PostVisit(Aggregate &op) override { return PrefetchFor(op, PropertyLookupRewriter::ValueUse::kDiscarded); }
 
  private:
+  /// Puts a pass below an operator that evaluates expressions against a record, reading at the view
+  /// the operator does and gathering from the expressions it says it holds. Both come from the one
+  /// place that answers for every operator, so neither can be restated here and drift.
+  template <class TOperator>
+  bool PrefetchFor(TOperator &op, PropertyLookupRewriter::ValueUse value_use) {
+    using Evaluation = OperatorEvaluation<TOperator>;
+    static_assert(Evaluation::kEvaluatesAt.has_value(),
+                  "an operator a pass serves has to say which view it evaluates a record at");
+    PrefetchBelow(
+        op, value_use, kEvaluatedAt<TOperator>, [&op](auto &&each) { Evaluation::ForEachExpression(op, each); });
+    return true;
+  }
+
   /// Puts a one-pass read below `op` for each symbol whose lookups save it enough, which is what
   /// `value_use` decides.
   ///
@@ -631,7 +621,7 @@ class PrefetchPropertiesRewriter final : public HierarchicalLogicalOperatorVisit
     for (auto const *below = &input; below != nullptr;) {
       auto const filled = slots_filled_by_.find(below);
       if (filled != slots_filled_by_.end()) return filled->second;
-      if (below->GetTypeInfo() != Filter::kType) break;
+      if (!KeepsSlotsFilledBelow(*below)) break;
       below = below->HasSingleInput() ? below->input().get() : nullptr;
     }
     return {};

@@ -12,6 +12,7 @@
 #include "query/plan/operator.hpp"
 #include <range/v3/all.hpp>
 #include "metrics/prometheus_metrics.hpp"
+#include "query/plan/operator_evaluation.hpp"
 #include "query/relations/comparability.hpp"
 #include "query/relations/equality.hpp"
 #include "query/relations/orderability.hpp"
@@ -5687,7 +5688,7 @@ bool Filter::FilterCursor::Pull(Frame &frame, ExecutionContext &context) {
   // Like all filters, newly set values should not affect filtering of old
   // nodes and edges.
   ExpressionEvaluator evaluator{
-      &frame, context, storage::View::OLD, context.frame_change_collector, &context.number_of_hops};
+      &frame, context, kEvaluatedAt<Filter>, context.frame_change_collector, &context.number_of_hops};
 
   while (input_cursor_->Pull(frame, context)) {
     for (const auto &pattern_filter_cursor : pattern_filter_cursors_) {
@@ -5839,7 +5840,7 @@ bool Produce::ProduceCursor::Pull(Frame &frame, ExecutionContext &context) {
   if (input_cursor_->Pull(frame, context)) {
     // Produce should always yield the latest results.
     ExpressionEvaluator evaluator{
-        &frame, context, storage::View::NEW, context.frame_change_collector, &context.number_of_hops};
+        &frame, context, kEvaluatedAt<Produce>, context.frame_change_collector, &context.number_of_hops};
 
     for (auto *named_expr : self_.named_expressions_) {
       named_expr->Accept(evaluator);
@@ -7914,7 +7915,7 @@ class AggregateCursor : public Cursor {
       throw QueryRuntimeException("Aggregation expects a current DB transaction.");
     }
     ExpressionEvaluator evaluator =
-        ExpressionEvaluator{frame, *context, storage::View::NEW, nullptr, &context->number_of_hops};
+        ExpressionEvaluator{frame, *context, kEvaluatedAt<Aggregate>, nullptr, &context->number_of_hops};
 
     bool pulled = false;
     while (input_cursor_->Pull(*frame, *context)) {
