@@ -234,6 +234,39 @@ TEST(EGraph_Touched, RecordsMergeSurvivorCanonicalized) {
   EXPECT_TRUE(touched.contains(egraph.find(b)));
 }
 
+// The retired-set is the touched-set's counterpart: the ids a consumer holding
+// its own id-keyed structures must drop, because they no longer name a class.
+TEST(EGraph_Retired, RecordsTheAbsorbedIdNotTheSurvivor) {
+  TestEGraph egraph;
+  auto a = egraph.emplace(Op::A).eclass_id;
+  auto b = egraph.emplace(Op::B).eclass_id;
+
+  auto const [survivor, did_merge] = egraph.merge(a, b);
+  ASSERT_TRUE(did_merge);
+  auto const absorbed = (survivor == a) ? b : a;
+
+  boost::unordered_flat_set<EClassId> retired;
+  egraph.retired_eclasses_into(retired);
+  EXPECT_TRUE(retired.contains(absorbed));
+  EXPECT_FALSE(retired.contains(survivor));
+}
+
+TEST(EGraph_Retired, ClearResets) {
+  TestEGraph egraph;
+  auto a = egraph.emplace(Op::A).eclass_id;
+  auto b = egraph.emplace(Op::B).eclass_id;
+  (void)egraph.merge(a, b);
+
+  boost::unordered_flat_set<EClassId> retired;
+  egraph.retired_eclasses_into(retired);
+  ASSERT_FALSE(retired.empty());
+
+  egraph.clear_retired();
+  retired.clear();
+  egraph.retired_eclasses_into(retired);
+  EXPECT_TRUE(retired.empty());
+}
+
 TEST(EGraph_Touched, ClearResets) {
   TestEGraph egraph;
   egraph.emplace(Op::A);
