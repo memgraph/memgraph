@@ -291,5 +291,42 @@ def test_openmetrics_per_db_transaction_counters(populated_databases):
     assert om_get(m, "memgraph_committed_transactions_total", "db2") > 0
 
 
+@pytest.mark.parametrize(
+    "histogram",
+    [
+        "snapshot_creation_latency_seconds",
+        "snapshot_recovery_latency_seconds",
+        "database_suspend_latency_seconds",
+        "database_resume_latency_seconds",
+        "data_failover_seconds",
+        "snapshot_rpc_seconds",
+        "current_wal_rpc_seconds",
+        "wal_files_rpc_seconds",
+        "system_recovery_rpc_seconds",
+    ],
+)
+def test_openmetrics_long_operations_have_buckets_up_to_an_hour(histogram):
+    bounds = set(re.findall(rf'^memgraph_{histogram}_bucket\{{.*le="([^"]+)"', scrape_openmetrics(), re.MULTILINE))
+    assert {float(le) for le in bounds} == {
+        0.001,
+        0.005,
+        0.01,
+        0.05,
+        0.1,
+        0.5,
+        1,
+        5,
+        10,
+        30,
+        60,
+        120,
+        300,
+        600,
+        1800,
+        3600,
+        float("inf"),
+    }
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))

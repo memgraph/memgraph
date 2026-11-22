@@ -79,6 +79,10 @@ bool IsLegacyCoordinatorDeltaMetric(std::string_view name) {
 prometheus::Histogram::BucketBoundaries const kLatencyBuckets{
     0.00001, 0.00005, 0.0001, 0.0005, 0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0, 10.0, 30.0, 60.0};
 
+// 16 buckets covering 1ms to 1h, for operations that can take minutes, such as snapshots and recovery
+prometheus::Histogram::BucketBoundaries const kLongLatencyBuckets{
+    0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0, 10.0, 30.0, 60.0, 120.0, 300.0, 600.0, 1800.0, 3600.0};
+
 inline prometheus::Histogram::BucketBoundaries const kThroughputBuckets{1e3, 1e4, 1e5, 1e6, 1e7, 1e8, 1e9};
 
 void RemoveDurabilityThroughput(std::string_view instance_name,
@@ -833,8 +837,8 @@ PrometheusMetrics::PrometheusMetrics()
   global.database_suspends = &database_suspends_family_.Add(no_labels);
   global.database_resumes = &database_resumes_family_.Add(no_labels);
   global.cold_databases = &cold_databases_family_.Add(no_labels);
-  global.database_suspend_latency_seconds = &database_suspend_latency_family_.Add(no_labels, kLatencyBuckets);
-  global.database_resume_latency_seconds = &database_resume_latency_family_.Add(no_labels, kLatencyBuckets);
+  global.database_suspend_latency_seconds = &database_suspend_latency_family_.Add(no_labels, kLongLatencyBuckets);
+  global.database_resume_latency_seconds = &database_resume_latency_family_.Add(no_labels, kLongLatencyBuckets);
   // No-db fallback counters: same family as per-db, but with no database label.
   // Incremented only when a query fires outside any database context.
   global.transient_errors = &transient_errors_family_.Add(no_labels);
@@ -882,7 +886,7 @@ PrometheusMetrics::PrometheusMetrics()
       &choose_most_up_to_date_instance_family_.Add(no_labels, kLatencyBuckets);
   global.socket_connect_seconds = &socket_connect_family_.Add(no_labels, kLatencyBuckets);
   global.replica_stream_seconds = &replica_stream_family_.Add(no_labels, kLatencyBuckets);
-  global.data_failover_seconds = &data_failover_family_.Add(no_labels, kLatencyBuckets);
+  global.data_failover_seconds = &data_failover_family_.Add(no_labels, kLongLatencyBuckets);
   global.start_txn_replication_seconds = &start_txn_replication_family_.Add(no_labels, kLatencyBuckets);
   global.finalize_txn_replication_seconds = &finalize_txn_replication_family_.Add(no_labels, kLatencyBuckets);
   global.promote_to_main_rpc_seconds = &promote_to_main_rpc_histogram_family_.Add(no_labels, kLatencyBuckets);
@@ -896,11 +900,11 @@ PrometheusMetrics::PrometheusMetrics()
       &get_database_histories_rpc_histogram_family_.Add(no_labels, kLatencyBuckets);
   global.heartbeat_rpc_seconds = &heartbeat_rpc_family_.Add(no_labels, kLatencyBuckets);
   global.prepare_commit_rpc_seconds = &prepare_commit_rpc_family_.Add(no_labels, kLatencyBuckets);
-  global.snapshot_rpc_seconds = &snapshot_rpc_family_.Add(no_labels, kLatencyBuckets);
-  global.current_wal_rpc_seconds = &current_wal_rpc_family_.Add(no_labels, kLatencyBuckets);
-  global.wal_files_rpc_seconds = &wal_files_rpc_family_.Add(no_labels, kLatencyBuckets);
+  global.snapshot_rpc_seconds = &snapshot_rpc_family_.Add(no_labels, kLongLatencyBuckets);
+  global.current_wal_rpc_seconds = &current_wal_rpc_family_.Add(no_labels, kLongLatencyBuckets);
+  global.wal_files_rpc_seconds = &wal_files_rpc_family_.Add(no_labels, kLongLatencyBuckets);
   global.frequent_heartbeat_rpc_seconds = &frequent_heartbeat_rpc_family_.Add(no_labels, kLatencyBuckets);
-  global.system_recovery_rpc_seconds = &system_recovery_rpc_family_.Add(no_labels, kLatencyBuckets);
+  global.system_recovery_rpc_seconds = &system_recovery_rpc_family_.Add(no_labels, kLongLatencyBuckets);
   global.update_data_instance_config_rpc_seconds =
       &update_data_instance_config_rpc_histogram_family_.Add(no_labels, kLatencyBuckets);
   global.get_histories_seconds = &get_histories_family_.Add(no_labels, kLatencyBuckets);
@@ -1046,8 +1050,8 @@ DatabaseMetricHandles PrometheusMetrics::CreateHandles(uint64_t entry_id) {
       .show_schema = {&show_schema_family_.Add(labels)},
       .show_storage_info = {&show_storage_info_family_.Add(labels)},
       .query_execution_latency_seconds = {&query_execution_latency_family_.Add(labels, kLatencyBuckets)},
-      .snapshot_creation_latency_seconds = {&snapshot_creation_latency_family_.Add(labels, kLatencyBuckets)},
-      .snapshot_recovery_latency_seconds = {&snapshot_recovery_latency_family_.Add(labels, kLatencyBuckets)},
+      .snapshot_creation_latency_seconds = {&snapshot_creation_latency_family_.Add(labels, kLongLatencyBuckets)},
+      .snapshot_recovery_latency_seconds = {&snapshot_recovery_latency_family_.Add(labels, kLongLatencyBuckets)},
       .gc_latency_seconds = {&gc_latency_family_.Add(labels, kLatencyBuckets)},
       .gc_skiplist_cleanup_latency_seconds = {&gc_skiplist_cleanup_latency_family_.Add(labels, kLatencyBuckets)},
       .gc_index_sweeps = {&gc_index_sweeps_family_.Add(labels)},
