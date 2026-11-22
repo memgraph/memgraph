@@ -102,6 +102,52 @@ TEST_P(PatternVM_MatchingParam, Case) {
   }
 }
 
+// Which pattern anchors a multi-pattern rule is a cost decision: compute_join_plan
+// ranks by variable count and breaks ties on declaration order, so reversing the
+// declaration order can pick a different anchor and a different traversal. The
+// match set it yields must be identical, duplicates included, since the rewrite
+// engine's behaviour must not depend on how a rule happened to list its patterns.
+TEST_P(PatternVM_MatchingParam, PatternOrderDoesNotChangeMatches) {
+  auto const &test_case = GetParam();
+  if (!(test_case.tags & Multi)) {
+    GTEST_SKIP() << "single-pattern case has no join order to permute";
+  }
+
+  (void)test_case.run(*this);
+  rebuild_egraph();
+  rebuild_index();
+
+  auto collect = [this] {
+    run_compiled();
+    MatchBindings mb(compiled_->var_slots(), ctx.arena());
+    std::vector<Bindings> out;
+    out.reserve(matches.size());
+    for (auto pattern_match : matches) {
+      auto match = mb.match(pattern_match);
+      Bindings bound;
+      for (auto const &[var, _] : compiled_->var_slots()) {
+        bound.emplace(var, match[var]);
+      }
+      out.push_back(std::move(bound));
+    }
+    std::ranges::sort(out);
+    return out;
+  };
+
+  auto const declared = collect();
+
+  auto reversed = patterns_;
+  std::ranges::reverse(reversed);
+  use_patterns(std::move(reversed));
+  auto const permuted = collect();
+
+  ASSERT_EQ(permuted.size(), declared.size()) << "pattern order changed the number of matches";
+  for (std::size_t i = 0; i < declared.size(); ++i) {
+    EXPECT_EQ(permuted[i], declared[i]) << "match " << i << " differs: declared order " << declared[i].format()
+                                        << ", reversed order " << permuted[i].format();
+  }
+}
+
 // clang-format off
 auto const kMatchingCases = std::to_array<MatchingTestCase>({
 
