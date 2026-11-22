@@ -274,6 +274,13 @@ struct BaseProcessingContext {
  */
 template <typename Symbol>
 struct ProcessingContext : BaseProcessingContext {
+  // Flat, and the groups inline: clearing a node-based map hands every node
+  // back to the allocator, so reusing the container would still allocate one
+  // node per parent group on the next rebuild, plus one vector per group.
+  // Congruent groups are nearly always a pair.
+  using EnodeToParents =
+      boost::unordered_flat_map<ENode<Symbol>, utils::small_vector<ENodeId>, std::hash<ENode<Symbol>>>;
+
   ProcessingContext() { canonicalized_chunk.reserve(REBUILD_BATCH_SIZE); }
 
   auto rebuild_canonicalized_chunk_container() -> boost::container::flat_set<EClassId> & {
@@ -281,13 +288,13 @@ struct ProcessingContext : BaseProcessingContext {
     return canonicalized_chunk;
   }
 
-  auto rebuild_enode_to_parents_container() -> std::unordered_map<ENode<Symbol>, std::vector<ENodeId>> & {
+  auto rebuild_enode_to_parents_container() -> EnodeToParents & {
     enode_to_parents.clear();
     return enode_to_parents;
   }
 
  private:
-  std::unordered_map<ENode<Symbol>, std::vector<ENodeId>> enode_to_parents;
+  EnodeToParents enode_to_parents;
 };
 
 /**
