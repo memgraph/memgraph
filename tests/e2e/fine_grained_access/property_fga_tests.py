@@ -437,6 +437,80 @@ def test_role_merge_wildcard_grant_does_not_override_weak_deny():
     assert result == [(None,)]
 
 
+WEAK_DENY_SALARY_EMPLOYEE_CONTRACTOR = (
+    "WEAK DENY READ {salary} ON NODES CONTAINING LABELS :Employee, :Contractor TO ROLE worker;"
+)
+NAMES_AND_SALARIES = "MATCH (n) WHERE n.name IN ['Alice', 'Bob', 'Carl'] RETURN n.name, n.salary ORDER BY n.name;"
+
+
+@pytest.fixture
+def contractors():
+    admin = admin_cursor()
+    common.execute_and_fetch_all(admin, "CREATE (:Contractor {name: 'Bob', salary: 1});")
+    common.execute_and_fetch_all(admin, "CREATE (:Employee:Contractor {name: 'Carl', salary: 2});")
+    yield
+    common.execute_and_fetch_all(admin, "MATCH (n:Contractor) DETACH DELETE n;")
+
+
+@pytest.mark.parametrize(
+    "roles, expected",
+    [
+        (
+            [("worker", [WEAK_DENY_SALARY_EMPLOYEE_CONTRACTOR]), ("ceo", [GRANT_SALARY + "ceo;"])],
+            [("Alice", 50000), ("Bob", None), ("Carl", None)],
+        ),
+        (
+            [("worker", [WEAK_DENY_SALARY_EMPLOYEE_CONTRACTOR, GRANT_SALARY + "worker;"])],
+            [("Alice", None), ("Bob", None), ("Carl", None)],
+        ),
+        (
+            [
+                (
+                    "payroll",
+                    [
+                        GRANT_SALARY + "payroll;",
+                        "WEAK DENY READ {salary} ON NODES CONTAINING LABELS :Contractor TO ROLE payroll;",
+                    ],
+                ),
+                (
+                    "exec_office",
+                    [
+                        "GRANT READ {salary} ON NODES CONTAINING LABELS :Contractor TO ROLE exec_office;",
+                        WEAK_DENY_SALARY + "exec_office;",
+                    ],
+                ),
+            ],
+            [("Alice", 50000), ("Bob", 1), ("Carl", None)],
+        ),
+    ],
+)
+def test_role_merge_grant_on_other_rule_overrides_weak_deny_per_label(contractors, roles, expected):
+    assert run_with_roles(roles, NAMES_AND_SALARIES) == expected
+
+
+def test_role_merge_grant_on_other_label_rule_overrides_weak_deny_per_label(contractors):
+    roles = [
+        ("worker", ["WEAK DENY READ ON NODES CONTAINING LABELS :Employee, :Contractor TO ROLE worker;"]),
+        ("ceo", ["GRANT READ ON NODES CONTAINING LABELS :Employee TO ROLE ceo;"]),
+    ]
+    query = "MATCH (n) WHERE n.name IN ['Alice', 'Bob', 'Carl'] RETURN n.name ORDER BY n.name;"
+    assert run_with_roles(roles, query) == [("Alice",)]
+
+
+@pytest.mark.parametrize("with_weak_deny", [False, True])
+def test_role_merge_overridden_weak_deny_keeps_strong_wildcard_deny(with_weak_deny):
+    roles = [
+        ("role_strong", ["DENY READ {*} ON NODES CONTAINING LABELS :Employee TO ROLE role_strong;"]),
+        (
+            "role_grant",
+            ["GRANT READ {salary} ON NODES CONTAINING LABELS :Employee, :Contractor TO ROLE role_grant;"],
+        ),
+    ]
+    if with_weak_deny:
+        roles.append(("role_weak", [WEAK_DENY_SALARY + "role_weak;"]))
+    assert run_with_roles(roles, SALARY) == [(None,)]
+
+
 def test_role_merge_global_grant_overrides_global_weak_deny():
     admin = admin_cursor()
     try:

@@ -8,10 +8,19 @@
 
 #include "auth/models.hpp"
 
+#include <algorithm>
+#include <cstddef>
+#include <iterator>
 #include <nlohmann/json.hpp>
 #include <optional>
+#include <ranges>
+#include <span>
+#include <string>
+#include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <variant>
+#include <vector>
 
 #include "auth/crypto.hpp"
 #include "auth/exceptions.hpp"
@@ -83,6 +92,48 @@ void AddDeny(Mask &strong_denies, Mask &weak_denies, Mask const bits, DenyStreng
   added = added | bits;
   removed = removed & ~bits;
 }
+
+#ifdef MG_ENTERPRISE
+bool RuleMatches(std::unordered_set<std::string> const &rule_symbols, MatchingMode const matching_mode,
+                 std::span<std::string const> symbols) {
+  if (matching_mode == MatchingMode::EXACTLY) {
+    return rule_symbols.size() == symbols.size() &&
+           r::all_of(symbols, [&](auto const &symbol) { return rule_symbols.contains(symbol); });
+  }
+  return r::any_of(symbols, [&](auto const &symbol) { return rule_symbols.contains(symbol); });
+}
+
+// A strong deny wins, then a weak deny unless overridden, then a grant.
+template <typename Mask, typename Overridden>
+PermissionLevel ResolveWeak(Mask const grants, Mask const strong_denies, Mask const weak_denies, Mask const bits,
+                            Overridden const &overridden) {
+  if ((strong_denies & bits) != Mask{}) return PermissionLevel::DENY;
+  if ((weak_denies & bits) != Mask{} && !overridden()) return PermissionLevel::DENY;
+  if ((grants & bits) != Mask{}) return PermissionLevel::GRANT;
+  return PermissionLevel::NEUTRAL;
+}
+
+// A merged weak deny holds on each symbol it names, unless some source vouches for that symbol: it grants on a rule
+// that matches the symbols and names the symbol, and denies on no rule that matches them.
+template <typename Source, typename CouldVouch, typename DeniesNode, typename GrantsSymbol>
+bool OverriddenBySources(std::vector<Source> const &sources, std::unordered_set<std::string> const &denied,
+                         std::span<std::string const> symbols, CouldVouch const &could_vouch,
+                         DeniesNode const &denies_node, GrantsSymbol const &grants_symbol) {
+  auto const is_denied = [&](std::string const &symbol) { return denied.contains(symbol); };
+  if (r::none_of(symbols, is_denied) || !r::all_of(symbols | std::views::filter(is_denied), could_vouch)) {
+    return false;
+  }
+  std::vector<bool> vouched(symbols.size());
+  for (auto const &source : sources) {
+    if (denies_node(source)) continue;
+    for (std::size_t i = 0; i < symbols.size(); ++i) {
+      vouched[i] = vouched[i] || (is_denied(symbols[i]) && grants_symbol(source, symbols[i]));
+    }
+  }
+  return r::all_of(std::views::iota(std::size_t{0}, symbols.size()),
+                   [&](std::size_t const i) { return vouched[i] || !is_denied(symbols[i]); });
+}
+#endif
 
 }  // namespace
 
@@ -255,7 +306,18 @@ FineGrainedAccessPermissions Merge(FineGrainedAccessPermissions const &first,
     }
   }
 
-  return FineGrainedAccessPermissions(global_grants, global_denies, std::move(merged_rules), global_weak_denies);
+  FineGrainedAccessPermissions merged(global_grants, global_denies, std::move(merged_rules), global_weak_denies);
+  if (r::any_of(merged.rules_, [](auto const &rule) { return rule.weak_denies != FineGrainedPermission::NONE; })) {
+    auto const sources_of = [](FineGrainedAccessPermissions const &p) {
+      return p.sources_.empty() ? std::vector{p} : p.sources_;
+    };
+    merged.sources_ = sources_of(first);
+    r::copy(sources_of(second), std::back_inserter(merged.sources_));
+    for (auto const &rule : merged.rules_) {
+      for (auto const &symbol : rule.symbols) merged.rule_grants_[symbol] |= rule.grants;
+    }
+  }
+  return merged;
 }
 #endif
 
@@ -371,14 +433,6 @@ PermissionLevel FineGrainedAccessPermissions::Has(std::span<std::string const> s
     return PermissionLevel::GRANT;
   }
 
-  auto const rule_matches = [&](auto &&rule) -> bool {
-    if (rule.matching_mode == MatchingMode::EXACTLY) {
-      return rule.symbols.size() == symbols.size() &&
-             r::all_of(symbols, [&](auto const &symbol) { return rule.symbols.contains(symbol); });
-    }
-    return r::any_of(symbols, [&](auto const &symbol) { return rule.symbols.contains(symbol); });
-  };
-
   // A matching rule that resolves to DENY wins, and specific rules on labels or
   // edge types take priority over global rules. Finally, if no rules apply, this is a
   // silent DENY.
@@ -387,9 +441,11 @@ PermissionLevel FineGrainedAccessPermissions::Has(std::span<std::string const> s
   bool any_grant = false;
 
   for (auto &&rule : rules_) {
-    if (rule_matches(rule)) {
+    if (RuleMatches(rule.symbols, rule.matching_mode, symbols)) {
       any_rule_matched = true;
-      auto const level = Resolve(rule.grants, rule.strong_denies, rule.weak_denies, fine_grained_permission);
+      auto const level = ResolveWeak(rule.grants, rule.strong_denies, rule.weak_denies, fine_grained_permission, [&] {
+        return WeakDenyOverridden(rule, symbols, fine_grained_permission);
+      });
       if (level == PermissionLevel::DENY) {
         return PermissionLevel::DENY;
       }
@@ -408,6 +464,28 @@ PermissionLevel FineGrainedAccessPermissions::Has(std::span<std::string const> s
   }
 
   return HasGlobal(fine_grained_permission);
+}
+
+bool FineGrainedAccessPermissions::WeakDenyOverridden(FineGrainedAccessRule const &rule,
+                                                      std::span<std::string const> symbols,
+                                                      FineGrainedPermission const fine_grained_permission) const {
+  auto const could_vouch = [&](std::string const &symbol) {
+    auto const it = rule_grants_.find(symbol);
+    return it != rule_grants_.end() && (it->second & fine_grained_permission) != FineGrainedPermission::NONE;
+  };
+  auto const level_in = [&](FineGrainedAccessRule const &other) {
+    if (!RuleMatches(other.symbols, other.matching_mode, symbols)) return PermissionLevel::NEUTRAL;
+    return Resolve(other.grants, other.strong_denies, other.weak_denies, fine_grained_permission);
+  };
+  auto const denies_node = [&](FineGrainedAccessPermissions const &source) {
+    return r::any_of(source.rules_, [&](auto const &other) { return level_in(other) == PermissionLevel::DENY; });
+  };
+  auto const grants_symbol = [&](FineGrainedAccessPermissions const &source, std::string const &symbol) {
+    return r::any_of(source.rules_, [&](auto const &other) {
+      return other.symbols.contains(symbol) && level_in(other) == PermissionLevel::GRANT;
+    });
+  };
+  return OverriddenBySources(sources_, rule.symbols, symbols, could_vouch, denies_node, grants_symbol);
 }
 
 PermissionLevel FineGrainedAccessPermissions::HasGlobal(const FineGrainedPermission fine_grained_permission) const {
@@ -661,7 +739,8 @@ FineGrainedAccessPermissions FineGrainedAccessPermissions::Deserialize(const nlo
 bool operator==(const FineGrainedAccessPermissions &first, const FineGrainedAccessPermissions &second) {
   return first.GetGlobalGrants() == second.GetGlobalGrants() &&
          first.GetGlobalStrongDenies() == second.GetGlobalStrongDenies() &&
-         first.GetGlobalWeakDenies() == second.GetGlobalWeakDenies() && first.GetRules() == second.GetRules();
+         first.GetGlobalWeakDenies() == second.GetGlobalWeakDenies() && first.GetRules() == second.GetRules() &&
+         first.sources_ == second.sources_;
 }
 
 bool operator!=(const FineGrainedAccessPermissions &first, const FineGrainedAccessPermissions &second) {
@@ -803,19 +882,21 @@ PermissionLevel CheckPropertyMap(std::unordered_map<std::string, PropertyPermiss
 
 PermissionLevel PropertyAccessPermissions::Has(std::span<std::string const> entities, std::string const &property,
                                                PropertyPermissionType type) const {
-  auto const rule_matches = [&](auto const &rule) -> bool {
-    if (rule.matching_mode == MatchingMode::EXACTLY) {
-      return rule.entities.size() == entities.size() &&
-             r::all_of(entities, [&](auto const &e) { return rule.entities.contains(e); });
-    }
-    return r::any_of(entities, [&](auto const &e) { return rule.entities.contains(e); });
+  auto const resolve_entry = [&](PropertyAccessRule const &rule, std::string const &key, bool const wildcard) {
+    auto const it = rule.properties.find(key);
+    if (it == rule.properties.end()) return PermissionLevel::NEUTRAL;
+    auto const &perm = it->second;
+    return ResolveWeak(perm.grants, perm.strong_denies, perm.weak_denies, type, [&] {
+      return WeakDenyOverridden(rule, entities, property, wildcard, type);
+    });
   };
 
   bool any_grant = false;
 
   for (auto const &rule : rules_) {
-    if (rule_matches(rule)) {
-      auto level = CheckPropertyMap(rule.properties, property, type);
+    if (RuleMatches(rule.entities, rule.matching_mode, entities)) {
+      auto level = resolve_entry(rule, property, false);
+      if (level == PermissionLevel::NEUTRAL) level = resolve_entry(rule, "*", true);
       if (level == PermissionLevel::DENY) return PermissionLevel::DENY;
       if (level == PermissionLevel::GRANT) any_grant = true;
     }
@@ -828,6 +909,39 @@ PermissionLevel PropertyAccessPermissions::Has(std::span<std::string const> enti
   }
 
   return PermissionLevel::NEUTRAL;
+}
+
+bool PropertyAccessPermissions::WeakDenyOverridden(PropertyAccessRule const &rule,
+                                                   std::span<std::string const> entities, std::string const &property,
+                                                   bool const wildcard, PropertyPermissionType const type) const {
+  auto const grants = [&](std::unordered_map<std::string, PropertyPermission> const &properties,
+                          std::string const &key) {
+    auto const it = properties.find(key);
+    return it != properties.end() && CheckBit(it->second, type) == PermissionLevel::GRANT;
+  };
+  auto const could_vouch = [&](std::string const &entity) {
+    auto const it = rule_grants_.find(entity);
+    if (it == rule_grants_.end()) return false;
+    auto const granted = [&](std::string const &key) {
+      auto const bits = it->second.find(key);
+      return bits != it->second.end() && (bits->second & type) != PropertyPermissionType::NONE;
+    };
+    return granted(property) || (wildcard && granted("*"));
+  };
+  auto const level_in = [&](PropertyAccessRule const &other) {
+    if (!RuleMatches(other.entities, other.matching_mode, entities)) return PermissionLevel::NEUTRAL;
+    return CheckPropertyMap(other.properties, property, type);
+  };
+  auto const denies_node = [&](PropertyAccessPermissions const &source) {
+    return r::any_of(source.rules_, [&](auto const &other) { return level_in(other) == PermissionLevel::DENY; });
+  };
+  auto const grants_entity = [&](PropertyAccessPermissions const &source, std::string const &entity) {
+    return r::any_of(source.rules_, [&](auto const &other) {
+      return other.entities.contains(entity) && level_in(other) == PermissionLevel::GRANT &&
+             (wildcard || grants(other.properties, property));
+    });
+  };
+  return OverriddenBySources(sources_, rule.entities, entities, could_vouch, denies_node, grants_entity);
 }
 
 PermissionLevel PropertyAccessPermissions::HasGlobal(std::string const &property, PropertyPermissionType type) const {
@@ -974,7 +1088,23 @@ PropertyAccessPermissions Merge(PropertyAccessPermissions const &first, Property
   auto merged_global = first.GetGlobalRules();
   merge_props(merged_global, second.GetGlobalRules());
 
-  return {std::move(merged_rules), std::move(merged_global)};
+  PropertyAccessPermissions merged{std::move(merged_rules), std::move(merged_global)};
+  if (r::any_of(merged.rules_, [](auto const &rule) {
+        return r::any_of(rule.properties,
+                         [](auto const &entry) { return entry.second.weak_denies != PropertyPermissionType::NONE; });
+      })) {
+    auto const sources_of = [](PropertyAccessPermissions const &p) {
+      return p.sources_.empty() ? std::vector{p} : p.sources_;
+    };
+    merged.sources_ = sources_of(first);
+    r::copy(sources_of(second), std::back_inserter(merged.sources_));
+    for (auto const &rule : merged.rules_) {
+      for (auto const &entity : rule.entities) {
+        for (auto const &[property, perm] : rule.properties) merged.rule_grants_[entity][property] |= perm.grants;
+      }
+    }
+  }
+  return merged;
 }
 
 #endif

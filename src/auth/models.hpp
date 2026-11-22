@@ -362,6 +362,9 @@ struct FineGrainedAccessRule {
 };
 
 class FineGrainedAccessPermissions final {
+  friend FineGrainedAccessPermissions Merge(FineGrainedAccessPermissions const &, FineGrainedAccessPermissions const &);
+  friend bool operator==(FineGrainedAccessPermissions const &, FineGrainedAccessPermissions const &);
+
  public:
   explicit FineGrainedAccessPermissions(std::optional<uint64_t> global_grants = std::nullopt,
                                         std::optional<uint64_t> global_strong_denies = std::nullopt,
@@ -409,10 +412,16 @@ class FineGrainedAccessPermissions final {
   std::vector<FineGrainedAccessRule> const &GetRules() const { return rules_; }
 
  private:
+  bool WeakDenyOverridden(FineGrainedAccessRule const &rule, std::span<std::string const> symbols,
+                          FineGrainedPermission fine_grained_permission) const;
+
   std::optional<uint64_t> global_grants_;
   std::optional<uint64_t> global_strong_denies_;
   std::vector<FineGrainedAccessRule> rules_;
   uint64_t global_weak_denies_{0};
+  // The unmerged permissions a merge with weak denies was built from, and the rule grants per symbol across them.
+  std::vector<FineGrainedAccessPermissions> sources_;
+  std::unordered_map<std::string, FineGrainedPermission> rule_grants_;
 };
 
 bool operator==(const FineGrainedAccessPermissions &first, const FineGrainedAccessPermissions &second);
@@ -529,8 +538,15 @@ class PropertyAccessPermissions final {
 
   PropertyAccessRule &FindOrCreateRule(std::unordered_set<std::string> const &entities, MatchingMode matching_mode);
 
+  bool WeakDenyOverridden(PropertyAccessRule const &rule, std::span<std::string const> entities,
+                          std::string const &property, bool wildcard, PropertyPermissionType type) const;
+
   std::vector<PropertyAccessRule> rules_;
   std::unordered_map<std::string, PropertyPermission> global_;
+  // The unmerged permissions a merge with weak denies was built from, and the rule grants per entity and property
+  // across them.
+  std::vector<PropertyAccessPermissions> sources_;
+  std::unordered_map<std::string, std::unordered_map<std::string, PropertyPermissionType>> rule_grants_;
 };
 
 class PropertyAccessHandler final {

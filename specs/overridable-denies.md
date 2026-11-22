@@ -69,13 +69,14 @@ is not covered; see Out of Scope.
 **Advice to users:** keep using `DENY`. Switch the specific permissions or
 privilege to a `WEAK DENY` when two roles collide and the stronger role should win.
 
-The overriding grant must name what the weak deny denies, on the same rule. If
-`HR` grants only `READ {*}` on `:Employee`, or grants `{salary}` on
-`:Employee, :Contractor`, a user holding both roles still reads `salary` as
-`Null`. Keep each override in a small role of its own, such as `salary_reader`
-holding `GRANT READ {salary} ON NODES CONTAINING LABELS :Employee`, and give it
-to whoever needs it alongside their main role. Each weak deny then has one
-matching grant to keep in step.
+The overriding grant must name the property the weak deny names, on a rule that
+matches the node. If `HR` grants only `READ {*}` on `:Employee`, a user holding
+both roles still reads `salary` as `Null`. A `{salary}` grant on
+`:Employee, :Contractor` does override it, because that rule matches every
+`:Employee` node. Keep each override in a small role of its own, such as
+`salary_reader` holding `GRANT READ {salary} ON NODES CONTAINING LABELS :Employee`,
+and give it to whoever needs it alongside their main role. Each weak deny then
+has one matching grant to keep in step.
 
 Memgraph does not report a collision. The symptom is a property reading `Null`,
 which is indistinguishable from a property that was never set, and the
@@ -104,29 +105,75 @@ nothing arrives unprompted either.
 
 ### An override needs a grant of the same thing
 
-A weak deny is overridden only by a grant of exactly what it denies: the same
-privilege; the same label or edge-type rule (same symbols and matching mode); or
-the same property under the same rule. A grant on `*` overrides a weak deny on
-`*`, and nothing else.
+A weak deny on a privilege is overridden only by a grant of the same privilege.
+A global label or edge-type deny (`ON NODES CONTAINING LABELS *`) is overridden
+only by a global grant.
+
+A weak deny on a label or edge-type rule is judged per node, one label at a
+time. `MATCHING ANY` over several labels means the same as one rule per label,
+so the deny holds on each label of the node that it names, unless some source
+vouches for that label. A source vouches for a label when it grants the same
+permission on a rule that matches the node and names that label, and denies
+that permission on no rule that matches the node. Take a role that weak-denies
+`READ` on `:A, :B`, and another that grants `READ` on `:A`:
+
+| Node | Result | Why |
+|---|---|---|
+| `:A` | granted | the grant names `:A` and matches the node |
+| `:A:B` | denied | nothing grants `:B` |
+| `:A:C` | granted | the deny names only `:A` of this node, and `:A` is granted |
+| `:B` | denied | the grant does not match the node |
+
+A `MATCHING EXACTLY` grant counts when it matches the node, since it then names
+every label of the node. A `MATCHING EXACTLY` weak deny names every label of the
+node it matches, so each label needs a source that vouches for it: a weak deny on
+`:A, :B` exactly is overridden on `:A:B` by grants on `:A` and on `:B`, and not
+by a grant on `:A` alone. A global grant never overrides a weak deny on a rule,
+because it is less specific.
+
+A source that denies the node cannot vouch for it. So a source never overrides
+its own weak deny, two sources holding the same weak deny do not override each
+other, and two roles that each grant one label and weak-deny the other leave a
+node carrying both labels denied:
+
+```cypher
+GRANT     READ {salary} ON NODES CONTAINING LABELS :Staff     TO ROLE payroll;
+WEAK DENY READ {salary} ON NODES CONTAINING LABELS :Executive TO ROLE payroll;
+GRANT     READ {salary} ON NODES CONTAINING LABELS :Executive TO ROLE exec_office;
+WEAK DENY READ {salary} ON NODES CONTAINING LABELS :Staff     TO ROLE exec_office;
+```
+
+A user holding both roles reads `salary` on `:Staff` and on `:Executive` nodes,
+but not on `:Staff:Executive` nodes, which each role alone denies.
+
+A weak deny on a property follows the same rule, and the grant must also name
+the property. A weak deny on `{*}` is overridden by any grant of the property,
+named or `{*}`.
+
+An overridden weak deny steps aside rather than granting: the rule is then
+decided by what remains, and the grant comes from the rule that vouches. So a
+named weak deny that is overridden falls through to the rule's `{*}` entry, and
+a strong `{*}` deny there still denies. Adding a role that only denies never
+widens access.
 
 An override applies per permission. `UPDATE` on labels stands for `SET LABEL`,
 `REMOVE LABEL`, `SET PROPERTY`, `CREATE EDGE`, and `DELETE EDGE`, so a
 `GRANT SET LABEL` on another role lifts only that part of a `WEAK DENY UPDATE`.
 `SHOW PRIVILEGES` for the role still lists the whole deny.
 
-This is how a user's permissions are already combined. The user's own
-permissions and those of every role they hold on the database are merged into
-one set, keyed by exactly these targets, and today a deny at a key beats a grant
-at the same key. A weak deny changes only that comparison: at the same key, a
-grant beats a weak deny, and a strong deny beats both.
+The user's own permissions and those of every role they hold on the database
+are merged into one set, keyed by rule, and a deny at any matching rule beats
+the grants. A weak deny changes only that: a grant from another source, as
+above, beats it, and a strong deny beats both.
 
-One role cannot hold a grant and a deny at the same key, because granting
-clears the deny and denying clears the grant. So a grant beside a weak deny
-always comes from another role or from the user, and the origin of a
-permission never has to be tracked.
+When the merged set holds a weak deny, it keeps the unmerged permissions of
+each source, so that whether a source vouches can be checked, and the grants per
+label across them, so that a weak deny nothing could override is decided without
+looking at the sources. A set without weak denies keeps nothing extra, and
+resolves exactly as before.
 
-Everything else is unchanged. A deny on one rule still wins over a grant on
-another rule that also matches, and a wildcard is still consulted only when
+Everything else is unchanged. A strong deny on one rule still wins over a grant
+on another rule that also matches, and a wildcard is still consulted only when
 nothing more specific decides.
 
 ### User permissions count as a separate source
@@ -275,7 +322,13 @@ nothing:
 - A weak deny on `*` overridden by a `*` grant on another role.
 - A strong deny on any role beating a weak deny and a grant of the same thing on
   others.
-- A `{salary}` grant under a different label rule not overriding the weak deny.
+- A weak deny on `:A, :B` and a grant on `:A` from another role: `:A` nodes
+  allowed, `:A:B` and `:B` nodes denied. The same grant on the denying role
+  itself: denied.
+- Two roles that each grant one label and weak-deny the other: a node carrying
+  both labels denied. Two identical roles holding the same weak deny: denied.
+- A strong `{*}` deny, a grant of `{salary}` on another rule, and a weak deny of
+  `{salary}`: denied, as without the weak deny.
 - A user-level grant overriding a weak deny on one of that user's roles.
 - The same set of roles assigned in a different order, giving the same answer.
 - A weak deny surviving a round trip through the auth store, and an auth store

@@ -2280,7 +2280,7 @@ TEST(AuthWithoutStorage, PropertyAccessPermissionsWeakDeny) {
 
   PropertyAccessPermissions other_rule;
   other_rule.Grant({"Employee", "Contractor"}, "salary", read);
-  EXPECT_EQ(Merge(weak, other_rule).Has(emp, "salary", read), PermissionLevel::DENY);
+  EXPECT_EQ(Merge(weak, other_rule).Has(emp, "salary", read), PermissionLevel::GRANT);
 
   PropertyAccessPermissions wildcard;
   wildcard.Grant({"Employee"}, "*", read);
@@ -2352,6 +2352,91 @@ TEST(AuthWithoutStorage, UserPropertyPermissionsWeakDeny) {
   user_grant.property_access_handler().label_properties().Grant({"Employee"}, "salary", read);
   user_grant.AddRole(worker);
   EXPECT_EQ(user_grant.GetPropertyLabelPermissions("db2").Has(emp, "salary", read), PermissionLevel::GRANT);
+
+  User user_other_rule{"carol"};
+  user_other_rule.property_access_handler().label_properties().Grant({"Employee", "Contractor"}, "salary", read);
+  user_other_rule.AddRole(worker);
+  EXPECT_EQ(user_other_rule.GetPropertyLabelPermissions("db2").Has(emp, "salary", read), PermissionLevel::GRANT);
+}
+
+TEST(AuthWithoutStorage, PropertyAccessPermissionsWeakDenyOverriddenOnOtherMatchingRule) {
+  std::vector<std::string> const a = {"A"};
+  std::vector<std::string> const ab = {"A", "B"};
+  std::vector<std::string> const b = {"B"};
+  auto const read = PropertyPermissionType::READ;
+
+  PropertyAccessPermissions weak;
+  weak.Deny({"A", "B"}, "foo", read, MatchingMode::ANY, DenyStrength::WEAK);
+  PropertyAccessPermissions grant;
+  grant.Grant({"A"}, "foo", read);
+  auto const merged = Merge(weak, grant);
+  EXPECT_EQ(merged.Has(a, "foo", read), PermissionLevel::GRANT);
+  EXPECT_EQ(merged.Has(ab, "foo", read), PermissionLevel::DENY);
+  EXPECT_EQ(merged.Has(b, "foo", read), PermissionLevel::DENY);
+  EXPECT_EQ(Merge(grant, weak).Has(a, "foo", read), PermissionLevel::GRANT);
+  EXPECT_EQ(Merge(Merge(weak, PropertyAccessPermissions{}), grant).Has(a, "foo", read), PermissionLevel::GRANT);
+
+  PropertyAccessPermissions exactly;
+  exactly.Grant({"A"}, "foo", read, MatchingMode::EXACTLY);
+  EXPECT_EQ(Merge(weak, exactly).Has(a, "foo", read), PermissionLevel::GRANT);
+  EXPECT_EQ(Merge(weak, exactly).Has(ab, "foo", read), PermissionLevel::DENY);
+
+  PropertyAccessPermissions self = weak;
+  self.Grant({"A"}, "foo", read);
+  EXPECT_EQ(self.Has(a, "foo", read), PermissionLevel::DENY);
+  EXPECT_EQ(Merge(self, PropertyAccessPermissions{}).Has(a, "foo", read), PermissionLevel::DENY);
+  EXPECT_EQ(Merge(self, grant).Has(a, "foo", read), PermissionLevel::GRANT);
+
+  PropertyAccessPermissions wildcard;
+  wildcard.Grant({"A"}, "*", read);
+  EXPECT_EQ(Merge(weak, wildcard).Has(a, "foo", read), PermissionLevel::DENY);
+
+  PropertyAccessPermissions weak_wildcard;
+  weak_wildcard.Deny({"A", "B"}, "*", read, MatchingMode::ANY, DenyStrength::WEAK);
+  EXPECT_EQ(Merge(weak_wildcard, grant).Has(a, "foo", read), PermissionLevel::GRANT);
+  EXPECT_EQ(Merge(weak_wildcard, wildcard).Has(a, "foo", read), PermissionLevel::GRANT);
+
+  PropertyAccessPermissions global;
+  global.GrantGlobal("foo", read);
+  EXPECT_EQ(Merge(weak, global).Has(a, "foo", read), PermissionLevel::DENY);
+
+  PropertyAccessPermissions strong;
+  strong.Deny({"A"}, "foo", read);
+  EXPECT_EQ(Merge(Merge(weak, grant), strong).Has(a, "foo", read), PermissionLevel::DENY);
+
+  EXPECT_EQ(merged.Has(std::vector<std::string>{"A", "C"}, "foo", read), PermissionLevel::GRANT);
+  EXPECT_EQ(merged.Has(std::vector<std::string>{"A", "B", "C"}, "foo", read), PermissionLevel::DENY);
+
+  PropertyAccessPermissions strong_wildcard;
+  strong_wildcard.Deny({"A"}, "*", read);
+  PropertyAccessPermissions weak_a;
+  weak_a.Deny({"A"}, "foo", read, MatchingMode::ANY, DenyStrength::WEAK);
+  PropertyAccessPermissions grant_ab;
+  grant_ab.Grant({"A", "B"}, "foo", read);
+  EXPECT_EQ(Merge(strong_wildcard, grant_ab).Has(a, "foo", read), PermissionLevel::DENY);
+  EXPECT_EQ(Merge(Merge(strong_wildcard, grant_ab), weak_a).Has(a, "foo", read), PermissionLevel::DENY);
+
+  PropertyAccessPermissions crossed_a;
+  crossed_a.Grant({"A"}, "foo", read);
+  crossed_a.Deny({"B"}, "foo", read, MatchingMode::ANY, DenyStrength::WEAK);
+  PropertyAccessPermissions crossed_b;
+  crossed_b.Grant({"B"}, "foo", read);
+  crossed_b.Deny({"A"}, "foo", read, MatchingMode::ANY, DenyStrength::WEAK);
+  EXPECT_EQ(Merge(crossed_a, crossed_b).Has(ab, "foo", read), PermissionLevel::DENY);
+  EXPECT_EQ(Merge(crossed_a, crossed_b).Has(a, "foo", read), PermissionLevel::GRANT);
+
+  PropertyAccessPermissions clone;
+  clone.Deny({"A", "B"}, "foo", read, MatchingMode::EXACTLY, DenyStrength::WEAK);
+  clone.Grant({"A"}, "foo", read);
+  clone.Grant({"B"}, "foo", read);
+  EXPECT_EQ(Merge(clone, clone).Has(ab, "foo", read), PermissionLevel::DENY);
+
+  PropertyAccessPermissions named_weak_under_wildcard;
+  named_weak_under_wildcard.Grant({"A"}, "*", read);
+  named_weak_under_wildcard.Deny({"A"}, "foo", read, MatchingMode::ANY, DenyStrength::WEAK);
+  EXPECT_EQ(Merge(weak_wildcard, named_weak_under_wildcard).Has(a, "foo", read), PermissionLevel::DENY);
+
+  EXPECT_NE(self, Merge(weak, grant));
 }
 
 TEST(AuthWithoutStorage, PropertyAccessPermissionsHasUnrestrictedAccess) {
@@ -2644,7 +2729,7 @@ TEST(AuthWithFineGrainedTest, WeakDeny) {
 
   FineGrainedAccessPermissions other_rule;
   other_rule.Grant({"Person", "Employee"}, read);
-  ASSERT_EQ(Merge(weak, other_rule).Has(person, read), PermissionLevel::DENY);
+  ASSERT_EQ(Merge(weak, other_rule).Has(person, read), PermissionLevel::GRANT);
 
   FineGrainedAccessPermissions global_grant;
   global_grant.GrantGlobal(read);
@@ -2673,6 +2758,113 @@ TEST(AuthWithFineGrainedTest, WeakDeny) {
   user.AddRole(ceo);
   ASSERT_EQ(user.GetFineGrainedAccessLabelPermissions("db1").Has(person, read), PermissionLevel::GRANT);
   ASSERT_EQ(user.GetFineGrainedAccessLabelPermissions("db2").Has(person, read), PermissionLevel::DENY);
+}
+
+TEST(AuthWithFineGrainedTest, WeakDenyOverriddenOnOtherMatchingRule) {
+  memgraph::license::global_license_checker.EnableTesting();
+  auto const a = std::array{"A"s};
+  auto const ab = std::array{"A"s, "B"s};
+  auto const b = std::array{"B"s};
+  auto const read = FineGrainedPermission::READ;
+
+  FineGrainedAccessPermissions weak;
+  weak.Deny({"A", "B"}, read, MatchingMode::ANY, DenyStrength::WEAK);
+  FineGrainedAccessPermissions grant;
+  grant.Grant({"A"}, read);
+  auto const merged = Merge(weak, grant);
+  ASSERT_EQ(merged.Has(a, read), PermissionLevel::GRANT);
+  ASSERT_EQ(merged.Has(ab, read), PermissionLevel::DENY);
+  ASSERT_EQ(merged.Has(b, read), PermissionLevel::DENY);
+  ASSERT_EQ(Merge(grant, weak).Has(a, read), PermissionLevel::GRANT);
+  ASSERT_EQ(Merge(Merge(weak, FineGrainedAccessPermissions{}), grant).Has(a, read), PermissionLevel::GRANT);
+
+  FineGrainedAccessPermissions exactly;
+  exactly.Grant({"A"}, read, MatchingMode::EXACTLY);
+  ASSERT_EQ(Merge(weak, exactly).Has(a, read), PermissionLevel::GRANT);
+  ASSERT_EQ(Merge(weak, exactly).Has(ab, read), PermissionLevel::DENY);
+
+  FineGrainedAccessPermissions self = weak;
+  self.Grant({"A"}, read);
+  ASSERT_EQ(self.Has(a, read), PermissionLevel::DENY);
+  ASSERT_EQ(Merge(self, FineGrainedAccessPermissions{}).Has(a, read), PermissionLevel::DENY);
+  ASSERT_EQ(Merge(self, grant).Has(a, read), PermissionLevel::GRANT);
+
+  FineGrainedAccessPermissions strong;
+  strong.Deny({"A"}, read);
+  ASSERT_EQ(Merge(Merge(weak, grant), strong).Has(a, read), PermissionLevel::DENY);
+
+  EXPECT_EQ(merged.Has(std::array{"A"s, "C"s}, read), PermissionLevel::GRANT);
+  EXPECT_EQ(merged.Has(std::array{"A"s, "B"s, "C"s}, read), PermissionLevel::DENY);
+
+  FineGrainedAccessPermissions other;
+  other.Grant({"C"}, read);
+  EXPECT_EQ(Merge(Merge(grant, other), weak).Has(a, read), PermissionLevel::GRANT);
+
+  FineGrainedAccessPermissions weak_exactly;
+  weak_exactly.Deny({"A", "B"}, read, MatchingMode::EXACTLY, DenyStrength::WEAK);
+  FineGrainedAccessPermissions grant_each = grant;
+  grant_each.Grant({"B"}, read);
+  EXPECT_EQ(Merge(weak_exactly, grant_each).Has(ab, read), PermissionLevel::GRANT);
+  EXPECT_EQ(Merge(weak_exactly, grant).Has(ab, read), PermissionLevel::DENY);
+
+  FineGrainedAccessPermissions clone = weak_exactly;
+  clone.Grant({"A"}, read);
+  clone.Grant({"B"}, read);
+  EXPECT_EQ(clone.Has(ab, read), PermissionLevel::DENY);
+  EXPECT_EQ(Merge(clone, clone).Has(ab, read), PermissionLevel::DENY);
+
+  FineGrainedAccessPermissions crossed_a;
+  crossed_a.Grant({"A"}, read);
+  crossed_a.Deny({"B"}, read, MatchingMode::ANY, DenyStrength::WEAK);
+  FineGrainedAccessPermissions crossed_b;
+  crossed_b.Grant({"B"}, read);
+  crossed_b.Deny({"A"}, read, MatchingMode::ANY, DenyStrength::WEAK);
+  EXPECT_EQ(crossed_a.Has(ab, read), PermissionLevel::DENY);
+  EXPECT_EQ(crossed_b.Has(ab, read), PermissionLevel::DENY);
+  EXPECT_EQ(Merge(crossed_a, crossed_b).Has(ab, read), PermissionLevel::DENY);
+  EXPECT_EQ(Merge(crossed_a, crossed_b).Has(a, read), PermissionLevel::GRANT);
+
+  EXPECT_NE(self, Merge(weak, grant));
+
+  Role worker{"worker"};
+  worker.fine_grained_access_handler().label_permissions() = weak;
+  Role unrelated{"unrelated"};
+  unrelated.fine_grained_access_handler().label_permissions() = other;
+  Role ceo{"ceo"};
+  ceo.fine_grained_access_handler().label_permissions() = grant;
+  User user{"alice"};
+  user.AddRole(worker);
+  user.AddRole(unrelated);
+  user.AddRole(ceo);
+  EXPECT_EQ(user.GetFineGrainedAccessLabelPermissions().Has(a, read), PermissionLevel::GRANT);
+  EXPECT_EQ(user.GetFineGrainedAccessLabelPermissions().Has(ab, read), PermissionLevel::DENY);
+
+  User user_grant{"bob"};
+  user_grant.fine_grained_access_handler().label_permissions().Grant({"A"}, read);
+  user_grant.AddRole(worker);
+  EXPECT_EQ(user_grant.GetFineGrainedAccessLabelPermissions().Has(a, read), PermissionLevel::GRANT);
+  EXPECT_EQ(user_grant.GetFineGrainedAccessLabelPermissions().Has(ab, read), PermissionLevel::DENY);
+
+  auto const set_label = FineGrainedPermission::SET_LABEL;
+  auto const remove_label = FineGrainedPermission::REMOVE_LABEL;
+  FineGrainedAccessPermissions weak_update;
+  weak_update.Deny({"A", "B"}, set_label | remove_label, MatchingMode::ANY, DenyStrength::WEAK);
+  FineGrainedAccessPermissions grant_set_label;
+  grant_set_label.Grant({"A"}, set_label);
+  EXPECT_EQ(Merge(weak_update, grant_set_label).Has(a, set_label), PermissionLevel::GRANT);
+  EXPECT_EQ(Merge(weak_update, grant_set_label).Has(a, remove_label), PermissionLevel::DENY);
+}
+
+TEST(AuthWithFineGrainedTest, EdgeTypeWeakDenyOverriddenOnOtherMatchingRule) {
+  memgraph::license::global_license_checker.EnableTesting();
+  auto const read = FineGrainedPermission::READ;
+
+  FineGrainedAccessPermissions weak;
+  weak.Deny({"T1", "T2"}, read, MatchingMode::ANY, DenyStrength::WEAK);
+  FineGrainedAccessPermissions grant;
+  grant.Grant({"T1"}, read);
+  EXPECT_EQ(Merge(weak, grant).Has(std::array{"T1"s}, read), PermissionLevel::GRANT);
+  EXPECT_EQ(Merge(weak, grant).Has(std::array{"T2"s}, read), PermissionLevel::DENY);
 }
 
 TEST(AuthWithFineGrainedTest, GlobalWeakDeny) {
