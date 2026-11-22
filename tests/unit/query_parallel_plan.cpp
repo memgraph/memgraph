@@ -11,6 +11,7 @@
 
 #include "storage/v2/config.hpp"
 #ifdef MG_ENTERPRISE
+#include "cache_properties_flag_guard.hpp"
 #include "query_plan_checker.hpp"
 
 #include <iostream>
@@ -1050,6 +1051,36 @@ TEST_F(ParallelConditionalOnMainChain, ConflictInABranchOrAFoldKeepsTheScanSeria
   auto const fold_chain = RewrittenChain({{.pattern_filters = {fold}, .plan = ReturnOne()}});
   EXPECT_THAT(fold_chain, testing::Contains("ScanAll"));
   EXPECT_THAT(fold_chain, testing::Not(testing::Contains("ScanParallel")));
+}
+
+// A pass reads the records of the symbols it names and depends on nothing else. The search for a
+// scan to parallelise has to be told that, because an operator it cannot read traces the
+// aggregation's symbols back to every symbol in scope below: after a clause that projects, that
+// includes what the earlier clause bound, and then no single scan binds them all.
+TYPED_TEST(TestPlanner, ParallelExecutionTracesAnAggregationPastAPass) {
+  LicenseWrapper license_wrapper;
+  CachePropertiesFlagGuard guard{true};
+  // Test USING PARALLEL EXECUTION MATCH (a) WITH a MATCH (n) RETURN min(n.x), max(n.x)
+  FakeDbAccessor dba;
+  auto prop_x = dba.Property("x");
+  auto min_agg = AGG_MIN(PROPERTY_LOOKUP(dba, "n", prop_x), false);
+  auto max_agg = AGG_MAX(PROPERTY_LOOKUP(dba, "n", prop_x), false);
+  auto *query = PARALLEL_QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("a"))),
+                                            WITH("a"),
+                                            MATCH(PATTERN(NODE("n"))),
+                                            RETURN(NEXPR("minx", min_agg), NEXPR("maxx", max_agg))));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  // Each worker drives the chunked scan, so which symbol that scan binds says what was
+  // parallelised: the match the aggregation reads, rather than the one row the clause before it
+  // kept.
+  ScanChunk const *chunked = nullptr;
+  for (auto const *op = &planner.plan(); op != nullptr; op = op->HasSingleInput() ? op->input().get() : nullptr) {
+    if (auto const *found = dynamic_cast<ScanChunk const *>(op)) chunked = found;
+  }
+  ASSERT_NE(chunked, nullptr) << "no scan was parallelised";
+  EXPECT_EQ(chunked->output_symbol_.name(), "n");
 }
 
 }  // namespace

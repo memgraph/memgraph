@@ -656,6 +656,17 @@ class ParallelRewriter final : public HierarchicalLogicalOperatorVisitor {
       return input_symbols;
     }
 
+    // CacheProperties: the records it reads, one symbol per group. It holds no expressions, so
+    // without this the caller falls back to every symbol the input binds, which after a clause that
+    // projects includes what an earlier clause bound. The search would then want one scan binding
+    // all of them and settle for the wrong scan or none.
+    if (auto *cache_properties_op = dynamic_cast<CacheProperties *>(op)) {
+      for (const auto &group : cache_properties_op->groups_) {
+        input_symbols.insert(group.input_symbol().position());
+      }
+      return input_symbols;
+    }
+
     // For other operators without expressions we can analyze,
     // return empty set - caller will fall back to using ModifiedSymbols from input
     return input_symbols;

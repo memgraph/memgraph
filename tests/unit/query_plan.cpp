@@ -9309,6 +9309,16 @@ TYPED_TEST(TestPlanner, CachePropertiesRewritesAnExpressionOncePerQuery) {
   for (auto *named_expression : projected) {
     EXPECT_EQ(named_expression, projected.front()) << "a candidate rewrote the expression again";
   }
+
+  // Sharing one expression proves nothing on its own: were no pass planned, nothing would be
+  // copied and every candidate would hold the expression it was planned from. So the expression
+  // every candidate shares has to be the rewritten one, reading slots rather than the record.
+  auto *shared = dynamic_cast<memgraph::query::AdditionOperator *>(projected.front()->expression_);
+  ASSERT_NE(shared, nullptr) << "expected the projection to still be an addition";
+  EXPECT_STREQ(shared->expression1_->GetTypeInfo().name, memgraph::query::Identifier::kType.name)
+      << "the left operand still reads the record";
+  EXPECT_STREQ(shared->expression2_->GetTypeInfo().name, memgraph::query::Identifier::kType.name)
+      << "the right operand still reads the record";
 }
 
 TYPED_TEST(TestPlanner, CachePropertiesSlotsAreNotPaidForPerCandidatePlan) {
@@ -9364,6 +9374,16 @@ TYPED_TEST(TestPlanner, CachePropertiesAnAggregationReadingOnePropertySeveralTim
   auto aggr = ExpectAggregate({sum, avg, min, max}, {});
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
   CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectCacheProperties("n", 1), aggr, ExpectProduce());
+
+  // What each aggregation reads is checked here rather than through the plan checker, which
+  // compares the declared type of the argument and so holds for any expression at all.
+  auto const *aggregate = dynamic_cast<Aggregate const *>(planner.plan().input().get());
+  ASSERT_NE(aggregate, nullptr) << "expected the aggregation below the projection";
+  ASSERT_EQ(aggregate->aggregations_.size(), 4U);
+  for (auto const &aggregation : aggregate->aggregations_) {
+    EXPECT_STREQ(aggregation.arg1->GetTypeInfo().name, memgraph::query::Identifier::kType.name)
+        << "an aggregation still reads the record";
+  }
 }
 
 TYPED_TEST(TestPlanner, CachePropertiesAnAggregationsDistinctPropertiesEarnNoPass) {
