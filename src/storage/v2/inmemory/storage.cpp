@@ -1102,9 +1102,12 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
   // (2) UniqueConstraintsViolation() must not run while another committer sits between its mint and
   // publish, since its unpublished writes are invisible to MVCC.
   utils::Timer const commit_lock_timer;
+  double commit_lock_wait{};
+  utils::OnScopeExit const record_commit_lock_wait{
+      [&] { mem_storage->metric_handles_.commit_lock_wait_seconds.Observe(commit_lock_wait); }};
   auto commit_serializer = mem_storage->LockCommitMutexIfNarrowing();
   auto engine_guard = std::unique_lock{storage_->engine_lock_};
-  mem_storage->metric_handles_.commit_lock_wait_seconds.Observe(commit_lock_timer.Elapsed().count());
+  commit_lock_wait = commit_lock_timer.Elapsed().count();
   commit_timestamp_.emplace(mem_storage->GetCommitTimestamp());
 
   // Unique constraints violated
