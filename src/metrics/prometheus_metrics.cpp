@@ -818,7 +818,7 @@ PrometheusMetrics::PrometheusMetrics()
                                       "0 otherwise")
                                 .Register(registry_)},
       replica_txns_behind_family_{prometheus::BuildGauge()
-                                      .Name("memgraph_replica_txns_behind")
+                                      .Name("memgraph_replica_transactions_behind")
                                       .Help("Number of committed transactions the replica is behind the main on "
                                             "the database")
                                       .Register(registry_)},

@@ -108,7 +108,7 @@ def replica_view(replica, modes=MODES):
     labels = {"mg_instance": replica, "database": "memgraph", "mode": modes[replica]}
     return {
         "state": {state: sample(samples, "memgraph_replica_state", state=state, **labels) for state in STATES},
-        "txns_behind": sample(samples, "memgraph_replica_txns_behind", **labels),
+        "txns_behind": sample(samples, "memgraph_replica_transactions_behind", **labels),
     }
 
 
