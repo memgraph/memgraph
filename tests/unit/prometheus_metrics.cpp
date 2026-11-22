@@ -13,8 +13,10 @@
 
 #include <algorithm>
 #include <filesystem>
+#include <optional>
 #include <string_view>
 #include <variant>
+#include <vector>
 
 #include <gtest/gtest.h>
 #include <prometheus/metric_family.h>
@@ -90,6 +92,20 @@ TEST(PrometheusMetrics, MultipleDatabasesAreIsolated) {
   auto const families = pm.CollectForScrape();
   EXPECT_EQ(FindSample(families, "memgraph_vertex_count", "db1"), 10.0);
   EXPECT_EQ(FindSample(families, "memgraph_vertex_count", "db2"), 20.0);
+}
+
+TEST(PrometheusMetrics, PercentileAboveTheTopBucketReportsTheTopBound) {
+  memgraph::metrics::PrometheusMetrics pm;
+  auto const uuid = memgraph::utils::UUID{};
+  auto db = pm.AddDatabase(uuid, "db1");
+  db.handles().query_execution_latency_seconds.Observe(7200.0);
+
+  auto const p99 = [](std::vector<memgraph::metrics::MetricInfo> const &info) {
+    auto const it = std::ranges::find(info, "QueryExecutionLatency_us_99p", &memgraph::metrics::MetricInfo::name);
+    return it == info.end() ? std::nullopt : std::optional{std::get<double>(it->value)};
+  };
+  EXPECT_EQ(p99(*pm.GetDbMetricsInfo(uuid)), 3600e6);
+  EXPECT_EQ(p99(pm.GetGlobalMetricsInfoForJson()), 3600e6);
 }
 
 TEST(PrometheusMetrics, UpdateGaugesSetsStorageValues) {

@@ -17,6 +17,7 @@
 #include <prometheus/client_metric.h>
 #include <prometheus/detail/builder.h>
 #include <array>
+#include <cmath>
 
 #include <ranges>
 #include <unordered_map>
@@ -1407,7 +1408,7 @@ double HistogramPercentile(prometheus::Histogram const &h, double quantile) {
   uint64_t prev_count = 0;
   for (auto const &bucket : hdata.bucket) {
     if (static_cast<double>(bucket.cumulative_count) >= target) {
-      if (bucket.cumulative_count == prev_count) return prev_bound;
+      if (bucket.cumulative_count == prev_count || std::isinf(bucket.upper_bound)) return prev_bound;
       double const frac =
           (target - static_cast<double>(prev_count)) / static_cast<double>(bucket.cumulative_count - prev_count);
       return prev_bound + (frac * (bucket.upper_bound - prev_bound));
@@ -1444,7 +1445,7 @@ double MergedHistogramPercentile(std::vector<prometheus::ClientMetric::Histogram
     for (auto const &hd : hdatas) cumulative += hd.bucket[i].cumulative_count;
     double const upper = hdatas[0].bucket[i].upper_bound;
     if (static_cast<double>(cumulative) >= target) {
-      if (cumulative == prev_cumulative) return prev_bound;
+      if (cumulative == prev_cumulative || std::isinf(upper)) return prev_bound;
       double const frac =
           (target - static_cast<double>(prev_cumulative)) / static_cast<double>(cumulative - prev_cumulative);
       return prev_bound + (frac * (upper - prev_bound));
