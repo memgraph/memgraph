@@ -788,10 +788,14 @@ auto PatternsCompiler<Symbol>::emit_symbol_eclass_iter(SymbolWithChildren<Symbol
     -> EClassSetup {
   auto sym_idx = get_symbol_index(sym.sym);
   auto eclass_reg = alloc_eclass_reg();
-  auto mark = binding.transform([this](auto var) { return get_slot(var); });
+  // No mark. Retirement leaves the index naming each live e-class under one id,
+  // so the loop offers a settled candidate once and a mark would catch nothing.
+  // A merge earlier in the same pass is the exception, retired only once the
+  // pass ends: until then two ids can canonicalise together and the loop can
+  // repeat a candidate, which costs a duplicate match that apply absorbs.
   auto [exhaust, loop] = emit_iter_loop(Instruction::iter_symbol_eclasses(eclass_reg, sym_idx, backtrack),
                                         Instruction::next_symbol_eclass(eclass_reg, backtrack),
-                                        mark);
+                                        std::nullopt);
 
   if (binding) {
     emit_var_binding(*binding, eclass_reg, loop);
