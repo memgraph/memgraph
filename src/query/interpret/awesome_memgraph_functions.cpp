@@ -1210,7 +1210,13 @@ TypedValue Abs(const TypedValue *args, int64_t nargs, const FunctionContext &ctx
   if (value.IsNull()) {
     return TypedValue(ctx.memory);
   } else if (value.IsInt()) {
-    return TypedValue(std::abs(value.ValueInt()), ctx.memory);
+    const auto int_value = value.ValueInt();
+    // The absolute value of the smallest integer isn't an integer, and std::abs is undefined for it.
+    if (int_value == std::numeric_limits<int64_t>::min()) {
+      throw QueryRuntimeException("'abs' argument {} is out of range, its absolute value overflows an integer.",
+                                  int_value);
+    }
+    return TypedValue(std::abs(int_value), ctx.memory);
   } else {
     return TypedValue(std::abs(value.ValueDouble()), ctx.memory);
   }

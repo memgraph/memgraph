@@ -263,6 +263,24 @@ Feature: Functions
             | 2.3  |
             | 1.9  |
 
+    Scenario: Abs test 04:
+        Given an empty graph
+        When executing query:
+            """
+            RETURN ABS(-9223372036854775807) AS n
+            """
+        Then the result should be:
+            | n                   |
+            | 9223372036854775807 |
+
+    Scenario: Abs test 05:
+        Given an empty graph
+        When executing query:
+            """
+            RETURN ABS(-9223372036854775807 - 1) AS n
+            """
+        Then an error should be raised
+
 
     Scenario: Exp test 01:
         Given an empty graph

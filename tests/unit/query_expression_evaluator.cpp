@@ -3346,6 +3346,15 @@ TYPED_TEST(FunctionTest, Abs) {
   ASSERT_EQ(this->EvaluateFunction("ABS", -2).ValueInt(), 2);
   ASSERT_EQ(this->EvaluateFunction("ABS", -2.5).ValueDouble(), 2.5);
   ASSERT_THROW(this->EvaluateFunction("ABS", true), QueryRuntimeException);
+  ASSERT_EQ(this->EvaluateFunction("ABS", 0).ValueInt(), 0);
+  ASSERT_EQ(this->EvaluateFunction("ABS", std::numeric_limits<int64_t>::max()).ValueInt(),
+            std::numeric_limits<int64_t>::max());
+  ASSERT_EQ(this->EvaluateFunction("ABS", std::numeric_limits<int64_t>::min() + 1).ValueInt(),
+            std::numeric_limits<int64_t>::max());
+  // The absolute value of the smallest integer doesn't fit in an integer.
+  ASSERT_THROW(this->EvaluateFunction("ABS", std::numeric_limits<int64_t>::min()), QueryRuntimeException);
+  ASSERT_EQ(this->EvaluateFunction("ABS", std::numeric_limits<double>::lowest()).ValueDouble(),
+            std::numeric_limits<double>::max());
 }
 
 // Test if log works. If it does then all functions wrapped with
