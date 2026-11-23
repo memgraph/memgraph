@@ -975,8 +975,8 @@ TEST_F(WriteVisibilityPlan, ANodeThatMayRepeatKeepsItsBarrier) {
            // The CREATE reads q's key or every key of q, and q may be another row's a.
            "MATCH (a:L) WITH a, head([(a)-[:T]->(o) | o]) AS q SET a.x = 1 CREATE ({v: a.x + q['x']})",
            "MATCH (a:L) WITH a, head([(a)-[:T]->(o) | o]) AS q SET a.x = 1 CREATE ({v: a.x, m: q{.*}})",
-           // Every key of a is written through q.
-           "MATCH (a:L) WITH a, head([(a)-[:T]->(o) | o]) AS q SET a.x = 1 SET q += {y: 1} CREATE ({v: a.x})",
+           // A key of a is written through q.
+           "MATCH (a:L) WITH a, head([(a)-[:T]->(o) | o]) AS q SET a.x = 1 SET q += {x: 2} CREATE ({v: a.x})",
            // `SET a = q` copies every key of q, which may be another row's a.
            "MATCH (a:L) WITH a, head([(a)-[:T]->(o) | o]) AS q SET a.x = 1 SET a = q, a.y = a.x",
        }) {
@@ -1277,8 +1277,7 @@ TEST_F(WriteVisibilityPlan, AKeyedMergeThenAWriteBackOfItsKeysHasNoDrain) {
   EXPECT_EQ(drains("MERGE (m:M {id: row.a}) MERGE (n:N {id: row.id}) SET n += row"), 0);
   EXPECT_EQ(drains("MERGE (n:N {id: row.id}) SET n.id = row.id SET n += row"), 0);
   EXPECT_EQ(drains("MERGE (n:N {id: row.id}) SET n = {id: row.id, a: row.a}"), 0);
-  // Other spellings of the same data path: a subscript, a WITH alias of a field or of the row.
-  EXPECT_EQ(drains("MERGE (n:N {id: row['id']}) SET n += row"), 0);
+  // Other spellings of the same data path: a WITH alias of a field or of the row.
   EXPECT_EQ(drains("WITH row.id AS id, row MERGE (n:N {id: id}) SET n += row"), 0);
   EXPECT_EQ(drains("WITH row, row AS r MERGE (n:N {id: r.id}) SET n += row"), 0);
   EXPECT_EQ(drains("WITH row, row AS other MERGE (n:N {id: row.id}) SET n += other"), 0);
@@ -1332,6 +1331,8 @@ TEST_F(WriteVisibilityPlan, AKeyedMergeKeepsItsDrainWhenTheSetCanChangeAMatch) {
   EXPECT_EQ(drains("MERGE (n:N {id: row.id}) SET n += {id: row.id + 1}"), 1);
   EXPECT_EQ(drains("MERGE (n:N {id: row.p.id}) SET n += row"), 1);
   EXPECT_EQ(drains("MERGE (n:N {id: row[row.k]}) SET n += row"), 1);
+  // A server strips the literal to a parameter, and a cached plan serves every value of it.
+  EXPECT_EQ(drains("MERGE (n:N {id: row['id']}) SET n += row"), 1);
   EXPECT_EQ(drains("WITH row.k AS id, row MERGE (n:N {id: id}) SET n += row"), 1);
   EXPECT_EQ(drains("WITH row.id AS id, row.p AS row MERGE (n:N {id: id}) SET n += row"), 1);
   // A later reader of the key that a store-back does not cover: an any-key write of another key it matches.
@@ -1368,7 +1369,8 @@ TEST_F(WriteVisibilityPlan, AKeyOfUnknownKindConflictsWithBothKinds) {
   EXPECT_EQ(drains("MATCH ()-[e:R]->() WITH e, [e] AS l UNWIND [1, 2] AS x MERGE (q:Q {v: l[0].id}) SET e.id = x"), 1);
   EXPECT_EQ(drains("MATCH ()-[e:R]->() WITH e, e AS y UNWIND [1, 2] AS x MERGE (q:Q {v: y.id}) SET e.id = x"), 1);
   EXPECT_EQ(drains("MATCH (e:N) WITH e, e AS y UNWIND [1, 2] AS x MERGE (q:Q {v: y.id}) SET e.id = x"), 1);
-  EXPECT_EQ(drains("UNWIND [{id: 1, k: 2}] AS row MERGE (n:N {id: row.id}) UNWIND [n] AS x SET x.id = row.k"), 1);
+  EXPECT_EQ(drains("MATCH ()-[e:R]->() WITH [e] AS l UNWIND l AS y UNWIND [1, 2] AS x MERGE (q:Q {v: x}) SET y.v = x"),
+            1);
   EXPECT_EQ(drains("UNWIND [{id: 1, k: 2, f: true}] AS row MERGE (n:N {id: row.id}) "
                    "SET (CASE WHEN row.f THEN n ELSE n END).id = row.k"),
             1);
@@ -1449,9 +1451,14 @@ TEST_F(WriteVisibilityPlan, SetWritesItsKey) {
   EXPECT_EQ(access.reads.properties, (std::set<std::string>{"y"}));
 }
 
-TEST_F(WriteVisibilityPlan, MapSetWritesAnyKey) {
-  EXPECT_TRUE(Access("MATCH (n) SET n += {a: 1}").writes.any_property);
+TEST_F(WriteVisibilityPlan, AMapSetWritesAnyKeyAndAMapLiteralAddWritesItsKeys) {
+  EXPECT_TRUE(Access("MATCH (n) SET n = {a: 1}").writes.any_property);
   EXPECT_TRUE(Access("MATCH (n) SET n = $m").writes.any_property);
+  EXPECT_TRUE(Access("MATCH (n) SET n += $m").writes.any_property);
+  // `+=` with a map literal adds or replaces only its keys.
+  auto const literal = Access("MATCH (n) SET n += {a: 1}").writes;
+  EXPECT_FALSE(literal.any_property);
+  EXPECT_EQ(literal.properties, (std::set<std::string>{"a"}));
 }
 
 TEST_F(WriteVisibilityPlan, PropertiesFunctionReadsEverything) {

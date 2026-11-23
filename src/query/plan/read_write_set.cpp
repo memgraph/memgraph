@@ -28,7 +28,10 @@ namespace memgraph::query::plan {
 
 namespace {
 
-bool Intersects(const std::set<std::string> &lhs, const std::set<std::string> &rhs) {
+/// Walks the smaller set: with few drains the pending reads stay large.
+template <class TSet>
+bool Intersects(const TSet &lhs, const TSet &rhs) {
+  if (lhs.size() > rhs.size()) return Intersects(rhs, lhs);
   return std::ranges::any_of(lhs, [&rhs](const auto &key) { return rhs.contains(key); });
 }
 
@@ -222,7 +225,14 @@ class ReadWriteCollector final : public HierarchicalTreeVisitor {
   }
 
   bool PreVisit(SetProperties &set) override {
-    result.writes.NoteAnyProperty(KeySymbolOf(set.identifier_));
+    // `SET n += {k: …}` writes only its keys; `SET n = {…}` also removes every key it does not name.
+    if (auto *literal = utils::Downcast<MapLiteral>(set.expression_); literal && set.update_) {
+      for (const auto &[key, value] : literal->elements_) {
+        result.writes.NoteProperty(key.name, KeySymbolOf(set.identifier_));
+      }
+    } else {
+      result.writes.NoteAnyProperty(KeySymbolOf(set.identifier_));
+    }
     ReadNodeLabelsForAccessCheck(set.identifier_);
     // `SET n = m` copies every property of an entity; any value but a map literal or a parameter may be one.
     if (!utils::Downcast<MapLiteral>(set.expression_) && !utils::Downcast<ParameterLookup>(set.expression_) &&
@@ -366,7 +376,7 @@ class ReadWriteCollector final : public HierarchicalTreeVisitor {
   void ReadPropertyKeys(const TProperties &properties, Identifier *atom) {
     if (const auto *map = std::get_if<std::unordered_map<PropertyIx, Expression *>>(&properties)) {
       for (const auto &[key, value] : *map) {
-        result.reads.NoteProperty(key.name, KeySymbolOf(atom));
+        result.reads.NoteProperty(key.name, KeySymbolOf(atom), /*by_value=*/false);
       }
     } else {
       result.reads.NoteAnyProperty(KeySymbolOf(atom));
@@ -453,19 +463,45 @@ bool ReadWriteSet::Empty() const {
          !nodes && !edge_properties && !everything && symbols.empty() && !node_labels.Any();
 }
 
+namespace {
+
+/// A node variable reaches node keys, an edge variable edge keys; any other value, or no variable, may be either.
+uint8_t KindsOf(const std::optional<Symbol> &through) {
+  if (!through) return ReadWriteSet::kNode | ReadWriteSet::kEdge;
+  switch (through->type()) {
+    case Symbol::Type::VERTEX:
+      return ReadWriteSet::kNode;
+    case Symbol::Type::EDGE:
+    case Symbol::Type::EDGE_LIST:
+      return ReadWriteSet::kEdge;
+    default:
+      return ReadWriteSet::kNode | ReadWriteSet::kEdge;
+  }
+}
+
+/// Whether @p set writes @p key other than by a store-back.
+bool WritesPlainly(const ReadWriteSet &set, const std::string &key) {
+  return (set.everything || set.any_property || set.properties.contains(key)) && !set.stored_back.contains(key);
+}
+
+}  // namespace
+
 void ReadWriteSet::KeyReach::Note(const std::optional<Symbol> &through) {
   if (!through || (symbol && *symbol != *through)) mixed = true;
   if (!symbol) symbol = through;
+  kinds |= KindsOf(through);
 }
 
 void ReadWriteSet::KeyReach::Merge(const KeyReach &other) {
   mixed |= other.mixed;
   if (other.symbol) Note(other.symbol);
+  kinds |= other.kinds;
 }
 
-void ReadWriteSet::NoteProperty(const std::string &key, const std::optional<Symbol> &through) {
+void ReadWriteSet::NoteProperty(const std::string &key, const std::optional<Symbol> &through, bool by_value) {
   properties.insert(key);
   property_reach[key].Note(through);
+  if (by_value) value_properties.insert(key);
 }
 
 void ReadWriteSet::NoteAnyProperty(const std::optional<Symbol> &through) {
@@ -474,6 +510,17 @@ void ReadWriteSet::NoteAnyProperty(const std::optional<Symbol> &through) {
 }
 
 void ReadWriteSet::Merge(const ReadWriteSet &other) {
+  // A key stays stored back only while neither side writes it otherwise; before the key sets grow.
+  for (const auto &key : other.properties) {
+    if (!other.stored_back.contains(key)) stored_back.erase(key);
+  }
+  if (other.any_property || other.everything) {
+    std::erase_if(stored_back, [&](const auto &key) { return !other.stored_back.contains(key); });
+  }
+  for (const auto &key : other.stored_back) {
+    if (!WritesPlainly(*this, key)) stored_back.insert(key);
+  }
+  value_properties.insert(other.value_properties.begin(), other.value_properties.end());
   properties.insert(other.properties.begin(), other.properties.end());
   any_property |= other.any_property;
   labels.insert(other.labels.begin(), other.labels.end());
@@ -492,15 +539,44 @@ void ReadWriteSet::Merge(const ReadWriteSet &other) {
   referenced.insert(other.referenced.begin(), other.referenced.end());
 }
 
+namespace {
+
+/// The entity kinds @p set reaches @p key on (nullptr: any key), its any-key entries included.
+uint8_t ReachKinds(const ReadWriteSet &set, const std::string *key) {
+  uint8_t kinds = set.any_property ? set.any_property_reach.kinds : 0;
+  if (key) {
+    if (auto it = set.property_reach.find(*key); it != set.property_reach.end()) kinds |= it->second.kinds;
+  }
+  return kinds;
+}
+
+/// A key conflicts when both sides reach it on one entity kind, unless every write stores back the value a read
+/// only matches on.
+bool PropertiesConflict(const ReadWriteSet &reads, const ReadWriteSet &writes) {
+  auto const meet = [&](const std::string *key) { return (ReachKinds(reads, key) & ReachKinds(writes, key)) != 0; };
+  auto const on = [&](const std::string &key) {
+    return !(writes.stored_back.contains(key) && !reads.value_properties.contains(key)) && meet(&key);
+  };
+  if (reads.any_property) {
+    if (writes.any_property && meet(nullptr)) return true;
+    if (std::ranges::any_of(writes.properties, [&](const auto &key) { return meet(&key); })) return true;
+  }
+  if (writes.any_property && std::ranges::any_of(reads.properties, on)) return true;
+  auto const reads_fewer = reads.properties.size() <= writes.properties.size();
+  auto const &few = reads_fewer ? reads.properties : writes.properties;
+  auto const &many = reads_fewer ? writes.properties : reads.properties;
+  return std::ranges::any_of(few, [&](const auto &key) { return many.contains(key) && on(key); });
+}
+
+}  // namespace
+
 bool Conflicts(const ReadWriteSet &reads, const ReadWriteSet &writes) {
   if ((reads.access_check.Any() || reads.node_labels.Any()) && writes.relabel.Any()) return true;
   if (reads.Empty() || writes.Empty()) return false;
   if (reads.everything || writes.everything) return true;
   // A pattern through a node this command created: View::OLD cannot see it at all.
-  if (std::ranges::any_of(reads.symbols, [&writes](const auto &sym) { return writes.symbols.contains(sym); })) {
-    return true;
-  }
-  return KeysConflict(reads.properties, reads.any_property, writes.properties, writes.any_property) ||
+  if (Intersects(reads.symbols, writes.symbols)) return true;
+  return PropertiesConflict(reads, writes) ||
          KeysConflict(reads.labels, reads.any_label, writes.labels, writes.any_label) ||
          KeysConflict(reads.edge_types, reads.any_edge_type, writes.edge_types, writes.any_edge_type) ||
          (reads.nodes && writes.nodes) || (reads.edge_properties && writes.edge_properties);

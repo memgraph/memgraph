@@ -40,6 +40,8 @@ struct ReadWriteSet {
   struct KeyReach {
     std::optional<Symbol> symbol;
     bool mixed{false};
+    /// The entity kinds the key is reached on (`kNode`, `kEdge`): both through a value that may be either.
+    uint8_t kinds{0};
 
     void Note(const std::optional<Symbol> &through);
     void Merge(const KeyReach &other);
@@ -51,8 +53,16 @@ struct ReadWriteSet {
     std::optional<Symbol> One() const { return mixed ? std::nullopt : symbol; }
   };
 
+  static constexpr uint8_t kNode = 1;
+  static constexpr uint8_t kEdge = 2;
+
   std::set<std::string> properties;
   bool any_property{false};
+  /// The keys in `properties` noted by value. In a read set, the others only a pattern's map matches on.
+  std::set<std::string> value_properties;
+  /// Writes only: the keys every write stores back with the value an equality match found its entity by
+  /// (`MarkStoreBacks`). No such match can change, so a read that only matches on the key does not conflict.
+  std::set<std::string> stored_back;
   std::set<std::string> labels;
   bool any_label{false};
   std::set<std::string> edge_types;
@@ -87,7 +97,8 @@ struct ReadWriteSet {
   bool Empty() const;
   void Merge(const ReadWriteSet &other);
   /// Adds property @p key, read or written through @p through; nullopt (an object that is no variable) mixes it.
-  void NoteProperty(const std::string &key, const std::optional<Symbol> &through);
+  /// @param by_value false for a pattern map's key, which a read only matches on.
+  void NoteProperty(const std::string &key, const std::optional<Symbol> &through, bool by_value = true);
   /// Sets `any_property`, read or written through @p through.
   void NoteAnyProperty(const std::optional<Symbol> &through);
 
