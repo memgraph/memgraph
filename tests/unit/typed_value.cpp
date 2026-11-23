@@ -534,7 +534,8 @@ class TypedValueArithmeticTest : public AllTypesFixture<StorageType> {
    *  the results.
    */
   void ExpectArithmeticThrowsAndNull(bool string_list_ok,
-                                     std::function<TypedValue(const TypedValue &, const TypedValue &)> op) {
+                                     std::function<TypedValue(const TypedValue &, const TypedValue &)> op,
+                                     bool maps_merge = false) {
     // If one operand is always valid, the other can be of any type.
     auto always_valid = [string_list_ok](const TypedValue &value) {
       return value.IsNull() || (string_list_ok && value.type() == TypedValue::Type::List);
@@ -574,6 +575,7 @@ class TypedValueArithmeticTest : public AllTypesFixture<StorageType> {
         if (always_valid(a) || always_valid(b)) continue;
         if (valid(a) && valid(b)) continue;
         if (is_temporal(a) || is_temporal(b)) continue;
+        if (maps_merge && a.type() == TypedValue::Type::Map && b.type() == TypedValue::Type::Map) continue;
         EXPECT_THROW(op(a, b), TypedValueException);
         EXPECT_THROW(op(b, a), TypedValueException);
       }
@@ -590,7 +592,7 @@ class TypedValueArithmeticTest : public AllTypesFixture<StorageType> {
 TYPED_TEST_SUITE(TypedValueArithmeticTest, StorageTypes);
 
 TYPED_TEST(TypedValueArithmeticTest, Sum) {
-  this->ExpectArithmeticThrowsAndNull(true, [](const TypedValue &a, const TypedValue &b) { return a + b; });
+  this->ExpectArithmeticThrowsAndNull(true, [](const TypedValue &a, const TypedValue &b) { return a + b; }, true);
 
   // sum of props of the same type
   EXPECT_EQ((TypedValue(2) + TypedValue(3)).ValueInt(), 5);
@@ -616,6 +618,27 @@ TYPED_TEST(TypedValueArithmeticTest, Sum) {
   EXPECT_PROP_EQ(TypedValue(2) + TypedValue(in), TypedValue(out1));
   EXPECT_PROP_EQ(TypedValue(in) + TypedValue(2), TypedValue(out2));
   EXPECT_PROP_EQ(TypedValue(in) + TypedValue(in), TypedValue(out3));
+
+  // Maps merge shallowly, the right operand winning on a duplicate key.
+  {
+    memgraph::utils::MonotonicBufferResource monotonic_memory(1024);
+    auto const left =
+        TypedValue(std::map<std::string, TypedValue>{{"a", TypedValue(1)}, {"b", TypedValue(2)}}, &monotonic_memory);
+    auto const right = Map({{"b", TypedValue(3)}, {"c", TypedValue(4)}});
+    auto const empty_map = Map(std::map<std::string, TypedValue>{});
+    auto const merged = left + right;
+    EXPECT_PROP_EQ(merged, Map({{"a", TypedValue(1)}, {"b", TypedValue(3)}, {"c", TypedValue(4)}}));
+    EXPECT_PROP_EQ(empty_map + right, right);
+    EXPECT_PROP_EQ(left + empty_map, left);
+    EXPECT_PROP_EQ(Map({{"a", Map({{"x", TypedValue(1)}})}}) + Map({{"a", Map({{"y", TypedValue(2)}})}}),
+                   Map({{"a", Map({{"y", TypedValue(2)}})}}));
+    // The merged map and its entries live on the left operand's resource.
+    EXPECT_EQ(merged.get_allocator().resource(), &monotonic_memory);
+    for (const auto &kv : merged.ValueMap()) {
+      EXPECT_EQ(kv.first.get_allocator().resource(), &monotonic_memory);
+      EXPECT_EQ(kv.second.get_allocator().resource(), &monotonic_memory);
+    }
+  }
 
   // Temporal Types
   // Duration

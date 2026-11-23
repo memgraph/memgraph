@@ -1823,6 +1823,13 @@ TypedValue operator+(const TypedValue &a, const TypedValue &b) {
     return TypedValue(std::move(list), a.alloc_);
   }
 
+  // Shallow merge; the right operand wins on a duplicate key.
+  if (a.IsMap() && b.IsMap()) {
+    TypedValue::TMap merged(a.ValueMap(), a.alloc_);
+    for (const auto &[key, value] : b.ValueMap()) merged.insert_or_assign(key, value);
+    return {std::move(merged), a.alloc_};
+  }
+
   // Moved out, not copied: copying a TypedValue selects the default resource, discarding the
   // allocator the helper just gave it.
   if (auto maybe_add = MaybeDoTemporalTypeAddition(a, b); maybe_add) {
