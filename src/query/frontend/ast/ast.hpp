@@ -2932,6 +2932,41 @@ class SetProperty : public memgraph::query::Clause {
   friend class AstStorage;
 };
 
+/// Set a property whose name is computed per row (`SET n[expr] = value`).
+class SetPropertyDynamic : public memgraph::query::Clause {
+ public:
+  static const utils::TypeInfo kType;
+
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  SetPropertyDynamic() = default;
+
+  bool Accept(HierarchicalTreeVisitor &visitor) override {
+    if (visitor.PreVisit(*this)) {
+      lhs_->Accept(visitor) && key_->Accept(visitor) && rhs_->Accept(visitor);
+    }
+    return visitor.PostVisit(*this);
+  }
+
+  memgraph::query::Expression *lhs_{nullptr};
+  memgraph::query::Expression *key_{nullptr};
+  memgraph::query::Expression *rhs_{nullptr};
+
+  SetPropertyDynamic *Clone(AstStorage *storage) const override {
+    auto *object = storage->Create<SetPropertyDynamic>();
+    object->lhs_ = lhs_ ? lhs_->Clone(storage) : nullptr;
+    object->key_ = key_ ? key_->Clone(storage) : nullptr;
+    object->rhs_ = rhs_ ? rhs_->Clone(storage) : nullptr;
+    return object;
+  }
+
+ protected:
+  SetPropertyDynamic(Expression *lhs, Expression *key, Expression *rhs) : lhs_(lhs), key_(key), rhs_(rhs) {}
+
+ private:
+  friend class AstStorage;
+};
+
 class SetProperties : public memgraph::query::Clause {
  public:
   static const utils::TypeInfo kType;

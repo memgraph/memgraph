@@ -97,6 +97,10 @@ constexpr utils::TypeInfo query::plan::SetProperty::kType{
 constexpr utils::TypeInfo query::plan::SetProperties::kType{
     .id = utils::TypeId::SET_PROPERTIES, .name = "SetProperties", .superclass = &query::plan::LogicalOperator::kType};
 
+constexpr utils::TypeInfo query::plan::SetPropertyDynamic::kType{.id = utils::TypeId::SET_PROPERTY_DYNAMIC,
+                                                                 .name = "SetPropertyDynamic",
+                                                                 .superclass = &query::plan::LogicalOperator::kType};
+
 constexpr utils::TypeInfo query::plan::SetLabels::kType{
     .id = utils::TypeId::SET_LABELS, .name = "SetLabels", .superclass = &query::plan::LogicalOperator::kType};
 

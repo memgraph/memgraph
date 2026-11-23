@@ -48,6 +48,7 @@ struct ReadWriteTypeChecker : public virtual HierarchicalLogicalOperatorVisitor 
   bool PreVisit(Delete &) override;
 
   bool PreVisit(SetProperty &) override;
+  bool PreVisit(SetPropertyDynamic &) override;
   bool PreVisit(SetProperties &) override;
   bool PreVisit(SetLabels &) override;
 

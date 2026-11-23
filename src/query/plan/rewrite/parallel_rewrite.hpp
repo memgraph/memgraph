@@ -84,6 +84,7 @@ class ParallelRewriter final : public HierarchicalLogicalOperatorVisitor {
   DEFAULT_VISITS(EmptyResult)
   DEFAULT_VISITS(Delete)
   DEFAULT_VISITS(SetProperty)
+  DEFAULT_VISITS(SetPropertyDynamic)
   DEFAULT_VISITS(SetProperties)
   DEFAULT_VISITS(SetLabels)
   DEFAULT_VISITS(RemoveProperty)

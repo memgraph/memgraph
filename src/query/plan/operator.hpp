@@ -172,6 +172,7 @@ class Produce;
 class CacheProperties;
 class Delete;
 class SetProperty;
+class SetPropertyDynamic;
 class SetProperties;
 class SetLabels;
 class RemoveProperty;
@@ -223,13 +224,14 @@ using LogicalOperatorCompositeVisitor = utils::CompositeVisitor<
     Once, CreateNode, CreateExpand, ScanAll, ScanAllByLabel, ScanAllByLabelProperties, ScanAllById, ScanAllByEdge,
     ScanAllByEdgeType, ScanAllByEdgeTypeProperty, ScanAllByEdgeProperty, ScanAllByEdgeId, ScanAllByVertexProperty,
     ScanAllByPointDistance, ScanAllByPointWithinbbox, Expand, ExpandVariable, ConstructNamedPath, Filter, Produce,
-    Delete, SetProperty, SetProperties, SetLabels, RemoveProperty, RemoveLabels, EdgeUniquenessFilter, Accumulate,
-    Aggregate, Skip, Limit, OrderBy, Merge, Optional, Unwind, CardinalityScale, Distinct, Union, Cartesian,
-    CallProcedure, LoadCsv, Foreach, EmptyResult, EvaluatePatternFilter, Apply, IndexedJoin, HashJoin, RollUpApply,
-    Conditional, PeriodicCommit, PeriodicSubquery, SetNestedProperty, RemoveNestedProperty, LoadParquet, LoadJsonl,
-    AggregateParallel, OrderByParallel, ScanParallel, ScanParallelByLabel, ScanParallelByLabelProperties,
-    ScanParallelByEdgeType, ScanParallelByEdgeTypeProperty, ScanParallelByEdge, ScanParallelByEdgeProperty,
-    ScanParallelByVertexProperty, ScanChunk, ScanChunkByEdge, ParallelMerge, CacheProperties>;
+    Delete, SetProperty, SetPropertyDynamic, SetProperties, SetLabels, RemoveProperty, RemoveLabels,
+    EdgeUniquenessFilter, Accumulate, Aggregate, Skip, Limit, OrderBy, Merge, Optional, Unwind, CardinalityScale,
+    Distinct, Union, Cartesian, CallProcedure, LoadCsv, Foreach, EmptyResult, EvaluatePatternFilter, Apply, IndexedJoin,
+    HashJoin, RollUpApply, Conditional, PeriodicCommit, PeriodicSubquery, SetNestedProperty, RemoveNestedProperty,
+    LoadParquet, LoadJsonl, AggregateParallel, OrderByParallel, ScanParallel, ScanParallelByLabel,
+    ScanParallelByLabelProperties, ScanParallelByEdgeType, ScanParallelByEdgeTypeProperty, ScanParallelByEdge,
+    ScanParallelByEdgeProperty, ScanParallelByVertexProperty, ScanChunk, ScanChunkByEdge, ParallelMerge,
+    CacheProperties>;
 
 using LogicalOperatorLeafVisitor = utils::LeafVisitor<Once>;
 
@@ -1518,6 +1520,49 @@ class SetProperty : public memgraph::query::plan::LogicalOperator {
    private:
     const SetProperty &self_;
     const UniqueCursorPtr input_cursor_;
+  };
+};
+
+/// Sets a single property whose key is computed per row; `key_` must evaluate to a string.
+class SetPropertyDynamic : public memgraph::query::plan::LogicalOperator {
+ public:
+  static const utils::TypeInfo kType;
+
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  SetPropertyDynamic() = default;
+
+  SetPropertyDynamic(const std::shared_ptr<LogicalOperator> &input, Expression *lhs, Expression *key, Expression *rhs);
+
+  std::shared_ptr<LogicalOperator> input_;
+  Expression *lhs_{nullptr};
+  Expression *key_{nullptr};
+  Expression *rhs_{nullptr};
+
+  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
+  std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
+
+  bool HasSingleInput() const override { return true; }
+
+  std::shared_ptr<LogicalOperator> input() const override { return input_; }
+
+  void set_input(std::shared_ptr<LogicalOperator> input) override { input_ = input; }
+
+  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
+
+ private:
+  class SetPropertyDynamicCursor : public Cursor {
+   public:
+    SetPropertyDynamicCursor(const SetPropertyDynamic &, utils::MemoryResource *, metrics::DatabaseMetricHandles &);
+    bool Pull(Frame &, ExecutionContext &) override;
+    void Shutdown() override;
+    void Reset() override;
+
+   private:
+    const SetPropertyDynamic &self_;
+    const UniqueCursorPtr input_cursor_;
+    std::unordered_map<std::string, storage::PropertyId> cached_name_id_{};
   };
 };
 

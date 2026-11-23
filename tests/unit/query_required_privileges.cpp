@@ -16,9 +16,12 @@
 #include "license/license.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/ast_visitor.hpp"
+#include "query/frontend/ast/cypher_main_visitor.hpp"
 #include "query/frontend/ast/query/tenant_profile.hpp"
 #include "query/frontend/ast/query/user_profile.hpp"
+#include "query/frontend/opencypher/parser.hpp"
 #include "query/frontend/semantic/required_privileges.hpp"
+#include "query/parameters.hpp"
 
 #include "plan/operator.hpp"
 #include "query_common.hpp"
@@ -74,6 +77,17 @@ TEST_F(TestPrivilegeExtractor, MatchNodeSetProperty) {
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
                                    SET(PROPERTY_LOOKUP(dba, storage.Create<Identifier>("n"), PROP_0), LITERAL(42))));
   EXPECT_THAT(GetRequiredPrivileges(query),
+              UnorderedElementsAre(AuthQuery::Privilege::MATCH, AuthQuery::Privilege::SET));
+}
+
+TEST_F(TestPrivilegeExtractor, MatchNodeSetPropertyDynamic) {
+  ::memgraph::query::frontend::opencypher::Parser parser("MATCH (n) SET n[$key] = 1");
+  Parameters parameters;
+  ::memgraph::query::frontend::ParsingContext context;
+  ::memgraph::query::frontend::CypherMainVisitor visitor(context, &storage, &parameters);
+  visitor.visit(parser.tree());
+
+  EXPECT_THAT(GetRequiredPrivileges(visitor.query()),
               UnorderedElementsAre(AuthQuery::Privilege::MATCH, AuthQuery::Privilege::SET));
 }
 
