@@ -33,6 +33,7 @@
 #include "flags/run_time_configurable.hpp"
 #include "memory/db_arena_fwd.hpp"
 #include "memory/global_memory_control.hpp"
+#include "metrics/metric_handles.hpp"
 #include "replication_coordination_glue/mode.hpp"
 #include "replication_coordination_glue/role.hpp"
 #include "requests/requests.hpp"
@@ -87,6 +88,29 @@ namespace {
 // Sub-directory holding durability files superseded by a new base state. Kept in sync with the name
 // utils::GetFilesFromDir filters out, so archived files are invisible to every directory scan.
 constexpr std::string_view kOldDurabilityDir = ".old";
+
+constexpr auto ToMetricReason(ReplicaFailureReason const reason) -> metrics::ReplicationFailureReason {
+  switch (reason) {
+    case ReplicaFailureReason::NOT_IN_SYNC:
+      return metrics::ReplicationFailureReason::NOT_IN_SYNC;
+    case ReplicaFailureReason::RPC_ERROR:
+      return metrics::ReplicationFailureReason::RPC_ERROR;
+    case ReplicaFailureReason::DIVERGED:
+      return metrics::ReplicationFailureReason::DIVERGED;
+    case ReplicaFailureReason::TIMEOUT:
+      return metrics::ReplicationFailureReason::TIMEOUT;
+  }
+  std::unreachable();
+}
+
+// Counts each replica that did not confirm the commit, and returns the error.
+auto CountReplicationFailures(metrics::ReplicationFailureCounters const &counters, ReplicationError error)
+    -> ReplicationError {
+  auto const outcome = error.transaction_committed ? metrics::ReplicationFailureOutcome::COMMITTED
+                                                   : metrics::ReplicationFailureOutcome::ABORTED;
+  for (auto const &failure : error.failures) counters.Increment(failure.name, outcome, ToMetricReason(failure.reason));
+  return error;
+}
 
 constexpr auto ActionToStorageOperation(MetadataDelta::Action const action) -> durability::StorageMetadataOperation {
   // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
@@ -1208,7 +1232,9 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
           replicating_txn.UpdateCommitTsInfo();
 
           if (!failures.empty()) {
-            return std::unexpected{ReplicationError{.failures = std::move(failures), .transaction_committed = true}};
+            return std::unexpected{CountReplicationFailures(
+                mem_storage->metric_handles_.replication_failures,
+                ReplicationError{.failures = std::move(failures), .transaction_committed = true})};
           }
           return {};
         }
@@ -1252,7 +1278,9 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
           publish_done = true;
           if (engine_guard.owns_lock()) engine_guard.unlock();
           AbortAndResetCommitTs();
-          return std::unexpected{ReplicationError{.failures = std::move(failures), .transaction_committed = false}};
+          return std::unexpected{CountReplicationFailures(
+              mem_storage->metric_handles_.replication_failures,
+              ReplicationError{.failures = std::move(failures), .transaction_committed = false})};
         }
 
         if (repl_prepare_phase_ok) {

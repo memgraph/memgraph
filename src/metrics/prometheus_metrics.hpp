@@ -432,6 +432,7 @@ class PrometheusMetrics {
   prometheus::Family<prometheus::Counter> &successful_query_family_;
   prometheus::Family<prometheus::Counter> &write_write_conflicts_family_;
   prometheus::Family<prometheus::Counter> &transient_errors_family_;
+  prometheus::Family<prometheus::Counter> &replication_failures_family_;
   prometheus::Family<prometheus::Gauge> &unreleased_delta_objects_family_;
 
   // Per-database metric families — TTL

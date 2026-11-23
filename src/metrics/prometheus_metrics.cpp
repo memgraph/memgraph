@@ -16,11 +16,13 @@
 #include <fmt/format.h>
 #include <prometheus/client_metric.h>
 #include <prometheus/detail/builder.h>
+#include <prometheus/metric_family.h>
 #include <array>
 
 #include <ranges>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 #include "dbms/constants.hpp"
@@ -81,6 +83,22 @@ prometheus::Histogram::BucketBoundaries const kLatencyBuckets{
 
 inline prometheus::Histogram::BucketBoundaries const kThroughputBuckets{1e3, 1e4, 1e5, 1e6, 1e7, 1e8, 1e9};
 
+auto ReplicationFailureSeries(prometheus::Labels series, std::string_view const replica,
+                              ReplicationFailureOutcome const outcome, ReplicationFailureReason const reason)
+    -> prometheus::Labels {
+  series.emplace("mg_instance", replica);
+  series.emplace("outcome", kReplicationFailureOutcomes[std::to_underlying(outcome)].label);
+  series.emplace("reason", kReplicationFailureReasons[std::to_underlying(reason)]);
+  return series;
+}
+
+void RemoveSeries(prometheus::Family<prometheus::Counter> &family,
+                  ReplicationFailureCounters::ReplicaSeries const &series) {
+  for (auto const &by_reason : series) {
+    for (auto *const counter : by_reason) family.Remove(counter);
+  }
+}
+
 void RemoveDurabilityThroughput(std::string_view instance_name,
                                 prometheus::Family<prometheus::Histogram> &throughput_family,
                                 DurabilityThroughput &throughput) {
@@ -104,6 +122,53 @@ void ObserveDurabilityThroughput(std::string const &instance_name, double bytes_
 }
 
 }  // namespace
+
+void ReplicationFailureCounters::AddReplica(std::string_view const replica) const {
+  if (!family) return;
+  std::lock_guard const lock{state->mutex};
+  if (state->by_replica.contains(replica)) return;
+  ReplicaSeries series{};
+  for (std::size_t outcome = 0; outcome < series.size(); ++outcome) {
+    for (std::size_t reason = 0; reason < series[outcome].size(); ++reason) {
+      series[outcome][reason] = &family->Add(ReplicationFailureSeries(labels,
+                                                                      replica,
+                                                                      static_cast<ReplicationFailureOutcome>(outcome),
+                                                                      static_cast<ReplicationFailureReason>(reason)));
+    }
+  }
+  state->by_replica.emplace(replica, series);
+}
+
+void ReplicationFailureCounters::RemoveReplica(std::string_view const replica) const {
+  std::lock_guard const lock{state->mutex};
+  auto const it = state->by_replica.find(replica);
+  if (it == state->by_replica.end()) return;
+  RemoveSeries(*family, it->second);
+  state->by_replica.erase(it);
+}
+
+void ReplicationFailureCounters::Increment(std::string_view const replica, ReplicationFailureOutcome const outcome,
+                                           ReplicationFailureReason const reason) const {
+  std::lock_guard const lock{state->mutex};
+  if (auto const it = state->by_replica.find(replica); it != state->by_replica.end()) {
+    it->second[std::to_underlying(outcome)][std::to_underlying(reason)]->Increment();
+  }
+}
+
+auto ReplicationFailureCounters::Total(ReplicationFailureOutcome const outcome) const -> int64_t {
+  std::lock_guard const lock{state->mutex};
+  double total = 0;
+  for (auto const &series : state->by_replica | rv::values) {
+    for (auto const *const counter : series[std::to_underlying(outcome)]) total += counter->Value();
+  }
+  return static_cast<int64_t>(total);
+}
+
+void ReplicationFailureCounters::RemoveAll() const {
+  std::lock_guard const lock{state->mutex};
+  for (auto const &series : state->by_replica | rv::values) RemoveSeries(*family, series);
+  state->by_replica.clear();
+}
 
 PrometheusMetrics::PrometheusMetrics()
     // Per-database families
@@ -501,6 +566,11 @@ PrometheusMetrics::PrometheusMetrics()
                                    .Name("memgraph_transient_errors_total")
                                    .Help("Total number of transient errors")
                                    .Register(registry_)},
+      replication_failures_family_{prometheus::BuildCounter()
+                                       .Name("memgraph_replication_failures_total")
+                                       .Help("Number of commits a replica did not confirm, by replica, what happened "
+                                             "to the transaction, and why; a commit counts once per such replica")
+                                       .Register(registry_)},
       unreleased_delta_objects_family_{prometheus::BuildGauge()
                                            .Name("memgraph_unreleased_delta_objects")
                                            .Help("Total number of unreleased delta objects in memory")
@@ -1037,6 +1107,7 @@ DatabaseMetricHandles PrometheusMetrics::CreateHandles(uint64_t entry_id) {
       .successful_query = {&successful_query_family_.Add(labels)},
       .write_write_conflicts = {&write_write_conflicts_family_.Add(labels)},
       .transient_errors = {&transient_errors_family_.Add(labels)},
+      .replication_failures = {.family = &replication_failures_family_, .labels = labels},
       .unreleased_delta_objects = {&unreleased_delta_objects_family_.Add(labels)},
       .read_query = {&read_query_family_.Add(labels)},
       .write_query = {&write_query_family_.Add(labels)},
@@ -1214,6 +1285,7 @@ void PrometheusMetrics::RemoveHandlesFromFamilies(DatabaseMetricHandles const &h
   successful_query_family_.Remove(h.successful_query.get());
   write_write_conflicts_family_.Remove(h.write_write_conflicts.get());
   transient_errors_family_.Remove(h.transient_errors.get());
+  h.replication_failures.RemoveAll();
   unreleased_delta_objects_family_.Remove(h.unreleased_delta_objects.get());
   read_query_family_.Remove(h.read_query.get());
   write_query_family_.Remove(h.write_query.get());
@@ -1691,6 +1763,12 @@ std::expected<std::vector<MetricInfo>, std::string> PrometheusMetrics::GetDbMetr
   out.push_back(
       {"WriteWriteConflicts", "Transaction", "Counter", static_cast<int64_t>(h.write_write_conflicts.Value())});
   out.push_back({"TransientErrors", "Transaction", "Counter", static_cast<int64_t>(h.transient_errors.Value())});
+  for (auto const &[index, outcome] : kReplicationFailureOutcomes | rv::enumerate) {
+    out.push_back({std::string{outcome.info_name},
+                   "Transaction",
+                   "Counter",
+                   h.replication_failures.Total(static_cast<ReplicationFailureOutcome>(index))});
+  }
 
   // QueryType
   out.push_back({"ReadQuery", "QueryType", "Counter", static_cast<int64_t>(h.read_query.Value())});
