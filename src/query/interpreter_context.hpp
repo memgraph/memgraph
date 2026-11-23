@@ -14,6 +14,7 @@
 #include <atomic>
 #include <cassert>
 #include <cstdint>
+#include <map>
 #include <memory>
 #include <optional>
 #include <string>
@@ -37,6 +38,7 @@
 #include "utils/settings.hpp"
 #include "utils/spin_lock.hpp"
 #include "utils/synchronized.hpp"
+#include "utils/uuid.hpp"
 #ifdef MG_ENTERPRISE
 namespace memgraph::coordination {
 class CoordinatorState;
@@ -106,6 +108,10 @@ struct InterpreterContext {
   /// Function that is used to tell all active interpreters that they should stop
   /// their ongoing execution.
   void Shutdown() { is_shutting_down.store(true, std::memory_order_release); }
+
+  /// Age in seconds of the oldest open transaction on each database, keyed by database uuid. Sessions with no
+  /// current database are left out.
+  static std::map<utils::UUID, double> LongestTransactionSeconds(const std::unordered_set<Interpreter *> &interpreters);
 
   std::vector<std::vector<TypedValue>> TerminateTransactions(
       const std::unordered_set<Interpreter *> &interpreters, std::vector<uint64_t> maybe_kill_transaction_ids,

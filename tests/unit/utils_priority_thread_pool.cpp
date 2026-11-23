@@ -241,6 +241,63 @@ TEST(PriorityThreadPool, StartupRunsInitCallbackOnEveryThread) {
   EXPECT_EQ(ran, 1);
 }
 
+TEST(PriorityThreadPool, BusyMixedWorkersCountsWorkersRunningATask) {
+  memgraph::utils::PriorityThreadPool pool{4, 1};
+  EXPECT_EQ(pool.GetNumBusyMixedWorkers(), 0);
+
+  std::atomic<int> started{0};
+  std::atomic<bool> release{false};
+  for (int i = 0; i < 2; ++i) {
+    pool.ScheduledAddTask(
+        [&](auto) {
+          ++started;
+          release.wait(false);
+        },
+        memgraph::utils::Priority::LOW);
+  }
+  auto const deadline = std::chrono::steady_clock::now() + 5s;
+  while (started != 2 && std::chrono::steady_clock::now() < deadline) std::this_thread::sleep_for(1ms);
+  ASSERT_EQ(started, 2);
+  EXPECT_EQ(pool.GetNumBusyMixedWorkers(), 2);
+
+  release = true;
+  release.notify_all();
+  while (pool.GetNumBusyMixedWorkers() != 0 && std::chrono::steady_clock::now() < deadline) {
+    std::this_thread::sleep_for(1ms);
+  }
+  EXPECT_EQ(pool.GetNumBusyMixedWorkers(), 0);
+}
+
+TEST(PriorityThreadPool, QueuedTasksCountsTasksWaitingForAMixedWorker) {
+  memgraph::utils::PriorityThreadPool pool{1, 1};
+  std::atomic<bool> started{false};
+  std::atomic<bool> release{false};
+  pool.ScheduledAddTask(
+      [&](auto) {
+        started = true;
+        release.wait(false);
+      },
+      memgraph::utils::Priority::LOW);
+  auto const deadline = std::chrono::steady_clock::now() + 5s;
+  while (!started && std::chrono::steady_clock::now() < deadline) std::this_thread::sleep_for(1ms);
+  ASSERT_TRUE(started);
+
+  // The high-priority worker steals only high-priority work, so these wait for the blocked mixed worker.
+  for (int i = 0; i < 2; ++i) pool.ScheduledAddTask([](auto) {}, memgraph::utils::Priority::LOW);
+  // The monitor briefly holds a task outside any queue while it moves it off the stuck worker.
+  while (pool.GetNumQueuedTasks() != 2 && std::chrono::steady_clock::now() < deadline) {
+    std::this_thread::sleep_for(1ms);
+  }
+  EXPECT_EQ(pool.GetNumQueuedTasks(), 2);
+
+  release = true;
+  release.notify_all();
+  while (pool.GetNumQueuedTasks() != 0 && std::chrono::steady_clock::now() < deadline) {
+    std::this_thread::sleep_for(1ms);
+  }
+  EXPECT_EQ(pool.GetNumQueuedTasks(), 0);
+}
+
 // TaskCollection Tests
 TEST(TaskCollection, BasicAddAndSize) {
   using namespace memgraph;

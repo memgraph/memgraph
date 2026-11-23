@@ -17,6 +17,9 @@
 #include <prometheus/client_metric.h>
 #include <prometheus/detail/builder.h>
 #include <array>
+#include <chrono>
+#include <map>
+#include <string>
 
 #include <ranges>
 #include <unordered_map>
@@ -119,6 +122,29 @@ PrometheusMetrics::PrometheusMetrics()
                              .Name("memgraph_disk_usage_bytes")
                              .Help("Disk usage of the database in bytes")
                              .Register(registry_)},
+      snapshot_running_seconds_family_{prometheus::BuildGauge()
+                                           .Name("memgraph_snapshot_running_seconds")
+                                           .Help("Time the running snapshot has taken so far; 0 when none is running")
+                                           .Register(registry_)},
+      gc_running_seconds_family_{
+          prometheus::BuildGauge()
+              .Name("memgraph_gc_running_seconds")
+              .Help("Time the running garbage collection has taken so far; 0 when none is running")
+              .Register(registry_)},
+      longest_transaction_seconds_family_{prometheus::BuildGauge()
+                                              .Name("memgraph_longest_transaction_seconds")
+                                              .Help("Age of the oldest open transaction; 0 when none is open")
+                                              .Register(registry_)},
+      last_snapshot_timestamp_seconds_family_{
+          prometheus::BuildGauge()
+              .Name("memgraph_last_snapshot_timestamp_seconds")
+              .Help("Unix time of the last snapshot, or of the last check that found nothing new to write; 0 until "
+                    "then")
+              .Register(registry_)},
+      snapshot_failures_family_{prometheus::BuildCounter()
+                                    .Name("memgraph_snapshot_failures_total")
+                                    .Help("Snapshots that failed, by reason: no_space or write_error")
+                                    .Register(registry_)},
       db_memory_tracked_family_{prometheus::BuildGauge()
                                     .Name("memgraph_db_memory_tracked_bytes")
                                     .Help("Total tracked memory usage of the database in bytes")
@@ -545,6 +571,22 @@ PrometheusMetrics::PrometheusMetrics()
                                  .Name("memgraph_cold_databases")
                                  .Help("Current number of suspended (cold) databases")
                                  .Register(registry_)},
+      workers_family_{prometheus::BuildGauge()
+                          .Name("memgraph_workers")
+                          .Help("Worker threads that run client queries (--bolt-num-workers)")
+                          .Register(registry_)},
+      workers_busy_family_{prometheus::BuildGauge()
+                               .Name("memgraph_workers_busy")
+                               .Help("Worker threads running a query now, including queries waiting on a lock")
+                               .Register(registry_)},
+      worker_queue_length_family_{prometheus::BuildGauge()
+                                      .Name("memgraph_worker_queue_length")
+                                      .Help("Tasks queued on worker threads, including parallel query subtasks")
+                                      .Register(registry_)},
+      process_start_time_family_{prometheus::BuildGauge()
+                                     .Name("process_start_time_seconds")
+                                     .Help("Start time of the process since the Unix epoch, in seconds")
+                                     .Register(registry_)},
       database_suspend_latency_family_{prometheus::BuildHistogram()
                                            .Name("memgraph_database_suspend_latency_seconds")
                                            .Help("Latency of a successful database SUSPEND in seconds")
@@ -820,6 +862,8 @@ PrometheusMetrics::PrometheusMetrics()
   // Populate GlobalMetricHandles — only session, memory, and HA metrics
   prometheus::Labels const no_labels{};
 
+  process_start_time_ = &process_start_time_family_.Add(no_labels);
+  process_start_time_->Set(std::chrono::duration<double>(std::chrono::system_clock::now().time_since_epoch()).count());
   global.active_sessions = &active_sessions_family_.Add(no_labels);
   global.active_bolt_sessions = &active_bolt_sessions_family_.Add(no_labels);
   global.active_tcp_sessions = &active_tcp_sessions_family_.Add(no_labels);
@@ -909,6 +953,17 @@ PrometheusMetrics::PrometheusMetrics()
   global.show_storage_info = &show_storage_info_family_.Add(no_labels);
 }
 
+void PrometheusMetrics::SetTransactionAgeResolver(TransactionAgeResolver resolver) {
+  transaction_age_resolver_ = std::move(resolver);
+}
+
+void PrometheusMetrics::SetWorkerPoolResolver(WorkerPoolResolver resolver) {
+  worker_pool_resolver_ = std::move(resolver);
+  workers_ = &workers_family_.Add({});
+  workers_busy_ = &workers_busy_family_.Add({});
+  worker_queue_length_ = &worker_queue_length_family_.Add({});
+}
+
 void PrometheusMetrics::SetStorageSnapshotResolver(StorageSnapshotResolver resolver) {
   storage_snapshot_resolver_ = std::move(resolver);
 }
@@ -953,6 +1008,14 @@ DatabaseMetricHandles PrometheusMetrics::CreateHandles(uint64_t entry_id) {
       .vertex_count = {&vertex_count_family_.Add(labels)},
       .edge_count = {&edge_count_family_.Add(labels)},
       .disk_usage_bytes = {&disk_usage_family_.Add(labels)},
+      .snapshot_running_seconds = {&snapshot_running_seconds_family_.Add(labels)},
+      .gc_running_seconds = {&gc_running_seconds_family_.Add(labels)},
+      .longest_transaction_seconds = {&longest_transaction_seconds_family_.Add(labels)},
+      .last_snapshot_timestamp_seconds = {&last_snapshot_timestamp_seconds_family_.Add(labels)},
+      .snapshot_failures_no_space = {&snapshot_failures_family_.Add(
+          {{kEntryLabel, std::to_string(entry_id)}, {"reason", "no_space"}})},
+      .snapshot_failures_write_error = {&snapshot_failures_family_.Add(
+          {{kEntryLabel, std::to_string(entry_id)}, {"reason", "write_error"}})},
       .db_memory_tracked_bytes = {&db_memory_tracked_family_.Add(labels)},
       .db_peak_memory_tracked_bytes = {&db_peak_memory_tracked_family_.Add(labels)},
       .db_storage_memory_tracked_bytes = {&db_storage_memory_tracked_family_.Add(labels)},
@@ -1130,6 +1193,12 @@ void PrometheusMetrics::RemoveHandlesFromFamilies(DatabaseMetricHandles const &h
   vertex_count_family_.Remove(h.vertex_count.get());
   edge_count_family_.Remove(h.edge_count.get());
   disk_usage_family_.Remove(h.disk_usage_bytes.get());
+  snapshot_running_seconds_family_.Remove(h.snapshot_running_seconds.get());
+  gc_running_seconds_family_.Remove(h.gc_running_seconds.get());
+  longest_transaction_seconds_family_.Remove(h.longest_transaction_seconds.get());
+  last_snapshot_timestamp_seconds_family_.Remove(h.last_snapshot_timestamp_seconds.get());
+  snapshot_failures_family_.Remove(h.snapshot_failures_no_space.get());
+  snapshot_failures_family_.Remove(h.snapshot_failures_write_error.get());
   db_memory_tracked_family_.Remove(h.db_memory_tracked_bytes.get());
   db_peak_memory_tracked_family_.Remove(h.db_peak_memory_tracked_bytes.get());
   db_storage_memory_tracked_family_.Remove(h.db_storage_memory_tracked_bytes.get());
@@ -1294,6 +1363,8 @@ void PrometheusMetrics::UpdateGauges() {
 
   auto const snaps = db_uuids | rv::transform([&](auto const &uuid) { return ResolveStorageSnapshot(uuid); }) |
                      r::to<std::vector<StorageSnapshot>>();
+  auto const transaction_ages =
+      transaction_age_resolver_ ? transaction_age_resolver_() : std::map<utils::UUID, double>{};
 
   {
     std::shared_lock const lock{databases_.mutex};
@@ -1304,6 +1375,10 @@ void PrometheusMetrics::UpdateGauges() {
       it->handles.vertex_count.Set(static_cast<double>(snapshot.vertex_count));
       it->handles.edge_count.Set(static_cast<double>(snapshot.edge_count));
       it->handles.disk_usage_bytes.Set(static_cast<double>(snapshot.disk_usage));
+      it->handles.snapshot_running_seconds.Set(snapshot.snapshot_running_seconds);
+      it->handles.gc_running_seconds.Set(snapshot.gc_running_seconds);
+      auto const age = transaction_ages.find(it->uuid);
+      it->handles.longest_transaction_seconds.Set(age == transaction_ages.end() ? 0.0 : age->second);
       it->handles.db_memory_tracked_bytes.Set(static_cast<double>(snapshot.db_memory_tracked));
       it->handles.db_peak_memory_tracked_bytes.Set(static_cast<double>(snapshot.db_peak_memory_tracked));
       it->handles.db_storage_memory_tracked_bytes.Set(static_cast<double>(snapshot.db_storage_memory_tracked));
@@ -1313,6 +1388,13 @@ void PrometheusMetrics::UpdateGauges() {
   }
 
   global.memory_res_bytes->Set(static_cast<double>(utils::GetMemoryRES()));
+
+  if (worker_pool_resolver_) {
+    auto const pool = worker_pool_resolver_();
+    workers_->Set(static_cast<double>(pool.workers));
+    workers_busy_->Set(static_cast<double>(pool.busy));
+    worker_queue_length_->Set(static_cast<double>(pool.queued));
+  }
 
 #ifdef MG_ENTERPRISE
   std::vector<coordination::InstanceStatus> instances;
@@ -1714,6 +1796,12 @@ std::expected<std::vector<MetricInfo>, std::string> PrometheusMetrics::GetDbMetr
   // Snapshot
   AppendHistogramPercentiles(out, "SnapshotCreationLatency", "Snapshot", *h.snapshot_creation_latency_seconds.get());
   AppendHistogramPercentiles(out, "SnapshotRecoveryLatency", "Snapshot", *h.snapshot_recovery_latency_seconds.get());
+  out.push_back(
+      {"SnapshotFailuresNoSpace", "Snapshot", "Counter", static_cast<int64_t>(h.snapshot_failures_no_space.Value())});
+  out.push_back({"SnapshotFailuresWriteError",
+                 "Snapshot",
+                 "Counter",
+                 static_cast<int64_t>(h.snapshot_failures_write_error.Value())});
 
   return out;
 }
@@ -2102,6 +2190,18 @@ std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfoForJson() {
     int64_t const delta = *current - it->second;
     it->second = *current;
     info.value = delta;
+  }
+  return out;
+}
+
+std::vector<MetricInfo> PrometheusMetrics::GetProcessMetricsInfo() const {
+  std::vector<MetricInfo> out;
+  out.push_back({"ProcessStartTime", "General", "Gauge", static_cast<int64_t>(process_start_time_->Value())});
+  if (worker_pool_resolver_) {
+    auto const pool = worker_pool_resolver_();
+    out.push_back({"Workers", "General", "Gauge", static_cast<int64_t>(pool.workers)});
+    out.push_back({"WorkersBusy", "General", "Gauge", static_cast<int64_t>(pool.busy)});
+    out.push_back({"WorkerQueueLength", "General", "Gauge", static_cast<int64_t>(pool.queued)});
   }
   return out;
 }

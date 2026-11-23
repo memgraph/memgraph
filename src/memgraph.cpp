@@ -1129,6 +1129,11 @@ int main(int argc, char **argv) {
                          []() {});
 #endif
     io_n_threads = 1U;
+    memgraph::metrics::Metrics().SetWorkerPoolResolver([&worker_pool_] {
+      return memgraph::metrics::WorkerPoolStats{.workers = worker_pool_->GetNumMixedWorkers(),
+                                                .busy = worker_pool_->GetNumBusyMixedWorkers(),
+                                                .queued = worker_pool_->GetNumQueuedTasks()};
+    });
   }
 
   // Used by interpreter context
@@ -1160,6 +1165,11 @@ int main(int argc, char **argv) {
       worker_pool_ ? &*worker_pool_ : nullptr);
 
   auto &interpreter_context_ = memgraph::query::InterpreterContextHolder::GetInstance();
+  memgraph::metrics::Metrics().SetTransactionAgeResolver([&interpreter_context_] {
+    return interpreter_context_.interpreters.WithLock([](auto const &interpreters) {
+      return memgraph::query::InterpreterContext::LongestTransactionSeconds(interpreters);
+    });
+  });
   if (!is_coordinator_instance) {
     MG_ASSERT(db_acc.has_value(), "Failed to access the main database");
 
