@@ -373,6 +373,18 @@ jobs:
           echo "ADDITIONAL_BUILD_ARGS=$args" >> $GITHUB_ENV
           echo "Final build args: $args"
 
+      # TODO(matt): TEMPORARY. Remove once memgraph/mgbuild:v8_ubuntu-24.04-cugraph
+      # (RAPIDS 26.10 / CUDA 13.4.1) has been pushed to Docker Hub.
+      - name: "Build cuGraph mgbuild image"
+        if: ${{ env.CUGRAPH == 'true' }}
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os "$OS" \
+          --arch $ARCH \
+          --cugraph true \
+          build
+
       - name: "Spin up mgbuild container"
         env:
           GITHUB_TOKEN: ${{ github.token }}
