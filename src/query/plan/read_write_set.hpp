@@ -75,9 +75,6 @@ struct ReadWriteSet {
   /// Per key in `properties`, the variable it is read or written through; `any_property_reach` for `any_property`.
   std::map<std::string, KeyReach> property_reach;
   KeyReach any_property_reach;
-  /// Reads only: the keys in `properties` that only a pattern's property map reads, an equality match. A write that
-  /// stores an equal value back changes no such match.
-  std::set<std::string> matched_properties;
   /// Reads: the symbols a pattern expands from or through. Writes: the symbols a CREATE or MERGE first binds, which
   /// View::OLD cannot see until the command advances.
   std::unordered_set<Symbol> symbols;
