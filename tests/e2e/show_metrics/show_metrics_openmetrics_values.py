@@ -12,6 +12,7 @@
 import re
 import sys
 import urllib.request
+from collections import defaultdict
 
 import mgclient
 import pytest
@@ -289,6 +290,39 @@ def test_openmetrics_per_db_transaction_counters(populated_databases):
     m = parse_openmetrics(scrape_openmetrics())
     assert om_get(m, "memgraph_committed_transactions_total", "memgraph") > 0
     assert om_get(m, "memgraph_committed_transactions_total", "db2") > 0
+
+
+LATENCY_BUCKET_BOUNDS = {
+    0.00001,
+    0.00005,
+    0.0001,
+    0.0005,
+    0.001,
+    0.005,
+    0.01,
+    0.05,
+    0.1,
+    0.5,
+    1,
+    5,
+    10,
+    30,
+    60,
+    120,
+    300,
+    600,
+    1800,
+    3600,
+    float("inf"),
+}
+
+
+def test_openmetrics_latency_histograms_have_buckets_up_to_an_hour():
+    bounds = defaultdict(set)
+    for name, le in re.findall(r'^memgraph_(\w+_seconds)_bucket\{.*le="([^"]+)"', scrape_openmetrics(), re.MULTILINE):
+        bounds[name].add(float(le))
+    assert bounds
+    assert {name: les for name, les in bounds.items() if les != LATENCY_BUCKET_BOUNDS} == {}
 
 
 if __name__ == "__main__":

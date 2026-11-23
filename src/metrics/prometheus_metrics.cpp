@@ -17,6 +17,7 @@
 #include <prometheus/client_metric.h>
 #include <prometheus/detail/builder.h>
 #include <array>
+#include <cmath>
 
 #include <ranges>
 #include <unordered_map>
@@ -75,9 +76,10 @@ bool IsLegacyCoordinatorDeltaMetric(std::string_view name) {
   return r::find(kLegacyCoordinatorDeltaMetrics, name) != kLegacyCoordinatorDeltaMetrics.end();
 }
 
-// 15 buckets covering 10µs to 60s
-prometheus::Histogram::BucketBoundaries const kLatencyBuckets{
-    0.00001, 0.00005, 0.0001, 0.0005, 0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0, 10.0, 30.0, 60.0};
+// 20 buckets covering 10µs to 1h
+prometheus::Histogram::BucketBoundaries const kLatencyBuckets{0.00001, 0.00005, 0.0001, 0.0005, 0.001,  0.005, 0.01,
+                                                              0.05,    0.1,     0.5,    1.0,    5.0,    10.0,  30.0,
+                                                              60.0,    120.0,   300.0,  600.0,  1800.0, 3600.0};
 
 inline prometheus::Histogram::BucketBoundaries const kThroughputBuckets{1e3, 1e4, 1e5, 1e6, 1e7, 1e8, 1e9};
 
@@ -1406,7 +1408,7 @@ double HistogramPercentile(prometheus::Histogram const &h, double quantile) {
   uint64_t prev_count = 0;
   for (auto const &bucket : hdata.bucket) {
     if (static_cast<double>(bucket.cumulative_count) >= target) {
-      if (bucket.cumulative_count == prev_count) return prev_bound;
+      if (bucket.cumulative_count == prev_count || std::isinf(bucket.upper_bound)) return prev_bound;
       double const frac =
           (target - static_cast<double>(prev_count)) / static_cast<double>(bucket.cumulative_count - prev_count);
       return prev_bound + (frac * (bucket.upper_bound - prev_bound));
@@ -1443,7 +1445,7 @@ double MergedHistogramPercentile(std::vector<prometheus::ClientMetric::Histogram
     for (auto const &hd : hdatas) cumulative += hd.bucket[i].cumulative_count;
     double const upper = hdatas[0].bucket[i].upper_bound;
     if (static_cast<double>(cumulative) >= target) {
-      if (cumulative == prev_cumulative) return prev_bound;
+      if (cumulative == prev_cumulative || std::isinf(upper)) return prev_bound;
       double const frac =
           (target - static_cast<double>(prev_cumulative)) / static_cast<double>(cumulative - prev_cumulative);
       return prev_bound + (frac * (upper - prev_bound));
