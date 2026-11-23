@@ -97,8 +97,11 @@ struct OperatorEvaluation<ScanAllByPointDistance> : EvaluatesNoRecord {};
 template <>
 struct OperatorEvaluation<ScanAllByPointWithinbbox> : EvaluatesNoRecord {};
 
+/// An expansion binds its edge and its node, and binds nothing where it expands into a symbol the row
+/// already holds, so the record a slot was read from is still that record for every row it makes from
+/// one input row.
 template <>
-struct OperatorEvaluation<Expand> : EvaluatesNoRecord {};
+struct OperatorEvaluation<Expand> : EvaluatesNoRecordAndKeepsSlots {};
 
 template <>
 struct OperatorEvaluation<ExpandVariable> : EvaluatesNoRecord {};
@@ -124,17 +127,20 @@ struct OperatorEvaluation<RemoveProperty> : EvaluatesNoRecord {};
 template <>
 struct OperatorEvaluation<RemoveLabels> : EvaluatesNoRecord {};
 
+/// Decides whether a row's relationships are distinct and hands on the rows it keeps.
 template <>
-struct OperatorEvaluation<EdgeUniquenessFilter> : EvaluatesNoRecord {};
+struct OperatorEvaluation<EdgeUniquenessFilter> : EvaluatesNoRecordAndKeepsSlots {};
 
 template <>
 struct OperatorEvaluation<Accumulate> : EvaluatesNoRecord {};
 
+/// Counts rows through and hands each on as its input left it.
 template <>
-struct OperatorEvaluation<Skip> : EvaluatesNoRecord {};
+struct OperatorEvaluation<Skip> : EvaluatesNoRecordAndKeepsSlots {};
 
+/// Counts rows through and hands each on as its input left it.
 template <>
-struct OperatorEvaluation<Limit> : EvaluatesNoRecord {};
+struct OperatorEvaluation<Limit> : EvaluatesNoRecordAndKeepsSlots {};
 
 template <>
 struct OperatorEvaluation<OrderBy> : EvaluatesNoRecord {};

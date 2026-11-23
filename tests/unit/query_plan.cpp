@@ -9597,6 +9597,29 @@ TYPED_TEST(TestPlanner, PrefetchPropertiesAProjectionReadsASlotAFilterAlreadyFil
       planner.plan(), symbol_table, ExpectScanAll(), ExpectPrefetchProperties("n", 1), ExpectFilter(), ExpectProduce());
 }
 
+// An expansion stands between the filter and the projection here. It binds its own edge and node
+// and leaves the rest of the row alone, so the slot still holds the read the projection was going
+// to make of the node the expansion started from.
+TYPED_TEST(TestPlanner, PrefetchPropertiesAProjectionReadsASlotAcrossAnExpansion) {
+  PrefetchPropertiesFlagGuard guard{true};
+  FakeDbAccessor dba;
+  auto prop = PROPERTY_PAIR(dba, "a");
+  auto *query =
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("e"), NODE("m"))),
+                         WHERE(AND(GREATER(PROPERTY_LOOKUP(dba, "n", prop), LITERAL(0)),
+                                   LESS(PROPERTY_LOOKUP(dba, "n", prop), LITERAL(10)))),
+                         RETURN(ADD(PROPERTY_LOOKUP(dba, "n", prop), PROPERTY_LOOKUP(dba, "n", prop)), AS("x"))));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+  CheckPlan(planner.plan(),
+            symbol_table,
+            ExpectScanAll(),
+            ExpectPrefetchProperties("n", 1),
+            ExpectFilter(),
+            ExpectExpand(),
+            ExpectProduce());
+}
+
 // A property a slot below holds counts towards nothing, so what the projection's own pass reads is
 // the other property alone, and the lookup that found a slot still answers from it.
 TYPED_TEST(TestPlanner, PrefetchPropertiesAProjectionPassesOverWhatASlotAlreadyHolds) {
