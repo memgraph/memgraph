@@ -5,8 +5,8 @@ SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 ROOT_DIR="$SCRIPT_DIR/../../"
 MG_BUILD_DIR="$ROOT_DIR/build"
 
-# Use MGCONSOLE_TAG from environment if set, otherwise default to v1.7.0
-MGCONSOLE_TAG="${MGCONSOLE_TAG:-v1.7.0}"
+# Use MGCONSOLE_TAG from environment if set, otherwise default to v1.7.3
+MGCONSOLE_TAG="${MGCONSOLE_TAG:-v1.7.3}"
 
 # Build against the toolchain sysroot (glibc 2.31): a host-glibc build
 # breaks the packaged /usr/bin/mgconsole on older distros (e.g. debian-12:

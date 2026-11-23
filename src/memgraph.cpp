@@ -246,6 +246,48 @@ void WaitForShutdownSignal(const std::function<void()> &shutdown_fun) {
   shutdown_fun();
 }
 
+// The port the Bolt server listens on: MEMGRAPH_BOLT_PORT, when set, overrides --bolt-port.
+int BoltPort() {
+  if (auto const *env_bolt_port = std::getenv(kMgBoltPort); env_bolt_port) {
+    return std::stoi(env_bolt_port);
+  }
+  return FLAGS_bolt_port;
+}
+
+// Bolt uses TLS only when both the key and the certificate are given.
+bool BoltUsesTls() { return !FLAGS_bolt_key_file.empty() && !FLAGS_bolt_cert_file.empty(); }
+
+// The Bolt URI for reaching this server from the same machine (or container). A wildcard bind address is reached
+// through localhost; with TLS on, bolt+ssc accepts the server's certificate even when it is self-signed.
+std::string LocalBoltUri() {
+  std::string_view const address = FLAGS_bolt_address;
+  std::string host = "localhost";
+  if (!address.empty() && address != "0.0.0.0" && address != "::") {
+    host = address.contains(':') ? fmt::format("[{}]", address) : std::string{address};
+  }
+  auto const *scheme = BoltUsesTls() ? "bolt+ssc" : "bolt";
+  return fmt::format("{}://{}:{}", scheme, host, BoltPort());
+}
+
+// Points users at Memgraph Agent: how to run it when it is installed (the Docker images ship it), otherwise where to
+// get it. Matches the hint mgconsole shows on startup. mgagent doesn't connect to anything by default, so the command
+// includes --connect for this server.
+std::string MgAgentStartupMessage() {
+  constexpr std::string_view kDescription = "Memgraph Agent (mgagent), an AI-powered terminal assistant for Memgraph";
+  auto const *path = std::getenv("PATH");
+  if (!memgraph::utils::FindExecutableInPath("mgagent", path ? path : "")) {
+    return fmt::format("Try {}: https://memgraph.com/download#memgraph-agent", kDescription);
+  }
+  auto const command = fmt::format("mgagent --connect {}", LocalBoltUri());
+  // The images set this for telemetry; there mgagent runs inside the container, next to this server.
+  auto const *telemetry_id = std::getenv("MEMGRAPH_TELEMETRY_ID");
+  if (telemetry_id && std::string_view{telemetry_id} == "DOCKER") {
+    return fmt::format(
+        "{}, is installed in this image. Try it with: docker exec -it <container> {}", kDescription, command);
+  }
+  return fmt::format("{}, is installed. Try it by running: {}", kDescription, command);
+}
+
 // Cleans all folders and files that aren't necessary anymore
 void CleanDataDir(std::filesystem::path const &data_directory) {
   // Clean tmp folders from the data directory
@@ -471,6 +513,7 @@ int main(int argc, char **argv) {
   }
   std::cout << "You are running Memgraph v" << gflags::VersionString() << std::endl;
   std::cout << "To get started with Memgraph, visit https://memgr.ph/start" << std::endl;
+  std::cout << MgAgentStartupMessage() << '\n';
 
   // Logged as an error as well as printed: once the process reaches the limit, the allocator can no longer return
   // memory to the OS and resident memory only grows, and the log is what reaches log collectors.
@@ -902,12 +945,7 @@ int main(int argc, char **argv) {
 
   auto system = memgraph::system::System{db_config.durability.storage_directory, FLAGS_data_recovery_on_startup};
 
-  int const extracted_bolt_port = [&]() {
-    if (auto *maybe_env_bolt_port = std::getenv(kMgBoltPort); maybe_env_bolt_port) {
-      return std::stoi(maybe_env_bolt_port);
-    }
-    return FLAGS_bolt_port;
-  }();  // iile
+  int const extracted_bolt_port = BoltPort();
 
 // singleton coordinator state
 #ifdef MG_ENTERPRISE
@@ -1095,9 +1133,7 @@ int main(int argc, char **argv) {
 
   // Used by interpreter context
   std::string service_name = "Bolt";
-  auto bolt_server_context = !FLAGS_bolt_key_file.empty() && !FLAGS_bolt_cert_file.empty()
-                                 ? ServerContext(FLAGS_bolt_key_file, FLAGS_bolt_cert_file)
-                                 : ServerContext{};
+  auto bolt_server_context = BoltUsesTls() ? ServerContext(FLAGS_bolt_key_file, FLAGS_bolt_cert_file) : ServerContext{};
   if (bolt_server_context.use_ssl()) {
     service_name = "BoltS";
     spdlog::info("Using secure Bolt connection (with SSL)");

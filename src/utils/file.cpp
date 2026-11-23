@@ -116,6 +116,18 @@ bool RenamePath(const std::filesystem::path &src, const std::filesystem::path &d
 
 bool HasReadAccess(const std::filesystem::path &path) { return access(path.c_str(), R_OK) == 0; }
 
+std::optional<std::filesystem::path> FindExecutableInPath(std::string_view name, std::string_view search_path) {
+  if (name.empty() || name.contains('/')) return std::nullopt;
+  for (auto const entry : search_path | std::views::split(':')) {
+    std::string_view const dir(entry.begin(), entry.end());
+    if (dir.empty()) continue;
+    auto candidate = std::filesystem::path(dir) / name;
+    std::error_code ec;
+    if (std::filesystem::is_regular_file(candidate, ec) && access(candidate.c_str(), X_OK) == 0) return candidate;
+  }
+  return std::nullopt;
+}
+
 // `len == 0` means "to the end of the file".
 int DropCachedPages(int fd) { return ::posix_fadvise(fd, 0, 0, POSIX_FADV_DONTNEED); }
 
