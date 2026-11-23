@@ -54,7 +54,7 @@ struct ReplicationClient {
            fail_cb = std::forward<FF>(fail_callback),
            failed_attempts = 0UL]() mutable {
             // Measure callbacks also to see how long it takes between scheduled runs
-            metrics::ScopedHistogramTimer const timer{metrics::Metrics().global.frequent_heartbeat_rpc_seconds};
+            metrics::ScopedHistogramTimer const timer{metrics_.handles().frequent_heartbeat_rpc_seconds.get()};
             try {
               {
                 auto stream{rpc_client_.Stream<replication_coordination_glue::FrequentHeartbeatRpc>()};
@@ -123,6 +123,8 @@ struct ReplicationClient {
   void Shutdown() const;
 
   std::string name_;
+  // Declared before the thread pools and the replica checker, so it outlives every task that observes it.
+  metrics::PrometheusMetrics::ReplicaRegistration metrics_;
   communication::ClientContext rpc_context_;
   // mutable because at the shutdown time (main thread) we need to take ReadLock() on repl state which requires
   // constness of functions being invoked

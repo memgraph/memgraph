@@ -99,6 +99,7 @@ class ReplicationInstanceClient {
   mutable rpc::Client rpc_client_;
 
   std::string instance_name_;
+  metrics::PrometheusMetrics::InstanceRegistration metrics_;
   CoordinatorInstance *coord_instance_;
 
   std::chrono::seconds instance_health_check_frequency_sec_{1};

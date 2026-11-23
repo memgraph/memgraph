@@ -47,6 +47,7 @@ RpcInfoSpecialize(UpdateDataInstanceConfigRpc, update_data_instance_config_rpc_s
     : rpc_context_{communication::CreateClientContext(tls_config)},
       rpc_client_{std::move(mgt_server), &rpc_context_},
       instance_name_(std::move(instance_name)),
+      metrics_(metrics::Metrics().AddInstance(instance_name_)),
       coord_instance_(coord_instance),
       instance_health_check_frequency_sec_(instance_health_check_frequency_sec) {}
 
@@ -84,7 +85,7 @@ void ReplicationInstanceClient::ResumeStateCheck() { instance_checker_.Resume();
 
 auto ReplicationInstanceClient::SendStateCheckRpc() const -> std::optional<InstanceState> {
   auto &g = metrics::Metrics().global;
-  metrics::ScopedHistogramTimer const timer{g.state_check_rpc_seconds};
+  metrics::ScopedHistogramTimer const timer{metrics_.handles().state_check_rpc_seconds.get()};
   try {
     auto stream{rpc_client_.Stream<StateCheckRpc>()};
     auto res = stream.SendAndWait();

@@ -163,6 +163,12 @@ def show_instances_count():
     return float(match.group(1))
 
 
+def state_check_count(instance):
+    pattern = rf'^memgraph_state_check_rpc_seconds_count\{{mg_instance="{instance}"\}} (\S+)$'
+    match = re.search(pattern, scrape_metrics(), re.MULTILINE)
+    return float(match.group(1)) if match else 0.0
+
+
 def test_instance_metrics_present(test_name):
     cursor = setup_test(test_name)
 
@@ -173,6 +179,7 @@ def test_instance_metrics_present(test_name):
         assert f'memgraph_instance_up{{mg_instance="{instance}"}}' in metrics
         assert f'memgraph_instance_is_main{{mg_instance="{instance}"}}' in metrics
         assert f'memgraph_instance_last_response_seconds{{mg_instance="{instance}"}}' in metrics
+        mg_sleep_and_assert_eval_function(lambda c: c > 0, partial(state_check_count, instance))
 
     assert 'memgraph_instance_is_leader{mg_instance="coordinator_1"}' in metrics
 
