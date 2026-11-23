@@ -46,6 +46,11 @@ class OrderedPropertyPaths {
   /// `paths()[i]` is the path the caller supplied at `position_lookup()[i]`.
   auto position_lookup() const -> std::span<std::size_t const> { return position_lookup_; }
 
+  /// Whether every path names a property of the record rather than one inside another property,
+  /// which is what a reader can take a shorter route for. Settled here, where the paths are, so no
+  /// reader has to ask it of every record it reads.
+  auto every_path_names_one_property() const -> bool { return every_path_names_one_; }
+
   auto size() const -> std::size_t { return sorted_.size(); }
 
   auto empty() const -> bool { return sorted_.empty(); }
@@ -53,6 +58,7 @@ class OrderedPropertyPaths {
  private:
   std::vector<PropertyPath> sorted_;
   std::vector<std::size_t> position_lookup_;
+  bool every_path_names_one_{true};
 };
 
 }  // namespace memgraph::storage

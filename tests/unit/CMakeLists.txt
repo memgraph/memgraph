@@ -201,6 +201,11 @@ add_unit_test(query_plan_edge_cases
     LINK_TARGETS mg-communication mg-query disk_test_utils
 )
 
+add_unit_test(query_plan_pass_oracle
+    SOURCES query_plan_pass_oracle.cpp ${CMAKE_SOURCE_DIR}/src/glue/communication.cpp
+    LINK_TARGETS mg-communication mg-query disk_test_utils
+)
+
 add_unit_test(query_plan_match_filter_return
     SOURCES query_plan_match_filter_return.cpp
     LINK_TARGETS mg-query mg-glue disk_test_utils

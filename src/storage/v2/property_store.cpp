@@ -2738,6 +2738,30 @@ void ForEachExtractedValueMissingAsNull(Reader &reader, std::span<PropertyPath c
     safe_reader(std::forward_as_tuple(path), std::tuple{});
   }
 }
+
+/// The same, for paths that each name a property of the record rather than one inside another.
+///
+/// There is then no enclosing property to find first, so none of what following a path into a map
+/// needs is built: the walk matches each id as it comes to it. What a reader cannot reach once the
+/// record has run out answers Null, as it does above, and so does a property the record does not
+/// hold.
+template <typename Sink>
+void ForEachExtractedValueOfOneDepthMissingAsNull(Reader &reader, std::span<PropertyPath const> ordered_properties,
+                                                  Sink sink) {
+  auto reachable = true;
+  for (auto const &path : ordered_properties) {
+    auto value = std::optional<PropertyValue>{};
+    if (reachable) {
+      auto [status, found] = MatchSpecificProperty(&reader, path.back(), std::numeric_limits<uint64_t>::max());
+      if (status == ExpectedPropertyStatus::MISSING_DATA) {
+        reachable = false;
+      } else {
+        value = std::move(found);
+      }
+    }
+    sink(std::move(value));
+  }
+}
 }  // namespace
 
 std::vector<PropertyValue> PropertyStore::ExtractPropertyValuesMissingAsNull(
@@ -2745,9 +2769,14 @@ std::vector<PropertyValue> PropertyStore::ExtractPropertyValuesMissingAsNull(
   return WithReader([&](Reader &reader) -> std::vector<PropertyValue> {
     auto values = std::vector<PropertyValue>{};
     values.reserve(ordered_properties.size());
-    ForEachExtractedValueMissingAsNull(reader, ordered_properties.paths(), [&](std::optional<PropertyValue> value) {
+    auto const collect = [&](std::optional<PropertyValue> value) {
       values.emplace_back(value ? *std::move(value) : PropertyValue{});
-    });
+    };
+    if (ordered_properties.every_path_names_one_property()) {
+      ForEachExtractedValueOfOneDepthMissingAsNull(reader, ordered_properties.paths(), collect);
+    } else {
+      ForEachExtractedValueMissingAsNull(reader, ordered_properties.paths(), collect);
+    }
     return values;
   });
 }
@@ -2757,9 +2786,14 @@ void PropertyStore::ExtractPropertyValuesMissingAsNull(OrderedPropertyPaths cons
   DMG_ASSERT(out.size() == ordered_properties.size(), "Output buffer size must match the number of properties");
   WithReader([&](Reader &reader) {
     auto it = out.begin();
-    ForEachExtractedValueMissingAsNull(reader, ordered_properties.paths(), [&](std::optional<PropertyValue> value) {
+    auto const collect = [&](std::optional<PropertyValue> value) {
       *it++ = value ? *std::move(value) : PropertyValue{};
-    });
+    };
+    if (ordered_properties.every_path_names_one_property()) {
+      ForEachExtractedValueOfOneDepthMissingAsNull(reader, ordered_properties.paths(), collect);
+    } else {
+      ForEachExtractedValueMissingAsNull(reader, ordered_properties.paths(), collect);
+    }
   });
 }
 
