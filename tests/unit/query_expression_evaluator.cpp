@@ -1995,15 +1995,14 @@ class ExpressionEvaluatorPropertyLookup : public ExpressionEvaluatorTest<Storage
     return this->Eval(op);
   }
 
-  /// `{age: element.age, height: element.height}`. Two lookups on one identifier are what earn the
-  /// evaluation mode that loads the properties in one read.
+  /// `{age: element.age, height: element.height}`: two lookups on one identifier, so the answers
+  /// have to follow the identifier wherever it is rebound.
   auto MapOfAgeAndHeight() -> MapLiteral * {
     auto *map = this->storage.template Create<MapLiteral>(std::unordered_map<PropertyIx, Expression *>{
         {this->storage.GetPropertyIx(prop_age.first),
          this->storage.template Create<PropertyLookup>(identifier, this->storage.GetPropertyIx(prop_age.first))},
         {this->storage.GetPropertyIx(prop_height.first),
          this->storage.template Create<PropertyLookup>(identifier, this->storage.GetPropertyIx(prop_height.first))}});
-    memgraph::query::SetEvaluationModeOnPropertyLookups(*map);
     return map;
   }
 

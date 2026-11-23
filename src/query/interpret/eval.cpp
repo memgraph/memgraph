@@ -320,25 +320,17 @@ TypedValue ExpressionEvaluator::Visit(PropertyLookup &property_lookup) {
     if (prop_name == "edges") return RangeToTypedValueList(vg.edges(), ctx_->memory);
     return std::nullopt;
   };
+  auto read_property = [this, &property_lookup](auto const &record) -> TypedValue {
+    if (ctx_->lazy_vector_refs) return LazyPropertyValue(record, property_lookup.property_);
+    return {GetProperty(record, property_lookup.property_), GetNameIdMapper(), ctx_->memory};
+  };
   switch (expression_result_ptr->type()) {
     case TypedValue::Type::Null:
       return TypedValue(ctx_->memory);
     case TypedValue::Type::Vertex:
-      if (property_lookup.evaluation_mode_ == PropertyLookup::EvaluationMode::GET_ALL_PROPERTIES) {
-        return CachedPropertyValue<RecordIdentity::Kind::Vertex>(expression_result_ptr->ValueVertex(), property_lookup);
-      } else {
-        const auto &vertex = expression_result_ptr->ValueVertex();
-        if (ctx_->lazy_vector_refs) return LazyPropertyValue(vertex, property_lookup.property_);
-        return {GetProperty(vertex, property_lookup.property_), GetNameIdMapper(), ctx_->memory};
-      }
+      return read_property(expression_result_ptr->ValueVertex());
     case TypedValue::Type::Edge:
-      if (property_lookup.evaluation_mode_ == PropertyLookup::EvaluationMode::GET_ALL_PROPERTIES) {
-        return CachedPropertyValue<RecordIdentity::Kind::Edge>(expression_result_ptr->ValueEdge(), property_lookup);
-      } else {
-        const auto &edge = expression_result_ptr->ValueEdge();
-        if (ctx_->lazy_vector_refs) return LazyPropertyValue(edge, property_lookup.property_);
-        return {GetProperty(edge, property_lookup.property_), GetNameIdMapper(), ctx_->memory};
-      }
+      return read_property(expression_result_ptr->ValueEdge());
     case TypedValue::Type::VirtualEdge: {
       auto prop_id = dba_->NameToProperty(property_lookup.property_.name);
       auto prop_value = expression_result_ptr->ValueVirtualEdge().GetProperty(prop_id);

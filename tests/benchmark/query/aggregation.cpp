@@ -365,6 +365,27 @@ void ProjectWithLookupsInsideAMap(benchmark::State &state) {
            "RETURN i.value AS v, i.quantity AS q, {category: i.category, region: i.region} AS m");
 }
 
+// Every lookup inside a map literal, which the pass does not enter, so each reads the record for
+// itself.
+void ProjectAMapOfFourProperties(benchmark::State &state) {
+  RunQuery(state,
+           "MATCH (:Hub)-[:HAS]->(i:Item) "
+           "RETURN {category: i.category, region: i.region, value: i.value, quantity: i.quantity} AS m");
+}
+
+// One property named twice inside a map literal, so the record is read twice for it with nothing
+// able to make that once.
+void ProjectAMapNamingOnePropertyTwice(benchmark::State &state) {
+  RunQuery(state,
+           "MATCH (:Hub)-[:HAS]->(i:Item) "
+           "RETURN {first: i.value, second: i.value} AS m");
+}
+
+// What a projection pays for naming one property twice.
+void ProjectOnePropertyTwice(benchmark::State &state) {
+  RunQuery(state, "MATCH (:Hub)-[:HAS]->(i:Item) RETURN i.value AS v, i.value AS w");
+}
+
 // The control for the projection: one lookup, so there is nothing to read in one pass and nothing to
 // save. A change that reads a row's properties together must leave this where it is.
 void ProjectOneProperty(benchmark::State &state) {
@@ -578,6 +599,9 @@ BENCHMARK(SumAvgNumeric)->Unit(kUnit);
 BENCHMARK(ProjectThreeProperties)->Unit(kUnit);
 BENCHMARK(ProjectWithLookupsBehindADisjunction)->Unit(kUnit);
 BENCHMARK(ProjectWithLookupsInsideAMap)->Unit(kUnit);
+BENCHMARK(ProjectAMapOfFourProperties)->Unit(kUnit);
+BENCHMARK(ProjectAMapNamingOnePropertyTwice)->Unit(kUnit);
+BENCHMARK(ProjectOnePropertyTwice)->Unit(kUnit);
 BENCHMARK(ProjectOneProperty)->Unit(kUnit);
 BENCHMARK(ProjectAcrossTwoSymbols)->Unit(kUnit);
 BENCHMARK(GroupBySingleKey)->Unit(kUnit);

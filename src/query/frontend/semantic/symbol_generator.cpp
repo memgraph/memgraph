@@ -96,8 +96,6 @@ void SymbolGenerator::VisitReturnBody(ReturnBody &body, Where *where) {
   // invalidate references. Indices remain valid across reallocation.
   auto const scope_idx = scopes_.size() - 1;
 
-  SetEvaluationModeOnPropertyLookups(body);
-
   std::vector<Symbol> user_symbols;
   if (body.all_identifiers) {
     // Carry over user symbols because '*' appeared.
@@ -692,11 +690,6 @@ SymbolGenerator::ReturnType SymbolGenerator::Visit(Identifier &ident) {
   return true;
 }
 
-bool SymbolGenerator::PreVisit(MapLiteral &map_literal) {
-  SetEvaluationModeOnPropertyLookups(map_literal);
-  return true;
-}
-
 bool SymbolGenerator::PreVisit(Aggregation &aggr) {
   auto &scope = scopes_.back();
   // Check if the aggregation can be used in this context. This check should
@@ -1246,34 +1239,6 @@ bool SymbolGenerator::ConsumePredefinedIdentifier(const std::string &name) {
   identifier->MapTo(CreateSymbol(identifier->name_, identifier->user_declared_));
   predefined_identifiers_.erase(it);
   return true;
-}
-
-void PropertyLookupEvaluationModeVisitor::Visit(PropertyLookup &property_lookup) {
-  if (property_lookup.expression_->GetTypeInfo() != Identifier::kType) {
-    return;
-  }
-
-  auto identifier_symbol = static_cast<Identifier *>(property_lookup.expression_)->name_;
-
-  switch (phase_) {
-    case Phase::GATHER: {
-      if (!property_lookup_counts_by_symbol.contains(identifier_symbol)) {
-        property_lookup_counts_by_symbol[identifier_symbol] = 0;
-      }
-
-      property_lookup_counts_by_symbol[identifier_symbol]++;
-
-      return;
-    }
-    case Phase::ASSIGN: {
-      if (property_lookup_counts_by_symbol.contains(identifier_symbol) &&
-          property_lookup_counts_by_symbol[identifier_symbol] > 1) {
-        property_lookup.evaluation_mode_ = PropertyLookup::EvaluationMode::GET_ALL_PROPERTIES;
-      }
-
-      return;
-    }
-  }
 }
 
 void PropertyLookupBaseIdentifierVisitor::Visit(PropertyLookup &property_lookup) {

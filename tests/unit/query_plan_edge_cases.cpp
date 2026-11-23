@@ -355,6 +355,17 @@ TYPED_TEST(QueryExecution, ADeepVariableExpansionWalksBothWaysToEveryLength) {
       EXPECT_EQ(results[1][0].ValueInt(), 2);                                                                \
     }                                                                                                        \
     {                                                                                                        \
+      /* Both lookups of one property answer it, and a property absent from a record still reads Null. */    \
+      auto results = this->Execute("MATCH (n:P) RETURN n.a AS x, n.a AS y, n.b AS z ORDER BY x");            \
+      ASSERT_EQ(results.size(), 2);                                                                          \
+      EXPECT_EQ(results[0][0].ValueInt(), 1);                                                                \
+      EXPECT_EQ(results[0][1].ValueInt(), 1);                                                                \
+      EXPECT_EQ(results[0][2].ValueString(), "x");                                                           \
+      EXPECT_EQ(results[1][0].ValueInt(), 2);                                                                \
+      EXPECT_EQ(results[1][1].ValueInt(), 2);                                                                \
+      EXPECT_EQ(results[1][2].type(), BoltValue::Type::Null);                                                \
+    }                                                                                                        \
+    {                                                                                                        \
       /* One lookup each is not worth a pass of its own, whether or not they share a symbol. */              \
       auto results = this->Execute("MATCH (n:P), (m:P) RETURN n.id AS x, m.a AS y ORDER BY x, y");           \
       ASSERT_EQ(results.size(), 4);                                                                          \
@@ -383,6 +394,73 @@ TYPED_TEST(QueryExecution, CachePropertiesResultsWithFlagOff) {
 TYPED_TEST(QueryExecution, CachePropertiesResultsWithFlagOn) {
   CachePropertiesFlagGuard guard{true};
   CHECK_CACHE_PROPERTIES_RESULTS();
+}
+
+/// What an aggregation answers, with the pass reading its properties and without. Each fixture gets
+/// a fresh plan cache, so the two have to be separate tests rather than one toggling the flag.
+#define CHECK_AGGREGATION_CACHE_RESULTS()                                                                    \
+  do {                                                                                                       \
+    using BoltValue = memgraph::communication::bolt::Value;                                                  \
+    this->Execute("CREATE (:P {id: 1, a: 10, b: 'x'}), (:P {id: 2, a: 20, b: 'y'}), (:P {id: 3, b: 'x'})");  \
+    {                                                                                                        \
+      /* One property that four aggregations read. The record carrying no `a` counts for none of them. */    \
+      auto results =                                                                                         \
+          this->Execute("MATCH (n:P) RETURN sum(n.a) AS s, avg(n.a) AS av, min(n.a) AS lo, max(n.a) AS hi"); \
+      ASSERT_EQ(results.size(), 1);                                                                          \
+      EXPECT_EQ(results[0][0].ValueInt(), 30);                                                               \
+      EXPECT_DOUBLE_EQ(results[0][1].ValueDouble(), 15.0);                                                   \
+      EXPECT_EQ(results[0][2].ValueInt(), 10);                                                               \
+      EXPECT_EQ(results[0][3].ValueInt(), 20);                                                               \
+    }                                                                                                        \
+    {                                                                                                        \
+      /* A grouping key the aggregation reads again. Counting a property counts the records holding it. */   \
+      auto results = this->Execute("MATCH (n:P) RETURN n.b AS k, count(n.b) AS c ORDER BY k");               \
+      ASSERT_EQ(results.size(), 2);                                                                          \
+      EXPECT_EQ(results[0][0].ValueString(), "x");                                                           \
+      EXPECT_EQ(results[0][1].ValueInt(), 2);                                                                \
+      EXPECT_EQ(results[1][0].ValueString(), "y");                                                           \
+      EXPECT_EQ(results[1][1].ValueInt(), 1);                                                                \
+    }                                                                                                        \
+    {                                                                                                        \
+      /* Two properties read once each: no read a pass would save, so it must answer as it always did. */    \
+      auto results = this->Execute("MATCH (n:P) RETURN sum(n.a) AS s, count(n.b) AS c");                     \
+      ASSERT_EQ(results.size(), 1);                                                                          \
+      EXPECT_EQ(results[0][0].ValueInt(), 30);                                                               \
+      EXPECT_EQ(results[0][1].ValueInt(), 3);                                                                \
+    }                                                                                                        \
+    {                                                                                                        \
+      /* A row reading what this query has just written to the record it is on. The write leaves a delta,    \
+         which is the one way the record is read other than straight out of the store. */                    \
+      auto results = this->Execute("MATCH (n:P) SET n.w = n.id * 100 RETURN sum(n.w) AS s, max(n.w) AS m");  \
+      ASSERT_EQ(results.size(), 1);                                                                          \
+      EXPECT_EQ(results[0][0].ValueInt(), 600);                                                              \
+      EXPECT_EQ(results[0][1].ValueInt(), 300);                                                              \
+    }                                                                                                        \
+    {                                                                                                        \
+      /* Every record missing the property, so every aggregation sees Null and sums nothing. */              \
+      auto results = this->Execute("MATCH (n:P) RETURN sum(n.absent) AS s, max(n.absent) AS m");             \
+      ASSERT_EQ(results.size(), 1);                                                                          \
+      EXPECT_EQ(results[0][0].ValueInt(), 0);                                                                \
+      EXPECT_EQ(results[0][1].type(), BoltValue::Type::Null);                                                \
+    }                                                                                                        \
+    {                                                                                                        \
+      /* A relationship's property, which is read from a record just as a node's is. */                      \
+      this->Execute("MATCH (p:P {id: 1}), (q:P {id: 2}) CREATE (p)-[:R {w: 7}]->(q)");                       \
+      auto results = this->Execute("MATCH ()-[r:R]->() RETURN sum(r.w) AS s, max(r.w) AS m");                \
+      ASSERT_EQ(results.size(), 1);                                                                          \
+      EXPECT_EQ(results[0][0].ValueInt(), 7);                                                                \
+      EXPECT_EQ(results[0][1].ValueInt(), 7);                                                                \
+    }                                                                                                        \
+  } while (false)
+
+TYPED_TEST(QueryExecution, AggregationCacheResultsWithFlagOff) {
+  CachePropertiesFlagGuard guard{false};
+  CHECK_AGGREGATION_CACHE_RESULTS();
+}
+
+TYPED_TEST(QueryExecution, AggregationCacheResultsWithFlagOn) {
+  CachePropertiesFlagGuard guard{true};
+  CHECK_AGGREGATION_CACHE_RESULTS();
 }
 
 // A lookup the pass cannot take, because it sits where it may never be evaluated, still answers
@@ -421,26 +499,26 @@ TYPED_TEST(QueryExecution, CachePropertiesResultsWithFlagOn) {
     EXPECT_EQ(listed[0][2].ValueList().at(1).ValueInt(), 5);                                                   \
   } while (false)
 
-// A row's properties are read together before the row's expressions are evaluated, so a record the
-// same query has deleted is reached earlier than a lookup would reach it. There is nothing to read
-// either way, so the query refuses either way: when the read happens must not decide whether a
-// query answers.
-#define CHECK_A_DELETED_RECORD_REFUSES()                                               \
-  do {                                                                                 \
-    this->Execute("MATCH (n) DETACH DELETE n");                                        \
-    this->Execute("CREATE ({a: 1, b: 2})");                                            \
-    EXPECT_THROW(this->Execute("MATCH (n) DETACH DELETE n RETURN n.a AS a, n.b AS b"), \
-                 memgraph::query::QueryRuntimeException);                              \
+/// Reading a record the same query has deleted refuses, whatever reads it: there is nothing to
+/// read either way, so when the read happens must not decide whether the query answers. `reads` is
+/// the clause that reads it.
+#define CHECK_A_DELETED_RECORD_REFUSES(reads)                                                                \
+  do {                                                                                                       \
+    this->Execute("MATCH (n) DETACH DELETE n");                                                              \
+    this->Execute("CREATE ({a: 1, b: 2})");                                                                  \
+    EXPECT_THROW(this->Execute("MATCH (n) DETACH DELETE n " reads), memgraph::query::QueryRuntimeException); \
   } while (false)
 
 TYPED_TEST(QueryExecution, ADeletedRecordRefusesWithFlagOff) {
   CachePropertiesFlagGuard guard{false};
-  CHECK_A_DELETED_RECORD_REFUSES();
+  CHECK_A_DELETED_RECORD_REFUSES("RETURN n.a AS a, n.b AS b");
+  CHECK_A_DELETED_RECORD_REFUSES("RETURN sum(n.a) AS s, max(n.a) AS m");
 }
 
 TYPED_TEST(QueryExecution, ADeletedRecordRefusesWithFlagOn) {
   CachePropertiesFlagGuard guard{true};
-  CHECK_A_DELETED_RECORD_REFUSES();
+  CHECK_A_DELETED_RECORD_REFUSES("RETURN n.a AS a, n.b AS b");
+  CHECK_A_DELETED_RECORD_REFUSES("RETURN sum(n.a) AS s, max(n.a) AS m");
 }
 
 TYPED_TEST(QueryExecution, LeftoverLookupResultsWithFlagOff) {
