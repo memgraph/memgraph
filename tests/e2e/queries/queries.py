@@ -551,5 +551,30 @@ def test_dump_float_roundtrip(memgraph):
         dump_float_drop_vector_indexes(memgraph)
 
 
+def test_to_string_point_reparses(memgraph):
+    """toString(point) has to be an expression the parser accepts that evaluates back to the same point."""
+    coordinates = [
+        "x: -0.0, y: 1e20",
+        "x: 1e-7, y: 0.1",
+        "x: 1.0/0.0, y: -1.0/0.0",
+        "x: 0.0/0.0, y: 2",
+        "x: 1, y: -0.0, z: 1e300",
+    ]
+    for coordinate in coordinates:
+        srid = 9157 if "z:" in coordinate else 7203
+        point = f"POINT({{{coordinate}, srid: {srid}}})"
+        text = dump_float_read(memgraph, f"RETURN toString({point}) AS s")["s"]
+        assert "e+" not in text and "inf" not in text and "nan" not in text.replace("(0.0/0.0)", ""), text
+        fields = ["x", "y"] + (["z"] if "z:" in coordinate else [])
+        original = dump_float_read(memgraph, "RETURN " + ", ".join(f"{point}.{f} AS {f}" for f in fields))
+        reparsed = dump_float_read(memgraph, "RETURN " + ", ".join(f"({text}).{f} AS {f}" for f in fields))
+        for name in fields:
+            before, after = original[name], reparsed[name]
+            if math.isnan(before):
+                assert math.isnan(after), f"{text}: {name}"
+            else:
+                assert before == after and math.copysign(1.0, before) == math.copysign(1.0, after), f"{text}: {name}"
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))

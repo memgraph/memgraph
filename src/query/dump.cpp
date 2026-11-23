@@ -142,13 +142,9 @@ void DumpZonedTemporalData(std::ostream &os, const storage::ZonedTemporalData &v
   }
 }
 
-void DumpPoint2d(std::ostream &os, const storage::Point2d &value) {
-  os << query::CypherConstructionFor(value, query::CypherCoordinateLiteral);
-}
+void DumpPoint2d(std::ostream &os, const storage::Point2d &value) { os << query::CypherConstructionFor(value); }
 
-void DumpPoint3d(std::ostream &os, const storage::Point3d &value) {
-  os << query::CypherConstructionFor(value, query::CypherCoordinateLiteral);
-}
+void DumpPoint3d(std::ostream &os, const storage::Point3d &value) { os << query::CypherConstructionFor(value); }
 
 }  // namespace
 
