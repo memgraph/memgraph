@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include <filesystem>
 #include <optional>
 #include <regex>
@@ -153,8 +154,12 @@ class QueryExecutionFixture : public testing::Test {
         "CREATE (a1)-[:E]->(b) CREATE (a2)-[:E]->(b)");
   }
 
-  Outcome RunWith(bool pass, const std::string &query) {
-    CachePropertiesFlagGuard guard{pass};
+  /// Which of the two ways of reading a record's properties a query is to be run with, so that a
+  /// call site says which it meant rather than passing a bare true or false.
+  enum class Arm : std::uint8_t { kLookupAtATime, kOnePass };
+
+  Outcome RunWith(Arm arm, const std::string &query) {
+    CachePropertiesFlagGuard guard{arm == Arm::kOnePass};
     PlantGraph();
     // A plan is held under the query's text, so without this the arm planned second would run the
     // plan the first one left behind and the two would agree about nothing.
