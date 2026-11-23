@@ -16,7 +16,10 @@
 #include <optional>
 #include <set>
 #include <string>
+#include <unordered_map>
+#include <unordered_set>
 
+#include <boost/unordered/unordered_flat_set.hpp>
 #include <nlohmann/json_fwd.hpp>
 
 #include "common_function_signatures.hpp"
@@ -29,6 +32,7 @@
 #include "storage/v2/database_protector.hpp"
 #include "storage/v2/description_store.hpp"
 #include "storage/v2/edge_accessor.hpp"
+#include "storage/v2/edge_ref.hpp"
 #include "storage/v2/edges_chunked_iterable.hpp"
 #include "storage/v2/edges_iterable.hpp"
 #include "storage/v2/id_types.hpp"
@@ -227,10 +231,13 @@ struct ColdTenantRecovery {
 nlohmann::json ToJson(const StorageInfo &info);
 
 struct EdgeInfoForDeletion {
-  std::unordered_set<Gid> partial_src_edge_ids{};
-  std::unordered_set<Gid> partial_dest_edge_ids{};
-  std::unordered_set<Vertex *> partial_src_vertices{};
-  std::unordered_set<Vertex *> partial_dest_vertices{};
+  // Edges are identified by the EdgeRef an adjacency entry already holds, so matching an entry never reads the
+  // Edge object; on a dense vertex that read would be a cache miss for every entry scanned.
+  boost::unordered_flat_set<EdgeRef> partial_src_edges{};
+  boost::unordered_flat_set<EdgeRef> partial_dest_edges{};
+  // How many of those edges each vertex holds in the matching direction, so its scan can stop once all are found.
+  std::unordered_map<Vertex *, size_t> partial_src_vertices{};
+  std::unordered_map<Vertex *, size_t> partial_dest_vertices{};
 };
 
 struct TTLReplicationArgs {
