@@ -366,7 +366,10 @@ class ReadWriteCollector final : public HierarchicalTreeVisitor {
   void ReadPropertyKeys(const TProperties &properties, Identifier *atom) {
     if (const auto *map = std::get_if<std::unordered_map<PropertyIx, Expression *>>(&properties)) {
       for (const auto &[key, value] : *map) {
+        bool const value_read =
+            result.reads.properties.contains(key.name) && !result.reads.matched_properties.contains(key.name);
         result.reads.NoteProperty(key.name, KeySymbolOf(atom));
+        if (!value_read) result.reads.matched_properties.insert(key.name);
       }
     } else {
       result.reads.NoteAnyProperty(KeySymbolOf(atom));
@@ -464,6 +467,7 @@ void ReadWriteSet::KeyReach::Merge(const KeyReach &other) {
 }
 
 void ReadWriteSet::NoteProperty(const std::string &key, const std::optional<Symbol> &through) {
+  matched_properties.erase(key);
   properties.insert(key);
   property_reach[key].Note(through);
 }
@@ -474,6 +478,14 @@ void ReadWriteSet::NoteAnyProperty(const std::optional<Symbol> &through) {
 }
 
 void ReadWriteSet::Merge(const ReadWriteSet &other) {
+  // A key stays matched only while neither side reads its value.
+  auto const value_read = [](const ReadWriteSet &set, const std::string &key) {
+    return set.properties.contains(key) && !set.matched_properties.contains(key);
+  };
+  std::erase_if(matched_properties, [&](const auto &key) { return value_read(other, key); });
+  for (const auto &key : other.matched_properties) {
+    if (!value_read(*this, key)) matched_properties.insert(key);
+  }
   properties.insert(other.properties.begin(), other.properties.end());
   any_property |= other.any_property;
   labels.insert(other.labels.begin(), other.labels.end());

@@ -480,12 +480,22 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
           plan_access_check_barrier();
         }
       };
-      auto drain_before = [&](const ReadWriteSet &writes) {
-        if (!BarriersOn() || !Conflicts(pending_new_reads, writes) ||
-            row_local(pending_new_reads, writes, {}, /*later_reader=*/false)) {
+      // A key the write stores back with the value an equality match found it by (@p kept) changes no match.
+      auto drain_before = [&](const ReadWriteSet &writes, const std::set<std::string> &kept = {}) {
+        ReadWriteSet narrowed;
+        if (!kept.empty()) {
+          narrowed = pending_new_reads;
+          for (const auto &key : kept) {
+            if (narrowed.matched_properties.erase(key) == 0) continue;
+            narrowed.properties.erase(key);
+            narrowed.property_reach.erase(key);
+          }
+        }
+        auto const &reads = kept.empty() ? pending_new_reads : narrowed;
+        if (!BarriersOn() || !Conflicts(reads, writes) || row_local(reads, writes, {}, /*later_reader=*/false)) {
           return;
         }
-        if (ConflictsOnlyInAccessCheck(pending_new_reads, writes)) {
+        if (ConflictsOnlyInAccessCheck(reads, writes)) {
           plan_access_check_barrier();
         } else {
           plan_barrier(/*drain=*/true);
@@ -527,6 +537,8 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
 
         uint64_t merge_id = 0;
         uint64_t subquery_id = 0;
+        // The variables a MERGE of this part first bound, to its index in the part's clauses.
+        std::unordered_map<Symbol, size_t> merge_binders;
 
         // Pattern comprehensions are planned on-demand when visited in RETURN/WITH expressions,
         // or before write clauses for comprehensions not in any expression.
@@ -663,7 +675,8 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
           // drain falls between two items.
           if (!clause->continues_previous_) {
             auto group_access = access;
-            for (auto next = std::next(clause_it); next != clauses.end() && (*next)->continues_previous_; ++next) {
+            auto next = std::next(clause_it);
+            for (; next != clauses.end() && (*next)->continues_previous_; ++next) {
               auto const item = CollectReadsAndWrites(
                   **next, *context.symbol_table, context.bound_symbols, non_graph_symbols_, &edge_binders_);
               group_access.reads.Merge(item.reads);
@@ -687,7 +700,11 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
               }
               barrier_before(reads, clause_reads_new, group_access.writes);
             }
-            drain_before(group_access.writes);
+            auto const first = static_cast<size_t>(std::distance(clauses.begin(), clause_it));
+            auto const last = static_cast<size_t>(std::distance(clauses.begin(), next));
+            drain_before(
+                group_access.writes,
+                merge_binders.empty() ? std::set<std::string>{} : KeptMatchedKeys(clauses, first, last, merge_binders));
           }
           // An entity bound since the last barrier is read at View::NEW (`ReadSeeingCreated`): a later write of what
           // this clause read would reach its earlier rows.
@@ -760,6 +777,9 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
             // site, so a comprehension in its pattern sees what earlier rows created. Only an all-anonymous one
             // reaches here; a user-declared atom fails earlier in filter generation (pre-existing, MATCH too).
             note_write();
+            for (const auto &symbol : access.writes.symbols) {
+              merge_binders.emplace(symbol, static_cast<size_t>(std::distance(clauses.begin(), clause_it)));
+            }
             plan_and_apply_comprehensions(eligible);
             input_op = GenMerge(
                 *merge, std::move(input_op), single_query_part.merge_matching[merge_id++], pending_comprehensions);
@@ -1412,6 +1432,108 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
     }
     if (!reads_earlier_item) return std::nullopt;
     return last;
+  }
+
+  /// The keys the SET or REMOVE items `clauses[first, last)` store back with the value the MERGE in @p binders bound
+  /// their target with, written by nothing in between: an equality match of such a key cannot change.
+  std::set<std::string> KeptMatchedKeys(const std::vector<Clause *> &clauses, size_t first, size_t last,
+                                        const std::unordered_map<Symbol, size_t> &binders) const {
+    auto &symbol_table = *context_->symbol_table;
+    using Path = std::pair<Symbol, std::vector<std::string>>;
+    // `v` or `v.p…` over a variable that holds no entity: equal wherever one row evaluates it.
+    auto const data_path = [&](Expression *expr) -> std::optional<Path> {
+      std::vector<std::string> names;
+      while (auto *lookup = utils::Downcast<PropertyLookup>(expr)) {
+        for (const auto &key : std::views::reverse(lookup->property_path_)) names.push_back(key.name);
+        expr = lookup->expression_;
+      }
+      auto *ident = utils::Downcast<Identifier>(expr);
+      if (!ident || ident->symbol_pos_ < 0 || !non_graph_symbols_.contains(symbol_table.at(*ident)))
+        return std::nullopt;
+      std::ranges::reverse(names);
+      return Path{symbol_table.at(*ident), std::move(names)};
+    };
+    using Map = std::unordered_map<PropertyIx, Expression *>;
+    auto const map_of = [&](const Symbol &target, size_t merge) -> const Map * {
+      for (auto *atom : utils::Downcast<query::Merge>(clauses[merge])->pattern_->atoms_) {
+        if (symbol_table.at(*atom->identifier_) != target) continue;
+        if (auto *node = utils::Downcast<NodeAtom>(atom)) return std::get_if<Map>(&node->properties_);
+        if (auto *edge = utils::Downcast<EdgeAtom>(atom)) return std::get_if<Map>(&edge->properties_);
+      }
+      return nullptr;
+    };
+    auto const target_of = [&](Expression *expr) -> std::optional<std::pair<Symbol, size_t>> {
+      auto *ident = utils::Downcast<Identifier>(expr);
+      if (!ident) return std::nullopt;
+      auto const it = binders.find(symbol_table.at(*ident));
+      if (it == binders.end()) return std::nullopt;
+      return *it;
+    };
+    auto const writes_of = [&](Clause &clause) {
+      return CollectReadsAndWrites(clause, symbol_table, context_->bound_symbols, non_graph_symbols_).writes;
+    };
+    auto const writes_key = [](const ReadWriteSet &writes, const std::string &key) {
+      return writes.everything || writes.any_property || writes.properties.contains(key);
+    };
+
+    // Per item: the keys it stores back, and the MERGE that bound its target.
+    std::vector<std::set<std::string>> kept_by_item;
+    std::set<std::string> kept;
+    std::vector<size_t> merges;
+    for (auto i = first; i < last; ++i) {
+      std::set<std::string> item_kept;
+      if (auto *set = utils::Downcast<query::SetProperty>(clauses[i]);
+          set && set->property_lookup_->property_path_.size() == 1) {
+        auto const target = target_of(set->property_lookup_->expression_);
+        auto const *map = target ? map_of(target->first, target->second) : nullptr;
+        auto const value = data_path(set->expression_);
+        auto const &key = set->property_lookup_->property_path_.front().name;
+        if (map && value) {
+          for (const auto &[ix, expr] : *map) {
+            if (ix.name == key && data_path(expr) == value) item_kept.insert(key);
+          }
+        }
+        if (!item_kept.empty()) merges.push_back(target->second);
+      } else if (auto *set = utils::Downcast<query::SetProperties>(clauses[i])) {
+        auto const target = target_of(set->identifier_);
+        auto const *map = target ? map_of(target->first, target->second) : nullptr;
+        auto const value = data_path(set->expression_);
+        if (map && value) {
+          for (const auto &[ix, expr] : *map) {
+            auto path = data_path(expr);
+            if (!path || path->first != value->first || path->second.empty() || path->second.back() != ix.name)
+              continue;
+            path->second.pop_back();
+            if (path->second == value->second) item_kept.insert(ix.name);
+          }
+        }
+        if (!item_kept.empty()) merges.push_back(target->second);
+      }
+      kept.insert(item_kept.begin(), item_kept.end());
+      kept_by_item.push_back(std::move(item_kept));
+    }
+    if (kept.empty()) return kept;
+    // Every item that can write a key stores it back.
+    for (auto i = first; i < last; ++i) {
+      auto const writes = writes_of(*clauses[i]);
+      std::erase_if(kept,
+                    [&](const auto &key) { return writes_key(writes, key) && !kept_by_item[i - first].contains(key); });
+    }
+    // Nothing between the MERGE and the items writes the key: not its own ON MATCH or ON CREATE, not a later clause.
+    // A CREATE or a MERGE's pattern writes only entities it creates.
+    for (auto const merge : merges) {
+      for (auto i = merge; i < first && !kept.empty(); ++i) {
+        ReadWriteSet writes;
+        if (auto *between = utils::Downcast<query::Merge>(clauses[i])) {
+          for (auto *action : between->on_match_) writes.Merge(writes_of(*action));
+          for (auto *action : between->on_create_) writes.Merge(writes_of(*action));
+        } else if (!utils::Downcast<Create>(clauses[i])) {
+          writes = writes_of(*clauses[i]);
+        }
+        std::erase_if(kept, [&](const auto &key) { return writes_key(writes, key); });
+      }
+    }
+    return kept;
   }
 
   /// A SET run reads its variable as of its start (`SET a.x = a.y, a.y = a.x` swaps): a Produce evaluates its values
