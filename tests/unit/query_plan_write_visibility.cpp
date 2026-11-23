@@ -2312,7 +2312,7 @@ TEST_F(WriteVisibilityPlan, ExplainPrintsTheViewOfEachReaderOnRequest) {
 // The view rule, computed from an operator's ancestors rather than from the
 // planner's scope state: OLD at the root and in a read-only CALL body; NEW in a writing CALL body tree, a MERGE,
 // a FOREACH body, a fold branch whose consumer reads NEW, and a root RETURN's fold after a write in its part. A query
-// under batching keeps the views it had before write visibility: no check.
+// under batching keeps the views it had before write visibility: its scope readers read NEW.
 class ViewOracle {
  public:
   /// @p symbol_table is the planned query's, anonymous symbols included.
@@ -2328,7 +2328,11 @@ class ViewOracle {
     mismatches_.clear();
     set_values_.clear();
     CollectSetValues(root);
-    if (!ContainsBatching(root)) Walk(root, false, false, false, Tail::kTop);
+    if (ContainsBatching(root)) {
+      CheckBatched(root);
+    } else {
+      Walk(root, false, false, false, Tail::kTop);
+    }
     return mismatches_;
   }
 
@@ -2417,6 +2421,16 @@ class ViewOracle {
   static bool ContainsWrite(LogicalOperator &op) {
     if (IsWrite(op)) return true;
     return std::ranges::any_of(Children(op), [](auto const &child) { return ContainsWrite(*child.first); });
+  }
+
+  /// A batched query keeps master's views: a projection, a CREATE map and a WHEN predicate read NEW.
+  void CheckBatched(LogicalOperator &op) {
+    bool const scope_reader = Is<plan::Produce>(op) || Is<plan::Aggregate>(op) || Is<plan::Conditional>(op) ||
+                              (CreateReads(op) != CreateRead::kNotACreate && CreateReads(op) != CreateRead::kNothing);
+    if (auto const actual = op.ReadView(); scope_reader && actual && *actual != View::NEW) {
+      mismatches_.push_back({std::string{op.GetTypeInfo().name}, View::NEW, *actual});
+    }
+    for (auto [child, edge] : Children(op)) CheckBatched(*child);
   }
 
   /// A batched query keeps the views it had before write visibility throughout.
