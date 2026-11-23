@@ -29,6 +29,10 @@ struct ReplicationClient;
 template <typename F>
 concept FrequentCheckCB = std::invocable<F, ReplicationClient &>;
 
+template <typename F>
+concept FrequentCheckSuccessCB =
+    std::invocable<F, ReplicationClient &, replication_coordination_glue::FrequentHeartbeatRes const &>;
+
 struct ReplicationClient {
   explicit ReplicationClient(const ReplicationClientConfig &config);
 
@@ -42,7 +46,7 @@ struct ReplicationClient {
 
   ReplicationClient &operator=(ReplicationClient &&) noexcept = delete;
 
-  template <FrequentCheckCB FS, FrequentCheckCB FF>
+  template <FrequentCheckSuccessCB FS, FrequentCheckCB FF>
   void StartFrequentCheck(FS &&success_callback, FF &&fail_callback) {
     // Help the user to get the most accurate replica state possible.
     if (replica_check_frequency_ > std::chrono::seconds(0)) {
@@ -56,11 +60,9 @@ struct ReplicationClient {
             // Measure callbacks also to see how long it takes between scheduled runs
             metrics::ScopedHistogramTimer const timer{metrics::Metrics().global.frequent_heartbeat_rpc_seconds};
             try {
-              {
-                auto stream{rpc_client_.Stream<replication_coordination_glue::FrequentHeartbeatRpc>()};
-                stream.SendAndWait();
-              }
-              succ_cb(*this);
+              auto const response =
+                  rpc_client_.Stream<replication_coordination_glue::FrequentHeartbeatRpc>().SendAndWait();
+              succ_cb(*this, response);
               failed_attempts = 0U;
             } catch (const rpc::RpcFailedException &) {
               // Nothing to do...wait for a reconnect
