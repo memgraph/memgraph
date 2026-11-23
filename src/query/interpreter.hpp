@@ -25,6 +25,7 @@
 #include "dbms/database_protector.hpp"
 #include "flags/run_time_configurable.hpp"
 #include "memory/db_arena_fwd.hpp"
+#include "metrics/metric_handles.hpp"
 #include "query/context.hpp"
 #include "query/cypher_query_interpreter.hpp"
 #include "query/db_accessor.hpp"
@@ -38,6 +39,7 @@
 #include "utils/session_context.hpp"
 #include "utils/spin_lock.hpp"
 #include "utils/synchronized.hpp"
+#include "utils/timer.hpp"
 
 #ifdef MG_ENTERPRISE
 #include "coordination/instance_status.hpp"
@@ -683,6 +685,10 @@ class Interpreter final {
   plan::v2::QueryPlannerContext &query_planner_context() { return query_planner_context_; }
 
  private:
+  // Returns whether `e` aborted the query, as opposed to failing it.
+  bool CountAbortedQuery(utils::BasicException const &e);
+  void ObserveQueryDuration(double seconds, metrics::QueryOutcome outcome);
+
   void MaybeEmitFailedQueryLog(std::string_view query, std::string_view error) const {
     // TLS guard absent => no bolt message is in flight (worker/GC/NuRaft thread); never emit.
     if (memgraph::logging::ScopedSessionLog::Current() == nullptr) return;
@@ -744,6 +750,9 @@ class Interpreter final {
     // from parsed_query (after its EXPLAIN/PROFILE uses) or skipped when slow+failed logging
     // are both off — but then the save-gate must stay a superset of the emit-gate.
     std::string query_string;
+    // Server time spent on this query so far: parsing, preparing, and every pull. Excludes the client's pauses
+    // between pulls.
+    double server_seconds{0};
 
     static auto Create(utils::MemoryTracker *db_query_tracker = nullptr) -> std::unique_ptr<QueryExecution> {
       return std::make_unique<QueryExecution>(db_query_tracker);
@@ -848,6 +857,10 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
   auto &query_execution = query_executions_[qid_value];
 
   MG_ASSERT(query_execution && query_execution->prepared_query, "Query already finished executing!");
+  utils::Timer const pull_timer;
+  auto const query_seconds = [&, prior_seconds = query_execution->server_seconds] {
+    return prior_seconds + pull_timer.Elapsed().count();
+  };
 
   // Each prepared query has its own summary so we need to somehow preserve
   // it after it finishes executing because it gets destroyed alongside
@@ -950,6 +963,7 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
   } catch (const ExplicitTransactionUsageException &e) {
     memgraph::logging::EmitSessionTraceEvent(e.what());
     MaybeEmitFailedQueryLog(FailedQueryText(captured_query_string, query_execution), e.what());
+    ObserveQueryDuration(query_seconds(), metrics::QueryOutcome::FAILURE);
     query_execution.reset(nullptr);
     throw;
   } catch (const utils::BasicException &e) {
@@ -963,6 +977,8 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
       metrics::Metrics().global.failed_query->Increment();
       metrics::Metrics().global.failed_pull->Increment();
     }
+    ObserveQueryDuration(query_seconds(),
+                         CountAbortedQuery(e) ? metrics::QueryOutcome::ABORTED : metrics::QueryOutcome::FAILURE);
     // PeriodicCommitException means the storage layer already aborted the transaction internally.
     // Null the accessor first so AbortCommand does not call Abort() a second time.
     if (dynamic_cast<const PeriodicCommitException *>(&e)) {
@@ -980,6 +996,7 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
     } else {
       metrics::Metrics().global.successful_query->Increment();
     }
+    ObserveQueryDuration(query_seconds(), metrics::QueryOutcome::SUCCESS);
 
     // Emit the slow-query line now that the commit succeeded (gate evaluated pre-commit).
     if (emit_slow_query) {
@@ -995,6 +1012,7 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
     return std::move(*maybe_summary);
   }
 
+  query_execution->server_seconds = query_seconds();
   // don't return the execution summary as it's not finished
   return {{"has_more", TypedValue(true)}};
 }
