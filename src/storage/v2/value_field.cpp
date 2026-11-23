@@ -13,6 +13,8 @@
 
 #include <array>
 #include <chrono>
+#include <format>
+#include <string>
 #include <vector>
 
 #include "storage/v2/point.hpp"
@@ -49,6 +51,9 @@ auto LocalTimeField(utils::LocalTime const &time, ValueField field) -> std::opti
       return PropertyValue{static_cast<int64_t>(time.millisecond)};
     case ValueField::Microsecond:
       return PropertyValue{static_cast<int64_t>(time.microsecond)};
+    case ValueField::Nanosecond:
+      return PropertyValue{(static_cast<int64_t>(time.millisecond) * 1'000'000) +
+                           (static_cast<int64_t>(time.microsecond) * 1'000)};
     default:
       return std::nullopt;
   }
@@ -77,6 +82,18 @@ auto DurationField(utils::Duration const &duration, ValueField field) -> std::op
   }
 }
 
+/// As Neo4j's `java.time.ZoneOffset` id: `Z` for zero, otherwise `+HH:MM`.
+auto FormatOffset(std::chrono::minutes offset) -> std::string {
+  if (offset == std::chrono::minutes::zero()) return "Z";
+  auto const magnitude = std::chrono::abs(offset).count();
+  return std::format("{}{:02}:{:02}", offset.count() < 0 ? '-' : '+', magnitude / 60, magnitude % 60);
+}
+
+/// The containing millisecond, as `java.time.Instant::toEpochMilli`.
+auto EpochMillis(utils::ZonedDateTime const &zoned) -> int64_t {
+  return std::chrono::floor<std::chrono::milliseconds>(zoned.SysMicrosecondsSinceEpoch()).count();
+}
+
 /// Read in the zone the moment is written in, which is what makes a year a year where it was
 /// recorded rather than where it is read.
 auto ZonedField(utils::ZonedDateTime const &zoned, ValueField field) -> std::optional<PropertyValue> {
@@ -97,8 +114,18 @@ auto ZonedField(utils::ZonedDateTime const &zoned, ValueField field) -> std::opt
       return PropertyValue{zoned.LocalMillisecond()};
     case ValueField::Microsecond:
       return PropertyValue{zoned.LocalMicrosecond()};
+    case ValueField::Nanosecond:
+      return PropertyValue{(zoned.LocalMillisecond() * 1'000'000) + (zoned.LocalMicrosecond() * 1'000)};
     case ValueField::Timezone:
       return PropertyValue{zoned.GetTimezone().ToString()};
+    case ValueField::EpochSeconds:
+      // As Neo4j: the floored epoch millisecond, then divided truncating toward zero, so
+      // 1969-12-31T23:59:59.500Z gives 0.
+      return PropertyValue{EpochMillis(zoned) / 1'000};
+    case ValueField::EpochMillis:
+      return PropertyValue{EpochMillis(zoned)};
+    case ValueField::Offset:
+      return PropertyValue{FormatOffset(zoned.OffsetDuration())};
     default:
       return std::nullopt;
   }
@@ -156,6 +183,7 @@ constexpr auto kLocalTimeNames = std::array{
     NamedField{"second"sv, ValueField::Second},
     NamedField{"millisecond"sv, ValueField::Millisecond},
     NamedField{"microsecond"sv, ValueField::Microsecond},
+    NamedField{"nanosecond"sv, ValueField::Nanosecond},
 };
 constexpr auto kDurationNames = std::array{
     NamedField{"day"sv, ValueField::Day},
@@ -169,6 +197,9 @@ constexpr auto kDurationNames = std::array{
 /// A zoned moment carries a date's and a time's fields, and the zone besides.
 constexpr auto kZoneNames = std::array{
     NamedField{"timezone"sv, ValueField::Timezone},
+    NamedField{"epochSeconds"sv, ValueField::EpochSeconds},
+    NamedField{"epochMillis"sv, ValueField::EpochMillis},
+    NamedField{"offset"sv, ValueField::Offset},
 };
 constexpr auto kPointNames = std::array{
     NamedField{"x"sv, ValueField::X},

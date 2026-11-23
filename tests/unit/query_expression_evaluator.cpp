@@ -2154,6 +2154,9 @@ TYPED_TEST(ExpressionEvaluatorPropertyLookup, ReadingAFieldAgreesWithLookingItUp
       "microsecond",
       "nanosecond",
       "timezone",
+      "epochSeconds",
+      "epochMillis",
+      "offset",
       "x",
       "y",
       "z",
@@ -2501,7 +2504,8 @@ TYPED_TEST(ExpressionEvaluatorAllPropertiesLookup, LocalTime) {
   auto frame_writer = FrameWriter(this->frame, nullptr, this->ctx.memory);
   frame_writer.Write(this->symbol, TypedValue(lt));
   auto all_properties = this->Value();
-  EXPECT_TRUE(all_properties.IsMap());
+  ASSERT_TRUE(all_properties.IsMap());
+  EXPECT_EQ(all_properties.ValueMap().at("nanosecond").ValueInt(), 11 * 1'000'000 + 22 * 1'000);
 }
 
 TYPED_TEST(ExpressionEvaluatorAllPropertiesLookup, LocalDateTime) {
@@ -2510,7 +2514,8 @@ TYPED_TEST(ExpressionEvaluatorAllPropertiesLookup, LocalDateTime) {
     auto frame_writer = FrameWriter(this->frame, nullptr, this->ctx.memory);
     frame_writer.Write(this->symbol, TypedValue(ldt));
     auto all_properties = this->Value();
-    EXPECT_TRUE(all_properties.IsMap());
+    ASSERT_TRUE(all_properties.IsMap());
+    EXPECT_EQ(all_properties.ValueMap().at("nanosecond").ValueInt(), 55 * 1'000'000 + 40 * 1'000);
   };
   HandleTimezone htz;
   test();
