@@ -1051,6 +1051,9 @@ TEST_F(WriteVisibilityPlan, AWritingBodyNodeThatMayRepeatKeepsItsBarrier) {
            "MATCH (a:P) CALL (a) { UNWIND [1, 2] AS j SET a.v = j SET a.w = a.v } RETURN 1",
            // Parallel edges return one end node twice.
            "UNWIND range(1, 3) AS i CALL (i) { MERGE (x:P {id: i})-[:R]->(a:P) SET a.v = 1 SET a.w = a.v } RETURN 1",
+           // The reader relabels c, which may be a later row's a.
+           "CALL () { MATCH (a:P) WITH a, head([(a)-[:R]->(o) | o]) AS c REMOVE a:Y SET c.k = size(labels(a)), c:Y } "
+           "RETURN 1",
            // ON MATCH writes run inside the MERGE, below any drain.
            "UNWIND range(1, 3) AS i CALL (i) { MERGE (a:P {id: i}) ON MATCH SET a.v = a.v + 1 SET a.w = a.v } RETURN 1",
        }) {
