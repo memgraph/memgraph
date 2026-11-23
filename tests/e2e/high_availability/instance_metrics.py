@@ -133,6 +133,7 @@ EXPECTED_INSTANCES = [
     ("instance_3", "localhost:7687", "", "localhost:10013", "up", "main"),
 ]
 UUID_LABEL = re.compile(r'uuid="([^"]*)"')
+RAFT_GAUGE = re.compile(r"^memgraph_raft_(\w+) (\S+)$", re.MULTILINE)
 
 
 def scrape_metrics(port: int = 9095):
@@ -207,6 +208,20 @@ def test_default_db_uuid_label_agrees_across_instances(test_name):
     # The entry id keys the families internally and must never reach a scrape.
     for port in INSTANCE_METRICS_PORTS.values():
         assert "mgentry" not in scrape_metrics(port)
+
+
+def test_coordinator_reports_raft_progress(test_name):
+    cursor = setup_test(test_name)
+    mg_sleep_and_assert(EXPECTED_INSTANCES, partial(show_instances, cursor))
+
+    raft = {name: float(value) for name, value in RAFT_GAUGE.findall(scrape_metrics())}
+
+    assert raft.get("has_leader") == 1
+    assert raft.get("term", 0) >= 1
+    # A single coordinator has no followers to report.
+    assert not re.search(r"^memgraph_raft_follower_", scrape_metrics(), re.MULTILINE)
+    for port in INSTANCE_METRICS_PORTS.values():
+        assert not re.search(r"^memgraph_raft_(term|has_leader|follower_)", scrape_metrics(port), re.MULTILINE)
 
 
 if __name__ == "__main__":

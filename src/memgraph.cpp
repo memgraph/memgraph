@@ -35,6 +35,7 @@
 #include "communication/v2/server.hpp"
 #include "communication/websocket/server.hpp"
 #include "coordination/coordinator_state.hpp"
+#include "coordination/raft_status.hpp"
 #include "dbms/constants.hpp"
 #include "dbms/dbms_handler.hpp"
 #include "dbms/inmemory/two_pc_commit_cache.hpp"
@@ -1068,6 +1069,11 @@ int main(int argc, char **argv) {
       [&coordinator_state]() -> std::vector<memgraph::coordination::InstanceStatus> {
         if (!coordinator_state || !coordinator_state->IsCoordinator()) return {};
         return coordinator_state->ShowInstances().value_or(std::vector<memgraph::coordination::InstanceStatus>{});
+      });
+  memgraph::metrics::Metrics().SetRaftStatusResolver(
+      [&coordinator_state]() -> std::optional<memgraph::coordination::RaftStatus> {
+        if (!coordinator_state || !coordinator_state->IsCoordinator()) return std::nullopt;
+        return coordinator_state->GetRaftStatus();
       });
 #endif
 
