@@ -259,9 +259,10 @@ std::optional<std::unordered_set<Symbol>> SymbolsReadAfter(const QueryPart &quer
                                                            std::span<Clause *const> rest,
                                                            const SymbolTable &symbol_table);
 
-/// Whether no two rows of @p plan hold the same @p symbol: a View::OLD scan that runs once, or a grouping or DISTINCT
-/// on it alone, binds it, with only operators that never repeat a row above. Used at the root only.
-bool IsRowUnique(const LogicalOperator &plan, const Symbol &symbol);
+/// Whether no two rows of @p plan hold the same @p symbol: a scan that runs once (if @p trust_scans), a one-node MERGE
+/// over one row (if @p trust_merge), a CREATE, a grouping or DISTINCT on it alone, or a call's one input row binds
+/// it, with only operators that never repeat a row above.
+bool IsRowUnique(const LogicalOperator &plan, const Symbol &symbol, bool trust_scans, bool trust_merge);
 
 std::unique_ptr<LogicalOperator> GenUnion(const CypherUnion &cypher_union, std::shared_ptr<LogicalOperator> left_op,
                                           std::shared_ptr<LogicalOperator> right_op, SymbolTable &symbol_table,
@@ -452,20 +453,25 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
         relabel_since_access_barrier = false;
         pending_new_reads.access_check = {};
       };
-      // Rows that touch keys only through a variable no two rows share cannot see each other's writes. Root only: a
-      // View::NEW index scan in a writing body could meet its own write again.
-      auto row_local = [&](const ReadWriteSet &reads, const ReadWriteSet &writes, const ReadWriteSet &own_writes = {}) {
-        if (read_scope_ != ReadScope::kRoot) return false;
+      // Rows that touch keys only through a variable no two rows share cannot see each other's writes. A body scan
+      // reads View::NEW: only a later reader trusts it, since a drain still precedes every write of its keys.
+      auto row_local = [&](const ReadWriteSet &reads,
+                           const ReadWriteSet &writes,
+                           const ReadWriteSet &own_writes,
+                           bool later_reader) {
         auto const symbol = ConflictsOnlyOnKeysOf(reads, writes);
-        if (!symbol || !input_op || !impl::IsRowUnique(*input_op, *symbol)) return false;
+        bool const trust_scans = read_scope_ == ReadScope::kRoot || later_reader;
+        if (!symbol || !input_op || !impl::IsRowUnique(*input_op, *symbol, trust_scans, later_reader)) return false;
         // The reader's own write of such a key through another variable can reach a later row's node first.
         auto const own = SharedPropertyReach(own_writes, writes);
-        return !own.Any() || own.One() == symbol;
+        if (own.Any() && own.One() != symbol) return false;
+        // The same for a label write when the reader reads labels.
+        return !reads.node_labels.Any() || !own_writes.relabel.Any() || own_writes.relabel.One() == symbol;
       };
       // A View::OLD reader misses even its own row's write without the advance, so only a View::NEW one skips it.
       auto barrier_before = [&](const ReadWriteSet &reads, bool reads_new, const ReadWriteSet &own_writes = {}) {
         if (!BarriersOn() || !Conflicts(reads, pending_writes) ||
-            (reads_new && row_local(reads, pending_writes, own_writes))) {
+            (reads_new && row_local(reads, pending_writes, own_writes, /*later_reader=*/true))) {
           return;
         }
         if (!ConflictsOnlyInAccessCheck(reads, pending_writes)) {
@@ -475,7 +481,8 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
         }
       };
       auto drain_before = [&](const ReadWriteSet &writes) {
-        if (!BarriersOn() || !Conflicts(pending_new_reads, writes) || row_local(pending_new_reads, writes)) {
+        if (!BarriersOn() || !Conflicts(pending_new_reads, writes) ||
+            row_local(pending_new_reads, writes, {}, /*later_reader=*/false)) {
           return;
         }
         if (ConflictsOnlyInAccessCheck(pending_new_reads, writes)) {
@@ -672,7 +679,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
                 auto new_reads = reads.AsNewReader();
                 // At View::NEW it would also see its own earlier rows' writes, so it must not read what it writes.
                 if (!Conflicts(new_reads, group_access.writes) &&
-                    row_local(new_reads, pending_writes, group_access.writes)) {
+                    row_local(new_reads, pending_writes, group_access.writes, /*later_reader=*/true)) {
                   clause_reads_new = true;
                   switched_to_new = true;
                   reads = std::move(new_reads);

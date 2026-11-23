@@ -69,6 +69,9 @@ struct ReadWriteSet {
   /// Writes only: a SET or REMOVE label changed the labels of a node that already existed, the one write an access
   /// check can see. A created node's labels are not one: whether a read finds that node at all is a real conflict.
   KeyReach relabel;
+  /// Reads only: `labels(x)` reads the labels of the node x holds. It conflicts with `relabel`, and counts in
+  /// `Empty()`, so a DELETE or a procedure still conflicts with it.
+  KeyReach node_labels;
   /// Per key in `properties`, the variable it is read or written through; `any_property_reach` for `any_property`.
   std::map<std::string, KeyReach> property_reach;
   KeyReach any_property_reach;

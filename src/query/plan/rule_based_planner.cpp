@@ -1337,6 +1337,21 @@ bool NeverRepeatsARow(const LogicalOperator &op) {
          utils::IsSubtype(op, plan::Delete::kType) || utils::IsSubtype(op, Distinct::kType);
 }
 
+/// Whether @p merge's whole pattern is the one node at @p position, with no ON MATCH or ON CREATE: an ON MATCH write
+/// runs inside the MERGE, below any drain.
+bool MergesOneNode(const Merge &merge, int64_t position) {
+  auto const *create = utils::Downcast<const CreateNode>(merge.merge_create_.get());
+  if (!create || create->node_info_.symbol.position() != position || !create->input() ||
+      !utils::IsSubtype(*create->input(), Once::kType)) {
+    return false;
+  }
+  for (auto const *op = merge.merge_match_.get(); op; op = op->input().get()) {
+    if (utils::IsSubtype(*op, Once::kType)) return true;
+    if (!utils::IsSubtype(*op, ScanAll::kType) && !utils::IsSubtype(*op, Filter::kType)) return false;
+  }
+  return false;
+}
+
 /// Whether @p op produces at most one row: an Once, under operators that never repeat a row.
 bool AtMostOneRow(const LogicalOperator *op) {
   while (op && NeverRepeatsARow(*op)) op = op->input().get();
@@ -1345,12 +1360,27 @@ bool AtMostOneRow(const LogicalOperator *op) {
 
 }  // namespace
 
-bool IsRowUnique(const LogicalOperator &plan, const Symbol &symbol) {
+bool IsRowUnique(const LogicalOperator &plan, const Symbol &symbol, bool trust_scans, bool trust_merge) {
   auto position = symbol.position();
   for (const LogicalOperator *op = &plan; op != nullptr;) {
     if (auto const *scan = utils::Downcast<const ScanAll>(op); scan && scan->output_symbol_.position() == position) {
-      return scan->view_ == storage::View::OLD && AtMostOneRow(scan->input().get());
+      return trust_scans && scan->view_ == storage::View::OLD && AtMostOneRow(scan->input().get());
     }
+    // A node or edge a CREATE makes is new on every row.
+    if (auto const *create = utils::Downcast<const CreateNode>(op);
+        create && create->node_info_.symbol.position() == position) {
+      return true;
+    }
+    if (auto const *expand = utils::Downcast<const CreateExpand>(op);
+        expand && (expand->edge_info_.symbol.position() == position ||
+                   (!expand->existing_node_ && expand->node_info_.symbol.position() == position))) {
+      return true;
+    }
+    if (auto const *merge = utils::Downcast<const Merge>(op); merge && trust_merge && MergesOneNode(*merge, position)) {
+      return AtMostOneRow(merge->input().get());
+    }
+    // Only operators that emit at most one row per input row are above a call's one input row.
+    if (utils::IsSubtype(*op, Once::kType)) return true;
     if (auto const *aggregate = utils::Downcast<const Aggregate>(op)) {
       if (aggregate->group_by_.size() != 1) return false;
       auto *key = utils::Downcast<Identifier>(aggregate->group_by_.front());

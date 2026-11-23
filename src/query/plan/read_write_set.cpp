@@ -130,7 +130,19 @@ class ReadWriteCollector final : public HierarchicalTreeVisitor {
         function.is_user_defined_
             ? std::ranges::any_of(function.arguments_, [this](Expression *arg) { return MayHoldEntity(arg); })
             : FunctionReadsGraph(function.function_name_);
+    if (reads_graph && ReadsOnlyNodeLabels(function)) return true;
     if (reads_graph) result.reads.everything = true;
+    return true;
+  }
+
+  /// `labels(n)` of a node variable reads only n's labels: noted per variable instead of as everything.
+  bool ReadsOnlyNodeLabels(Function &function) {
+    if (function.is_user_defined_ || function.function_name_ != "LABELS" || function.arguments_.size() != 1) {
+      return false;
+    }
+    auto *arg = utils::Downcast<Identifier>(function.arguments_.front());
+    if (!arg || IsEdge(arg) || !MayHoldEntity(arg)) return false;
+    result.reads.node_labels.Note(KeySymbolOf(arg));
     return true;
   }
 
@@ -438,7 +450,7 @@ class ReadWriteCollector final : public HierarchicalTreeVisitor {
 
 bool ReadWriteSet::Empty() const {
   return properties.empty() && !any_property && labels.empty() && !any_label && edge_types.empty() && !any_edge_type &&
-         !nodes && !edge_properties && !everything && symbols.empty();
+         !nodes && !edge_properties && !everything && symbols.empty() && !node_labels.Any();
 }
 
 void ReadWriteSet::KeyReach::Note(const std::optional<Symbol> &through) {
@@ -473,6 +485,7 @@ void ReadWriteSet::Merge(const ReadWriteSet &other) {
   everything |= other.everything;
   access_check.Merge(other.access_check);
   relabel.Merge(other.relabel);
+  node_labels.Merge(other.node_labels);
   for (const auto &[key, reach] : other.property_reach) property_reach[key].Merge(reach);
   any_property_reach.Merge(other.any_property_reach);
   symbols.insert(other.symbols.begin(), other.symbols.end());
@@ -480,7 +493,7 @@ void ReadWriteSet::Merge(const ReadWriteSet &other) {
 }
 
 bool Conflicts(const ReadWriteSet &reads, const ReadWriteSet &writes) {
-  if (reads.access_check.Any() && writes.relabel.Any()) return true;
+  if ((reads.access_check.Any() || reads.node_labels.Any()) && writes.relabel.Any()) return true;
   if (reads.Empty() || writes.Empty()) return false;
   if (reads.everything || writes.everything) return true;
   // A pattern through a node this command created: View::OLD cannot see it at all.
@@ -533,12 +546,14 @@ std::optional<Symbol> ConflictsOnlyOnKeysOf(const ReadWriteSet &reads, const Rea
     set->any_property = false;
     set->access_check = {};
     set->relabel = {};
+    set->node_labels = {};
   }
   if (Conflicts(other_reads, other_writes)) return std::nullopt;
   // Every key both sides touch, and every access check a label write reaches, goes through one and the same variable.
   auto shared = SharedPropertyReach(reads, writes);
-  if (reads.access_check.Any() && writes.relabel.Any()) {
-    shared.Note(reads.access_check.One());
+  for (auto const &labels_read : {reads.access_check, reads.node_labels}) {
+    if (!labels_read.Any() || !writes.relabel.Any()) continue;
+    shared.Note(labels_read.One());
     shared.Note(writes.relabel.One());
   }
   return shared.One();
