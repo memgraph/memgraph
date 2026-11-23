@@ -33,9 +33,9 @@ namespace memgraph::planner::core::pattern {
  * Index maintenance:
  * - rebuild() does a full index rebuild from the e-graph
  * - rebuild(span) does incremental update for new e-classes only
- * - Incremental updates may leave stale entries pointing to merged-away e-classes;
- *   this is safe (matching uses find() for canonical IDs) but may waste memory
- * - Call rebuild() periodically to compact if needed
+ * - retire(span) drops the ids a merge absorbed, which is what keeps every
+ *   entry naming a live class exactly once; root iteration relies on that to
+ *   offer each candidate once, so pair it with every incremental update
  *
  * Usage:
  * @code
@@ -77,15 +77,26 @@ class MatcherIndex {
    * Only updates index entries for the specified new e-classes.
    * Handles canonicalization and duplicates internally.
    *
-   * @note Index Staleness: This method adds new index entries but does not
-   * remove stale entries pointing to e-classes that were merged away. This is
-   * safe because the VM executor always calls egraph.find() to get canonical
-   * IDs. However, over many iterations the index may accumulate dead entries.
-   * Call rebuild_index() (no args) periodically to compact if needed.
+   * @note This only adds. An id a merge absorbed is dropped by retire(), which
+   * the caller owes the index for the same pass: entries left behind name the
+   * surviving class a second time, so root iteration offers it twice and every
+   * later pass pays for the dead entry again.
    *
    * @param new_eclasses E-class IDs that were added since last rebuild (may be non-canonical)
    */
   void rebuild_index(std::span<EClassId const> new_eclasses);
+
+  /**
+   * @brief Drop entries for e-class ids a merge absorbed
+   *
+   * An absorbed id still names the surviving class through the union-find, so an
+   * index that keeps it reports that class once per absorbed id and a root
+   * iteration visits it that many times. Pair with the e-graph's retired-set
+   * (`retired_eclasses_into`) to keep every entry canonical.
+   *
+   * @param retired E-class IDs that no longer name a class
+   */
+  void retire(std::span<EClassId const> retired);
 
   /**
    * @brief Get candidate e-classes for a given symbol
@@ -174,6 +185,23 @@ void MatcherIndex<Symbol, Analysis>::rebuild_index(std::span<EClassId const> new
       auto const &enode = egraph_->get_enode(enode_id);
       // Set insert handles duplicates naturally
       index_[enode.symbol()].insert(canonical_id);
+    }
+  }
+}
+
+template <typename Symbol, typename Analysis>
+void MatcherIndex<Symbol, Analysis>::retire(std::span<EClassId const> retired) {
+  if (retired.empty()) return;
+
+  // Which symbols an absorbed id carried is no longer answerable: the merge
+  // moved its e-nodes to the survivor and erased the class, so an erase has to
+  // try every symbol. Rebuilding instead, once a batch is large enough that its
+  // probes outnumber the graph's nodes, measures worse: the rebuild reallocates
+  // every set and rereads every e-node.
+  // One set at a time, so each stays in cache for the whole batch.
+  for (auto &[_, eclasses] : index_) {
+    for (auto id : retired) {
+      eclasses.erase(id);
     }
   }
 }

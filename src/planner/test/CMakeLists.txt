@@ -16,6 +16,7 @@ add_unit_test(planner
         unittest__vm_compiler.cpp
         unittest__vm_trace.cpp
         unittest__vm_state.cpp
+        unittest__match_index.cpp
     LINK_TARGETS mg::planner mg::planner::test_support ApprovalTests::ApprovalTests
 )
 

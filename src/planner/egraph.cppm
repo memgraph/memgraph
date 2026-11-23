@@ -163,6 +163,27 @@ struct EGraphBase {
   /// Forget the touched-set; the next pass starts from empty.
   void clear_touched() { touched_.clear(); }
 
+  /**
+   * @brief E-class ids that stopped naming a class since the last clear_retired().
+   *
+   * The counterpart of the touched-set, for a consumer holding its own
+   * id-keyed structures: a merge leaves the absorbed id naming nothing, and
+   * only the merge sees which id that was. Cascade merges during rebuild record
+   * here too. Survives rebuild(); drain per pass with clear_retired().
+   */
+  void retired_eclasses_into(boost::unordered_flat_set<EClassId> &out) const {
+    out.clear();
+    out.reserve(retired_.size());
+    out.insert(retired_.begin(), retired_.end());
+  }
+
+  /// Forget the retired-set; the next pass starts from empty.
+  void clear_retired() { retired_.clear(); }
+
+ protected:
+  /// Record that `id` was absorbed by a merge and no longer names a class.
+  void mark_retired(EClassId id) { retired_.insert(id); }
+
  protected:
   /// Record that `id` is new or newly merged. Both arming and the analysis
   /// refresh want both cases, so one entry point keeps a change site from
@@ -190,6 +211,8 @@ struct EGraphBase {
   // Raw (pre-canonicalization) ids of e-classes changed since clear_touched();
   // see touched_eclasses_into() for the read contract.
   boost::unordered_flat_set<EClassId> touched_;
+  // Ids absorbed by a merge since clear_retired(); see retired_eclasses_into().
+  boost::unordered_flat_set<EClassId> retired_;
   // Changes awaiting an analysis refresh. Separate from the touched set because
   // a driver may hold that one across passes or clear it each pass, which would
   // leave the refresh's result depending on the driver in use.
@@ -251,6 +274,13 @@ struct BaseProcessingContext {
  */
 template <typename Symbol>
 struct ProcessingContext : BaseProcessingContext {
+  // Flat, and the groups inline: clearing a node-based map hands every node
+  // back to the allocator, so reusing the container would still allocate one
+  // node per parent group on the next rebuild, plus one vector per group.
+  // Congruent groups are nearly always a pair.
+  using EnodeToParents =
+      boost::unordered_flat_map<ENode<Symbol>, utils::small_vector<ENodeId>, std::hash<ENode<Symbol>>>;
+
   ProcessingContext() { canonicalized_chunk.reserve(REBUILD_BATCH_SIZE); }
 
   auto rebuild_canonicalized_chunk_container() -> boost::container::flat_set<EClassId> & {
@@ -258,13 +288,13 @@ struct ProcessingContext : BaseProcessingContext {
     return canonicalized_chunk;
   }
 
-  auto rebuild_enode_to_parents_container() -> std::unordered_map<ENode<Symbol>, std::vector<ENodeId>> & {
+  auto rebuild_enode_to_parents_container() -> EnodeToParents & {
     enode_to_parents.clear();
     return enode_to_parents;
   }
 
  private:
-  std::unordered_map<ENode<Symbol>, std::vector<ENodeId>> enode_to_parents;
+  EnodeToParents enode_to_parents;
 };
 
 /**
@@ -285,12 +315,14 @@ struct EGraph : private detail::EGraphBase {
   EGraph(EGraph &&) noexcept = default;
   auto operator=(EGraph &&) noexcept -> EGraph & = default;
 
+  using EGraphBase::clear_retired;
   using EGraphBase::clear_touched;
   using EGraphBase::find;
   using EGraphBase::needs_rebuild;
   using EGraphBase::num_dead_nodes;
   using EGraphBase::num_live_nodes;
   using EGraphBase::num_nodes;
+  using EGraphBase::retired_eclasses_into;
   using EGraphBase::set_tracks_analysis;
   using EGraphBase::touched_eclasses_into;
   using EGraphBase::worklist_size;
@@ -882,6 +914,7 @@ void EGraph<Symbol, Analysis>::merge_eclasses(EClass<Analysis> &destination, ECl
   destination.merge_with(std::move(*it->second));
   classes_.erase(it);
   canonical_eclasses_.remove(other_id);
+  mark_retired(other_id);
 }
 
 template <typename Symbol, typename Analysis>

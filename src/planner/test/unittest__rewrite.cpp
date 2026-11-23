@@ -145,6 +145,29 @@ void ExpectSameShapeUnderBothDrivers(BuildAndSaturate build_and_saturate) {
 }
 }  // namespace
 
+// Saturation merges, and a merge leaves the absorbed id naming nothing. The
+// index the matcher iterates must not keep that id: root iteration would visit
+// the surviving class once per absorbed id.
+TEST(SaturationIndex, HoldsOnlyCanonicalEntries) {
+  TypedTestEGraph typed_egraph;
+  auto &eg = typed_egraph.core();
+  (void)BuildNegChain(eg, 6);
+  auto const rules = TestRuleSet::Builder{}.add_rule(make_double_neg_rule()).build();
+  TestRewriter rewriter{typed_egraph, rules};
+
+  auto const result = rewriter.saturate_incremental(RewriteConfig::Unlimited());
+  ASSERT_TRUE(result.saturated());
+
+  auto const &index = rewriter.matcher_index();
+  for (auto sym : {Op::Var, Op::Neg}) {
+    auto const *entries = index.eclasses_set_for_symbol(sym);
+    if (entries == nullptr) continue;
+    for (auto id : *entries) {
+      EXPECT_EQ(eg.find(id), id) << "index holds a merged-away id for symbol " << op_to_string(sym);
+    }
+  }
+}
+
 TEST(IncrementalArming, IncrementalEqualsFull) {
   // Same fixpoint = same final shape (rewrite counts can differ by driver).
   // Incremental only ever skips rules/prunes candidates, so its merges are a subset

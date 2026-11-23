@@ -379,6 +379,13 @@ class Rewriter {
       graph_->core().rebuild(proc_ctx_);
     }
 
+    graph_->core().retired_eclasses_into(retired_scratch_);
+    if (!retired_scratch_.empty()) {
+      retired_ids_.assign(retired_scratch_.begin(), retired_scratch_.end());
+      matcher_.retire(retired_ids_);
+      graph_->core().clear_retired();
+    }
+
     // Recompute facts the merges above enabled, inside the pass rather than
     // after the last one: a fact learned here still has a pass left in which to
     // arm the rules gated on it, which the loop's fixpoint test preserves.
@@ -398,6 +405,10 @@ class Rewriter {
    * @brief Get the number of rules in this rewriter
    */
   [[nodiscard]] auto num_rules() const -> std::size_t { return rules_.size(); }
+
+  /// The symbol index the matcher iterates. Every entry names a live e-class:
+  /// the pass drops what its merges absorbed.
+  [[nodiscard]] auto matcher_index() const -> MatcherIndex<Symbol, Analysis> const & { return matcher_; }
 
   /**
    * @brief Rebuild the matcher index
@@ -419,6 +430,8 @@ class Rewriter {
   RuleSet<Graph> rules_;  ///< Shared rules (cheap to copy)
   MatcherIndex<Symbol, Analysis> matcher_;
   pattern::vm::VMExecutor<Symbol, Analysis> vm_executor_;  ///< VM pattern matcher
+  boost::unordered_flat_set<EClassId> retired_scratch_;    ///< Reused across passes
+  std::vector<EClassId> retired_ids_;                      ///< Reused across passes
   ProcessingContext<Symbol> proc_ctx_;
   RewriteContext<Graph> ctx_;
 
