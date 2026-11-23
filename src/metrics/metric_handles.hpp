@@ -201,6 +201,9 @@ struct DatabaseMetricHandles {
   HistogramHandle snapshot_recovery_latency_seconds;
   HistogramHandle gc_latency_seconds;
   HistogramHandle gc_skiplist_cleanup_latency_seconds;
+  HistogramHandle transaction_begin_seconds;
+  HistogramHandle commit_lock_wait_seconds;
+  HistogramHandle commit_seconds;
   // Counts individual indexes swept, not collection cycles, because what a cycle costs depends on
   // how many indexes it had any reason to look through.
   CounterHandle gc_index_sweeps;
