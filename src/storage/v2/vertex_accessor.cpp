@@ -927,6 +927,17 @@ std::vector<PropertyId> VertexAccessor::VectorIndexedProperties(std::span<LabelI
 
 Result<void> VertexAccessor::ReadPropertyValues(OrderedPropertyPaths const &ordered_properties,
                                                 std::span<PropertyValue> out, View view) const {
+  return ReadPropertyValuesImpl<false>(ordered_properties, out, view);
+}
+
+Result<void> VertexAccessor::ReadPropertyValuesCompact(OrderedPropertyPaths const &ordered_properties,
+                                                       std::span<PropertyValue> out, View view) const {
+  return ReadPropertyValuesImpl<true>(ordered_properties, out, view);
+}
+
+template <bool kCompact>
+Result<void> VertexAccessor::ReadPropertyValuesImpl(OrderedPropertyPaths const &ordered_properties,
+                                                    std::span<PropertyValue> out, View view) const {
   MG_ASSERT(out.size() == ordered_properties.size(), "One value slot per property is required");
   MG_ASSERT(std::ranges::all_of(ordered_properties.paths(), [](PropertyPath const &path) { return path.size() == 1; }),
             "Replaying a property delta over a set of paths handles only single-property paths");
@@ -939,10 +950,14 @@ Result<void> VertexAccessor::ReadPropertyValues(OrderedPropertyPaths const &orde
     auto const guard = read_lock.AcquireLock();
     deleted = vertex_->deleted();
     vertex_->properties.ExtractPropertyValuesMissingAsNull(ordered_properties, out);
-    // Reading one property at a time decodes, so reading a set of them has to as well.
-    auto const decoder = IndexedPropertyDecoder<Vertex>{
-        .indices = &storage_->indices_, .name_id_mapper = storage_->name_id_mapper_.get(), .entity = vertex_};
-    for (auto &value : out) decoder.DecodeProperty(value);
+    // Reading one property at a time decodes, so reading a set of them has to as well. The index is
+    // read here, under the lock, because only the live value may be read from it: a value a delta
+    // carries below brings its own floats.
+    if constexpr (!kCompact) {
+      auto const decoder = IndexedPropertyDecoder<Vertex>{
+          .indices = &storage_->indices_, .name_id_mapper = storage_->name_id_mapper_.get(), .entity = vertex_};
+      for (auto &value : out) decoder.DecodeProperty(value);
+    }
     delta = vertex_->delta();
   }
 
