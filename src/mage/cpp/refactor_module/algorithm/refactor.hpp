@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -61,17 +61,28 @@ constexpr const std::string_view kProcedureCloneSubgraph = "clone_subgraph";
 constexpr const std::string_view kArgumentsNodes = "nodes";
 constexpr const std::string_view kArgumentsRels = "rels";
 
+/* from/to shared config key */
+constexpr const std::string_view kConfigFailOnErrors = "failOnErrors";
+
 /* from constants */
 constexpr const std::string_view kProcedureFrom = "from";
 constexpr const std::string_view kFromArg1 = "relationship";
 constexpr const std::string_view kFromArg2 = "new_from";
+constexpr const std::string_view kFromArg3 = "config";
 constexpr const std::string_view kFromResult = "relationship";
+constexpr const std::string_view kFromResultInput = "input";
+constexpr const std::string_view kFromResultOutput = "output";
+constexpr const std::string_view kFromResultError = "error";
 
 /* to constants */
 constexpr const std::string_view kProcedureTo = "to";
 constexpr const std::string_view kToArg1 = "relationship";
 constexpr const std::string_view kToArg2 = "new_to";
+constexpr const std::string_view kToArg3 = "config";
 constexpr const std::string_view kToResult = "relationship";
+constexpr const std::string_view kToResultInput = "input";
+constexpr const std::string_view kToResultOutput = "output";
+constexpr const std::string_view kToResultError = "error";
 
 /* rename_label constants */
 constexpr std::string_view kProcedureRenameLabel = "rename_label";
