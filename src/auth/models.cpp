@@ -9,7 +9,6 @@
 #include "auth/models.hpp"
 
 #include <algorithm>
-#include <cstddef>
 #include <iterator>
 #include <nlohmann/json.hpp>
 #include <optional>
@@ -123,15 +122,10 @@ bool OverriddenBySources(std::vector<Source> const &sources, std::unordered_set<
   if (r::none_of(symbols, is_denied) || !r::all_of(symbols | std::views::filter(is_denied), could_vouch)) {
     return false;
   }
-  std::vector<bool> vouched(symbols.size());
-  for (auto const &source : sources) {
-    if (denies_node(source)) continue;
-    for (std::size_t i = 0; i < symbols.size(); ++i) {
-      vouched[i] = vouched[i] || (is_denied(symbols[i]) && grants_symbol(source, symbols[i]));
-    }
-  }
-  return r::all_of(std::views::iota(std::size_t{0}, symbols.size()),
-                   [&](std::size_t const i) { return vouched[i] || !is_denied(symbols[i]); });
+  return r::all_of(symbols | std::views::filter(is_denied), [&](std::string const &symbol) {
+    return r::any_of(sources,
+                     [&](Source const &source) { return grants_symbol(source, symbol) && !denies_node(source); });
+  });
 }
 #endif
 
