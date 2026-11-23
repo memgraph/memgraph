@@ -625,10 +625,13 @@ TYPED_TEST(TestPlanner, MatchReturnSum) {
   auto sum = SUM(PROPERTY_LOOKUP(dba, "n", prop1), false);
   auto n_prop2 = PROPERTY_LOOKUP(dba, "n", prop2);
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN(sum, AS("sum"), n_prop2, AS("group"))));
-  auto aggr = ExpectAggregate({sum}, {n_prop2});
+  // Both properties ride one read, so the grouping key reads that slot. This says what kind of
+  // expression the key is rather than which one; the answer itself is pinned by the execution tests.
+  auto reads_the_pass = IDENT("read_by_the_pass");
+  auto aggr = ExpectAggregate({sum}, {reads_the_pass});
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
-  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), aggr, ExpectProduce());
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectPrefetchProperties("n", 2), aggr, ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, CreateWithSum) {
@@ -671,10 +674,13 @@ TYPED_TEST(TestPlanner, MatchReturnSumWithDistinct) {
   auto sum = SUM(PROPERTY_LOOKUP(dba, "n", prop1), true);
   auto n_prop2 = PROPERTY_LOOKUP(dba, "n", prop2);
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN(sum, AS("sum"), n_prop2, AS("group"))));
-  auto aggr = ExpectAggregate({sum}, {n_prop2});
+  // Both properties ride one read, so the grouping key reads that slot. This says what kind of
+  // expression the key is rather than which one; the answer itself is pinned by the execution tests.
+  auto reads_the_pass = IDENT("read_by_the_pass");
+  auto aggr = ExpectAggregate({sum}, {reads_the_pass});
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
-  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), aggr, ExpectProduce());
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectPrefetchProperties("n", 2), aggr, ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, CreateWithSumWithDistinct) {
@@ -3941,7 +3947,8 @@ TYPED_TEST(TestPlanner, SubqueryScopedImportSelfReferentialFilterNoIndex) {
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 
-  std::list<BaseOpChecker *> branch{new ExpectScanAllByLabel(), new ExpectFilter(), new ExpectProduce()};
+  std::list<BaseOpChecker *> branch{
+      new ExpectScanAllByLabel(), new ExpectPrefetchProperties("n", 2), new ExpectFilter(), new ExpectProduce()};
   CheckPlan(planner.plan(), symbol_table, ExpectProduce(), ExpectApply(branch), ExpectProduce());
   DeleteListContent(&branch);
 }
@@ -4204,7 +4211,11 @@ TYPED_TEST(TestPlanner, CorrelatedPatternComprehensionInReturnDrivesLabelPropert
     auto symbol_table = memgraph::query::MakeSymbolTable(query);
     auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
     std::list<BaseOpChecker *> input{new ExpectScanAll()};
-    std::list<BaseOpChecker *> branch{new ExpectScanAll(), new ExpectFilter(), new ExpectExpand(), new ExpectProduce()};
+    std::list<BaseOpChecker *> branch{new ExpectScanAll(),
+                                      new ExpectPrefetchProperties("n", 1),
+                                      new ExpectFilter(),
+                                      new ExpectExpand(),
+                                      new ExpectProduce()};
     CheckPlan(planner.plan(), symbol_table, ExpectRollUpApply(input, branch), ExpectProduce());
     DeleteListContent(&input);
     DeleteListContent(&branch);
@@ -4944,7 +4955,8 @@ TYPED_TEST(TestPlanner, RangeFilterNoIndex1) {
 
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
-  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectFilter(), ExpectProduce());
+  CheckPlan(
+      planner.plan(), symbol_table, ExpectScanAll(), ExpectPrefetchProperties("n", 1), ExpectFilter(), ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, RangeFilterWIndex1) {
@@ -4986,7 +4998,8 @@ TYPED_TEST(TestPlanner, RangeFilterNoIndex2) {
 
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
-  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectFilter(), ExpectProduce());
+  CheckPlan(
+      planner.plan(), symbol_table, ExpectScanAll(), ExpectPrefetchProperties("n", 1), ExpectFilter(), ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, RangeFilterWIndex2) {
@@ -5030,7 +5043,8 @@ TYPED_TEST(TestPlanner, RangeFilterNoIndex3) {
 
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
-  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectFilter(), ExpectProduce());
+  CheckPlan(
+      planner.plan(), symbol_table, ExpectScanAll(), ExpectPrefetchProperties("n", 1), ExpectFilter(), ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, RangeFilterWIndex3) {
@@ -5077,7 +5091,8 @@ TYPED_TEST(TestPlanner, RangeFilterNoIndex4) {
 
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
-  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectFilter(), ExpectProduce());
+  CheckPlan(
+      planner.plan(), symbol_table, ExpectScanAll(), ExpectPrefetchProperties("n", 1), ExpectFilter(), ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, RangeFilterWIndex4) {
@@ -5125,7 +5140,8 @@ TYPED_TEST(TestPlanner, RangeFilterNoIndex5) {
 
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
-  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectFilter(), ExpectProduce());
+  CheckPlan(
+      planner.plan(), symbol_table, ExpectScanAll(), ExpectPrefetchProperties("n", 1), ExpectFilter(), ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, RangeFilterWIndex5) {
@@ -9180,37 +9196,67 @@ auto GatheredWith(std::vector<Reads> const &per_property) -> Cacher::Gathered {
 TEST(PrefetchPropertiesDecision, ARepeatedPropertyPaysWhateverTheOperatorKeeps) {
   // One property two lookups name, both of which every row reaches: a pass reads it once and
   // removes the second read.
-  EXPECT_TRUE(GatheredWith({{2, 2}}).PropertiesWorthOnePass(Cacher::ValueUse::kDiscarded).has_value());
-  EXPECT_TRUE(GatheredWith({{2, 2}}).PropertiesWorthOnePass(Cacher::ValueUse::kKept).has_value());
+  EXPECT_TRUE(GatheredWith({{2, 2}}).PropertiesWorthOnePass().has_value());
+  EXPECT_TRUE(GatheredWith({{2, 2}}).PropertiesWorthOnePass().has_value());
 }
 
 TEST(PrefetchPropertiesDecision, OneLookupPaysNeither) {
-  EXPECT_FALSE(GatheredWith({{1, 1}}).PropertiesWorthOnePass(Cacher::ValueUse::kDiscarded).has_value());
-  EXPECT_FALSE(GatheredWith({{1, 1}}).PropertiesWorthOnePass(Cacher::ValueUse::kKept).has_value());
+  EXPECT_FALSE(GatheredWith({{1, 1}}).PropertiesWorthOnePass().has_value());
+  EXPECT_FALSE(GatheredWith({{1, 1}}).PropertiesWorthOnePass().has_value());
 }
 
-TEST(PrefetchPropertiesDecision, TwoPropertiesReadOnceEachPayOnlyAKeptValue) {
-  // Two reads either way, so the only thing a pass offers is reading them together, which is worth
-  // a slot to an operator that was going to hold the value and not to one that discards it.
-  EXPECT_FALSE(GatheredWith({{1, 1}, {1, 1}}).PropertiesWorthOnePass(Cacher::ValueUse::kDiscarded).has_value());
-  EXPECT_TRUE(GatheredWith({{1, 1}, {1, 1}}).PropertiesWorthOnePass(Cacher::ValueUse::kKept).has_value());
+TEST(PrefetchPropertiesDecision, TwoPropertiesReadOnceEachShareOneRead) {
+  // Two reads of the record without a pass and one with it. The saving is that read, and the slots
+  // the values go to cost none of their own.
+  EXPECT_TRUE(GatheredWith({{1, 1}, {1, 1}}).PropertiesWorthOnePass().has_value());
+}
 
-  // A property no row is certain to read is not one a pass may read, so the second property here
-  // leaves the first on its own and there is nothing to batch it with.
-  EXPECT_FALSE(GatheredWith({{1, 1}, {1, 0}}).PropertiesWorthOnePass(Cacher::ValueUse::kKept).has_value());
+TEST(PrefetchPropertiesDecision, APropertyReadOnEveryRowCarriesTheRestIntoItsRead) {
+  // The record is read on every row for the first property, so the second joins that read rather
+  // than making one of its own. That holds however rarely a row asks for the second, and whatever
+  // the operator does with the values: one read is saved and a slot costs no read.
+  EXPECT_TRUE(GatheredWith({{1, 1}, {1, 0}}).PropertiesWorthOnePass().has_value());
+  EXPECT_TRUE(GatheredWith({{1, 1}, {1, 0}}).PropertiesWorthOnePass().has_value());
+
+  // Both properties are in the pass, since reading the one the rows may miss is what the saving is.
+  auto const pass = GatheredWith({{1, 1}, {1, 0}}).PropertiesWorthOnePass();
+  ASSERT_TRUE(pass.has_value());
+  EXPECT_EQ(pass->properties.size(), 2U);
+
+  // One property on its own has no second to share with and no read to remove.
+  EXPECT_FALSE(GatheredWith({{1, 1}}).PropertiesWorthOnePass().has_value());
+}
+
+TEST(PrefetchPropertiesDecision, ALabelTestedRecordLetsThePropertiesBehindItBeReadAhead) {
+  // A label test reads the record just as a lookup does, so a row reaching one has touched the
+  // record whether or not it goes on to read a property. Two lookups of one property then have a
+  // read to remove even where a row may reach neither of them.
+  auto tested = GatheredWith({{2, 0}});
+  tested.NoteALabelTest();
+  EXPECT_TRUE(tested.PropertiesWorthOnePass().has_value());
+  EXPECT_TRUE(tested.PropertiesWorthOnePass().has_value());
+
+  // Without the test nothing says the record is touched at all, so reading ahead could reach one
+  // the query never asked about.
+  EXPECT_FALSE(GatheredWith({{2, 0}}).PropertiesWorthOnePass().has_value());
+
+  // A label test is not a property read, so one lookup still has no read to remove and a pass
+  // would be making the first property read of its own.
+  auto once = GatheredWith({{1, 0}});
+  once.NoteALabelTest();
+  EXPECT_FALSE(once.PropertiesWorthOnePass().has_value());
 }
 
 TEST(PrefetchPropertiesDecision, NothingGatheredPaysNeither) {
-  EXPECT_FALSE(GatheredWith({}).PropertiesWorthOnePass(Cacher::ValueUse::kDiscarded).has_value());
-  EXPECT_FALSE(GatheredWith({}).PropertiesWorthOnePass(Cacher::ValueUse::kKept).has_value());
+  EXPECT_FALSE(GatheredWith({}).PropertiesWorthOnePass().has_value());
 }
 
 // Every shape of up to three properties, each read up to three times with every number of those
-// reads a row is certain to make, against what a pass would actually save: only a property some
-// lookup reads on every row may be read ahead, a record is read once per lookup without a pass and
-// once per such property with one, and a slot an operator does not keep the value in has to be
-// paid for by a read removed.
-TEST(PrefetchPropertiesDecision, PaysWhenAReadIsRemovedOrAKeptValueSharesAPass) {
+// reads a row is certain to make, against what a pass would actually save. A record some lookup
+// reads on every row is read whatever the rows go on to do, so a pass of it costs no read: it pays
+// wherever it removes one of the lookups' reads, or wherever a second property shares the one read
+// it makes. A record no row is certain to read is one a pass must not touch at all.
+TEST(PrefetchPropertiesDecision, PaysWhenTheRecordIsReadAnywayAndAReadIsRemovedOrShared) {
   auto variants = std::vector<Reads>{};
   for (auto lookups = size_t{1}; lookups <= 3; ++lookups) {
     for (auto on_every_row = size_t{0}; on_every_row <= lookups; ++on_every_row) {
@@ -9234,28 +9280,28 @@ TEST(PrefetchPropertiesDecision, PaysWhenAReadIsRemovedOrAKeptValueSharesAPass) 
   ASSERT_EQ(shapes.size(), 1U + 9U + 81U + 729U);
 
   for (auto const &shape : shapes) {
-    auto readable = std::vector<size_t>{};
-    auto removed = size_t{0};
+    auto read_anyway = false;
+    auto removes_a_read = false;
+    auto all = std::vector<size_t>{};
     for (auto property = size_t{0}; property < shape.size(); ++property) {
-      if (shape[property].on_every_row == 0) continue;
-      readable.push_back(property);
-      removed += shape[property].lookups - 1;
+      all.push_back(property);
+      if (shape[property].on_every_row > 0) read_anyway = true;
+      if (shape[property].lookups > 1) removes_a_read = true;
     }
 
     auto const gathered = GatheredWith(shape);
-    auto const discarded = gathered.PropertiesWorthOnePass(Cacher::ValueUse::kDiscarded);
-    auto const kept = gathered.PropertiesWorthOnePass(Cacher::ValueUse::kKept);
+    auto const pass = gathered.PropertiesWorthOnePass();
 
-    EXPECT_EQ(discarded.has_value(), removed >= 1) << "a discarded value pays for its slot only with a read removed";
-    EXPECT_EQ(kept.has_value(), removed >= 1 || readable.size() >= 2) << "a kept value was going to a slot anyway";
+    auto const shares_a_read = read_anyway && shape.size() >= 2;
+    EXPECT_EQ(pass.has_value(), read_anyway && (removes_a_read || shares_a_read))
+        << "a pass pays once the record is read anyway and a read is either removed or shared";
 
-    // What a pass is given to read is what a row is certain to ask for, and nothing else.
-    for (auto const &pass : {discarded, kept}) {
-      if (!pass) continue;
-      auto read_ahead = std::vector<size_t>{};
-      for (auto const &property : pass->properties) read_ahead.push_back(property.Position());
-      EXPECT_EQ(read_ahead, readable);
-    }
+    // Every gathered property rides the one read, including one the rows may never ask for: the
+    // record is being read regardless, and that read is what the saving is.
+    if (!pass) continue;
+    auto read_ahead = std::vector<size_t>{};
+    for (auto const &property : pass->properties) read_ahead.push_back(property.Position());
+    EXPECT_EQ(read_ahead, all);
   }
 }
 
@@ -9512,7 +9558,7 @@ TYPED_TEST(TestPlanner, PrefetchPropertiesAnAggregationReadingOnePropertySeveral
   }
 }
 
-TYPED_TEST(TestPlanner, PrefetchPropertiesAnAggregationsDistinctPropertiesEarnNoPass) {
+TYPED_TEST(TestPlanner, PrefetchPropertiesAnAggregationsDistinctPropertiesShareOneRead) {
   PrefetchPropertiesFlagGuard guard{true};
   FakeDbAccessor dba;
   auto prop_a = dba.Property("a");
@@ -9523,7 +9569,7 @@ TYPED_TEST(TestPlanner, PrefetchPropertiesAnAggregationsDistinctPropertiesEarnNo
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto aggr = ExpectAggregate({sum, count}, {});
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
-  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), aggr, ExpectProduce());
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectPrefetchProperties("n", 2), aggr, ExpectProduce());
 }
 
 // The property sits in the branches rather than in the condition, which is the part a CASE
@@ -9559,9 +9605,9 @@ TYPED_TEST(TestPlanner, PrefetchPropertiesAFilterReadingOnePropertyTwice) {
       planner.plan(), symbol_table, ExpectScanAll(), ExpectPrefetchProperties("n", 1), ExpectFilter(), ExpectProduce());
 }
 
-// A pass reads the properties every row asks for and leaves out the one only some rows reach, so
-// the lookup behind the short circuit keeps reading the record while the other two read slots.
-TYPED_TEST(TestPlanner, PrefetchPropertiesLeavesOutAPropertyBehindAShortCircuit) {
+// The record is read on every row for the first two properties, so the third rides that read
+// rather than keeping a lookup of its own, however few rows reach it.
+TYPED_TEST(TestPlanner, PrefetchPropertiesTakesAPropertyBehindAShortCircuitIntoAReadItMakesAnyway) {
   PrefetchPropertiesFlagGuard guard{true};
   FakeDbAccessor dba;
   auto reached = PROPERTY_PAIR(dba, "a");
@@ -9577,7 +9623,7 @@ TYPED_TEST(TestPlanner, PrefetchPropertiesLeavesOutAPropertyBehindAShortCircuit)
                           AS("z"))));
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
-  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectPrefetchProperties("n", 2), ExpectProduce());
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectPrefetchProperties("n", 3), ExpectProduce());
 }
 
 // The filter's pass leaves the property in a slot that every row reaching the projection has
@@ -9595,6 +9641,42 @@ TYPED_TEST(TestPlanner, PrefetchPropertiesAProjectionReadsASlotAFilterAlreadyFil
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
   CheckPlan(
       planner.plan(), symbol_table, ExpectScanAll(), ExpectPrefetchProperties("n", 1), ExpectFilter(), ExpectProduce());
+}
+
+// A periodic commit ends the transaction the pass below it read in, so the projection above makes a
+// pass of its own rather than reading those slots. What holds that here is the view rather than the
+// walk: a subquery committing part way through may write anything, so a slot filled for the
+// predicate at one view is never offered to a projection reading at the other. That the walk also
+// stops at the commit is not something this can show on its own.
+TYPED_TEST(TestPlanner, PrefetchPropertiesASlotIsNotOfferedAcrossAPeriodicCommit) {
+  PrefetchPropertiesFlagGuard guard{true};
+  FakeDbAccessor dba;
+  auto first = PROPERTY_PAIR(dba, "a");
+  auto second = PROPERTY_PAIR(dba, "b");
+  auto nexpr_i = NEXPR("i", IDENT("i"));
+  auto *subquery =
+      SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                   WHERE(AND(GREATER(PROPERTY_LOOKUP(dba, "n", first), LITERAL(0)),
+                             GREATER(PROPERTY_LOOKUP(dba, "n", second), LITERAL(0)))),
+                   RETURN(PROPERTY_LOOKUP(dba, "n", first), AS("x"), PROPERTY_LOOKUP(dba, "n", second), AS("y")));
+  auto *query = QUERY(SINGLE_QUERY(UNWIND(LIST(LITERAL(1), LITERAL(2)), nexpr_i),
+                                   CALL_PERIODIC_SUBQUERY(subquery, COMMIT_FREQUENCY(LITERAL(1))),
+                                   RETURN("x", "y")));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  std::list<BaseOpChecker *> subquery_plan{new ExpectProduce(),
+                                           new ExpectScanAll(),
+                                           new ExpectPrefetchProperties("n", 2),
+                                           new ExpectFilter(),
+                                           new ExpectPeriodicCommit(),
+                                           new ExpectPrefetchProperties("n", 2),
+                                           new ExpectProduce()};
+
+  CheckPlan(planner.plan(), symbol_table, ExpectUnwind(), ExpectPeriodicSubquery(subquery_plan), ExpectProduce());
+
+  DeleteListContent(&subquery_plan);
 }
 
 // A clause projecting the node carries forward what it was known to hold, so the projection above
@@ -9753,9 +9835,9 @@ TYPED_TEST(TestPlanner, PrefetchPropertiesAProjectionReturnsASlotWithoutAPassOfI
       << "the projection still reads the record";
 }
 
-// Two properties earn a projection a pass, counting only the ones every row reads. The second
-// here sits behind a short circuit, leaving one for the pass to read and no read for it to remove.
-TYPED_TEST(TestPlanner, PrefetchPropertiesAProjectionNeedsTwoPropertiesEveryRowReads) {
+// The first property is read on every row, so the record is read whatever the row goes on to do
+// and the second rides that read even though only some rows reach it.
+TYPED_TEST(TestPlanner, PrefetchPropertiesAProjectionSharesOneReadWithAPropertyBehindAShortCircuit) {
   PrefetchPropertiesFlagGuard guard{true};
   FakeDbAccessor dba;
   auto reached = PROPERTY_PAIR(dba, "a");
@@ -9767,11 +9849,12 @@ TYPED_TEST(TestPlanner, PrefetchPropertiesAProjectionNeedsTwoPropertiesEveryRowR
                                           AS("y"))));
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
-  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectProduce());
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectPrefetchProperties("n", 2), ExpectProduce());
 }
 
-// Two reads either way, so a pass would add a slot and remove nothing.
-TYPED_TEST(TestPlanner, PrefetchPropertiesAFiltersDistinctPropertiesEarnNoPass) {
+// Two reads of the record without a pass and one with it, so the two properties share that read
+// whether or not the predicate keeps either value.
+TYPED_TEST(TestPlanner, PrefetchPropertiesAFiltersDistinctPropertiesShareOneRead) {
   PrefetchPropertiesFlagGuard guard{true};
   FakeDbAccessor dba;
   auto first = PROPERTY_PAIR(dba, "a");
@@ -9782,12 +9865,14 @@ TYPED_TEST(TestPlanner, PrefetchPropertiesAFiltersDistinctPropertiesEarnNoPass) 
                                    RETURN("n")));
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
-  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectFilter(), ExpectProduce());
+  CheckPlan(
+      planner.plan(), symbol_table, ExpectScanAll(), ExpectPrefetchProperties("n", 2), ExpectFilter(), ExpectProduce());
 }
 
-// Both lookups sit in the second operand of the disjunction, which a row reaches only when the
-// first answers false, so neither is a read every row makes.
-TYPED_TEST(TestPlanner, PrefetchPropertiesARepeatAFilterMayNotReachEarnsNoPass) {
+// Both lookups of the repeated property sit in the second operand of the disjunction, which a row
+// reaches only when the first answers false. The first operand reads the record on every row even
+// so, which is what lets the pass read the repeated property and remove one of its reads.
+TYPED_TEST(TestPlanner, PrefetchPropertiesARepeatBehindAShortCircuitRidesAReadEveryRowMakes) {
   PrefetchPropertiesFlagGuard guard{true};
   FakeDbAccessor dba;
   auto reached = PROPERTY_PAIR(dba, "a");
@@ -9799,7 +9884,8 @@ TYPED_TEST(TestPlanner, PrefetchPropertiesARepeatAFilterMayNotReachEarnsNoPass) 
                                    RETURN("n")));
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
-  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectFilter(), ExpectProduce());
+  CheckPlan(
+      planner.plan(), symbol_table, ExpectScanAll(), ExpectPrefetchProperties("n", 2), ExpectFilter(), ExpectProduce());
 }
 
 // A body run once per element runs no times for an empty list, so no lookup inside one is a read

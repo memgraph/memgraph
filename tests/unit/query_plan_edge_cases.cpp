@@ -652,9 +652,10 @@ TYPED_TEST(QueryExecution, PrefetchPropertiesGroupsTwoSymbols) {
   EXPECT_EQ(mixed[0][2].ValueInt(), 1);
 }
 
-// A lookup reachable only through an AND or an OR keeps its own lookup, while the same properties
-// read outside one still get their pass.
-TYPED_TEST(QueryExecution, PrefetchPropertiesLeavesLookupsBehindAShortCircuit) {
+// A lookup reachable only through an AND or an OR earns no pass of its own. Where another property
+// of the same record is read on every row it rides that read, and where none is, the record is one
+// no pass may touch.
+TYPED_TEST(QueryExecution, PrefetchPropertiesReadsBehindAShortCircuitRideAReadEveryRowMakes) {
   this->Execute("CREATE (:Q {a: 1, b: 2}), (:G {t: true})");
 
   auto explained = [this](const std::string &query) {
@@ -665,10 +666,18 @@ TYPED_TEST(QueryExecution, PrefetchPropertiesLeavesLookupsBehindAShortCircuit) {
   };
 
   PrefetchPropertiesFlagGuard guard{true};
-  // The first operand is read from another node, so it is not folded away before planning.
-  EXPECT_EQ(explained("EXPLAIN MATCH (n:Q), (g:G) RETURN g.t OR n.a AS x, n.b AS y").find("PrefetchProperties"),
+  // The first operand is read from another node, so it is not folded away before planning. Here
+  // n.b is read on every row, so the record is read regardless and n.a joins that one read.
+  EXPECT_NE(explained("EXPLAIN MATCH (n:Q), (g:G) RETURN g.t OR n.a AS x, n.b AS y").find("PrefetchProperties"),
             std::string::npos);
-  EXPECT_EQ(explained("EXPLAIN MATCH (n:Q), (g:G) RETURN g.t AND n.a AS p, n.b AS q").find("PrefetchProperties"),
+  EXPECT_NE(explained("EXPLAIN MATCH (n:Q), (g:G) RETURN g.t AND n.a AS p, n.b AS q").find("PrefetchProperties"),
+            std::string::npos);
+
+  // Nothing of n is read on every row here, so no pass may touch the record: on a deleted one that
+  // would turn an answer into a refusal.
+  EXPECT_EQ(explained("EXPLAIN MATCH (n:Q), (g:G) RETURN g.t OR n.a AS x").find("PrefetchProperties"),
+            std::string::npos);
+  EXPECT_EQ(explained("EXPLAIN MATCH (n:Q), (g:G) RETURN g.t AND n.a AS p").find("PrefetchProperties"),
             std::string::npos);
 
   // A projection reading the same properties outside a short circuit still gets its pass.
