@@ -1275,6 +1275,27 @@ TEST_F(WriteVisibilityPlan, AKeyedMergeThenAWriteBackOfItsKeysHasNoDrain) {
   EXPECT_EQ(drains("MERGE (n:N {id: row.id}) SET n += row, n.seen = true"), 0);
   EXPECT_EQ(drains("WITH {id: row.id, a: row.a} AS m MERGE (n:N {id: m.id}) SET n += m"), 0);
   EXPECT_EQ(drains("MERGE (m:M {id: row.a}) MERGE (n:N {id: row.id}) SET n += row"), 0);
+  EXPECT_EQ(drains("MERGE (n:N {id: row.id}) SET n.id = row.id SET n += row"), 0);
+  EXPECT_EQ(drains("MERGE (n:N {id: row.id}) SET n = {id: row.id, a: row.a}"), 0);
+  // Other spellings of the same data path: a subscript, a WITH alias of a field or of the row.
+  EXPECT_EQ(drains("MERGE (n:N {id: row['id']}) SET n += row"), 0);
+  EXPECT_EQ(drains("WITH row.id AS id, row MERGE (n:N {id: id}) SET n += row"), 0);
+  EXPECT_EQ(drains("WITH row, row AS r MERGE (n:N {id: r.id}) SET n += row"), 0);
+  EXPECT_EQ(drains("WITH row, row AS other MERGE (n:N {id: row.id}) SET n += other"), 0);
+  // A `+=` map literal writes only its keys.
+  EXPECT_EQ(drains("MERGE (n:N {id: row.id}) SET n += {id: row.id, a: row.a}"), 0);
+  EXPECT_EQ(drains("MERGE (n:N {id: row.id}) SET n += {a: row.a}"), 0);
+  // A later MERGE that matches the stored-back key needs no barrier either.
+  EXPECT_EQ(drains("MERGE (p:P {id: row.id}) SET p += row MERGE (c:C {id: row.a})"), 0);
+  EXPECT_EQ(drains("MERGE (p:P {id: row.id}) SET p += row MERGE (c:C {id: row.a}) MERGE (p)-[:W]->(c)"), 0);
+#ifdef MG_ENTERPRISE
+  // The label write keeps only the access check's barrier.
+  auto &relabel = Plan("UNWIND [{id: 1}] AS row MERGE (n:N {id: row.id}) SET n:L, n.id = row.id");
+  EXPECT_EQ(Collect<Accumulate>(relabel).size(), 1);
+  EXPECT_TRUE(HasAccessCheckBarrier(relabel));
+#else
+  EXPECT_EQ(drains("MERGE (n:N {id: row.id}) SET n:L, n.id = row.id"), 0);
+#endif
   EXPECT_EQ(Collect<Accumulate>(Plan("LOAD CSV FROM '/x.csv' WITH HEADER AS row MERGE (n:N {id: row.id}) SET n += row"))
                 .size(),
             0);
@@ -1294,9 +1315,63 @@ TEST_F(WriteVisibilityPlan, AKeyedMergeKeepsItsDrainWhenTheSetCanChangeAMatch) {
   EXPECT_EQ(drains("MERGE (n:N {id: row.id}) SET n.id = 5, n += row"), 1);
   EXPECT_EQ(drains("MERGE (n:N {id: row.id}) SET n += row, n.id = 5"), 1);
   EXPECT_EQ(drains("MERGE (n:N {id: row.id}) SET n.id = row.id + 1"), 1);
-  EXPECT_EQ(drains("WITH row, row AS other MERGE (n:N {id: row.id}) SET n += other"), 1);
   EXPECT_EQ(drains("MERGE (n:N {id: row.id}) SET n.id = 99 MERGE (m:N {id: row.a}) SET n += row"), 3);
   EXPECT_EQ(Collect<Accumulate>(Plan("MATCH (row:S) MERGE (n:N {id: row.id}) SET n += row")).size(), 1);
+  // A key written between the MERGE and the SET, by name or as any key, or by the MERGE's own ON MATCH.
+  EXPECT_EQ(drains("MERGE (n:N {id: row.id}) SET n.id = 5 MERGE (m:N {id: row.a}) SET n.id = row.id"), 3);
+  EXPECT_EQ(drains("MERGE (n:N {id: row.id}) SET n += row.p MERGE (m:N {id: row.a}) SET n.id = row.id"), 3);
+  EXPECT_EQ(drains("MERGE (n:N {id: row.id}) ON MATCH SET n.id = 5 SET n.id = row.id"), 1);
+  // Another item of the group writes the key without storing it back.
+  EXPECT_EQ(drains("MERGE (n:N {id: row.id}) MERGE (b:N {id: row.k}) SET n += row, b += row"), 2);
+  EXPECT_EQ(drains("MERGE (n:N {id: row.id}) MERGE (b:N {id: row.k}) SET n.id = row.id, b.id = row.id"), 2);
+  // The stored value is not the matched data path.
+  EXPECT_EQ(drains("MERGE (n:N {id: row.id}) SET n.id += row.id"), 1);
+  EXPECT_EQ(drains("MERGE (n:N {id: row.id}) SET n = {a: row.a}"), 1);
+  EXPECT_EQ(drains("MERGE (n:N {id: row.id, t: 1}) SET n = {id: row.id}"), 1);
+  EXPECT_EQ(drains("MERGE (n:N {id: row.id}) SET n += {id: row.k}"), 1);
+  EXPECT_EQ(drains("MERGE (n:N {id: row.id}) SET n += {id: row.id + 1}"), 1);
+  EXPECT_EQ(drains("MERGE (n:N {id: row.p.id}) SET n += row"), 1);
+  EXPECT_EQ(drains("MERGE (n:N {id: row[row.k]}) SET n += row"), 1);
+  EXPECT_EQ(drains("WITH row.k AS id, row MERGE (n:N {id: id}) SET n += row"), 1);
+  EXPECT_EQ(drains("WITH row.id AS id, row.p AS row MERGE (n:N {id: id}) SET n += row"), 1);
+  // A later reader of the key that a store-back does not cover: an any-key write of another key it matches.
+  EXPECT_EQ(drains("MERGE (p:P {id: row.id}) SET p += row MERGE (c:C {id: row.a, a: 1})"), 1);
+  // A value read of the key before the match, in the same MERGE and in an earlier one.
+  auto const t1 = [&](std::string_view merges) {
+    return Collect<Accumulate>(
+               Plan(fmt::format("MATCH (m:N) UNWIND [{{id: 1.0}}, {{id: 2}}] AS row {} SET n.id = row.id", merges)))
+        .size();
+  };
+  EXPECT_EQ(t1("MERGE (a:A {x: m.id})-[:R]->(n:N {id: row.id})"), 1);
+  EXPECT_EQ(t1("MERGE (a:A {x: m.id, r: toString(row.id)}) MERGE (n:N {id: row.id})"), 1);
+}
+
+// A node key and an edge key of one name are different properties: a write of one changes no match of the other.
+TEST_F(WriteVisibilityPlan, AnEdgeKeyWriteDoesNotConflictWithANodeKeyRead) {
+  auto const drains = [&](std::string_view tail) {
+    return Collect<Accumulate>(Plan(fmt::format("UNWIND [{{id: 1, a: 2, w: 3}}] AS row {}", tail))).size();
+  };
+  // The drain before the edge MERGE stays; the one before the edge's SET goes.
+  auto const edge = "MERGE (a:N {id: row.id}) MERGE (b:N {id: row.a}) MERGE (a)-[r:R]->(b) ";
+  EXPECT_EQ(drains(fmt::format("{}SET r += row", edge)), 1);
+  EXPECT_EQ(drains(fmt::format("{}SET r.id = row.a", edge)), 1);
+  EXPECT_EQ(drains(fmt::format("{}SET r += {{w: row.a}}", edge)), 1);
+  EXPECT_EQ(drains("MERGE (a:N {w: row.id})-[r:R]->(b:N {w: row.a}) SET r.w = row.w"), 0);
+  EXPECT_EQ(
+      Collect<Accumulate>(Plan("MATCH (a)-[r:R]->(b) UNWIND [1, 2] AS i MERGE (q:Q {x: b.id}) SET r.id = i")).size(),
+      0);
+}
+
+// A key reached through a value that may be either kind conflicts with both.
+TEST_F(WriteVisibilityPlan, AKeyOfUnknownKindConflictsWithBothKinds) {
+  auto const drains = [&](std::string_view query) { return Collect<Accumulate>(Plan(query)).size(); };
+  EXPECT_EQ(drains("MATCH ()-[e:R]->() WITH e, [e] AS l UNWIND [1, 2] AS x MERGE (q:Q {v: l[0].id}) SET e.id = x"), 1);
+  EXPECT_EQ(drains("MATCH ()-[e:R]->() WITH e, e AS y UNWIND [1, 2] AS x MERGE (q:Q {v: y.id}) SET e.id = x"), 1);
+  EXPECT_EQ(drains("MATCH (e:N) WITH e, e AS y UNWIND [1, 2] AS x MERGE (q:Q {v: y.id}) SET e.id = x"), 1);
+  EXPECT_EQ(drains("UNWIND [{id: 1, k: 2}] AS row MERGE (n:N {id: row.id}) UNWIND [n] AS x SET x.id = row.k"), 1);
+  EXPECT_EQ(drains("UNWIND [{id: 1, k: 2, f: true}] AS row MERGE (n:N {id: row.id}) "
+                   "SET (CASE WHEN row.f THEN n ELSE n END).id = row.k"),
+            1);
 }
 
 /// The chain of the one MERGE's match branch.
@@ -1341,6 +1416,8 @@ TEST_F(WriteVisibilityPlan, OnMatchThatCannotReachAnotherMatchIsNotBuffered) {
   EXPECT_FALSE(BuffersMatches(Plan("UNWIND [1, 2] AS i MERGE (n:P {id: i}) ON MATCH SET n += {id: i, c: 1}")));
   EXPECT_FALSE(BuffersMatches(Plan("UNWIND [1, 2] AS i MERGE (n:P {id: i}) ON MATCH SET n:Seen")));
   EXPECT_FALSE(BuffersMatches(Plan("MATCH (m:M) MERGE (n:L) ON CREATE SET m:L")));
+  // An edge key write cannot reach a node key match.
+  EXPECT_FALSE(BuffersMatches(Plan("MERGE (a:N {id: 1})-[r:R]->(b:M) ON MATCH SET r.id = 2")));
   EXPECT_FALSE(BuffersMatches(
       Plan("MATCH (a:N {k: 1}), (b:N {k: 2}) MERGE (a)-[r:R {id: 1}]->(b) ON MATCH SET r += {id: 1, c: 1}")));
 }
