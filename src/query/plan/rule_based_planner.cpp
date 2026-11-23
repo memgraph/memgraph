@@ -1379,7 +1379,8 @@ bool IsRowUnique(const LogicalOperator &plan, const Symbol &symbol, bool trust_s
     if (auto const *merge = utils::Downcast<const Merge>(op); merge && trust_merge && MergesOneNode(*merge, position)) {
       return AtMostOneRow(merge->input().get());
     }
-    // Only operators that emit at most one row per input row are above a call's one input row.
+    // Only operators that emit at most one row per input row are above a call's one input row. Every operator that
+    // binds an entity needs its case above: one that falls through to here would count as row-unique.
     if (utils::IsSubtype(*op, Once::kType)) return true;
     if (auto const *aggregate = utils::Downcast<const Aggregate>(op)) {
       if (aggregate->group_by_.size() != 1) return false;
