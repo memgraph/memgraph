@@ -1261,6 +1261,44 @@ TEST_F(WriteVisibilityPlan, DrainBetweenMergeAndALaterWriteOfWhatItMatched) {
             (Names{"EmptyResult", "CreateNode", "Merge", "Unwind", "Once"}));
 }
 
+// A SET that writes back the values a MERGE matched its node on changes no later row's match.
+TEST_F(WriteVisibilityPlan, AKeyedMergeThenAWriteBackOfItsKeysHasNoDrain) {
+  auto const drains = [&](std::string_view tail) {
+    return Collect<Accumulate>(Plan(fmt::format("UNWIND [{{id: 1, a: 1}}, {{id: 1.0, a: 2}}] AS row {}", tail))).size();
+  };
+  EXPECT_EQ(drains("MERGE (n:N {id: row.id}) SET n += row"), 0);
+  EXPECT_EQ(drains("MERGE (n:N {id: row.id}) SET n = row"), 0);
+  EXPECT_EQ(drains("MERGE (n:N {id: row.id, a: row.a}) SET n += row"), 0);
+  EXPECT_EQ(drains("MERGE (n:N {id: row.id}) SET n.id = row.id, n.a = row.a"), 0);
+  EXPECT_EQ(drains("MERGE (n:N {id: row.id}) SET n.c = 1 SET n += row"), 0);
+  EXPECT_EQ(drains("MERGE (n:N {id: row.id}) ON CREATE SET n.created = 1 SET n += row"), 0);
+  EXPECT_EQ(drains("MERGE (n:N {id: row.id}) SET n += row, n.seen = true"), 0);
+  EXPECT_EQ(drains("WITH {id: row.id, a: row.a} AS m MERGE (n:N {id: m.id}) SET n += m"), 0);
+  EXPECT_EQ(drains("MERGE (m:M {id: row.a}) MERGE (n:N {id: row.id}) SET n += row"), 0);
+  EXPECT_EQ(Collect<Accumulate>(Plan("LOAD CSV FROM '/x.csv' WITH HEADER AS row MERGE (n:N {id: row.id}) SET n += row"))
+                .size(),
+            0);
+}
+
+// The drain stays when the SET can store another value than the match used, or a reader reads the key's value.
+TEST_F(WriteVisibilityPlan, AKeyedMergeKeepsItsDrainWhenTheSetCanChangeAMatch) {
+  auto const drains = [&](std::string_view tail) {
+    return Collect<Accumulate>(Plan(fmt::format("UNWIND [{{id: 1, k: 1, a: 1}}] AS row {}", tail))).size();
+  };
+  EXPECT_EQ(drains("MERGE (n:N {id: toInteger(row.id)}) SET n += row"), 1);
+  EXPECT_EQ(drains("MERGE (n:N {id: row.k}) SET n += row"), 1);
+  EXPECT_EQ(drains("MERGE (n:N {id: row.id, t: 1}) SET n = row"), 1);
+  EXPECT_EQ(drains("MERGE (n:N {id: row.id}) ON MATCH SET n.s = valueType(n.id) SET n += row"), 1);
+  EXPECT_EQ(drains("MERGE (n:N {id: row.id}) SET n.s = valueType(n.id) SET n += row"), 1);
+  EXPECT_EQ(drains("MERGE (n:N {id: row.id}) ON MATCH SET n.id = 5 SET n += row"), 1);
+  EXPECT_EQ(drains("MERGE (n:N {id: row.id}) SET n.id = 5, n += row"), 1);
+  EXPECT_EQ(drains("MERGE (n:N {id: row.id}) SET n += row, n.id = 5"), 1);
+  EXPECT_EQ(drains("MERGE (n:N {id: row.id}) SET n.id = row.id + 1"), 1);
+  EXPECT_EQ(drains("WITH row, row AS other MERGE (n:N {id: row.id}) SET n += other"), 1);
+  EXPECT_EQ(drains("MERGE (n:N {id: row.id}) SET n.id = 99 MERGE (m:N {id: row.a}) SET n += row"), 3);
+  EXPECT_EQ(Collect<Accumulate>(Plan("MATCH (row:S) MERGE (n:N {id: row.id}) SET n += row")).size(), 1);
+}
+
 /// The chain of the one MERGE's match branch.
 Names MatchBranch(LogicalOperator &plan) {
   auto merges = Collect<memgraph::query::plan::Merge>(plan);
