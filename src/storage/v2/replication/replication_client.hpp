@@ -139,6 +139,9 @@ class ReplicationStorageClient {
 
   auto State() const -> replication::ReplicaState { return *replica_state_.Lock(); }
 
+  // Throws utils::TryLockException when the state is locked.
+  auto TryState() const -> replication::ReplicaState { return *replica_state_.TryLock(); }
+
   auto GetTimestampInfo(Storage const *storage) const -> TimestampInfo;
 
   /**

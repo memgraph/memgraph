@@ -74,7 +74,7 @@
       (let [role-map (first (reduce conj [] #_{:clj-kondo/ignore [:unresolved-var]}
                                     (mgquery/show-replication-role session)))
             role-vec (vec (apply concat role-map))
-            role (last role-vec)]
+            role (second role-vec)]
         (info "Role:" role)
         (info "is-main?" (= role "main"))
         (= role "main")))

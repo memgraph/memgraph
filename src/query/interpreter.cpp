@@ -111,6 +111,7 @@
 #include "query/typed_value.hpp"
 #include "replication/config.hpp"
 #include "replication/state.hpp"
+#include "replication_coordination_glue/mode.hpp"
 #include "spdlog/spdlog.h"
 #include "storage/v2/constraints/constraint_violation.hpp"
 #include "storage/v2/constraints/type_constraints_kind.hpp"
@@ -123,6 +124,7 @@
 #include "storage/v2/indices/vector_index_utils.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/replication/enums.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/storage_error.hpp"
 #include "storage/v2/storage_mode.hpp"
@@ -459,6 +461,8 @@ class ReplQueryHandler {
     }
     throw QueryRuntimeException("Couldn't show replication role - invalid role set!");
   }
+
+  bool IsMainWriteable() const { return handler_->IsMainWriteable(); }
 
   /// @throw QueryRuntimeException if an error ocurred.
   void RegisterReplica(const std::string &name, const std::string &socket_address,
@@ -2394,15 +2398,15 @@ Callback HandleReplicationInfoQuery(ReplicationInfoQuery *repl_query,
   Callback callback;
   switch (repl_query->action_) {
     case ReplicationInfoQuery::Action::SHOW_REPLICATION_ROLE: {
-      callback.header = {"replication role"};
+      callback.header = {"replication role", "writeable"};
       callback.fn = [handler = ReplQueryHandler{replication_query_handler}] {
         const auto mode = handler.ShowReplicationRole();
         switch (mode) {
           case ReplicationQuery::ReplicationRole::MAIN: {
-            return std::vector<std::vector<TypedValue>>{{TypedValue("main")}};
+            return std::vector<std::vector<TypedValue>>{{TypedValue("main"), TypedValue(handler.IsMainWriteable())}};
           }
           case ReplicationQuery::ReplicationRole::REPLICA: {
-            return std::vector<std::vector<TypedValue>>{{TypedValue("replica")}};
+            return std::vector<std::vector<TypedValue>>{{TypedValue("replica"), TypedValue(false)}};
           }
         }
       };
@@ -2419,16 +2423,7 @@ Callback HandleReplicationInfoQuery(ReplicationInfoQuery *repl_query,
       callback.fn =
           [handler = ReplQueryHandler{replication_query_handler}, replica_nfields = callback.header.size(), full_info] {
             auto const sync_mode_to_tv = [](replication_coordination_glue::ReplicationMode sync_mode) {
-              using namespace std::string_view_literals;
-              switch (sync_mode) {
-                using enum replication_coordination_glue::ReplicationMode;
-                case SYNC:
-                  return TypedValue{"sync"sv};
-                case ASYNC:
-                  return TypedValue{"async"sv};
-                case STRICT_SYNC:
-                  return TypedValue{"strict_sync"sv};
-              }
+              return TypedValue{replication_coordination_glue::ReplicationModeName(sync_mode)};
             };
 
             auto const replica_sys_state_to_tv = [](replication::ReplicationClient::State state) {
@@ -2454,20 +2449,7 @@ Callback HandleReplicationInfoQuery(ReplicationInfoQuery *repl_query,
             };
 
             auto const replica_state_to_tv = [](memgraph::storage::replication::ReplicaState state) {
-              using namespace std::string_view_literals;
-              switch (state) {
-                using enum memgraph::storage::replication::ReplicaState;
-                case READY:
-                  return TypedValue{"ready"sv};
-                case REPLICATING:
-                  return TypedValue{"replicating"sv};
-                case RECOVERY:
-                  return TypedValue{"recovery"sv};
-                case MAYBE_BEHIND:
-                  return TypedValue{"invalid"sv};
-                case DIVERGED_FROM_MAIN:
-                  return TypedValue{"diverged"sv};
-              }
+              return TypedValue{memgraph::storage::replication::ReplicaStatusName(state)};
             };
 
             auto const info_to_tv = [&](ReplicaInfoState orig) {

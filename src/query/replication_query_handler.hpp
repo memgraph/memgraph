@@ -116,6 +116,7 @@ struct ReplicationQueryHandler {
   virtual auto GetRole() const -> memgraph::replication_coordination_glue::ReplicationRole = 0;
   virtual bool IsMain() const = 0;
   virtual bool IsReplica() const = 0;
+  virtual bool IsMainWriteable() const = 0;
 
   virtual auto ShowReplicas() const -> std::expected<ReplicasInfos, ShowReplicaError> = 0;
 
