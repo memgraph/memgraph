@@ -947,7 +947,10 @@ TypedValue Keys(const TypedValue *args, int64_t nargs, const FunctionContext &ct
   auto *dba = ctx.db_accessor;
   auto get_keys = [&](const auto &record_accessor, auto const &is_allowed) {
     TypedValue::TVector keys(ctx.memory);
-    auto maybe_props = record_accessor.Properties(ctx.view);
+    // Both ways of reading a record name the same properties, and only the names are read here, so
+    // the compact one leaves an embedding as the reference the record holds instead of rebuilding it
+    // out of its index for nobody to look at.
+    auto maybe_props = record_accessor.PropertiesCompact(ctx.view);
     if (!maybe_props) {
       switch (maybe_props.error()) {
         case storage::Error::DELETED_OBJECT:

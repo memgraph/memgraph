@@ -6632,18 +6632,20 @@ void CheckPropertyPermissionsForSetProperties(TypedValue const &rhs, SetProperti
     }
   };
 
+  // Which properties are named is the whole question here, and both ways of reading a record name
+  // the same ones, so the reads below leave an embedding unbuilt.
   switch (rhs.type()) {
     case TypedValue::Type::Map:
       check_map_keys(rhs.ValueMap());
       break;
     case TypedValue::Type::Vertex: {
-      auto maybe_props = rhs.ValueVertex().Properties(storage::View::NEW);
+      auto maybe_props = rhs.ValueVertex().PropertiesCompact(storage::View::NEW);
       if (!maybe_props) throw QueryRuntimeException("Unexpected error when checking property permissions.");
       check_property_id_keys(*maybe_props);
       break;
     }
     case TypedValue::Type::Edge: {
-      auto maybe_props = rhs.ValueEdge().Properties(storage::View::NEW);
+      auto maybe_props = rhs.ValueEdge().PropertiesCompact(storage::View::NEW);
       if (!maybe_props) throw QueryRuntimeException("Unexpected error when checking property permissions.");
       check_property_id_keys(*maybe_props);
       break;
@@ -6653,7 +6655,7 @@ void CheckPropertyPermissionsForSetProperties(TypedValue const &rhs, SetProperti
   }
 
   if (op == SetProperties::Op::REPLACE) {
-    auto maybe_existing = record.Properties(storage::View::NEW);
+    auto maybe_existing = record.PropertiesCompact(storage::View::NEW);
     if (!maybe_existing) throw QueryRuntimeException("Unexpected error when checking property permissions.");
     for (auto const &[prop_id, _] : *maybe_existing) {
       check_prop(prop_id);
