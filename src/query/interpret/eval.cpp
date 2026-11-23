@@ -321,7 +321,7 @@ TypedValue ExpressionEvaluator::Visit(PropertyLookup &property_lookup) {
     return std::nullopt;
   };
   auto read_property = [this, &property_lookup](auto const &record) -> TypedValue {
-    if (ctx_->lazy_vector_refs) return LazyPropertyValue(record, property_lookup.property_);
+    if (ctx_->compact_property_values) return LazyPropertyValue(record, property_lookup.property_);
     return {GetProperty(record, property_lookup.property_), GetNameIdMapper(), ctx_->memory};
   };
   switch (expression_result_ptr->type()) {

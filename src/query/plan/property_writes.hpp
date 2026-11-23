@@ -414,8 +414,8 @@ struct OperatorWrites<ParallelMerge> {
 };
 
 template <>
-struct OperatorWrites<CacheProperties> {
-  static void Note(CacheProperties const &, PropertyWrites &) {}
+struct OperatorWrites<PrefetchProperties> {
+  static void Note(PrefetchProperties const &, PropertyWrites &) {}
 };
 
 namespace impl {

@@ -33,8 +33,8 @@
 #include <gtest/gtest.h>
 
 #include <numeric>
-#include "cache_properties_flag_guard.hpp"
 #include "flags/run_time_configurable.hpp"
+#include "prefetch_properties_flag_guard.hpp"
 #include "query/exceptions.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/semantic/symbol_generator.hpp"
@@ -44,7 +44,7 @@
 #include "query/plan/planner.hpp"
 #include "query/plan/read_write_type_checker.hpp"
 #include "query/plan/rewrite/balanced_union.hpp"
-#include "query/plan/rewrite/cache_properties.hpp"
+#include "query/plan/rewrite/prefetch_properties.hpp"
 #include "query/plan/used_index_checker.hpp"
 
 #include "query_common.hpp"
@@ -53,7 +53,7 @@
 #include "utils/settings.hpp"
 
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
-DECLARE_bool(query_cache_properties);
+DECLARE_bool(query_prefetch_properties);
 
 namespace memgraph::query {
 ::std::ostream &operator<<(::std::ostream &os, const Symbol &sym) {
@@ -900,16 +900,16 @@ TYPED_TEST(TestPlanner, SunkOrderByRestoresEverythingTheProjectionReads) {
   ASSERT_NE(produce, nullptr) << "expected the projection to have sunk above the Limit";
 
   // What has to survive the restore is what runs above the OrderBy and reads a symbol it did not
-  // make itself. The projection is one such reader. The property cache is another: it sits between
+  // make itself. The projection is one such reader. The pass is another: it sits between
   // the two, so the slots it fills need no restoring, but the record it reads them from does.
   // An omission does not fail the query, it reads as Null and the row comes back wrong.
   auto required = std::vector<memgraph::query::Symbol>{};
   auto made_in_between = std::vector<memgraph::query::Symbol>{};
   for (auto const *op = produce->input().get(); op != nullptr && op != order_by;) {
-    if (auto const *cache = dynamic_cast<CacheProperties const *>(op)) {
-      for (auto const &group : cache->groups_) {
-        required.push_back(group.input_symbol());
-        for (auto const &cached : group.properties()) made_in_between.push_back(cached.output_symbol);
+    if (auto const *pass = dynamic_cast<PrefetchProperties const *>(op)) {
+      for (auto const &of_one_record : pass->per_record_) {
+        required.push_back(of_one_record.input_symbol());
+        for (auto const &prefetched : of_one_record.properties()) made_in_between.push_back(prefetched.output_symbol);
       }
     }
     op = op->HasSingleInput() ? op->input().get() : nullptr;
@@ -1619,7 +1619,7 @@ TYPED_TEST(TestPlanner, EdgeRangeFilterNoIndex1) {
             symbol_table,
             ExpectScanAll(),
             ExpectExpand(),
-            ExpectCacheProperties("r", 1),
+            ExpectPrefetchProperties("r", 1),
             ExpectFilter(),
             ExpectProduce());
 }
@@ -1671,7 +1671,7 @@ TYPED_TEST(TestPlanner, EdgeRangeFilterNoIndex2) {
             symbol_table,
             ExpectScanAll(),
             ExpectExpand(),
-            ExpectCacheProperties("r", 1),
+            ExpectPrefetchProperties("r", 1),
             ExpectFilter(),
             ExpectProduce());
 }
@@ -1724,7 +1724,7 @@ TYPED_TEST(TestPlanner, EdgeRangeFilterNoIndex3) {
             symbol_table,
             ExpectScanAll(),
             ExpectExpand(),
-            ExpectCacheProperties("r", 1),
+            ExpectPrefetchProperties("r", 1),
             ExpectFilter(),
             ExpectProduce());
 }
@@ -1779,7 +1779,7 @@ TYPED_TEST(TestPlanner, EdgeRangeFilterNoIndex4) {
             symbol_table,
             ExpectScanAll(),
             ExpectExpand(),
-            ExpectCacheProperties("r", 1),
+            ExpectPrefetchProperties("r", 1),
             ExpectFilter(),
             ExpectProduce());
 }
@@ -1809,7 +1809,7 @@ TYPED_TEST(TestPlanner, EdgeRangeFilterWIndex4) {
                 edge_type,
                 property,
                 ExpressionRange::Range(std::nullopt, Bound{LITERAL(10), memgraph::utils::BoundType::INCLUSIVE})),
-            ExpectCacheProperties("r", 1),
+            ExpectPrefetchProperties("r", 1),
             ExpectFilter(),
             ExpectProduce());
 }
@@ -1834,7 +1834,7 @@ TYPED_TEST(TestPlanner, EdgeRangeFilterNoIndex5) {
             symbol_table,
             ExpectScanAll(),
             ExpectExpand(),
-            ExpectCacheProperties("r", 1),
+            ExpectPrefetchProperties("r", 1),
             ExpectFilter(),
             ExpectProduce());
 }
@@ -2479,7 +2479,7 @@ TYPED_TEST(TestPlanner, UnableToUsePropertyIndex) {
   CheckPlan(planner.plan(),
             symbol_table,
             ExpectScanAllByLabel(),
-            ExpectCacheProperties("n", 1),
+            ExpectPrefetchProperties("n", 1),
             ExpectFilter(),
             ExpectProduce());
 }
@@ -4269,7 +4269,7 @@ TYPED_TEST(TestPlanner, CorrelatedPatternComprehensionInReturnDrivesEdgeTypeProp
     std::list<BaseOpChecker *> input{new ExpectScanAll()};
     std::list<BaseOpChecker *> branch{new ExpectScanAll(),
                                       new ExpectExpand(),
-                                      new ExpectCacheProperties("r", 1),
+                                      new ExpectPrefetchProperties("r", 1),
                                       new ExpectFilter(),
                                       new ExpectProduce()};
     CheckPlan(planner.plan(), symbol_table, ExpectRollUpApply(input, branch), ExpectProduce());
@@ -5105,7 +5105,7 @@ TYPED_TEST(TestPlanner, RangeFilterWIndex4) {
           label,
           std::vector{ms::PropertyPath{property.second}},
           std::vector{ExpressionRange::Range(std::nullopt, Bound{LITERAL(10), memgraph::utils::BoundType::INCLUSIVE})}),
-      ExpectCacheProperties("n", 1),
+      ExpectPrefetchProperties("n", 1),
       ExpectFilter(),
       ExpectProduce());
 }
@@ -7011,7 +7011,7 @@ TYPED_TEST(TestPlanner, ExistsSubqueryMatchWhere) {
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 
   std::list<BaseOpChecker *> filter_tree{new ExpectExpand(),
-                                         new ExpectCacheProperties({{"n", 1}, {"m", 1}}),
+                                         new ExpectPrefetchProperties({{"n", 1}, {"m", 1}}),
                                          new ExpectFilter(),
                                          new ExpectEvaluatePatternFilter()};
 
@@ -7038,7 +7038,7 @@ TYPED_TEST(TestPlanner, ExistsSubqueryMatchWherePlansReturn) {
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 
   std::list<BaseOpChecker *> filter_tree{new ExpectExpand(),
-                                         new ExpectCacheProperties({{"n", 1}, {"m", 1}}),
+                                         new ExpectPrefetchProperties({{"n", 1}, {"m", 1}}),
                                          new ExpectFilter(),
                                          new ExpectProduce(),
                                          new ExpectEvaluatePatternFilter()};
@@ -9156,7 +9156,7 @@ TYPED_TEST(TestPlanner, PreferCompositeIndexOverSinglePropertyIndex) {
 /// so it is answered here rather than through a planned query.
 namespace {
 
-using Cacher = memgraph::query::plan::impl::PropertyLookupCacher;
+using Cacher = memgraph::query::plan::impl::PropertyLookupRewriter;
 
 /// One property, by how many lookups name it and how many of those every row reaches.
 struct Reads {
@@ -9177,19 +9177,19 @@ auto GatheredWith(std::vector<Reads> const &per_property) -> Cacher::Gathered {
 
 }  // namespace
 
-TEST(CachePropertiesDecision, ARepeatedPropertyPaysWhateverTheOperatorKeeps) {
+TEST(PrefetchPropertiesDecision, ARepeatedPropertyPaysWhateverTheOperatorKeeps) {
   // One property two lookups name, both of which every row reaches: a pass reads it once and
   // removes the second read.
   EXPECT_TRUE(GatheredWith({{2, 2}}).PropertiesWorthOnePass(Cacher::ValueUse::kDiscarded).has_value());
   EXPECT_TRUE(GatheredWith({{2, 2}}).PropertiesWorthOnePass(Cacher::ValueUse::kKept).has_value());
 }
 
-TEST(CachePropertiesDecision, OneLookupPaysNeither) {
+TEST(PrefetchPropertiesDecision, OneLookupPaysNeither) {
   EXPECT_FALSE(GatheredWith({{1, 1}}).PropertiesWorthOnePass(Cacher::ValueUse::kDiscarded).has_value());
   EXPECT_FALSE(GatheredWith({{1, 1}}).PropertiesWorthOnePass(Cacher::ValueUse::kKept).has_value());
 }
 
-TEST(CachePropertiesDecision, TwoPropertiesReadOnceEachPayOnlyAKeptValue) {
+TEST(PrefetchPropertiesDecision, TwoPropertiesReadOnceEachPayOnlyAKeptValue) {
   // Two reads either way, so the only thing a pass offers is reading them together, which is worth
   // a slot to an operator that was going to hold the value and not to one that discards it.
   EXPECT_FALSE(GatheredWith({{1, 1}, {1, 1}}).PropertiesWorthOnePass(Cacher::ValueUse::kDiscarded).has_value());
@@ -9200,7 +9200,7 @@ TEST(CachePropertiesDecision, TwoPropertiesReadOnceEachPayOnlyAKeptValue) {
   EXPECT_FALSE(GatheredWith({{1, 1}, {1, 0}}).PropertiesWorthOnePass(Cacher::ValueUse::kKept).has_value());
 }
 
-TEST(CachePropertiesDecision, NothingGatheredPaysNeither) {
+TEST(PrefetchPropertiesDecision, NothingGatheredPaysNeither) {
   EXPECT_FALSE(GatheredWith({}).PropertiesWorthOnePass(Cacher::ValueUse::kDiscarded).has_value());
   EXPECT_FALSE(GatheredWith({}).PropertiesWorthOnePass(Cacher::ValueUse::kKept).has_value());
 }
@@ -9210,7 +9210,7 @@ TEST(CachePropertiesDecision, NothingGatheredPaysNeither) {
 // lookup reads on every row may be read ahead, a record is read once per lookup without a pass and
 // once per such property with one, and a slot an operator does not keep the value in has to be
 // paid for by a read removed.
-TEST(CachePropertiesDecision, PaysExactlyWhenAReadIsRemovedOrAKeptValueIsBatched) {
+TEST(PrefetchPropertiesDecision, PaysWhenAReadIsRemovedOrAKeptValueSharesAPass) {
   auto variants = std::vector<Reads>{};
   for (auto lookups = size_t{1}; lookups <= 3; ++lookups) {
     for (auto on_every_row = size_t{0}; on_every_row <= lookups; ++on_every_row) {
@@ -9259,8 +9259,8 @@ TEST(CachePropertiesDecision, PaysExactlyWhenAReadIsRemovedOrAKeptValueIsBatched
   }
 }
 
-TYPED_TEST(TestPlanner, CachePropertiesDisabledByFlag) {
-  CachePropertiesFlagGuard guard{false};
+TYPED_TEST(TestPlanner, PrefetchPropertiesDisabledByFlag) {
+  PrefetchPropertiesFlagGuard guard{false};
   FakeDbAccessor dba;
   auto prop_a = PROPERTY_PAIR(dba, "a");
   auto prop_b = PROPERTY_PAIR(dba, "b");
@@ -9272,8 +9272,8 @@ TYPED_TEST(TestPlanner, CachePropertiesDisabledByFlag) {
   CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectProduce());
 }
 
-TYPED_TEST(TestPlanner, CachePropertiesTwoLookupsOnOneSymbol) {
-  CachePropertiesFlagGuard guard{true};
+TYPED_TEST(TestPlanner, PrefetchPropertiesTwoLookupsOnOneSymbol) {
+  PrefetchPropertiesFlagGuard guard{true};
   FakeDbAccessor dba;
   auto prop_a = PROPERTY_PAIR(dba, "a");
   auto prop_b = PROPERTY_PAIR(dba, "b");
@@ -9282,11 +9282,11 @@ TYPED_TEST(TestPlanner, CachePropertiesTwoLookupsOnOneSymbol) {
                    RETURN(PROPERTY_LOOKUP(dba, "n", prop_a), AS("a"), PROPERTY_LOOKUP(dba, "n", prop_b), AS("b"))));
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
-  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectCacheProperties("n", 2), ExpectProduce());
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectPrefetchProperties("n", 2), ExpectProduce());
 }
 
-TYPED_TEST(TestPlanner, CachePropertiesSingleLookupDoesNotFire) {
-  CachePropertiesFlagGuard guard{true};
+TYPED_TEST(TestPlanner, PrefetchPropertiesSingleLookupDoesNotFire) {
+  PrefetchPropertiesFlagGuard guard{true};
   FakeDbAccessor dba;
   auto prop_a = PROPERTY_PAIR(dba, "a");
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN(PROPERTY_LOOKUP(dba, "n", prop_a), AS("a"))));
@@ -9296,8 +9296,8 @@ TYPED_TEST(TestPlanner, CachePropertiesSingleLookupDoesNotFire) {
 }
 
 // The group holds one property however many lookups asked for it.
-TYPED_TEST(TestPlanner, CachePropertiesAProjectionReadingOnePropertyTwice) {
-  CachePropertiesFlagGuard guard{true};
+TYPED_TEST(TestPlanner, PrefetchPropertiesAProjectionReadingOnePropertyTwice) {
+  PrefetchPropertiesFlagGuard guard{true};
   FakeDbAccessor dba;
   auto prop_a = PROPERTY_PAIR(dba, "a");
   auto *query = QUERY(
@@ -9305,13 +9305,13 @@ TYPED_TEST(TestPlanner, CachePropertiesAProjectionReadingOnePropertyTwice) {
                    RETURN(PROPERTY_LOOKUP(dba, "n", prop_a), AS("x"), PROPERTY_LOOKUP(dba, "n", prop_a), AS("y"))));
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
-  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectCacheProperties("n", 1), ExpectProduce());
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectPrefetchProperties("n", 1), ExpectProduce());
 }
 
 // As above where a repeat sits beside a distinct property: the pass reads two properties, not the
 // three lookups that asked for them.
-TYPED_TEST(TestPlanner, CachePropertiesReadsEachDistinctPropertyOnce) {
-  CachePropertiesFlagGuard guard{true};
+TYPED_TEST(TestPlanner, PrefetchPropertiesReadsEachDistinctPropertyOnce) {
+  PrefetchPropertiesFlagGuard guard{true};
   FakeDbAccessor dba;
   auto prop_a = PROPERTY_PAIR(dba, "a");
   auto prop_b = PROPERTY_PAIR(dba, "b");
@@ -9324,14 +9324,14 @@ TYPED_TEST(TestPlanner, CachePropertiesReadsEachDistinctPropertyOnce) {
                                           AS("z"))));
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
-  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectCacheProperties("n", 2), ExpectProduce());
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectPrefetchProperties("n", 2), ExpectProduce());
 }
 
 // A rewritten expression needs a copy of its own, because the candidate plans for one query share
 // the expressions they were planned from. One the rewrite leaves alone needs none, and copying it
 // would duplicate everything it holds, down to a whole subquery.
-TYPED_TEST(TestPlanner, CachePropertiesCopiesOnlyWhatItRewrites) {
-  CachePropertiesFlagGuard guard{true};
+TYPED_TEST(TestPlanner, PrefetchPropertiesCopiesOnlyWhatItRewrites) {
+  PrefetchPropertiesFlagGuard guard{true};
   FakeDbAccessor dba;
   auto prop_a = PROPERTY_PAIR(dba, "a");
   auto prop_b = PROPERTY_PAIR(dba, "b");
@@ -9346,7 +9346,7 @@ TYPED_TEST(TestPlanner, CachePropertiesCopiesOnlyWhatItRewrites) {
   ASSERT_NE(produce, nullptr);
   auto const &projected = produce->named_expressions_;
   auto holds = [&](auto *expression) { return std::ranges::find(projected, expression) != projected.end(); };
-  EXPECT_TRUE(holds(as_z)) << "an expression with no cached lookup was copied anyway";
+  EXPECT_TRUE(holds(as_z)) << "an expression with no rewritten lookup was copied anyway";
   EXPECT_FALSE(holds(as_x)) << "a rewritten expression must not be the one the other plans share";
 }
 
@@ -9361,8 +9361,8 @@ TYPED_TEST(TestPlanner, CachePropertiesCopiesOnlyWhatItRewrites) {
 // of its own, and where it does not, the projection reads the slot that pass filled. The two
 // rewrite one expression into different slots, so a rewrite one candidate made is the wrong answer
 // for the other, and a plan would read a slot nothing in it fills.
-TYPED_TEST(TestPlanner, CachePropertiesACandidateReadsOnlyTheSlotsItFills) {
-  CachePropertiesFlagGuard guard{true};
+TYPED_TEST(TestPlanner, PrefetchPropertiesACandidateReadsOnlyTheSlotsItFills) {
+  PrefetchPropertiesFlagGuard guard{true};
   FakeDbAccessor dba;
   auto prop_a = PROPERTY_PAIR(dba, "a");
   auto prop_b = PROPERTY_PAIR(dba, "b");
@@ -9402,8 +9402,8 @@ TYPED_TEST(TestPlanner, CachePropertiesACandidateReadsOnlyTheSlotsItFills) {
   ASSERT_GT(candidates, 1) << "the pattern must offer the planner a choice for this to prove anything";
 }
 
-TYPED_TEST(TestPlanner, CachePropertiesRewritesAnExpressionOncePerQuery) {
-  CachePropertiesFlagGuard guard{true};
+TYPED_TEST(TestPlanner, PrefetchPropertiesRewritesAnExpressionOncePerQuery) {
+  PrefetchPropertiesFlagGuard guard{true};
   FakeDbAccessor dba;
   auto prop = PROPERTY_PAIR(dba, "a");
   auto *query =
@@ -9447,8 +9447,8 @@ TYPED_TEST(TestPlanner, CachePropertiesRewritesAnExpressionOncePerQuery) {
       << "the right operand still reads the record";
 }
 
-TYPED_TEST(TestPlanner, CachePropertiesSlotsAreNotPaidForPerCandidatePlan) {
-  CachePropertiesFlagGuard guard{true};
+TYPED_TEST(TestPlanner, PrefetchPropertiesSlotsAreNotPaidForPerCandidatePlan) {
+  PrefetchPropertiesFlagGuard guard{true};
   FakeDbAccessor dba;
   auto prop_a = PROPERTY_PAIR(dba, "a");
   auto prop_b = PROPERTY_PAIR(dba, "b");
@@ -9474,8 +9474,8 @@ TYPED_TEST(TestPlanner, CachePropertiesSlotsAreNotPaidForPerCandidatePlan) {
   EXPECT_EQ(symbol_table.max_position(), width_after_first);
 }
 
-TYPED_TEST(TestPlanner, CachePropertiesTwoSymbolsDoNotFire) {
-  CachePropertiesFlagGuard guard{true};
+TYPED_TEST(TestPlanner, PrefetchPropertiesTwoSymbolsDoNotFire) {
+  PrefetchPropertiesFlagGuard guard{true};
   FakeDbAccessor dba;
   auto prop_a = PROPERTY_PAIR(dba, "a");
   auto *query = QUERY(
@@ -9486,8 +9486,8 @@ TYPED_TEST(TestPlanner, CachePropertiesTwoSymbolsDoNotFire) {
   CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectExpand(), ExpectProduce());
 }
 
-TYPED_TEST(TestPlanner, CachePropertiesAnAggregationReadingOnePropertySeveralTimes) {
-  CachePropertiesFlagGuard guard{true};
+TYPED_TEST(TestPlanner, PrefetchPropertiesAnAggregationReadingOnePropertySeveralTimes) {
+  PrefetchPropertiesFlagGuard guard{true};
   FakeDbAccessor dba;
   auto prop = dba.Property("value");
   auto sum = SUM(PROPERTY_LOOKUP(dba, "n", prop), false);
@@ -9499,7 +9499,7 @@ TYPED_TEST(TestPlanner, CachePropertiesAnAggregationReadingOnePropertySeveralTim
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto aggr = ExpectAggregate({sum, avg, min, max}, {});
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
-  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectCacheProperties("n", 1), aggr, ExpectProduce());
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectPrefetchProperties("n", 1), aggr, ExpectProduce());
 
   // What each aggregation reads is checked here rather than through the plan checker, which
   // compares the declared type of the argument and so holds for any expression at all.
@@ -9512,8 +9512,8 @@ TYPED_TEST(TestPlanner, CachePropertiesAnAggregationReadingOnePropertySeveralTim
   }
 }
 
-TYPED_TEST(TestPlanner, CachePropertiesAnAggregationsDistinctPropertiesEarnNoPass) {
-  CachePropertiesFlagGuard guard{true};
+TYPED_TEST(TestPlanner, PrefetchPropertiesAnAggregationsDistinctPropertiesEarnNoPass) {
+  PrefetchPropertiesFlagGuard guard{true};
   FakeDbAccessor dba;
   auto prop_a = dba.Property("a");
   auto prop_b = dba.Property("b");
@@ -9528,8 +9528,8 @@ TYPED_TEST(TestPlanner, CachePropertiesAnAggregationsDistinctPropertiesEarnNoPas
 
 // The property sits in the branches rather than in the condition, which is the part a CASE
 // evaluates for every row.
-TYPED_TEST(TestPlanner, CachePropertiesAnAggregationsConditionalLookupsEarnNoPass) {
-  CachePropertiesFlagGuard guard{true};
+TYPED_TEST(TestPlanner, PrefetchPropertiesAnAggregationsConditionalLookupsEarnNoPass) {
+  PrefetchPropertiesFlagGuard guard{true};
   FakeDbAccessor dba;
   auto prop = dba.Property("value");
   auto conditional = [&] {
@@ -9545,8 +9545,8 @@ TYPED_TEST(TestPlanner, CachePropertiesAnAggregationsConditionalLookupsEarnNoPas
   CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), aggr, ExpectProduce());
 }
 
-TYPED_TEST(TestPlanner, CachePropertiesAFilterReadingOnePropertyTwice) {
-  CachePropertiesFlagGuard guard{true};
+TYPED_TEST(TestPlanner, PrefetchPropertiesAFilterReadingOnePropertyTwice) {
+  PrefetchPropertiesFlagGuard guard{true};
   FakeDbAccessor dba;
   auto prop = PROPERTY_PAIR(dba, "a");
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
@@ -9556,13 +9556,13 @@ TYPED_TEST(TestPlanner, CachePropertiesAFilterReadingOnePropertyTwice) {
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
   CheckPlan(
-      planner.plan(), symbol_table, ExpectScanAll(), ExpectCacheProperties("n", 1), ExpectFilter(), ExpectProduce());
+      planner.plan(), symbol_table, ExpectScanAll(), ExpectPrefetchProperties("n", 1), ExpectFilter(), ExpectProduce());
 }
 
 // A pass reads the properties every row asks for and leaves out the one only some rows reach, so
 // the lookup behind the short circuit keeps reading the record while the other two read slots.
-TYPED_TEST(TestPlanner, CachePropertiesLeavesOutAPropertyBehindAShortCircuit) {
-  CachePropertiesFlagGuard guard{true};
+TYPED_TEST(TestPlanner, PrefetchPropertiesLeavesOutAPropertyBehindAShortCircuit) {
+  PrefetchPropertiesFlagGuard guard{true};
   FakeDbAccessor dba;
   auto reached = PROPERTY_PAIR(dba, "a");
   auto also_reached = PROPERTY_PAIR(dba, "b");
@@ -9577,13 +9577,13 @@ TYPED_TEST(TestPlanner, CachePropertiesLeavesOutAPropertyBehindAShortCircuit) {
                           AS("z"))));
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
-  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectCacheProperties("n", 2), ExpectProduce());
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectPrefetchProperties("n", 2), ExpectProduce());
 }
 
 // The filter's pass leaves the property in a slot that every row reaching the projection has
 // filled, so the projection reads that slot rather than the record a second time.
-TYPED_TEST(TestPlanner, CachePropertiesAProjectionReadsASlotAFilterAlreadyFilled) {
-  CachePropertiesFlagGuard guard{true};
+TYPED_TEST(TestPlanner, PrefetchPropertiesAProjectionReadsASlotAFilterAlreadyFilled) {
+  PrefetchPropertiesFlagGuard guard{true};
   FakeDbAccessor dba;
   auto prop = PROPERTY_PAIR(dba, "a");
   auto *query =
@@ -9594,13 +9594,13 @@ TYPED_TEST(TestPlanner, CachePropertiesAProjectionReadsASlotAFilterAlreadyFilled
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
   CheckPlan(
-      planner.plan(), symbol_table, ExpectScanAll(), ExpectCacheProperties("n", 1), ExpectFilter(), ExpectProduce());
+      planner.plan(), symbol_table, ExpectScanAll(), ExpectPrefetchProperties("n", 1), ExpectFilter(), ExpectProduce());
 }
 
 // A property a slot below holds counts towards nothing, so what the projection's own pass reads is
 // the other property alone, and the lookup that found a slot still answers from it.
-TYPED_TEST(TestPlanner, CachePropertiesAProjectionPassesOverWhatASlotAlreadyHolds) {
-  CachePropertiesFlagGuard guard{true};
+TYPED_TEST(TestPlanner, PrefetchPropertiesAProjectionPassesOverWhatASlotAlreadyHolds) {
+  PrefetchPropertiesFlagGuard guard{true};
   FakeDbAccessor dba;
   auto filtered = PROPERTY_PAIR(dba, "a");
   auto projected = PROPERTY_PAIR(dba, "b");
@@ -9617,9 +9617,9 @@ TYPED_TEST(TestPlanner, CachePropertiesAProjectionPassesOverWhatASlotAlreadyHold
   CheckPlan(planner.plan(),
             symbol_table,
             ExpectScanAll(),
-            ExpectCacheProperties("n", 1),
+            ExpectPrefetchProperties("n", 1),
             ExpectFilter(),
-            ExpectCacheProperties("n", 1),
+            ExpectPrefetchProperties("n", 1),
             ExpectProduce());
 
   auto *produce = dynamic_cast<Produce *>(&planner.plan());
@@ -9632,8 +9632,8 @@ TYPED_TEST(TestPlanner, CachePropertiesAProjectionPassesOverWhatASlotAlreadyHold
 // A write names one property, so a slot holding another still holds what a read above the write
 // would have found, whichever view each reads at. Nothing in the plan's shape shows it, so what the
 // projection reads is the assertion.
-TYPED_TEST(TestPlanner, CachePropertiesAProjectionTakesASlotWhenAWriteNamesAnotherProperty) {
-  CachePropertiesFlagGuard guard{true};
+TYPED_TEST(TestPlanner, PrefetchPropertiesAProjectionTakesASlotWhenAWriteNamesAnotherProperty) {
+  PrefetchPropertiesFlagGuard guard{true};
   FakeDbAccessor dba;
   auto filtered = PROPERTY_PAIR(dba, "a");
   auto written = PROPERTY_PAIR(dba, "q");
@@ -9659,8 +9659,8 @@ TYPED_TEST(TestPlanner, CachePropertiesAProjectionTakesASlotWhenAWriteNamesAnoth
       << "the projection read the record again for a property the write does not name";
 }
 
-TYPED_TEST(TestPlanner, CachePropertiesAnAggregationReadsASlotAFilterAlreadyFilled) {
-  CachePropertiesFlagGuard guard{true};
+TYPED_TEST(TestPlanner, PrefetchPropertiesAnAggregationReadsASlotAFilterAlreadyFilled) {
+  PrefetchPropertiesFlagGuard guard{true};
   FakeDbAccessor dba;
   auto prop = PROPERTY_PAIR(dba, "a");
   auto sum = SUM(PROPERTY_LOOKUP(dba, "n", prop), false);
@@ -9674,7 +9674,7 @@ TYPED_TEST(TestPlanner, CachePropertiesAnAggregationReadsASlotAFilterAlreadyFill
   CheckPlan(planner.plan(),
             symbol_table,
             ExpectScanAll(),
-            ExpectCacheProperties("n", 1),
+            ExpectPrefetchProperties("n", 1),
             ExpectFilter(),
             aggr,
             ExpectProduce());
@@ -9688,8 +9688,8 @@ TYPED_TEST(TestPlanner, CachePropertiesAnAggregationReadsASlotAFilterAlreadyFill
 }
 
 // Nothing in the plan's shape shows this saving, so what the projection reads is the assertion.
-TYPED_TEST(TestPlanner, CachePropertiesAProjectionReturnsASlotWithoutAPassOfItsOwn) {
-  CachePropertiesFlagGuard guard{true};
+TYPED_TEST(TestPlanner, PrefetchPropertiesAProjectionReturnsASlotWithoutAPassOfItsOwn) {
+  PrefetchPropertiesFlagGuard guard{true};
   FakeDbAccessor dba;
   auto prop = PROPERTY_PAIR(dba, "a");
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
@@ -9699,7 +9699,7 @@ TYPED_TEST(TestPlanner, CachePropertiesAProjectionReturnsASlotWithoutAPassOfItsO
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
   CheckPlan(
-      planner.plan(), symbol_table, ExpectScanAll(), ExpectCacheProperties("n", 1), ExpectFilter(), ExpectProduce());
+      planner.plan(), symbol_table, ExpectScanAll(), ExpectPrefetchProperties("n", 1), ExpectFilter(), ExpectProduce());
 
   auto *produce = dynamic_cast<Produce *>(&planner.plan());
   ASSERT_NE(produce, nullptr) << "expected the projection at the root";
@@ -9710,8 +9710,8 @@ TYPED_TEST(TestPlanner, CachePropertiesAProjectionReturnsASlotWithoutAPassOfItsO
 
 // Two properties earn a projection a pass, counting only the ones every row reads. The second
 // here sits behind a short circuit, leaving one for the pass to read and no read for it to remove.
-TYPED_TEST(TestPlanner, CachePropertiesAProjectionNeedsTwoPropertiesEveryRowReads) {
-  CachePropertiesFlagGuard guard{true};
+TYPED_TEST(TestPlanner, PrefetchPropertiesAProjectionNeedsTwoPropertiesEveryRowReads) {
+  PrefetchPropertiesFlagGuard guard{true};
   FakeDbAccessor dba;
   auto reached = PROPERTY_PAIR(dba, "a");
   auto behind = PROPERTY_PAIR(dba, "b");
@@ -9726,8 +9726,8 @@ TYPED_TEST(TestPlanner, CachePropertiesAProjectionNeedsTwoPropertiesEveryRowRead
 }
 
 // Two reads either way, so a pass would add a slot and remove nothing.
-TYPED_TEST(TestPlanner, CachePropertiesAFiltersDistinctPropertiesEarnNoPass) {
-  CachePropertiesFlagGuard guard{true};
+TYPED_TEST(TestPlanner, PrefetchPropertiesAFiltersDistinctPropertiesEarnNoPass) {
+  PrefetchPropertiesFlagGuard guard{true};
   FakeDbAccessor dba;
   auto first = PROPERTY_PAIR(dba, "a");
   auto second = PROPERTY_PAIR(dba, "b");
@@ -9742,8 +9742,8 @@ TYPED_TEST(TestPlanner, CachePropertiesAFiltersDistinctPropertiesEarnNoPass) {
 
 // Both lookups sit in the second operand of the disjunction, which a row reaches only when the
 // first answers false, so neither is a read every row makes.
-TYPED_TEST(TestPlanner, CachePropertiesARepeatAFilterMayNotReachEarnsNoPass) {
-  CachePropertiesFlagGuard guard{true};
+TYPED_TEST(TestPlanner, PrefetchPropertiesARepeatAFilterMayNotReachEarnsNoPass) {
+  PrefetchPropertiesFlagGuard guard{true};
   FakeDbAccessor dba;
   auto reached = PROPERTY_PAIR(dba, "a");
   auto repeated = PROPERTY_PAIR(dba, "b");
@@ -9759,8 +9759,8 @@ TYPED_TEST(TestPlanner, CachePropertiesARepeatAFilterMayNotReachEarnsNoPass) {
 
 // A body run once per element runs no times for an empty list, so no lookup inside one is a read
 // every row makes.
-TYPED_TEST(TestPlanner, CachePropertiesALookupOnlyInsideADeferredBodyEarnsNoPass) {
-  CachePropertiesFlagGuard guard{true};
+TYPED_TEST(TestPlanner, PrefetchPropertiesALookupOnlyInsideADeferredBodyEarnsNoPass) {
+  PrefetchPropertiesFlagGuard guard{true};
   FakeDbAccessor dba;
   auto prop = dba.Property("value");
   // Two lookups of one property, which is what a projection takes a pass for when it can reach them.
@@ -9789,7 +9789,7 @@ TYPED_TEST(TestPlanner, CachePropertiesALookupOnlyInsideADeferredBodyEarnsNoPass
     auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN(repeated(), AS("r"))));
     auto symbol_table = memgraph::query::MakeSymbolTable(query);
     auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
-    CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectCacheProperties("n", 1), ExpectProduce());
+    CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectPrefetchProperties("n", 1), ExpectProduce());
   }
 
   for (auto *expression : deferred) {
@@ -9801,8 +9801,8 @@ TYPED_TEST(TestPlanner, CachePropertiesALookupOnlyInsideADeferredBodyEarnsNoPass
 }
 
 // A map collection reaches its key only once the row's value is accepted.
-TYPED_TEST(TestPlanner, CachePropertiesAnAggregationsSecondArgumentEarnsNoPass) {
-  CachePropertiesFlagGuard guard{true};
+TYPED_TEST(TestPlanner, PrefetchPropertiesAnAggregationsSecondArgumentEarnsNoPass) {
+  PrefetchPropertiesFlagGuard guard{true};
   FakeDbAccessor dba;
   auto prop = dba.Property("a");
   auto collect_map =
@@ -9818,8 +9818,8 @@ TYPED_TEST(TestPlanner, CachePropertiesAnAggregationsSecondArgumentEarnsNoPass) 
 }
 
 // A grouping key is evaluated per input row, as what is aggregated is.
-TYPED_TEST(TestPlanner, CachePropertiesAnAggregationReadingItsGroupingKeyAgain) {
-  CachePropertiesFlagGuard guard{true};
+TYPED_TEST(TestPlanner, PrefetchPropertiesAnAggregationReadingItsGroupingKeyAgain) {
+  PrefetchPropertiesFlagGuard guard{true};
   FakeDbAccessor dba;
   auto prop = dba.Property("b");
   auto count = COUNT(PROPERTY_LOOKUP(dba, "n", prop), false);
@@ -9831,7 +9831,7 @@ TYPED_TEST(TestPlanner, CachePropertiesAnAggregationReadingItsGroupingKeyAgain) 
   auto reads_the_pass = IDENT("read_by_the_pass");
   auto aggr = ExpectAggregate({count}, {reads_the_pass});
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
-  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectCacheProperties("n", 1), aggr, ExpectProduce());
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectPrefetchProperties("n", 1), aggr, ExpectProduce());
 }
 
 }  // namespace

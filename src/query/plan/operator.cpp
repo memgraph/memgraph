@@ -5853,79 +5853,81 @@ void Produce::ProduceCursor::Shutdown() { input_cursor_->Shutdown(); }
 
 void Produce::ProduceCursor::Reset() { input_cursor_->Reset(); }
 
-CacheProperties::CacheProperties(const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol,
-                                 std::vector<CachedProperty> cached_properties, storage::View view)
-    : CacheProperties(
-          input,
-          std::vector<CachedPropertyGroup>{CachedPropertyGroup{std::move(input_symbol), std::move(cached_properties)}},
-          view) {}
+PrefetchProperties::PrefetchProperties(const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol,
+                                       std::vector<PrefetchedProperty> prefetched_properties, storage::View view)
+    : PrefetchProperties(input,
+                         std::vector<PropertiesOfOneRecord>{
+                             PropertiesOfOneRecord{std::move(input_symbol), std::move(prefetched_properties)}},
+                         view) {}
 
-CacheProperties::CacheProperties(const std::shared_ptr<LogicalOperator> &input, std::vector<CachedPropertyGroup> groups,
-                                 storage::View view)
-    : input_(input ? input : std::make_shared<Once>()), groups_(std::move(groups)), view_(view) {}
+PrefetchProperties::PrefetchProperties(const std::shared_ptr<LogicalOperator> &input,
+                                       std::vector<PropertiesOfOneRecord> per_record, storage::View view)
+    : input_(input ? input : std::make_shared<Once>()), per_record_(std::move(per_record)), view_(view) {}
 
-ACCEPT_WITH_INPUT(CacheProperties)
+ACCEPT_WITH_INPUT(PrefetchProperties)
 
-UniqueCursorPtr CacheProperties::MakeCursor(utils::MemoryResource *mem,
-                                            metrics::DatabaseMetricHandles &metric_handles) const {
-  return MakeUniqueCursorPtr<CachePropertiesCursor>(mem, *this, mem, metric_handles);
+UniqueCursorPtr PrefetchProperties::MakeCursor(utils::MemoryResource *mem,
+                                               metrics::DatabaseMetricHandles &metric_handles) const {
+  return MakeUniqueCursorPtr<PrefetchPropertiesCursor>(mem, *this, mem, metric_handles);
 }
 
-std::vector<Symbol> CacheProperties::OutputSymbols(const SymbolTable &symbol_table) const {
+std::vector<Symbol> PrefetchProperties::OutputSymbols(const SymbolTable &symbol_table) const {
   return input_->OutputSymbols(symbol_table);
 }
 
-std::vector<Symbol> CacheProperties::ModifiedSymbols(const SymbolTable &table) const {
+std::vector<Symbol> PrefetchProperties::ModifiedSymbols(const SymbolTable &table) const {
   auto symbols = input_->ModifiedSymbols(table);
-  for (const auto &group : groups_) {
-    symbols.reserve(symbols.size() + group.properties().size());
-    for (const auto &cached : group.properties()) {
-      symbols.emplace_back(cached.output_symbol);
+  for (const auto &of_one_record : per_record_) {
+    symbols.reserve(symbols.size() + of_one_record.properties().size());
+    for (const auto &prefetched : of_one_record.properties()) {
+      symbols.emplace_back(prefetched.output_symbol);
     }
   }
   return symbols;
 }
 
-std::unique_ptr<LogicalOperator> CacheProperties::Clone(AstStorage *storage) const {
-  auto object = std::make_unique<CacheProperties>();
+std::unique_ptr<LogicalOperator> PrefetchProperties::Clone(AstStorage *storage) const {
+  auto object = std::make_unique<PrefetchProperties>();
   object->input_ = input_ ? input_->Clone(storage) : nullptr;
-  object->groups_ = groups_;
+  object->per_record_ = per_record_;
   object->view_ = view_;
   return object;
 }
 
-std::string CacheProperties::ToString(const DbAccessor *dba) const {
-  return fmt::format("CacheProperties {{{}}}", utils::IterableToString(groups_, ", ", [&](const auto &group) {
-                       return utils::IterableToString(group.properties(), ", ", [&](const auto &cached) {
+std::string PrefetchProperties::ToString(const DbAccessor *dba) const {
+  return fmt::format("PrefetchProperties {{{}}}",
+                     utils::IterableToString(per_record_, ", ", [&](const auto &of_one_record) {
+                       return utils::IterableToString(of_one_record.properties(), ", ", [&](const auto &prefetched) {
                          return fmt::format("{}.{} -> {}",
-                                            group.input_symbol().name(),
-                                            dba->PropertyToName(cached.property_id),
-                                            cached.output_symbol.name());
+                                            of_one_record.input_symbol().name(),
+                                            dba->PropertyToName(prefetched.property_id),
+                                            prefetched.output_symbol.name());
                        });
                      }));
 }
 
-CacheProperties::CachePropertiesCursor::CachePropertiesCursor(const CacheProperties &self, utils::MemoryResource *mem,
-                                                              metrics::DatabaseMetricHandles &metric_handles)
+PrefetchProperties::PrefetchPropertiesCursor::PrefetchPropertiesCursor(const PrefetchProperties &self,
+                                                                       utils::MemoryResource *mem,
+                                                                       metrics::DatabaseMetricHandles &metric_handles)
     : self_(self), input_cursor_(self_.input_->MakeCursor(mem, metric_handles)) {
   auto total = std::size_t{0};
-  for (auto const &group : self_.groups_) total += group.properties().size();
+  for (auto const &of_one_record : self_.per_record_) total += of_one_record.properties().size();
   values_.resize(total);
 }
 
 #ifdef MG_ENTERPRISE
-auto CacheProperties::CachePropertiesCursor::AnyPropertyReadable(CachedPropertyGroup const &group,
-                                                                 TypedValue const &input,
-                                                                 FineGrainedAuthChecker const *checker) -> bool {
+auto PrefetchProperties::PrefetchPropertiesCursor::AnyPropertyReadable(PropertiesOfOneRecord const &of_one_record,
+                                                                       TypedValue const &input,
+                                                                       FineGrainedAuthChecker const *checker) -> bool {
   DMG_ASSERT(input.type() == TypedValue::Type::Vertex || input.type() == TypedValue::Type::Edge,
              "Only a node or a relationship has a record to read a set of properties from");
 
-  allowed_by_slot_.assign(group.properties().size(), true);
+  allowed_by_slot_.assign(of_one_record.properties().size(), true);
   if (!checker || !checker->HasPropertyRestrictions()) return true;
 
   auto const mark = [&](auto const &allows) {
     for (std::size_t slot = 0; slot != allowed_by_slot_.size(); ++slot) {
-      allowed_by_slot_[slot] = allows(group.property_at_slot(slot).property_id);
+      allowed_by_slot_[slot] = allows(of_one_record.property_at_slot(slot).property_id);
     }
     return std::ranges::any_of(allowed_by_slot_, std::identity{});
   };
@@ -5936,14 +5938,14 @@ auto CacheProperties::CachePropertiesCursor::AnyPropertyReadable(CachedPropertyG
   }
 
   // A vertex's permissions are decided from its labels, and reading those takes the record's lock,
-  // so the whole group is decided from one read of them.
+  // so the whole set is decided from one read of them.
   auto const labels = input.ValueVertex().Labels(storage::View::NEW);
   if (!labels) return false;
   return mark([&](storage::PropertyId property) { return PropertyReadAllowed(checker, *labels, property); });
 }
 #endif
 
-bool CacheProperties::CachePropertiesCursor::Pull(Frame &frame, ExecutionContext &context) {
+bool PrefetchProperties::PrefetchPropertiesCursor::Pull(Frame &frame, ExecutionContext &context) {
   OOMExceptionEnabler const oom_exception;
   SCOPED_PROFILE_OP_BY_REF(self_);
 
@@ -5955,20 +5957,20 @@ bool CacheProperties::CachePropertiesCursor::Pull(Frame &frame, ExecutionContext
 
   auto *name_id_mapper = context.db_accessor->GetStorageAccessor()->GetNameIdMapper();
 
-  // Every property of a group answers Null together, whether because the symbol holds no record
+  // Every property of one record answers Null together, whether because the symbol holds no record
   // or because the caller may read none of them.
-  auto answer_with_null = [&](CachedPropertyGroup const &group) {
-    for (auto const &cached : group.properties()) {
-      frame_writer.Write(cached.output_symbol, TypedValue(context.evaluation_context.memory));
+  auto answer_with_null = [&](PropertiesOfOneRecord const &of_one_record) {
+    for (auto const &prefetched : of_one_record.properties()) {
+      frame_writer.Write(prefetched.output_symbol, TypedValue(context.evaluation_context.memory));
     }
   };
 
   auto values_begin = std::size_t{0};
-  for (auto const &group : self_.groups_) {
-    auto const slots = std::span{values_}.subspan(values_begin, group.properties().size());
-    values_begin += group.properties().size();
+  for (auto const &of_one_record : self_.per_record_) {
+    auto const slots = std::span{values_}.subspan(values_begin, of_one_record.properties().size());
+    values_begin += of_one_record.properties().size();
 
-    auto const &input_value = frame[group.input_symbol()];
+    auto const &input_value = frame[of_one_record.input_symbol()];
     auto const reads_a_vertex = input_value.type() == TypedValue::Type::Vertex;
     auto const reads_a_record = reads_a_vertex || input_value.type() == TypedValue::Type::Edge;
 
@@ -5982,18 +5984,18 @@ bool CacheProperties::CachePropertiesCursor::Pull(Frame &frame, ExecutionContext
     }
 
     if (!reads_a_record) {
-      // Null, from an OPTIONAL MATCH that found nothing. Only this group: a row where one symbol
+      // Null, from an OPTIONAL MATCH that found nothing. Only this record: a row where one symbol
       // is Null says nothing about the others.
-      answer_with_null(group);
+      answer_with_null(of_one_record);
       continue;
     }
 
 #ifdef MG_ENTERPRISE
     // A lookup answers Null for a property the caller may not read without ever reaching the record,
-    // so a group of nothing but denied properties must not read one either: doing so would report a
+    // so a record whose properties are all denied must not read one either: doing so would report a
     // deleted or missing record for a read the query was never allowed to make.
-    if (!AnyPropertyReadable(group, input_value, context.auth_checker)) {
-      answer_with_null(group);
+    if (!AnyPropertyReadable(of_one_record, input_value, context.auth_checker)) {
+      answer_with_null(of_one_record);
       continue;
     }
 #endif
@@ -6002,7 +6004,7 @@ bool CacheProperties::CachePropertiesCursor::Pull(Frame &frame, ExecutionContext
     // leave it the same reference. A slot is read where that lookup's value would have been, and a
     // row may hold it to the end of the query, so materialising here holds every row's floats at
     // once where a reference holds none.
-    auto const lazy_refs = context.evaluation_context.lazy_vector_refs;
+    auto const compact = context.evaluation_context.compact_property_values;
 
     // Whichever kind of record the row holds, asked once so that the read below and any reference
     // it hands back reach the same record without either of them naming both kinds.
@@ -6010,22 +6012,20 @@ bool CacheProperties::CachePropertiesCursor::Pull(Frame &frame, ExecutionContext
       return reads_a_vertex ? with(input_value.ValueVertex()) : with(input_value.ValueEdge());
     };
 
-    auto const shape = PropertyValueShape{.view = self_.view_,
-                                          .compact = lazy_refs,
-                                          .names = name_id_mapper,
-                                          .memory = context.evaluation_context.memory};
+    auto const shape = PropertyValueShape{
+        .view = self_.view_, .compact = compact, .names = name_id_mapper, .memory = context.evaluation_context.memory};
 
     // The view the operator this pass reads for evaluates at, so a slot holds what that operator's
     // own lookup would have read of a record this command has written.
     auto const read = of_the_record([&](auto const &record) {
       auto const &accessor = record.impl_;
-      return lazy_refs ? accessor.ReadPropertyValuesCompact(group.ordered(), slots, self_.view_)
-                       : accessor.ReadPropertyValues(group.ordered(), slots, self_.view_);
+      return compact ? accessor.ReadPropertyValuesCompact(of_one_record.ordered(), slots, self_.view_)
+                     : accessor.ReadPropertyValues(of_one_record.ordered(), slots, self_.view_);
     });
     if (!read) ThrowPropertyReadError(read.error());
 
     for (std::size_t slot = 0; slot != slots.size(); ++slot) {
-      auto const &cached = group.property_at_slot(slot);
+      auto const &prefetched = of_one_record.property_at_slot(slot);
       auto &value = slots[slot];
 #ifdef MG_ENTERPRISE
       // Decided above, before the record was read.
@@ -6034,10 +6034,10 @@ bool CacheProperties::CachePropertiesCursor::Pull(Frame &frame, ExecutionContext
       }
 #endif
       if (value.IsNull()) {
-        frame_writer.Write(cached.output_symbol, TypedValue(context.evaluation_context.memory));
+        frame_writer.Write(prefetched.output_symbol, TypedValue(context.evaluation_context.memory));
       } else {
-        frame_writer.Write(cached.output_symbol, of_the_record([&](auto const &record) {
-                             return PropertyAsValue(std::move(value), record, cached.property_id, shape);
+        frame_writer.Write(prefetched.output_symbol, of_the_record([&](auto const &record) {
+                             return PropertyAsValue(std::move(value), record, prefetched.property_id, shape);
                            }));
       }
     }
@@ -6045,9 +6045,9 @@ bool CacheProperties::CachePropertiesCursor::Pull(Frame &frame, ExecutionContext
   return true;
 }
 
-void CacheProperties::CachePropertiesCursor::Shutdown() { input_cursor_->Shutdown(); }
+void PrefetchProperties::PrefetchPropertiesCursor::Shutdown() { input_cursor_->Shutdown(); }
 
-void CacheProperties::CachePropertiesCursor::Reset() { input_cursor_->Reset(); }
+void PrefetchProperties::PrefetchPropertiesCursor::Reset() { input_cursor_->Reset(); }
 
 Delete::Delete(const std::shared_ptr<LogicalOperator> &input, const std::vector<Expression *> &expressions, bool detach)
     : input_(input ? input : std::make_shared<Once>()), expressions_(expressions), detach_(detach) {}

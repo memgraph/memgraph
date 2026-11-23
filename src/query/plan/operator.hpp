@@ -169,7 +169,7 @@ class ExpandVariable;
 class ConstructNamedPath;
 class Filter;
 class Produce;
-class CacheProperties;
+class PrefetchProperties;
 class Delete;
 class SetProperty;
 class SetProperties;
@@ -229,7 +229,7 @@ using LogicalOperatorCompositeVisitor = utils::CompositeVisitor<
     Conditional, PeriodicCommit, PeriodicSubquery, SetNestedProperty, RemoveNestedProperty, LoadParquet, LoadJsonl,
     AggregateParallel, OrderByParallel, ScanParallel, ScanParallelByLabel, ScanParallelByLabelProperties,
     ScanParallelByEdgeType, ScanParallelByEdgeTypeProperty, ScanParallelByEdge, ScanParallelByEdgeProperty,
-    ScanParallelByVertexProperty, ScanChunk, ScanChunkByEdge, ParallelMerge, CacheProperties>;
+    ScanParallelByVertexProperty, ScanChunk, ScanChunkByEdge, ParallelMerge, PrefetchProperties>;
 
 using LogicalOperatorLeafVisitor = utils::LeafVisitor<Once>;
 
@@ -1311,71 +1311,71 @@ class Produce : public memgraph::query::plan::LogicalOperator {
 };
 
 /// One property to read, paired with the frame slot its value is written into.
-struct CachedProperty {
+struct PrefetchedProperty {
   storage::PropertyId property_id;
   Symbol output_symbol;
 };
 
-/// The properties to read of one symbol. Each group is one record and so its own pass; groups
+/// The properties to read of one symbol. Each of these is one record and so its own pass; they
 /// share the pull that found them and the buffer read into.
 ///
 /// The read order is settled here rather than per cursor, so a plan reused many times settles it
 /// once. It is derived from the properties and reachable only together with them, so the two
 /// cannot come to describe different sets.
-class CachedPropertyGroup {
+class PropertiesOfOneRecord {
  public:
-  CachedPropertyGroup() = default;
+  PropertiesOfOneRecord() = default;
 
-  CachedPropertyGroup(Symbol input_symbol, std::vector<CachedProperty> properties)
+  PropertiesOfOneRecord(Symbol input_symbol, std::vector<PrefetchedProperty> properties)
       : input_symbol_{std::move(input_symbol)}, properties_{std::move(properties)} {
     auto paths = std::vector<storage::PropertyPath>{};
     paths.reserve(properties_.size());
-    for (auto const &cached : properties_) paths.emplace_back(cached.property_id);
+    for (auto const &prefetched : properties_) paths.emplace_back(prefetched.property_id);
     ordered_ = storage::OrderedPropertyPaths{std::move(paths)};
   }
 
   auto input_symbol() const -> Symbol const & { return input_symbol_; }
 
-  auto properties() const -> std::vector<CachedProperty> const & { return properties_; }
+  auto properties() const -> std::vector<PrefetchedProperty> const & { return properties_; }
 
   /// The properties in the order a record must be asked for them. Its permutation says which of
   /// them each read value belongs to.
   auto ordered() const -> storage::OrderedPropertyPaths const & { return ordered_; }
 
   /// The property the `slot`th value read from a record belongs to.
-  auto property_at_slot(std::size_t slot) const -> CachedProperty const & {
+  auto property_at_slot(std::size_t slot) const -> PrefetchedProperty const & {
     return properties_[ordered_.position_lookup()[slot]];
   }
 
  private:
   Symbol input_symbol_;
-  std::vector<CachedProperty> properties_;
+  std::vector<PrefetchedProperty> properties_;
   storage::OrderedPropertyPaths ordered_;
 };
 
 /// Reads the properties of one record in a single pass, writing each value into its own frame
-/// slot, with a group of them for each symbol a projection reads. One lookup at a time pays for a
-/// lock, a shape resolution and a delta walk per property; one pass pays each once per group.
+/// slot, with a set of them for each symbol a projection reads. One lookup at a time pays for a
+/// lock, a shape resolution and a delta walk per property; one pass pays each once per record.
 ///
-/// A symbol holding no record answers that group's slots with Null, as a lookup would.
+/// A symbol holding no record answers its slots with Null, as a lookup would.
 ///
 /// `view` is the one the operator this pass reads for evaluates at, so a slot holds what that
 /// operator's own lookup would have read. The two differ for a record this command has written, and
 /// a filter tests a row against the record as the row was produced where a projection returns what
 /// the row's own writes left.
-class CacheProperties : public memgraph::query::plan::LogicalOperator {
+class PrefetchProperties : public memgraph::query::plan::LogicalOperator {
  public:
   static const utils::TypeInfo kType;
 
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
-  CacheProperties() = default;
+  PrefetchProperties() = default;
 
-  CacheProperties(const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol,
-                  std::vector<CachedProperty> cached_properties, storage::View view);
+  PrefetchProperties(const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol,
+                     std::vector<PrefetchedProperty> prefetched_properties, storage::View view);
 
-  CacheProperties(const std::shared_ptr<LogicalOperator> &input, std::vector<CachedPropertyGroup> groups,
-                  storage::View view);
+  PrefetchProperties(const std::shared_ptr<LogicalOperator> &input, std::vector<PropertiesOfOneRecord> per_record,
+                     storage::View view);
 
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
@@ -1389,7 +1389,7 @@ class CacheProperties : public memgraph::query::plan::LogicalOperator {
   void set_input(std::shared_ptr<LogicalOperator> input) override { input_ = std::move(input); }
 
   std::shared_ptr<memgraph::query::plan::LogicalOperator> input_;
-  std::vector<CachedPropertyGroup> groups_;
+  std::vector<PropertiesOfOneRecord> per_record_;
   storage::View view_{storage::View::NEW};
 
   std::string ToString(const DbAccessor *dba) const override;
@@ -1397,31 +1397,31 @@ class CacheProperties : public memgraph::query::plan::LogicalOperator {
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
 
  private:
-  class CachePropertiesCursor : public Cursor {
+  class PrefetchPropertiesCursor : public Cursor {
    public:
-    CachePropertiesCursor(const CacheProperties &, utils::MemoryResource *, metrics::DatabaseMetricHandles &);
+    PrefetchPropertiesCursor(const PrefetchProperties &, utils::MemoryResource *, metrics::DatabaseMetricHandles &);
     bool Pull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
 
    private:
 #ifdef MG_ENTERPRISE
-    /// Whether the caller may read any of `group`'s properties, deciding each of them into
+    /// Whether the caller may read any of `of_one_record`'s properties, deciding each of them into
     /// `allowed_by_slot_` on the way. Asked before the record is read, because a record none of
     /// whose properties may be read must not be reached at all. A record whose labels cannot be
     /// read permits none of them.
-    [[nodiscard]] auto AnyPropertyReadable(CachedPropertyGroup const &group, TypedValue const &input,
+    [[nodiscard]] auto AnyPropertyReadable(PropertiesOfOneRecord const &of_one_record, TypedValue const &input,
                                            FineGrainedAuthChecker const *checker) -> bool;
 #endif
 
-    const CacheProperties &self_;
+    const PrefetchProperties &self_;
     const UniqueCursorPtr input_cursor_;
 #ifdef MG_ENTERPRISE
-    /// Whether each of the current group's properties may be read, indexed by the slot the value is
-    /// read into rather than by the property's position in the group. Reused between rows.
+    /// Whether each of the current record's properties may be read, indexed by the slot the value is
+    /// read into rather than by the property's position in the read. Reused between rows.
     std::vector<bool> allowed_by_slot_;
 #endif
-    /// Every group's values end to end, so a row allocates nothing.
+    /// Every record's values end to end, so a row allocates nothing.
     std::vector<storage::PropertyValue> values_;
   };
 };

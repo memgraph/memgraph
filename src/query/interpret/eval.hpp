@@ -625,14 +625,14 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     if (lhs_ptr->IsVertex()) {
       if (!index.IsString()) throw QueryRuntimeException("Expected a string as a property name, got {}.", index.type());
       const auto &vertex = lhs_ptr->ValueVertex();
-      if (ctx_->lazy_vector_refs) return LazyPropertyValue(vertex, index.ValueString());
+      if (ctx_->compact_property_values) return LazyPropertyValue(vertex, index.ValueString());
       return {GetProperty(vertex, index.ValueString()), GetNameIdMapper(), ctx_->memory};
     }
 
     if (lhs_ptr->IsEdge()) {
       if (!index.IsString()) throw QueryRuntimeException("Expected a string as a property name, got {}.", index.type());
       const auto &edge = lhs_ptr->ValueEdge();
-      if (ctx_->lazy_vector_refs) return LazyPropertyValue(edge, index.ValueString());
+      if (ctx_->compact_property_values) return LazyPropertyValue(edge, index.ValueString());
       return {GetProperty(edge, index.ValueString()), GetNameIdMapper(), ctx_->memory};
     };
 
@@ -849,7 +849,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
 #else
                                  nullptr,
 #endif
-                                 ctx_->lazy_vector_refs};
+                                 ctx_->compact_property_values};
     bool is_transactional = storage::IsTransactional(dba_->GetStorageMode());
     TypedValue res(ctx_->memory);
     const SelectedFunction impl = SelectFunctionImpl(function, *ctx_);
@@ -1219,7 +1219,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   /// How a value read at this evaluator's view is to be handed back.
   PropertyValueShape ValueShape() {
     return PropertyValueShape{
-        .view = view_, .compact = ctx_->lazy_vector_refs, .names = GetNameIdMapper(), .memory = ctx_->memory};
+        .view = view_, .compact = ctx_->compact_property_values, .names = GetNameIdMapper(), .memory = ctx_->memory};
   }
 
   template <class TRecordAccessor, class TPropertyValue>
@@ -1292,7 +1292,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     // Lazy mode reads embeddings compact, and the caller wraps each value it takes from here, so
     // what this answers with never holds the floats themselves.
     const auto read = [&](storage::View view) {
-      return ctx_->lazy_vector_refs ? record_accessor.PropertiesCompact(view) : record_accessor.Properties(view);
+      return ctx_->compact_property_values ? record_accessor.PropertiesCompact(view) : record_accessor.Properties(view);
     };
     auto maybe_props = read(view_);
     if (maybe_props == std::unexpected{storage::Error::NONEXISTENT_OBJECT}) {

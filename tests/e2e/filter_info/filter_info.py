@@ -167,7 +167,7 @@ def test_range_w_index(memgraph):
     expected_explain = [
         " * Produce {n}",
         " * Filter {n.p}",
-        " * CacheProperties {n.p -> anon2}",
+        " * PrefetchProperties {n.p -> anon2}",
         " * ScanAllByLabelProperties (n :l {p})",
         " * Once",
     ]

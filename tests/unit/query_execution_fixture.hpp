@@ -21,9 +21,9 @@
 
 #include "gtest/gtest.h"
 
-#include "cache_properties_flag_guard.hpp"
 #include "communication/result_stream_faker.hpp"
 #include "disk_test_utils.hpp"
+#include "prefetch_properties_flag_guard.hpp"
 #include "query/auth_checker.hpp"
 #include "query/interpreter.hpp"
 #include "query/interpreter_context.hpp"
@@ -159,7 +159,7 @@ class QueryExecutionFixture : public testing::Test {
   enum class Arm : std::uint8_t { kLookupAtATime, kOnePass };
 
   Outcome RunWith(Arm arm, const std::string &query) {
-    CachePropertiesFlagGuard guard{arm == Arm::kOnePass};
+    PrefetchPropertiesFlagGuard guard{arm == Arm::kOnePass};
     PlantGraph();
     // A plan is held under the query's text, so without this the arm planned second would run the
     // plan the first one left behind and the two would agree about nothing.

@@ -54,7 +54,7 @@ namespace {
 /// How a function's reads of a record's properties are to hand their values back.
 PropertyValueShape ValueShape(const FunctionContext &ctx) {
   return PropertyValueShape{.view = ctx.view,
-                            .compact = ctx.lazy_vector_refs,
+                            .compact = ctx.compact_property_values,
                             .names = ctx.db_accessor->GetStorageAccessor()->GetNameIdMapper(),
                             .memory = ctx.memory};
 }
@@ -474,8 +474,8 @@ TypedValue Properties(const TypedValue *args, int64_t nargs, const FunctionConte
   auto get_properties = [&](const auto &record_accessor, auto const &is_allowed) {
     TypedValue::TMap properties(ctx.memory);
     // With lazy refs on, embeddings stay lazy VectorRefs: a retained map costs O(references), not O(N*dim) floats.
-    auto maybe_props =
-        ctx.lazy_vector_refs ? record_accessor.PropertiesCompact(ctx.view) : record_accessor.Properties(ctx.view);
+    auto maybe_props = ctx.compact_property_values ? record_accessor.PropertiesCompact(ctx.view)
+                                                   : record_accessor.Properties(ctx.view);
     if (!maybe_props) {
       switch (maybe_props.error()) {
         case storage::Error::DELETED_OBJECT:
@@ -1024,8 +1024,8 @@ TypedValue Values(const TypedValue *args, int64_t nargs, const FunctionContext &
   auto get_values = [&](const auto &record_accessor, auto const &is_allowed) {
     TypedValue::TVector values(ctx.memory);
     // Like properties(n): with lazy refs on, embeddings stay VectorRefs.
-    auto maybe_props =
-        ctx.lazy_vector_refs ? record_accessor.PropertiesCompact(ctx.view) : record_accessor.Properties(ctx.view);
+    auto maybe_props = ctx.compact_property_values ? record_accessor.PropertiesCompact(ctx.view)
+                                                   : record_accessor.Properties(ctx.view);
     if (!maybe_props) {
       switch (maybe_props.error()) {
         case storage::Error::DELETED_OBJECT:

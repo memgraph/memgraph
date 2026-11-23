@@ -76,9 +76,9 @@ struct EvaluationContext {
   mutable std::unordered_map<std::string, int64_t> counters{};
   std::shared_ptr<ResolvedUserFunctions> resolved_user_functions{};
   Scope scope{};
-  /// Keep vector-index embeddings as lazy VectorRefs (off: read eagerly). Set only for read-only plans where
-  /// DbAccessor::CanHoldLazyVectorRefs() holds.
-  bool lazy_vector_refs{false};
+  /// Read property values compactly, leaving a vector-index embedding the reference the record holds rather than
+  /// decoding its floats. Set only for read-only plans where DbAccessor::CanHoldLazyVectorRefs() holds.
+  bool compact_property_values{false};
 };
 
 std::vector<storage::PropertyId> NamesToProperties(const std::vector<std::string> &property_names, DbAccessor *dba);

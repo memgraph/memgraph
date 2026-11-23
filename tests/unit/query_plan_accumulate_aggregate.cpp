@@ -1423,7 +1423,7 @@ TYPED_TEST(QueryPlanTest, AggregateTypesWithDistinct) {
   EXPECT_THROW(aggregate(n_p2, Aggregation::Op::SUM), QueryRuntimeException);
 }
 
-TYPED_TEST(QueryPlanTest, CachePropertiesFillsSlotsInOnePass) {
+TYPED_TEST(QueryPlanTest, PrefetchPropertiesFillsSlotsInOnePass) {
   auto storage_dba = this->db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());
   auto prop_a = dba.NameToProperty("a");
@@ -1436,16 +1436,16 @@ TYPED_TEST(QueryPlanTest, CachePropertiesFillsSlotsInOnePass) {
 
   SymbolTable symbol_table;
   auto n = MakeScanAll(this->storage, symbol_table, "n");
-  auto cached_a_sym = symbol_table.CreateSymbol("cached_a", true);
-  auto cached_b_sym = symbol_table.CreateSymbol("cached_b", true);
-  auto cache =
-      std::make_shared<CacheProperties>(n.op_,
-                                        n.sym_,
-                                        std::vector<CachedProperty>{{prop_a, cached_a_sym}, {prop_b, cached_b_sym}},
-                                        memgraph::storage::View::NEW);
+  auto prefetched_a_sym = symbol_table.CreateSymbol("cached_a", true);
+  auto prefetched_b_sym = symbol_table.CreateSymbol("cached_b", true);
+  auto cache = std::make_shared<PrefetchProperties>(
+      n.op_,
+      n.sym_,
+      std::vector<PrefetchedProperty>{{prop_a, prefetched_a_sym}, {prop_b, prefetched_b_sym}},
+      memgraph::storage::View::NEW);
 
-  auto a_ne = NEXPR("a", IDENT("cached_a")->MapTo(cached_a_sym))->MapTo(symbol_table.CreateSymbol("a_ne", true));
-  auto b_ne = NEXPR("b", IDENT("cached_b")->MapTo(cached_b_sym))->MapTo(symbol_table.CreateSymbol("b_ne", true));
+  auto a_ne = NEXPR("a", IDENT("cached_a")->MapTo(prefetched_a_sym))->MapTo(symbol_table.CreateSymbol("a_ne", true));
+  auto b_ne = NEXPR("b", IDENT("cached_b")->MapTo(prefetched_b_sym))->MapTo(symbol_table.CreateSymbol("b_ne", true));
   auto produce = MakeProduce(cache, a_ne, b_ne);
 
   auto context = MakeContext(this->storage, symbol_table, &dba);
@@ -1460,7 +1460,7 @@ TYPED_TEST(QueryPlanTest, CachePropertiesFillsSlotsInOnePass) {
 // their names were first interned. A caller groups its properties by name, and the two orders
 // disagree whenever a name interned earlier sorts later, so the operator cannot assume it is handed
 // them in the order the read wants.
-TYPED_TEST(QueryPlanTest, CachePropertiesFillsSlotsWhateverOrderTheyArriveIn) {
+TYPED_TEST(QueryPlanTest, PrefetchPropertiesFillsSlotsWhateverOrderTheyArriveIn) {
   auto storage_dba = this->db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());
   // Interned first, so it holds the lower id while sorting after the other.
@@ -1479,11 +1479,11 @@ TYPED_TEST(QueryPlanTest, CachePropertiesFillsSlotsWhateverOrderTheyArriveIn) {
   auto zebra_sym = symbol_table.CreateSymbol("cached_zebra", true);
   // Handed over in the order their names sort, which here is the reverse of the order the record
   // holds them in.
-  auto cache =
-      std::make_shared<CacheProperties>(n.op_,
-                                        n.sym_,
-                                        std::vector<CachedProperty>{{prop_apple, apple_sym}, {prop_zebra, zebra_sym}},
-                                        memgraph::storage::View::NEW);
+  auto cache = std::make_shared<PrefetchProperties>(
+      n.op_,
+      n.sym_,
+      std::vector<PrefetchedProperty>{{prop_apple, apple_sym}, {prop_zebra, zebra_sym}},
+      memgraph::storage::View::NEW);
 
   auto apple_ne =
       NEXPR("apple", IDENT("cached_apple")->MapTo(apple_sym))->MapTo(symbol_table.CreateSymbol("apple_ne", true));
@@ -1500,7 +1500,7 @@ TYPED_TEST(QueryPlanTest, CachePropertiesFillsSlotsWhateverOrderTheyArriveIn) {
 }
 
 #ifdef MG_ENTERPRISE
-TYPED_TEST(QueryPlanTest, CachePropertiesDeniedPropertyIsNull) {
+TYPED_TEST(QueryPlanTest, PrefetchPropertiesDeniedPropertyIsNull) {
   auto storage_dba = this->db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());
   auto label = dba.NameToLabel("Person");
@@ -1515,18 +1515,18 @@ TYPED_TEST(QueryPlanTest, CachePropertiesDeniedPropertyIsNull) {
 
   SymbolTable symbol_table;
   auto n = MakeScanAll(this->storage, symbol_table, "n");
-  auto cached_name_sym = symbol_table.CreateSymbol("cached_name", true);
-  auto cached_ssn_sym = symbol_table.CreateSymbol("cached_ssn", true);
-  auto cache = std::make_shared<CacheProperties>(
+  auto prefetched_name_sym = symbol_table.CreateSymbol("cached_name", true);
+  auto prefetched_ssn_sym = symbol_table.CreateSymbol("cached_ssn", true);
+  auto cache = std::make_shared<PrefetchProperties>(
       n.op_,
       n.sym_,
-      std::vector<CachedProperty>{{prop_name, cached_name_sym}, {prop_ssn, cached_ssn_sym}},
+      std::vector<PrefetchedProperty>{{prop_name, prefetched_name_sym}, {prop_ssn, prefetched_ssn_sym}},
       memgraph::storage::View::NEW);
 
-  auto name_ne =
-      NEXPR("name", IDENT("cached_name")->MapTo(cached_name_sym))->MapTo(symbol_table.CreateSymbol("name_ne", true));
+  auto name_ne = NEXPR("name", IDENT("cached_name")->MapTo(prefetched_name_sym))
+                     ->MapTo(symbol_table.CreateSymbol("name_ne", true));
   auto ssn_ne =
-      NEXPR("ssn", IDENT("cached_ssn")->MapTo(cached_ssn_sym))->MapTo(symbol_table.CreateSymbol("ssn_ne", true));
+      NEXPR("ssn", IDENT("cached_ssn")->MapTo(prefetched_ssn_sym))->MapTo(symbol_table.CreateSymbol("ssn_ne", true));
   auto produce = MakeProduce(cache, name_ne, ssn_ne);
 
   // A property lookup the caller may not read evaluates to Null, so caching it must not hand the
@@ -1541,7 +1541,7 @@ TYPED_TEST(QueryPlanTest, CachePropertiesDeniedPropertyIsNull) {
   EXPECT_TRUE(results[0][1].IsNull());
 }
 
-TYPED_TEST(QueryPlanTest, CachePropertiesWholeGroupDeniedIsNull) {
+TYPED_TEST(QueryPlanTest, PrefetchPropertiesWholeGroupDeniedIsNull) {
   auto storage_dba = this->db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());
   auto label = dba.NameToLabel("Person");
@@ -1556,18 +1556,18 @@ TYPED_TEST(QueryPlanTest, CachePropertiesWholeGroupDeniedIsNull) {
 
   SymbolTable symbol_table;
   auto n = MakeScanAll(this->storage, symbol_table, "n");
-  auto cached_name_sym = symbol_table.CreateSymbol("cached_name", true);
-  auto cached_ssn_sym = symbol_table.CreateSymbol("cached_ssn", true);
-  auto cache = std::make_shared<CacheProperties>(
+  auto prefetched_name_sym = symbol_table.CreateSymbol("cached_name", true);
+  auto prefetched_ssn_sym = symbol_table.CreateSymbol("cached_ssn", true);
+  auto cache = std::make_shared<PrefetchProperties>(
       n.op_,
       n.sym_,
-      std::vector<CachedProperty>{{prop_name, cached_name_sym}, {prop_ssn, cached_ssn_sym}},
+      std::vector<PrefetchedProperty>{{prop_name, prefetched_name_sym}, {prop_ssn, prefetched_ssn_sym}},
       memgraph::storage::View::NEW);
 
-  auto name_ne =
-      NEXPR("name", IDENT("cached_name")->MapTo(cached_name_sym))->MapTo(symbol_table.CreateSymbol("name_ne", true));
+  auto name_ne = NEXPR("name", IDENT("cached_name")->MapTo(prefetched_name_sym))
+                     ->MapTo(symbol_table.CreateSymbol("name_ne", true));
   auto ssn_ne =
-      NEXPR("ssn", IDENT("cached_ssn")->MapTo(cached_ssn_sym))->MapTo(symbol_table.CreateSymbol("ssn_ne", true));
+      NEXPR("ssn", IDENT("cached_ssn")->MapTo(prefetched_ssn_sym))->MapTo(symbol_table.CreateSymbol("ssn_ne", true));
   auto produce = MakeProduce(cache, name_ne, ssn_ne);
 
   // Every property of the group denied answers Null for each of them, and the row still arrives.
@@ -1582,7 +1582,7 @@ TYPED_TEST(QueryPlanTest, CachePropertiesWholeGroupDeniedIsNull) {
   EXPECT_TRUE(results[0][1].IsNull());
 }
 
-TYPED_TEST(QueryPlanTest, CachePropertiesWholeGroupDeniedNeverReadsTheRecord) {
+TYPED_TEST(QueryPlanTest, PrefetchPropertiesWholeGroupDeniedNeverReadsTheRecord) {
   auto storage_dba = this->db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());
   auto label = dba.NameToLabel("Person");
@@ -1599,11 +1599,11 @@ TYPED_TEST(QueryPlanTest, CachePropertiesWholeGroupDeniedNeverReadsTheRecord) {
 
   SymbolTable symbol_table;
   auto n = MakeScanAll(this->storage, symbol_table, "n");
-  auto cached_ssn_sym = symbol_table.CreateSymbol("cached_ssn", true);
-  auto cache = std::make_shared<CacheProperties>(
-      n.op_, n.sym_, std::vector<CachedProperty>{{prop_ssn, cached_ssn_sym}}, memgraph::storage::View::NEW);
+  auto prefetched_ssn_sym = symbol_table.CreateSymbol("cached_ssn", true);
+  auto cache = std::make_shared<PrefetchProperties>(
+      n.op_, n.sym_, std::vector<PrefetchedProperty>{{prop_ssn, prefetched_ssn_sym}}, memgraph::storage::View::NEW);
   auto ssn_ne =
-      NEXPR("ssn", IDENT("cached_ssn")->MapTo(cached_ssn_sym))->MapTo(symbol_table.CreateSymbol("ssn_ne", true));
+      NEXPR("ssn", IDENT("cached_ssn")->MapTo(prefetched_ssn_sym))->MapTo(symbol_table.CreateSymbol("ssn_ne", true));
   auto produce = MakeProduce(cache, ssn_ne);
 
   // The row's record is already deleted. A read the caller was never allowed to make must not be
@@ -1620,7 +1620,7 @@ TYPED_TEST(QueryPlanTest, CachePropertiesWholeGroupDeniedNeverReadsTheRecord) {
 // A relationship's permissions come from its type, which a deleted relationship still answers, so
 // here nothing fails before the group is read. Answering Null for the whole group is the only
 // thing keeping a read the caller was never allowed to make from reporting the deletion.
-TYPED_TEST(QueryPlanTest, CachePropertiesWholeGroupDeniedOnADeletedEdge) {
+TYPED_TEST(QueryPlanTest, PrefetchPropertiesWholeGroupDeniedOnADeletedEdge) {
   // An expansion on disk storage does not reach a relationship removed in this transaction, so the
   // row this needs cannot be produced there.
   if constexpr (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
@@ -1655,12 +1655,13 @@ TYPED_TEST(QueryPlanTest, CachePropertiesWholeGroupDeniedOnADeletedEdge) {
                         false,
                         memgraph::storage::View::OLD);
 
-  auto cached_account_sym = symbol_table.CreateSymbol("cached_account", true);
-  auto cache = std::make_shared<CacheProperties>(r_m.op_,
-                                                 r_m.edge_sym_,
-                                                 std::vector<CachedProperty>{{prop_account, cached_account_sym}},
-                                                 memgraph::storage::View::NEW);
-  auto account_ne = NEXPR("account", IDENT("cached_account")->MapTo(cached_account_sym))
+  auto prefetched_account_sym = symbol_table.CreateSymbol("cached_account", true);
+  auto cache =
+      std::make_shared<PrefetchProperties>(r_m.op_,
+                                           r_m.edge_sym_,
+                                           std::vector<PrefetchedProperty>{{prop_account, prefetched_account_sym}},
+                                           memgraph::storage::View::NEW);
+  auto account_ne = NEXPR("account", IDENT("cached_account")->MapTo(prefetched_account_sym))
                         ->MapTo(symbol_table.CreateSymbol("account_ne", true));
   auto produce = MakeProduce(cache, account_ne);
 
@@ -1673,7 +1674,7 @@ TYPED_TEST(QueryPlanTest, CachePropertiesWholeGroupDeniedOnADeletedEdge) {
   EXPECT_TRUE(results[0][0].IsNull());
 }
 
-TYPED_TEST(QueryPlanTest, CachePropertiesDeniedEdgePropertyIsNull) {
+TYPED_TEST(QueryPlanTest, PrefetchPropertiesDeniedEdgePropertyIsNull) {
   auto storage_dba = this->db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());
   auto edge_type = dba.NameToEdgeType("Pays");
@@ -1700,17 +1701,17 @@ TYPED_TEST(QueryPlanTest, CachePropertiesDeniedEdgePropertyIsNull) {
                         false,
                         memgraph::storage::View::OLD);
 
-  auto cached_amount_sym = symbol_table.CreateSymbol("cached_amount", true);
-  auto cached_account_sym = symbol_table.CreateSymbol("cached_account", true);
-  auto cache = std::make_shared<CacheProperties>(
+  auto prefetched_amount_sym = symbol_table.CreateSymbol("cached_amount", true);
+  auto prefetched_account_sym = symbol_table.CreateSymbol("cached_account", true);
+  auto cache = std::make_shared<PrefetchProperties>(
       r_m.op_,
       r_m.edge_sym_,
-      std::vector<CachedProperty>{{prop_amount, cached_amount_sym}, {prop_account, cached_account_sym}},
+      std::vector<PrefetchedProperty>{{prop_amount, prefetched_amount_sym}, {prop_account, prefetched_account_sym}},
       memgraph::storage::View::NEW);
 
-  auto amount_ne = NEXPR("amount", IDENT("cached_amount")->MapTo(cached_amount_sym))
+  auto amount_ne = NEXPR("amount", IDENT("cached_amount")->MapTo(prefetched_amount_sym))
                        ->MapTo(symbol_table.CreateSymbol("amount_ne", true));
-  auto account_ne = NEXPR("account", IDENT("cached_account")->MapTo(cached_account_sym))
+  auto account_ne = NEXPR("account", IDENT("cached_account")->MapTo(prefetched_account_sym))
                         ->MapTo(symbol_table.CreateSymbol("account_ne", true));
   auto produce = MakeProduce(cache, amount_ne, account_ne);
 
@@ -1726,7 +1727,7 @@ TYPED_TEST(QueryPlanTest, CachePropertiesDeniedEdgePropertyIsNull) {
 }
 #endif
 
-TYPED_TEST(QueryPlanTest, CachePropertiesAbsentPropertyIsNull) {
+TYPED_TEST(QueryPlanTest, PrefetchPropertiesAbsentPropertyIsNull) {
   auto storage_dba = this->db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());
   auto prop_a = dba.NameToProperty("a");
@@ -1738,11 +1739,14 @@ TYPED_TEST(QueryPlanTest, CachePropertiesAbsentPropertyIsNull) {
 
   SymbolTable symbol_table;
   auto n = MakeScanAll(this->storage, symbol_table, "n");
-  auto cached_missing_sym = symbol_table.CreateSymbol("cached_missing", true);
-  auto cache = std::make_shared<CacheProperties>(
-      n.op_, n.sym_, std::vector<CachedProperty>{{prop_missing, cached_missing_sym}}, memgraph::storage::View::NEW);
+  auto prefetched_missing_sym = symbol_table.CreateSymbol("cached_missing", true);
+  auto cache =
+      std::make_shared<PrefetchProperties>(n.op_,
+                                           n.sym_,
+                                           std::vector<PrefetchedProperty>{{prop_missing, prefetched_missing_sym}},
+                                           memgraph::storage::View::NEW);
 
-  auto ne = NEXPR("missing", IDENT("cached_missing")->MapTo(cached_missing_sym))
+  auto ne = NEXPR("missing", IDENT("cached_missing")->MapTo(prefetched_missing_sym))
                 ->MapTo(symbol_table.CreateSymbol("missing_ne", true));
   auto produce = MakeProduce(cache, ne);
 
@@ -1753,7 +1757,7 @@ TYPED_TEST(QueryPlanTest, CachePropertiesAbsentPropertyIsNull) {
   EXPECT_TRUE(results[0][0].IsNull());
 }
 
-TYPED_TEST(QueryPlanTest, CachePropertiesNullInputSymbolYieldsNullSlots) {
+TYPED_TEST(QueryPlanTest, PrefetchPropertiesNullInputSymbolYieldsNullSlots) {
   auto storage_dba = this->db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());
   auto prop_a = dba.NameToProperty("a");
@@ -1761,11 +1765,13 @@ TYPED_TEST(QueryPlanTest, CachePropertiesNullInputSymbolYieldsNullSlots) {
   SymbolTable symbol_table;
   // Stands in for an OPTIONAL MATCH that found nothing: the symbol is bound to Null.
   auto unwind = MakeUnwind(symbol_table, "n", nullptr, LIST(LITERAL(TypedValue())));
-  auto cached_a_sym = symbol_table.CreateSymbol("cached_a", true);
-  auto cache = std::make_shared<CacheProperties>(
-      unwind.op_, unwind.sym_, std::vector<CachedProperty>{{prop_a, cached_a_sym}}, memgraph::storage::View::NEW);
+  auto prefetched_a_sym = symbol_table.CreateSymbol("cached_a", true);
+  auto cache = std::make_shared<PrefetchProperties>(unwind.op_,
+                                                    unwind.sym_,
+                                                    std::vector<PrefetchedProperty>{{prop_a, prefetched_a_sym}},
+                                                    memgraph::storage::View::NEW);
 
-  auto ne = NEXPR("a", IDENT("cached_a")->MapTo(cached_a_sym))->MapTo(symbol_table.CreateSymbol("a_ne", true));
+  auto ne = NEXPR("a", IDENT("cached_a")->MapTo(prefetched_a_sym))->MapTo(symbol_table.CreateSymbol("a_ne", true));
   auto produce = MakeProduce(cache, ne);
 
   auto context = MakeContext(this->storage, symbol_table, &dba);
@@ -1777,7 +1783,7 @@ TYPED_TEST(QueryPlanTest, CachePropertiesNullInputSymbolYieldsNullSlots) {
 
 // An edge keeps its properties in the same store a vertex does, so the operator reads a set of them
 // the same way and the symbol it is given may be bound to either.
-TYPED_TEST(QueryPlanTest, CachePropertiesReadsAnEdgesProperties) {
+TYPED_TEST(QueryPlanTest, PrefetchPropertiesReadsAnEdgesProperties) {
   auto storage_dba = this->db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());
   auto prop_a = dba.NameToProperty("a");
@@ -1803,16 +1809,16 @@ TYPED_TEST(QueryPlanTest, CachePropertiesReadsAnEdgesProperties) {
                         false,
                         memgraph::storage::View::OLD);
 
-  auto cached_a_sym = symbol_table.CreateSymbol("cached_a", true);
-  auto cached_b_sym = symbol_table.CreateSymbol("cached_b", true);
-  auto cache =
-      std::make_shared<CacheProperties>(r_m.op_,
-                                        r_m.edge_sym_,
-                                        std::vector<CachedProperty>{{prop_a, cached_a_sym}, {prop_b, cached_b_sym}},
-                                        memgraph::storage::View::NEW);
+  auto prefetched_a_sym = symbol_table.CreateSymbol("cached_a", true);
+  auto prefetched_b_sym = symbol_table.CreateSymbol("cached_b", true);
+  auto cache = std::make_shared<PrefetchProperties>(
+      r_m.op_,
+      r_m.edge_sym_,
+      std::vector<PrefetchedProperty>{{prop_a, prefetched_a_sym}, {prop_b, prefetched_b_sym}},
+      memgraph::storage::View::NEW);
 
-  auto a_ne = NEXPR("a", IDENT("cached_a")->MapTo(cached_a_sym))->MapTo(symbol_table.CreateSymbol("a_ne", true));
-  auto b_ne = NEXPR("b", IDENT("cached_b")->MapTo(cached_b_sym))->MapTo(symbol_table.CreateSymbol("b_ne", true));
+  auto a_ne = NEXPR("a", IDENT("cached_a")->MapTo(prefetched_a_sym))->MapTo(symbol_table.CreateSymbol("a_ne", true));
+  auto b_ne = NEXPR("b", IDENT("cached_b")->MapTo(prefetched_b_sym))->MapTo(symbol_table.CreateSymbol("b_ne", true));
   auto produce = MakeProduce(cache, a_ne, b_ne);
 
   auto context = MakeContext(this->storage, symbol_table, &dba);
@@ -1825,7 +1831,7 @@ TYPED_TEST(QueryPlanTest, CachePropertiesReadsAnEdgesProperties) {
 
 // Lookups spread over two symbols are two records, so they are two reads whatever the plan looks
 // like. One operator holding both keeps that to one pull and one buffer for the row.
-TYPED_TEST(QueryPlanTest, CachePropertiesReadsTwoSymbolsInOneOperator) {
+TYPED_TEST(QueryPlanTest, PrefetchPropertiesReadsTwoSymbolsInOneOperator) {
   auto storage_dba = this->db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());
   auto prop_a = dba.NameToProperty("a");
@@ -1858,12 +1864,12 @@ TYPED_TEST(QueryPlanTest, CachePropertiesReadsTwoSymbolsInOneOperator) {
   auto m_a = symbol_table.CreateSymbol("m_a", true);
   auto m_b = symbol_table.CreateSymbol("m_b", true);
 
-  auto cache = std::make_shared<CacheProperties>(r_m.op_,
-                                                 std::vector<CachedPropertyGroup>{
-                                                     {n.sym_, {{prop_a, n_a}, {prop_b, n_b}}},
-                                                     {r_m.node_sym_, {{prop_a, m_a}, {prop_b, m_b}}},
-                                                 },
-                                                 memgraph::storage::View::NEW);
+  auto cache = std::make_shared<PrefetchProperties>(r_m.op_,
+                                                    std::vector<PropertiesOfOneRecord>{
+                                                        {n.sym_, {{prop_a, n_a}, {prop_b, n_b}}},
+                                                        {r_m.node_sym_, {{prop_a, m_a}, {prop_b, m_b}}},
+                                                    },
+                                                    memgraph::storage::View::NEW);
 
   auto produce = MakeProduce(cache,
                              NEXPR("na", IDENT("n_a")->MapTo(n_a))->MapTo(symbol_table.CreateSymbol("na", true)),
@@ -1883,7 +1889,7 @@ TYPED_TEST(QueryPlanTest, CachePropertiesReadsTwoSymbolsInOneOperator) {
 
 // A row where one symbol found nothing says nothing about the others, so a group that cannot be
 // read nulls its own slots and the rest of the row is read as it would have been.
-TYPED_TEST(QueryPlanTest, CachePropertiesOneGroupWithoutARecordLeavesTheOthers) {
+TYPED_TEST(QueryPlanTest, PrefetchPropertiesOneGroupWithoutARecordLeavesTheOthers) {
   auto storage_dba = this->db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());
   auto prop_a = dba.NameToProperty("a");
@@ -1903,12 +1909,12 @@ TYPED_TEST(QueryPlanTest, CachePropertiesOneGroupWithoutARecordLeavesTheOthers) 
   auto n_a = symbol_table.CreateSymbol("n_a", true);
   auto n_b = symbol_table.CreateSymbol("n_b", true);
 
-  auto cache = std::make_shared<CacheProperties>(missing.op_,
-                                                 std::vector<CachedPropertyGroup>{
-                                                     {missing.sym_, {{prop_a, x_a}}},
-                                                     {n.sym_, {{prop_a, n_a}, {prop_b, n_b}}},
-                                                 },
-                                                 memgraph::storage::View::NEW);
+  auto cache = std::make_shared<PrefetchProperties>(missing.op_,
+                                                    std::vector<PropertiesOfOneRecord>{
+                                                        {missing.sym_, {{prop_a, x_a}}},
+                                                        {n.sym_, {{prop_a, n_a}, {prop_b, n_b}}},
+                                                    },
+                                                    memgraph::storage::View::NEW);
 
   auto produce = MakeProduce(cache,
                              NEXPR("xa", IDENT("x_a")->MapTo(x_a))->MapTo(symbol_table.CreateSymbol("xa", true)),
@@ -1927,7 +1933,7 @@ TYPED_TEST(QueryPlanTest, CachePropertiesOneGroupWithoutARecordLeavesTheOthers) 
 // A plan is cloned before it is run, so whatever establishes the order a record must be read in has
 // to survive being copied. The group here names its properties against the order their ids sort, so
 // a clone that lost the order would read Null for the one it had already passed.
-TYPED_TEST(QueryPlanTest, CachePropertiesKeepsItsReadOrderThroughAClone) {
+TYPED_TEST(QueryPlanTest, PrefetchPropertiesKeepsItsReadOrderThroughAClone) {
   auto storage_dba = this->db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());
 
@@ -1946,9 +1952,9 @@ TYPED_TEST(QueryPlanTest, CachePropertiesKeepsItsReadOrderThroughAClone) {
   auto n_apple = symbol_table.CreateSymbol("n_apple", true);
   auto n_zebra = symbol_table.CreateSymbol("n_zebra", true);
 
-  auto cache = std::make_shared<CacheProperties>(
+  auto cache = std::make_shared<PrefetchProperties>(
       n.op_,
-      std::vector<CachedPropertyGroup>{{n.sym_, {{prop_apple, n_apple}, {prop_zebra, n_zebra}}}},
+      std::vector<PropertiesOfOneRecord>{{n.sym_, {{prop_apple, n_apple}, {prop_zebra, n_zebra}}}},
       memgraph::storage::View::NEW);
 
   auto cloned = std::shared_ptr<LogicalOperator>{cache->Clone(&this->storage)};
@@ -1965,7 +1971,7 @@ TYPED_TEST(QueryPlanTest, CachePropertiesKeepsItsReadOrderThroughAClone) {
   EXPECT_EQ(results[0][1].ValueInt(), 1);
 }
 
-TYPED_TEST(QueryPlanTest, CachePropertiesModifiedSymbols) {
+TYPED_TEST(QueryPlanTest, PrefetchPropertiesModifiedSymbols) {
   auto storage_dba = this->db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());
   auto prop_a = dba.NameToProperty("a");
@@ -1973,15 +1979,15 @@ TYPED_TEST(QueryPlanTest, CachePropertiesModifiedSymbols) {
 
   SymbolTable symbol_table;
   auto n = MakeScanAll(this->storage, symbol_table, "n");
-  auto cached_a_sym = symbol_table.CreateSymbol("cached_a", true);
-  auto cached_b_sym = symbol_table.CreateSymbol("cached_b", true);
-  auto cache =
-      std::make_shared<CacheProperties>(n.op_,
-                                        n.sym_,
-                                        std::vector<CachedProperty>{{prop_a, cached_a_sym}, {prop_b, cached_b_sym}},
-                                        memgraph::storage::View::NEW);
+  auto prefetched_a_sym = symbol_table.CreateSymbol("cached_a", true);
+  auto prefetched_b_sym = symbol_table.CreateSymbol("cached_b", true);
+  auto cache = std::make_shared<PrefetchProperties>(
+      n.op_,
+      n.sym_,
+      std::vector<PrefetchedProperty>{{prop_a, prefetched_a_sym}, {prop_b, prefetched_b_sym}},
+      memgraph::storage::View::NEW);
 
-  EXPECT_THAT(cache->ModifiedSymbols(symbol_table), UnorderedElementsAre(n.sym_, cached_a_sym, cached_b_sym));
+  EXPECT_THAT(cache->ModifiedSymbols(symbol_table), UnorderedElementsAre(n.sym_, prefetched_a_sym, prefetched_b_sym));
   // Not a column-defining operator, so it just forwards its input's output symbols.
   EXPECT_EQ(cache->OutputSymbols(symbol_table), n.op_->OutputSymbols(symbol_table));
 }
