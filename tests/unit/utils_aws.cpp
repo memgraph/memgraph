@@ -9,6 +9,9 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <aws/core/client/AWSError.h>
+#include <aws/core/http/HttpResponse.h>
+#include <aws/s3/S3Errors.h>
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
@@ -271,3 +274,36 @@ TEST(ExtractBucketAndObjectKey, EmptyString) { ASSERT_FALSE(ExtractBucketAndObje
 TEST(ExtractBucketAndObjectKey, OnlyS3Prefix) { ASSERT_FALSE(ExtractBucketAndObjectKey("s3://")); }
 
 TEST(ExtractBucketAndObjectKey, InvalidProtocol) { ASSERT_FALSE(ExtractBucketAndObjectKey("s4://bucket/key")); }
+
+TEST(S3Error, OnlyFailuresThatCouldPassOnAnotherAttemptAreRetryable) {
+  using memgraph::utils::IsRetryableS3Status;
+
+  // No response at all: the SDK reports -1 (or 0) when the request was never answered.
+  EXPECT_TRUE(IsRetryableS3Status(-1));
+  EXPECT_TRUE(IsRetryableS3Status(0));
+  for (auto const status : {500, 502, 503, 504, 429, 408}) {
+    EXPECT_TRUE(IsRetryableS3Status(status)) << status;
+  }
+  for (auto const status : {400, 401, 403, 404, 416}) {
+    EXPECT_FALSE(IsRetryableS3Status(status)) << status;
+  }
+}
+
+TEST(S3Error, TransferCutOffAfterHeadersIsRetryable) {
+  using memgraph::utils::IsRetryableS3Error;
+  using Error = Aws::Client::AWSError<Aws::S3::S3Errors>;
+
+  // The SDK reports a body cut off mid-transfer as NETWORK_CONNECTION carrying the already-received 200.
+  Error cut_off(
+      Aws::S3::S3Errors::NETWORK_CONNECTION, "", "Response body length doesn't match the content-length header.", true);
+  cut_off.SetResponseCode(Aws::Http::HttpResponseCode::OK);
+  EXPECT_TRUE(IsRetryableS3Error(cut_off));
+
+  Error forbidden(Aws::S3::S3Errors::ACCESS_DENIED, "", "", false);
+  forbidden.SetResponseCode(Aws::Http::HttpResponseCode::FORBIDDEN);
+  EXPECT_FALSE(IsRetryableS3Error(forbidden));
+
+  Error missing(Aws::S3::S3Errors::NO_SUCH_KEY, "", "", false);
+  missing.SetResponseCode(Aws::Http::HttpResponseCode::NOT_FOUND);
+  EXPECT_FALSE(IsRetryableS3Error(missing));
+}

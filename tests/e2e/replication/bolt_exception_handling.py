@@ -287,6 +287,121 @@ def test_failed_s3_load_csv_fetch_is_transient_error(test_name):
         server.server_close()
 
 
+class _HttpStatusHandler(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(self.server.status)
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
+    do_HEAD = do_GET
+
+    def log_message(self, *args):
+        pass
+
+
+def _s3_load_jsonl(endpoint_url):
+    config = (
+        "{'aws_region': 'us-east-1', 'aws_access_key': 'AK', 'aws_secret_key': 'SK', "
+        f"'aws_endpoint_url': '{endpoint_url}'}}"
+    )
+    return f"LOAD JSONL FROM 's3://bkt/k.jsonl' WITH CONFIG {config} AS r RETURN r"
+
+
+@pytest.mark.parametrize("status", [403, 404])
+def test_permanent_download_failure_is_client_error(test_name, status):
+    """A refused or missing file will not appear on another attempt, so it is a ClientError, never retried."""
+    _start_main(test_name)
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _HttpStatusHandler)
+    server.status = status
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    base = f"http://127.0.0.1:{server.server_address[1]}"
+
+    queries = {
+        "LOAD CSV http": f"LOAD CSV FROM '{base}/k.csv' WITH HEADER AS r RETURN r",
+        "LOAD CSV s3": _s3_load_csv(base),
+        "LOAD JSONL s3": _s3_load_jsonl(base),
+    }
+    driver = _driver()
+    try:
+        with driver.session() as session:
+            for name, query in queries.items():
+                with pytest.raises(ClientError) as exc_info:
+                    session.run(query).consume()
+                assert exc_info.value.code.startswith("Memgraph.ClientError"), name
+    finally:
+        driver.close()
+        server.shutdown()
+        server.server_close()
+
+
+def test_transient_download_failure_stays_transient_error(test_name):
+    """A server that is failing, or one nobody is listening on, may recover, so it stays a TransientError."""
+    _start_main(test_name)
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _HttpStatusHandler)
+    server.status = 503
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        closed_port = s.getsockname()[1]
+
+    driver = _driver()
+    try:
+        with driver.session() as session:
+            for base in (f"http://127.0.0.1:{closed_port}", f"http://127.0.0.1:{server.server_address[1]}"):
+                for query in (
+                    f"LOAD CSV FROM '{base}/k.csv' WITH HEADER AS r RETURN r",
+                    _s3_load_csv(base),
+                    _s3_load_jsonl(base),
+                ):
+                    with pytest.raises(TransientError) as exc_info:
+                        session.run(query).consume()
+                    assert exc_info.value.code.startswith("Memgraph.TransientError"), query
+    finally:
+        driver.close()
+        server.shutdown()
+        server.server_close()
+
+
+class _CutOffMidBodyHandler(http.server.BaseHTTPRequestHandler):
+    protocol_version = "HTTP/1.1"
+
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header("Content-Length", "100000")
+        self.end_headers()
+        self.wfile.write(b"a,b\n1,2\n")
+        self.wfile.flush()
+        self.connection.shutdown(socket.SHUT_RDWR)
+        self.close_connection = True
+
+    def log_message(self, *args):
+        pass
+
+
+def test_download_cut_off_mid_body_is_transient_error(test_name):
+    """A download that breaks off part way may complete on another attempt, so it stays a TransientError."""
+    _start_main(test_name)
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _CutOffMidBodyHandler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    base = f"http://127.0.0.1:{server.server_address[1]}"
+
+    driver = _driver()
+    try:
+        with driver.session() as session:
+            for query in (
+                f"LOAD CSV FROM '{base}/k.csv' WITH HEADER AS r RETURN r",
+                _s3_load_csv(base),
+                _s3_load_jsonl(base),
+            ):
+                with pytest.raises(TransientError) as exc_info:
+                    session.run(query).consume()
+                assert exc_info.value.code.startswith("Memgraph.TransientError"), query
+    finally:
+        driver.close()
+        server.shutdown()
+        server.server_close()
+
+
 def test_managed_tx_invalid_temporal_fails_first_attempt(test_name):
     """The driver must not retry an invalid temporal query inside a managed transaction."""
     _start_main(test_name)

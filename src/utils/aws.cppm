@@ -20,11 +20,14 @@ module;
 
 #include <aws/core/Aws.h>
 #include <aws/core/auth/AWSCredentialsProvider.h>
+#include <aws/core/client/AWSError.h>
 #include <aws/core/client/DefaultRetryStrategy.h>
 #include <aws/s3/S3Client.h>
+#include <aws/s3/S3Errors.h>
 #include <aws/s3/model/GetObjectRequest.h>
 #include <aws/transfer/TransferManager.h>
 
+#include "requests/requests.hpp"
 #include "spdlog/spdlog.h"
 #include "utils/counter.hpp"
 #include "utils/memory_tracker.hpp"
@@ -193,7 +196,22 @@ enum class S3ErrorCode : uint8_t { S3_PREFIX_MISSING, BUCKET_OBJECT_KEY_MISSING,
 struct S3Error {
   S3ErrorCode status_code;
   std::string message;
+  /// Whether making the same request again could produce a different outcome.
+  bool retryable{false};
 };
+
+// A status the SDK could not read, as when no response came back, is a transfer that never
+// completed. Otherwise the server's answer decides.
+[[nodiscard]] auto IsRetryableS3Status(int status) -> bool {
+  return status <= 0 || requests::DownloadError{.kind = requests::ClassifyHttpStatus(status)}.Retryable();
+}
+
+// A transfer that fails after the headers (connection lost, body shorter than Content-Length, timeout)
+// keeps the 2xx status the headers carried, and the SDK marks it as a network failure.
+[[nodiscard]] auto IsRetryableS3Error(Aws::Client::AWSError<Aws::S3::S3Errors> const &error) -> bool {
+  return error.GetErrorType() == Aws::S3::S3Errors::NETWORK_CONNECTION ||
+         IsRetryableS3Status(static_cast<int>(error.GetResponseCode()));
+}
 
 auto ExtractBucketAndObjectKey(std::string_view uri)
     -> std::expected<std::pair<std::string_view, std::string_view>, S3Error> {
@@ -246,13 +264,13 @@ auto GetS3ObjectStreaming(std::string_view uri, S3Config const &s3_config, std::
   auto const outcome = s3_client.GetObject(request);
   if (!outcome.IsSuccess()) {
     // The SDK names a failure by reading back the body it just wrote, which a sink that only accepts
-    // writes cannot supply. The status always survives, because it comes from the headers.
+    // writes cannot supply. The status survives, because it comes from the headers, but it may be a 2xx.
     auto const &error = outcome.GetError();
     auto const status = static_cast<int>(error.GetResponseCode());
     auto const &name = error.GetExceptionName();
 
     auto message = std::string{};
-    if (status == 0) {
+    if (status <= 0 || error.GetErrorType() == Aws::S3::S3Errors::NETWORK_CONNECTION) {
       message = fmt::format("Failed to get object from S3 {}. {}", uri, error.GetMessage());
     } else if (name.empty()) {
       message = fmt::format("Failed to get object from S3 {}. The server replied {}", uri, status);
@@ -260,7 +278,9 @@ auto GetS3ObjectStreaming(std::string_view uri, S3Config const &s3_config, std::
       message = fmt::format("Failed to get object from S3 {}. The server replied {}: {}", uri, status, name);
     }
 
-    return std::unexpected{S3Error{.status_code = S3ErrorCode::S3_API_ERROR, .message = std::move(message)}};
+    return std::unexpected{S3Error{.status_code = S3ErrorCode::S3_API_ERROR,
+                                   .message = std::move(message),
+                                   .retryable = IsRetryableS3Error(error)}};
   }
 
   return {};
@@ -317,8 +337,10 @@ auto GetS3Object(std::string uri, S3Config const &s3_config, std::string local_f
   transfer_handle->WaitUntilFinished();
 
   if (transfer_handle->GetStatus() != Aws::Transfer::TransferStatus::COMPLETED) {
-    return std::unexpected{
-        S3Error{.status_code = S3ErrorCode::S3_API_ERROR, .message = transfer_handle->GetLastError().GetMessage()}};
+    auto const &error = transfer_handle->GetLastError();
+    return std::unexpected{S3Error{.status_code = S3ErrorCode::S3_API_ERROR,
+                                   .message = error.GetMessage(),
+                                   .retryable = IsRetryableS3Error(error)}};
   }
   spdlog::trace("Downloaded {} bytes of the file {}", transfer_handle->GetBytesTotalSize(), uri);
   return {};
