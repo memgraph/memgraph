@@ -513,7 +513,7 @@ int main(int argc, char **argv) {
   }
   std::cout << "You are running Memgraph v" << gflags::VersionString() << std::endl;
   std::cout << "To get started with Memgraph, visit https://memgr.ph/start" << std::endl;
-  std::cout << MgAgentStartupMessage() << std::endl;
+  std::cout << MgAgentStartupMessage() << '\n';
 
   // Logged as an error as well as printed: once the process reaches the limit, the allocator can no longer return
   // memory to the OS and resident memory only grows, and the log is what reaches log collectors.
