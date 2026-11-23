@@ -9597,6 +9597,28 @@ TYPED_TEST(TestPlanner, PrefetchPropertiesAProjectionReadsASlotAFilterAlreadyFil
       planner.plan(), symbol_table, ExpectScanAll(), ExpectPrefetchProperties("n", 1), ExpectFilter(), ExpectProduce());
 }
 
+// A clause projecting the node carries forward what it was known to hold, so the projection above
+// still reads properties of one record and earns a pass of its own. The pass below cannot serve it:
+// the clause binds a new symbol, and a slot is held under the symbol whose record filled it.
+TYPED_TEST(TestPlanner, PrefetchPropertiesAProjectionAboveAProjectedNodeEarnsAPass) {
+  PrefetchPropertiesFlagGuard guard{true};
+  FakeDbAccessor dba;
+  auto first = PROPERTY_PAIR(dba, "a");
+  auto second = PROPERTY_PAIR(dba, "b");
+  auto *query = QUERY(
+      SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                   WITH("n"),
+                   RETURN(PROPERTY_LOOKUP(dba, "n", first), AS("x"), PROPERTY_LOOKUP(dba, "n", second), AS("y"))));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+  CheckPlan(planner.plan(),
+            symbol_table,
+            ExpectScanAll(),
+            ExpectProduce(),
+            ExpectPrefetchProperties("n", 2),
+            ExpectProduce());
+}
+
 // An expansion stands between the filter and the projection here. It binds its own edge and node
 // and leaves the rest of the row alone, so the slot still holds the read the projection was going
 // to make of the node the expansion started from.

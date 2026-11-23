@@ -218,6 +218,11 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
   // Returns the symbol by name. If the mapping already exists, checks if the
   // types match. Otherwise, returns a new symbol.
 
+  // What the symbol a clause projects is known to hold. An identifier hands over exactly the value
+  // its own symbol held, so the new symbol holds whatever that one was known to hold. Anything else
+  // computes a value nothing here can say the type of.
+  auto TypeProjectedBy(NamedExpression const &named_expr) const -> Symbol::Type;
+
   // Record a reference in every open body, not just the innermost.
   void RecordSubqueryReference(const Symbol &symbol);
 

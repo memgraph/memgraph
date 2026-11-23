@@ -418,8 +418,8 @@ TYPED_TEST(TestSymbolGenerator, MatchWithCreate) {
   EXPECT_EQ(n.type(), Symbol::Type::VERTEX);
   auto m = symbol_table.at(*node_2->identifier_);
   EXPECT_NE(n, m);
-  // Currently we don't infer expression types, so we lost true type of 'm'.
-  EXPECT_EQ(m.type(), Symbol::Type::ANY);
+  // The clause projects an identifier, so what it binds holds what that identifier held.
+  EXPECT_EQ(m.type(), Symbol::Type::VERTEX);
   EXPECT_EQ(m, symbol_table.at(*node_3->identifier_));
 }
 
@@ -2633,6 +2633,48 @@ TYPED_TEST(TestSymbolGenerator, MatchingALabelNamedByAnExpressionNamesTheRule) {
     const std::string message{e.what()};
     EXPECT_NE(message.find("can only be written by CREATE"), std::string::npos) << message;
     EXPECT_NE(message.find("backticks"), std::string::npos) << message;
+  }
+}
+
+// A clause projecting an identifier binds a new symbol to exactly the value the old one held, so
+// whatever the old symbol was known to hold the new one holds too. Anything else keeps the type it
+// always had, which says only that nothing is known about it.
+TYPED_TEST(TestSymbolGenerator, ProjectingAnIdentifierKeepsWhatItWasKnownToHold) {
+  {
+    // MATCH (n) WITH n RETURN n
+    auto *projected = NEXPR("n", IDENT("n"));
+    auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WITH(projected), RETURN("n")));
+    auto symbol_table = MakeSymbolTable(query);
+    EXPECT_EQ(symbol_table.at(*projected).type(), Symbol::Type::VERTEX);
+  }
+  {
+    // MATCH (n) WITH n AS y RETURN y
+    auto *renamed = NEXPR("y", IDENT("n"));
+    auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WITH(renamed), RETURN("y")));
+    auto symbol_table = MakeSymbolTable(query);
+    EXPECT_EQ(symbol_table.at(*renamed).type(), Symbol::Type::VERTEX);
+  }
+  {
+    // MATCH ()-[r]->() WITH r AS e RETURN e
+    auto *renamed = NEXPR("e", IDENT("r"));
+    auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("a"), EDGE("r"), NODE("b"))), WITH(renamed), RETURN("e")));
+    auto symbol_table = MakeSymbolTable(query);
+    EXPECT_EQ(symbol_table.at(*renamed).type(), Symbol::Type::EDGE);
+  }
+  {
+    // Two clauses deep, so the type carries through a chain rather than one step.
+    auto *once = NEXPR("y", IDENT("n"));
+    auto *twice = NEXPR("z", IDENT("y"));
+    auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WITH(once), WITH(twice), RETURN("z")));
+    auto symbol_table = MakeSymbolTable(query);
+    EXPECT_EQ(symbol_table.at(*twice).type(), Symbol::Type::VERTEX);
+  }
+  {
+    // Not an identifier, so nothing is known about what it holds.
+    auto *computed = NEXPR("c", LITERAL(1));
+    auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WITH(computed), RETURN("c")));
+    auto symbol_table = MakeSymbolTable(query);
+    EXPECT_EQ(symbol_table.at(*computed).type(), Symbol::Type::ANY);
   }
 }
 

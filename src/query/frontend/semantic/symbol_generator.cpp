@@ -87,6 +87,12 @@ auto SymbolGenerator::GetOrCreateSymbol(const std::string &name, bool user_decla
   return CreateSymbol(name, user_declared, type);
 }
 
+auto SymbolGenerator::TypeProjectedBy(NamedExpression const &named_expr) const -> Symbol::Type {
+  auto const *identifier = utils::Downcast<Identifier>(named_expr.expression_);
+  if (identifier == nullptr || identifier->symbol_pos_ < 0) return Symbol::Type::ANY;
+  return symbol_table_->at(*identifier).type();
+}
+
 void SymbolGenerator::VisitReturnBody(ReturnBody &body, Where *where) {
   for (auto &expr : body.named_expressions) {
     expr->Accept(*this);
@@ -131,9 +137,7 @@ void SymbolGenerator::VisitReturnBody(ReturnBody &body, Where *where) {
     if (!new_names.insert(name).second) {
       throw SemanticException("Multiple results with the same name '{}' are not allowed.", name);
     }
-    // An improvement would be to infer the type of the expression, so that the
-    // new symbol would have a more specific type.
-    named_expr->MapTo(CreateSymbol(name, true, Symbol::Type::ANY, named_expr->token_position_));
+    named_expr->MapTo(CreateSymbol(name, true, TypeProjectedBy(*named_expr), named_expr->token_position_));
   }
   // Scoped `CALL (v1, v2, ...) { ... }` imports survive WITH/RETURN narrowing
   // inside the subquery body. Re-inject any that weren't explicitly redeclared
