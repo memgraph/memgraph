@@ -3664,7 +3664,8 @@ Feature: Write visibility inside one query
             """
         When executing query:
             """
-            MATCH (a:WvCy) WITH a, head([(a)-[:R]->(o) | o]) AS c REMOVE a:WvCz SET c.k = size(labels(a)), c:WvCz
+            MATCH (a:WvCy) WITH a, head([(a)-[:R]->(o) | o]) AS c ORDER BY a.id
+            REMOVE a:WvCz SET c.k = size(labels(a)), c:WvCz
             WITH count(*) AS n MATCH (x:WvCy) RETURN x.id AS id, x.k AS k ORDER BY id
             """
         Then the result should be, in order:
