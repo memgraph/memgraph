@@ -345,7 +345,7 @@ TEST_F(WriteVisibilityPlan, CreateReadingAnyOtherEntityReadsOld) {
   EXPECT_EQ(Views<CreateNode>(Plan("CREATE (a)-[:R]->(b) CREATE (c {d: degree(a)})")),
             (std::vector{View::OLD, View::OLD}));
   // A barrier ends what counts as created: after it, `a` is an earlier entity.
-  EXPECT_EQ(Views<CreateNode>(Plan("CREATE (a {id: 1}) SET a.id = 2 CREATE (b {r: a.id})")),
+  EXPECT_EQ(Views<CreateNode>(Plan("MATCH (m) CREATE (a {id: 1}) SET m.id = 2 CREATE (b {r: a.id, s: m.id})")),
             (std::vector{View::OLD, View::OLD}));
 }
 
@@ -966,8 +966,8 @@ TEST_F(WriteVisibilityPlan, ANodeThatMayRepeatKeepsItsBarrier) {
            "MATCH (a:L) WITH coalesce(a) AS n SET n.x = n.x + 1 SET n.y = n.x",
            // degree() reads everything, as a procedure does, through no one variable.
            "MATCH (n:L) SET n.x = 1 SET n.y = degree(n) + n.x",
-           // A writing body reads View::NEW: an index scan on x could meet its own write again.
-           "CALL () { MATCH (n:L) SET n.x = n.x + 1 SET n.y = n.x RETURN count(*) AS c } RETURN c",
+           // A writing body reads View::NEW: a scan filtered on x could meet its own write again.
+           "CALL () { MATCH (n:L) WHERE n.x > 0 SET n.x = n.x + 1 SET n.y = n.x } RETURN 1",
            // The MERGE pattern reads the written key through its own variable too: q may be another row's a.
            "MATCH (a:Q) SET a.x = 5 MERGE (q:Q {x: a.x})",
            // Pending x goes through q and a: the CREATE reads it through a, but q may be its node.
@@ -979,6 +979,104 @@ TEST_F(WriteVisibilityPlan, ANodeThatMayRepeatKeepsItsBarrier) {
            "MATCH (a:L) WITH a, head([(a)-[:T]->(o) | o]) AS q SET a.x = 1 SET q += {y: 1} CREATE ({v: a.x})",
            // `SET a = q` copies every key of q, which may be another row's a.
            "MATCH (a:L) WITH a, head([(a)-[:T]->(o) | o]) AS q SET a.x = 1 SET a = q, a.y = a.x",
+       }) {
+    EXPECT_FALSE(Collect<Accumulate>(Plan(query)).empty()) << query;
+  }
+}
+
+// A node or edge a CREATE makes is new on every row: only its own row writes it.
+TEST_F(WriteVisibilityPlan, ACreatedEntityIsRowUnique) {
+  auto &create = Plan("UNWIND range(1, 3) AS i CREATE (a:A {v: i}) SET a.v = a.v * 10 CREATE (:B {x: a.v})");
+  EXPECT_TRUE(Collect<Accumulate>(create).empty());
+  EXPECT_EQ(Views<CreateNode>(create).front(), View::NEW);
+  for (auto const *query : {
+           "MATCH (x:P) CREATE (x)-[r:T]->(a:A) SET a.v = 1 CREATE (:B {x: a.v})",
+           "MATCH (x:P) CREATE (x)-[r:T]->(a:A) SET r.w = 1 CREATE (:B {y: r.w})",
+           "CREATE (a {id: 1}) SET a.id = 2 CREATE (b {r: a.id})",
+       }) {
+    EXPECT_TRUE(Collect<Accumulate>(Plan(query)).empty()) << query;
+  }
+}
+
+TEST_F(WriteVisibilityPlan, AnEntityTheRowDidNotCreateKeepsItsBarrier) {
+  for (auto const *query : {
+           // The key goes through m too, and m may be another row's node.
+           "MATCH (m:A) CREATE (a:A) SET m.v = 1 CREATE (:B {x: a.v, y: m.v})",
+           // y exists before the CREATE: many rows may end at it.
+           "MATCH (x:P), (y:P) CREATE (x)-[:T]->(y) SET y.v = x.id CREATE (:B {k: y.v})",
+           // The UNWIND after the create repeats a.
+           "UNWIND [1, 2] AS i CREATE (a:A) WITH a UNWIND [1, 2] AS j SET a.v = j CREATE (:B {x: a.v})",
+           // A MERGE may match one node on several rows.
+           "UNWIND [1, 1] AS i MERGE (a:A {id: i}) SET a.v = i CREATE (:B {x: a.v})",
+       }) {
+    EXPECT_FALSE(Collect<Accumulate>(Plan(query)).empty()) << query;
+  }
+}
+
+// A writing body's scan reads View::NEW, but every write of a key it reads drains first, so a later reader of a
+// row-unique node needs no barrier.
+TEST_F(WriteVisibilityPlan, AWritingBodyRowUniqueNodeNeedsNoBarrier) {
+  for (auto const *query : {
+           "CALL () { MATCH (a:P) SET a.v = 1 CREATE (:Q {x: a.v}) } RETURN 1",
+           "CALL () { MATCH (a:P) WITH a, a.big AS big SET a.v = 1 CREATE (:Q {x: a.v, n: size(big)}) } RETURN 1",
+           "CALL () { MATCH (a:P) SET a.v = a.v + 1 SET a.w = a.v } RETURN 1",
+           // One row per call: the imported nodes are the call's own.
+           "MATCH (a:P) CALL (a) { SET a.v = a.v + 1 SET a.w = a.v } RETURN 1",
+           "MATCH (a:P), (b:P) CALL (a, b) { SET a.y = b.x SET b.x = 0 } RETURN 1",
+           // A one-node MERGE over one row creates one node or matches distinct ones.
+           "UNWIND range(1, 3) AS i CALL (i) { MERGE (a:P {id: i}) SET a.v = i SET a.w = a.v } RETURN 1",
+       }) {
+    EXPECT_TRUE(Collect<Accumulate>(*Collect<Apply>(Plan(query)).front()->subquery_).empty()) << query;
+  }
+}
+
+// The scan reads v at View::NEW: without the drain below the SET it would meet each moved index entry again.
+TEST_F(WriteVisibilityPlan, AWritingBodyDrainsBeforeAWriteOfItsIndexKey) {
+  LabelPropertyIndex("B", "v");
+  auto &plan = Plan(
+      "CALL () { MATCH (a:B) WHERE a.v > 0 AND a.v < 20 SET a.v = a.v + 10 CREATE (:Q {x: a.v}) } "
+      "RETURN 1");
+  auto chain = Chain(*Collect<Apply>(plan).front()->subquery_);
+  auto set = std::ranges::find(chain, "SetProperty");
+  ASSERT_NE(set, chain.end());
+  ASSERT_NE(set + 1, chain.end());
+  EXPECT_EQ(*(set + 1), "Accumulate");
+  EXPECT_EQ(std::ranges::count(chain, "Accumulate"), 1);
+}
+
+TEST_F(WriteVisibilityPlan, AWritingBodyNodeThatMayRepeatKeepsItsBarrier) {
+  for (auto const *query : {
+           "CALL () { MATCH (a:P) WITH a, a AS c SET c.v = 1 CREATE (:Q {x: a.v}) } RETURN 1",
+           "CALL () { MATCH (a:P), (b:P) SET a.v = b.id CREATE (:Q {x: a.v}) } RETURN 1",
+           "MATCH (a:P) CALL (a) { UNWIND [1, 2] AS j SET a.v = j SET a.w = a.v } RETURN 1",
+           // Parallel edges return one end node twice.
+           "UNWIND range(1, 3) AS i CALL (i) { MERGE (x:P {id: i})-[:R]->(a:P) SET a.v = 1 SET a.w = a.v } RETURN 1",
+           // ON MATCH writes run inside the MERGE, below any drain.
+           "UNWIND range(1, 3) AS i CALL (i) { MERGE (a:P {id: i}) ON MATCH SET a.v = a.v + 1 SET a.w = a.v } RETURN 1",
+       }) {
+    EXPECT_FALSE(Collect<Accumulate>(*Collect<Apply>(Plan(query)).front()->subquery_).empty()) << query;
+  }
+}
+
+// labels(a) reads only a's labels: a row-unique node's labels change only on its own row.
+TEST_F(WriteVisibilityPlan, ARowUniqueNodeReadsItsLabelsWithoutABarrier) {
+  for (auto const *query : {
+           "MATCH (a:P) SET a:X CREATE (:Q {k: size(labels(a))})",
+           "MATCH (a:P) REMOVE a:X CREATE (:Q {k: labels(a)})",
+           "MATCH (a:P) SET a:X SET a.k = size(labels(a))",
+       }) {
+    EXPECT_TRUE(Collect<Accumulate>(Plan(query)).empty()) << query;
+  }
+}
+
+TEST_F(WriteVisibilityPlan, ALabelsReaderThatMayMeetAnotherRowsWriteKeepsItsBarrier) {
+  for (auto const *query : {
+           "MATCH (a:P), (b:P) SET b:X CREATE (:Q {k: size(labels(a))})",
+           "MATCH (a:P) WITH a, a AS c SET c:X CREATE (:Q {k: size(labels(a))})",
+           // q may be another row's a: the CREATE must see it deleted.
+           "MATCH (a:P) WITH a, head([(a)-[:R]->(o) | o]) AS q DETACH DELETE q CREATE (:Q {k: size(labels(a))})",
+           // The reader relabels c, which may be a later row's a.
+           "MATCH (a:P) WITH a, head([(a)-[:R]->(o) | o]) AS c REMOVE a:Y SET c.k = size(labels(a)), c:Y",
        }) {
     EXPECT_FALSE(Collect<Accumulate>(Plan(query)).empty()) << query;
   }
@@ -2111,6 +2209,7 @@ TEST_F(WriteVisibilityPlan, ExpressionReadsOfLabelsAndKeys) {
   EXPECT_TRUE(Access("MATCH (n) RETURN n[$k] AS v").reads.any_property);
   EXPECT_TRUE(Access("RETURN [1, 2][0] AS v").reads.Empty());
   EXPECT_TRUE(Access("MATCH (n) RETURN n:A AS v").reads.labels.contains("A"));
+  EXPECT_FALSE(Access("MATCH (n) RETURN labels(n) AS l").reads.everything);
   EXPECT_TRUE(Access("MATCH (n) SET n += $m").writes.any_property);
 }
 

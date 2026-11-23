@@ -3635,3 +3635,51 @@ Feature: Write visibility inside one query
             | 1  | 0 |
             | 2  | 0 |
             | 3  | 0 |
+
+    Scenario: A writing body's index scan does not meet a node again after writing its key
+        Given an empty graph
+        And having executed:
+            """
+            CREATE INDEX ON :WvBi(v)
+            """
+        And having executed:
+            """
+            CREATE (:WvBi {v: 1}), (:WvBi {v: 2})
+            """
+        When executing query:
+            """
+            CALL () { MATCH (a:WvBi) WHERE a.v > 0 AND a.v < 20 SET a.v = a.v + 10 CREATE (:WvBq {x: a.v}) }
+            WITH 1 AS one MATCH (q:WvBq) RETURN q.x AS x ORDER BY x
+            """
+        Then the result should be, in order:
+            | x  |
+            | 11 |
+            | 12 |
+
+    Scenario: A labels reader sees the label another row's node got through another variable
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (n1:WvCy:WvCz {id: 1})-[:R]->(n2:WvCy:WvCz {id: 2})-[:R]->(n1)
+            """
+        When executing query:
+            """
+            MATCH (a:WvCy) WITH a, head([(a)-[:R]->(o) | o]) AS c REMOVE a:WvCz SET c.k = size(labels(a)), c:WvCz
+            WITH count(*) AS n MATCH (x:WvCy) RETURN x.id AS id, x.k AS k ORDER BY id
+            """
+        Then the result should be, in order:
+            | id | k |
+            | 1  | 2 |
+            | 2  | 1 |
+
+    Scenario: A labels reader sees a node another row deleted
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (n1:WvDl {id: 1})-[:R]->(n2:WvDl {id: 2})-[:R]->(n1)
+            """
+        When executing query:
+            """
+            MATCH (a:WvDl) WITH a, head([(a)-[:R]->(o) | o]) AS q DETACH DELETE q CREATE (:WvDm {k: size(labels(a))})
+            """
+        Then an error should be raised
