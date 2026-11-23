@@ -222,6 +222,11 @@ add_unit_test(query_plan_read_write_typecheck
     LINK_TARGETS mg-query disk_test_utils
 )
 
+add_unit_test(query_plan_property_writes
+    SOURCES query_plan_property_writes.cpp
+    LINK_TARGETS mg-query disk_test_utils
+)
+
 # ============================================================================
 # plan_v2 unit tests - Layer 1: Pure algebra (no egraph, no planner)
 # ============================================================================
