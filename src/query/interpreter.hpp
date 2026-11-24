@@ -405,7 +405,7 @@ struct CurrentDB {
     DMG_ASSERT(checkout, "SetBranchContext: the checkout is empty.");
     auto plan_cache = std::make_unique<query::PlanCacheLRU>(FLAGS_query_plan_cache_max_size);
     branch_context_ = std::move(context);
-    foreign_branch_number_.store(checkout->info().id, std::memory_order_release);
+    foreign_branch_id_.store(checkout->info().id, std::memory_order_release);
     branch_checkout_ = std::move(checkout);
     current_version_ = branch_context_->name();
     branch_plan_cache_ = std::move(plan_cache);
@@ -422,11 +422,11 @@ struct CurrentDB {
   void RestoreSessionBranch();
   void DiscardParkedBranch();
 
-  // Branch the session's transactions run on, by number; 0 for main. Readable from any thread; also the owner's
-  // record of the attached checkout number.
-  uint64_t foreign_branch_number() const { return foreign_branch_number_.load(std::memory_order_acquire); }
+  // Branch the session's transactions run on, by id; 0 for main. Readable from any thread; also the owner's
+  // record of the attached checkout id.
+  uint64_t foreign_branch_id() const { return foreign_branch_id_.load(std::memory_order_acquire); }
 
-  bool OnBranch(uint64_t number) { return branch_context() != nullptr && foreign_branch_number() == number; }
+  bool OnBranch(uint64_t id) { return branch_context() != nullptr && foreign_branch_id() == id; }
 
   // Attaches this fresh nested session (mgp_execute_query) to the branch `outer` is on, with its own counted
   // checkout. Throws QueryRuntimeException (nothing held) if the checkout is refused.
@@ -483,7 +483,7 @@ struct CurrentDB {
   // Non-null iff branch_context_ is non-null.
   std::unique_ptr<query::PlanCacheLRU> branch_plan_cache_;
   std::optional<ParkedBranch> parked_branch_;
-  std::atomic<uint64_t> foreign_branch_number_{0};
+  std::atomic<uint64_t> foreign_branch_id_{0};
 
   // Non-empty iff branch_context_ is non-null; releases on the granting VersionStore even after db_acc_ is reassigned.
   versioning::BranchCheckout branch_checkout_;

@@ -214,10 +214,10 @@ class BranchContext {
   static std::expected<std::unique_ptr<BranchContext>, BuildError> BuildFromFork(
       storage::InMemoryStorage &main, uint64_t fork_ts, std::optional<uint64_t> branch_id = std::nullopt);
 
-  // `name` and `number`: the branch this context was attached through (empty/0 for a context attached to none);
-  // AttachBranchOf reuses them and refuses a context whose number is not the live branch's.
-  BranchContext(std::shared_ptr<BranchCore> core, std::string name, uint64_t number)
-      : core_(std::move(core)), name_(std::move(name)), number_(number) {}
+  // `name` and `id`: the branch this context was attached through (empty/0 for a context attached to none);
+  // AttachBranchOf reuses them and refuses a context whose id is not the live branch's.
+  BranchContext(std::shared_ptr<BranchCore> core, std::string name, uint64_t id)
+      : core_(std::move(core)), name_(std::move(name)), id_(id) {}
 
   BranchContext(const BranchContext &) = delete;
   BranchContext &operator=(const BranchContext &) = delete;
@@ -232,7 +232,7 @@ class BranchContext {
 
   const std::string &name() const { return name_; }
 
-  uint64_t number() const { return number_; }
+  uint64_t id() const { return id_; }
 
   storage::InMemoryStorage &diff_engine() const { return core_->diff_engine(); }
 
@@ -644,7 +644,7 @@ class BranchContext {
 
   std::shared_ptr<BranchCore> core_;
   std::string name_;
-  uint64_t number_;
+  uint64_t id_;
   std::optional<Txn> txn_;
 };
 

@@ -328,12 +328,12 @@ void memgraph::query::CurrentDB::AttachBranchOf(versioning::VersionStore *versio
   if (!checkout) {
     throw QueryRuntimeException(checkout.error());
   }
-  if ((*checkout)->info().id != outer.number()) {
+  if ((*checkout)->info().id != outer.id()) {
     // `name` now names a re-created branch; outer.core() belongs to the dropped one.
     throw QueryRuntimeException("Branch '{}' no longer exists.", name);
   }
-  const auto number = (*checkout)->info().id;
-  SetBranchContext(std::make_unique<versioning::BranchContext>(outer.core(), name, number), std::move(*checkout));
+  const auto id = (*checkout)->info().id;
+  SetBranchContext(std::make_unique<versioning::BranchContext>(outer.core(), name, id), std::move(*checkout));
 }
 
 void memgraph::query::CurrentDB::ClearBranchContext() {
@@ -343,7 +343,7 @@ void memgraph::query::CurrentDB::ClearBranchContext() {
   // Drop the context before detaching so this session no longer touches the shared core once the checkout is gone.
   branch_context_.reset();
   branch_plan_cache_.reset();
-  foreign_branch_number_.store(0, std::memory_order_release);
+  foreign_branch_id_.store(0, std::memory_order_release);
   branch_checkout_.reset();
 }
 
@@ -387,7 +387,7 @@ void memgraph::query::CurrentDB::ThrowIfBranchGone(bool const on_replica) {
 
 void memgraph::query::CurrentDB::ParkSessionBranch() {
   RestoreSessionBranch();
-  foreign_branch_number_.store(0, std::memory_order_release);
+  foreign_branch_id_.store(0, std::memory_order_release);
   parked_branch_.emplace(ParkedBranch{.version = std::move(current_version_),
                                       .context = std::move(branch_context_),
                                       .plan_cache = std::move(branch_plan_cache_),
@@ -404,7 +404,7 @@ void memgraph::query::CurrentDB::RestoreSessionBranch() {
   branch_context_ = std::move(parked.context);
   branch_plan_cache_ = std::move(parked.plan_cache);
   branch_checkout_ = std::move(parked.checkout);
-  foreign_branch_number_.store(branch_checkout_ ? branch_checkout_->info().id : 0, std::memory_order_release);
+  foreign_branch_id_.store(branch_checkout_ ? branch_checkout_->info().id : 0, std::memory_order_release);
 }
 
 void memgraph::query::CurrentDB::DiscardParkedBranch() {
