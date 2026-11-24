@@ -1030,8 +1030,8 @@ void InMemoryStorage::InMemoryAccessor::CheckForFastDiscardOfDeltas() {
 #ifdef MG_ENTERPRISE
   // A reader at fork pin P undoes deltas with commit_ts >= P, so the oldest pin must be strictly > commit_ts;
   // P == C is reachable only under commit-lock narrowing (the fork bound can equal a minted-unpublished commit).
-  if (no_older_transactions && no_newer_transactions &&
-      mem_storage->oldest_fork_pin_.load(std::memory_order_acquire) > *commit_timestamp_) [[unlikely]] {
+  if (no_older_transactions && no_newer_transactions && mem_storage->OldestForkPin() > *commit_timestamp_)
+      [[unlikely]] {
 #else
   if (no_older_transactions && no_newer_transactions) [[unlikely]] {
 #endif
@@ -3343,8 +3343,7 @@ void InMemoryStorage::CollectGarbage(utils::ResourceLockGuard main_guard, bool p
   }
 
 #ifdef MG_ENTERPRISE
-  oldest_active_start_timestamp =
-      std::min(oldest_active_start_timestamp, oldest_fork_pin_.load(std::memory_order_acquire));
+  oldest_active_start_timestamp = std::min(oldest_active_start_timestamp, OldestForkPin());
 #endif
 
   // Horizon for the unlink gate, chain trim and index/constraint sweeps. A txn that began inside the front

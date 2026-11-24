@@ -44,7 +44,7 @@ struct Edge {
   void SetDeleted(bool b) { delta_.Set<kDeletedBit>(b ? 1 : 0); }
 
 #ifdef MG_ENTERPRISE
-  // Whether a branch ever wrote this edge (fork-edge reads short-circuit on it); set only with properties_on_edges.
+  // Whether a branch ever wrote this edge (base-edge reads short-circuit on it); set only with properties_on_edges.
   // Same monotonic, lock-free-read contract as Vertex::branched().
   bool branched() const { return delta_.GetRelaxed<kBranchedBit>(); }
 

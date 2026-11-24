@@ -60,7 +60,7 @@ struct Vertex {
 
 #ifdef MG_ENTERPRISE
   // Monotonic hint, never cleared (over-set only costs a missed fast path). Relaxed lock-free read; writers hold lock.
-  // Invariant (upheld by callers): false => labels, properties, incident edges match every branch's fork-state view.
+  // Invariant (upheld by callers): false => labels, properties, incident edges match every branch's base-state view.
   bool branched() const { return delta_.GetRelaxed<kBranchedBit>(); }
 
   // Caller MUST hold `lock`.

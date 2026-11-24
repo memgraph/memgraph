@@ -865,7 +865,7 @@ class InMemoryStorage final : public Storage {
   // Min of version_fork_pins_ (kNoForkPin when empty); written under the lock so readers skip it.
   static constexpr uint64_t kNoForkPin = std::numeric_limits<uint64_t>::max();
 
-  // Oldest live fork pin, or kNoForkPin if none; mirrors the GC horizon clamp in CollectGarbage.
+  // Oldest live fork pin, or kNoForkPin if none; the bound GC and fast-discard clamp to.
   uint64_t OldestForkPin() const;
 #endif
 
