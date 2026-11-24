@@ -119,7 +119,7 @@ storage::Config DiffEngineConfig(const storage::Config &main_config, storage::St
 }
 
 std::expected<std::shared_ptr<BranchCore>, BranchCore::BuildError> BranchCore::Build(
-    storage::InMemoryStorage &main, const ForkPoint &fork, uint64_t fork_ts, std::optional<uint64_t> branch_number) {
+    storage::InMemoryStorage &main, const ForkPoint &fork, uint64_t fork_ts, std::optional<uint64_t> branch_id) {
   const memory::DbArenaScope db_arena_scope{main.DbArenaPool()};
 
   // Pinned first so an unpinned fork fails before the diff engine is built; the accessor's shared hold also keeps
@@ -134,11 +134,11 @@ std::expected<std::shared_ptr<BranchCore>, BranchCore::BuildError> BranchCore::B
   storage::Config config = DiffEngineConfig(main.config_, main.GetStorageMode());
   // A durable branch keeps its WAL in its own directory; DiffEngineConfig's snapshot interval stays empty because no
   // thread snapshots a branch, whose WAL is all its durable state.
-  if (branch_number.has_value() && main.config_.durability.snapshot_wal_mode ==
-                                       storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL) {
+  if (branch_id.has_value() && main.config_.durability.snapshot_wal_mode ==
+                                   storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL) {
     config.durability.snapshot_wal_mode = storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL;
     config.durability.storage_directory =
-        main.config_.durability.storage_directory / "branches" / std::to_string(*branch_number);
+        main.config_.durability.storage_directory / "branches" / std::to_string(*branch_id);
     config.durability.root_data_directory = config.durability.storage_directory;
   }
   // Only the unreleased-delta gauge is shared, so branch memory shows up under the tenant.
@@ -184,11 +184,11 @@ BranchCore::~BranchCore() {
 }
 
 std::expected<std::unique_ptr<BranchContext>, BranchContext::BuildError> BranchContext::BuildFromFork(
-    storage::InMemoryStorage &main, uint64_t fork_ts, std::optional<uint64_t> branch_number) {
+    storage::InMemoryStorage &main, uint64_t fork_ts, std::optional<uint64_t> branch_id) {
   // Read after the fork pin, as the registry does: every gid visible at fork_ts is below the floors.
   ForkPoint const fork{.vertex_gid_floor = main.vertex_id_.load(std::memory_order_acquire),
                        .edge_gid_floor = main.edge_id_.load(std::memory_order_acquire)};
-  auto core = BranchCore::Build(main, fork, fork_ts, branch_number);
+  auto core = BranchCore::Build(main, fork, fork_ts, branch_id);
   if (!core) return std::unexpected(std::move(core.error()));
   return std::make_unique<BranchContext>(std::move(*core));
 }
