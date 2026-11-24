@@ -300,8 +300,8 @@ class VerticesIterable final {
       return f(*std::get_if<2>(&self.it_));
     }
 
-    // Main's alternatives are checked inline first: a std::visit over all three measurably slowed main's scans per
-    // row. A branch index scan steps out of line.
+    // Main's alternatives are dispatched inline, so a main scan pays no per-row visit over the branch alternative; a
+    // branch index scan steps out of line.
     template <typename Self, typename F>
     static decltype(auto) Dispatch(Self &self, F &&f) {
       if (auto *it = std::get_if<0>(&self.it_)) [[likely]]
