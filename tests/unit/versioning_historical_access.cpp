@@ -244,7 +244,7 @@ void VersioningHistoricalAccessTest::ExpectTransientReadsKeepOpenReaderHistory(b
   CommitLabels(*storage, gid, 5);
   ASSERT_GT(Unreleased(), 0);
 
-  // From here only commit_log_ state gates retention; the pin can no longer mask the regression.
+  // From here only commit_log_ state gates retention.
   Mem()->ReleaseForkPin(fork_ts);
   Gc(*storage);
   EXPECT_GT(Unreleased(), 0) << "real_reader (still open) needs this history regardless of the fork pin; the "
