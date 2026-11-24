@@ -207,6 +207,31 @@ std::expected<void, BranchContext::BuildError> BranchContext::BeginTransaction(s
   return {};
 }
 
+// ---- Commit
+
+// Published from a commit callback, so only a committed batch's counts are counted.
+void BranchContext::PublishBaseDeletes() {
+  auto &t = txn();
+  if (t.base_deletes == ObjectCounts{}) return;
+  t.diff->GetTransaction()->commit_callbacks_.Add(
+      [core = core_.get(), deleted = t.base_deletes](uint64_t /*commit_ts*/) { core->AddBaseDeletes(deleted); });
+}
+
+std::expected<void, storage::StorageManipulationError> BranchContext::CommitTransaction(
+    storage::CommitArgs commit_args) {
+  PublishBaseDeletes();
+  return txn().diff->PrepareForCommitPhase(std::move(commit_args));
+}
+
+std::expected<void, storage::StorageManipulationError> BranchContext::PeriodicCommitTransaction(
+    storage::CommitArgs commit_args) {
+  PublishBaseDeletes();
+  auto result = txn().diff->PeriodicCommit(std::move(commit_args));
+  // A batch that did not commit aborts the transaction, so its counts are never needed again.
+  txn().base_deletes = {};
+  return result;
+}
+
 // ---- Overlays
 
 storage::VertexAccessor BranchContext::OverlayAccessor(storage::Vertex *overlay) {
@@ -343,6 +368,8 @@ bool BranchContext::IsBaseVertexDeleted(const storage::VertexAccessor &base_vert
 
 bool BranchContext::IsBaseEdgeDeleted(const storage::EdgeAccessor &base_edge, storage::View view,
                                       std::optional<storage::EdgeAccessor> *overlay_out) {
+  // The edge's bit is set by a delete only with properties_on_edges; without it the filter alone decides.
+  if (main().config_.salient.items.properties_on_edges && !base_edge.MaybeBranchedHint()) return false;
   if (!core_->MayHaveBaseEdgeDeleted(base_edge.Gid())) return false;
   auto overlay = FindEdgeOverlay(base_edge);
   if (!overlay) return false;
@@ -552,9 +579,47 @@ storage::VertexAccessor BranchContext::CreateNativeVertex() {
   return *created;
 }
 
+storage::Result<BranchContext::EdgeOverlay> BranchContext::MaterializeEdgeOverlay(
+    const storage::EdgeAccessor &base_edge) {
+  // Before the overlay exists, and so before any write of it (reads gate on this bit). Without properties_on_edges
+  // main's base edge is a bare gid with no object to mark, and reads fall back to the filters.
+  if (main().config_.salient.items.properties_on_edges) MarkBranched(base_edge.edge_.ptr);
+  auto from_overlay = MaterializeOverlay(base_edge.FromVertex());
+  if (!from_overlay) return std::unexpected(from_overlay.error());
+  auto to_overlay = MaterializeOverlay(base_edge.ToVertex());
+  if (!to_overlay) return std::unexpected(to_overlay.error());
+  return EdgeOverlay{.edge = edge_overlays().GetOrCreate(base_edge.Gid(), base_edge.edge_),
+                     .from = from_overlay->vertex_,
+                     .to = to_overlay->vertex_,
+                     .type = base_edge.EdgeType()};
+}
+
+storage::Result<BranchContext::EdgeOverlay> BranchContext::OverlayForWrite(const storage::EdgeAccessor &base_edge) {
+  DMG_ASSERT(!IsNative(base_edge), "a native edge has no overlay.");
+  // The diff engine's own config is always properties_on_edges: it is main's that the user's edge properties follow.
+  if (!main().config_.salient.items.properties_on_edges) return std::unexpected(storage::Error::PROPERTIES_DISABLED);
+  if (IsBaseEdgeHidden(base_edge, storage::View::NEW)) return std::unexpected(storage::Error::DELETED_OBJECT);
+  return MaterializeEdgeOverlay(base_edge);
+}
+
+storage::Result<storage::EdgeAccessor> BranchContext::CreateNativeEdge(storage::VertexAccessor &from,
+                                                                       storage::VertexAccessor &to,
+                                                                       storage::EdgeTypeId edge_type) {
+  core_->RecordEdgeChange(from.Gid(), storage::EdgeDirection::OUT);
+  core_->RecordEdgeChange(to.Gid(), storage::EdgeDirection::IN);
+  // Plain fetch_add on main's counter; CreateEdgeEx raises the diff engine's own counter past the gid.
+  auto const gid = storage::Gid::FromUint(main().edge_id_.fetch_add(1, std::memory_order_acq_rel));
+  return static_cast<storage::ReplicationAccessor &>(diff()).CreateEdgeEx(&from, &to, edge_type, gid);
+}
+
 bool BranchContext::PrepareOverlayForWrite(const storage::VertexAccessor &overlay) {
   auto guard = std::shared_lock{overlay.vertex_->lock};
   return storage::PrepareForWrite(txn().diff->GetTransaction(), overlay.vertex_);
+}
+
+bool BranchContext::PrepareOverlayForWrite(const EdgeOverlay &overlay) {
+  auto guard = std::shared_lock{overlay.edge->lock};
+  return storage::PrepareForWrite(txn().diff->GetTransaction(), overlay.edge);
 }
 
 storage::Result<bool> BranchContext::AddLabel(storage::VertexAccessor &vertex, storage::LabelId label) {
@@ -594,10 +659,32 @@ storage::Result<storage::PropertyValue> BranchContext::WriteOverlayProperty(cons
   return *std::move(old);
 }
 
+storage::Result<storage::PropertyValue> BranchContext::WriteOverlayProperty(const storage::EdgeAccessor &base_edge,
+                                                                            const EdgeOverlay &overlay,
+                                                                            storage::PropertyId key,
+                                                                            const storage::PropertyValue &value) {
+  auto *const transaction = txn().diff->GetTransaction();
+  auto old = overlay::ReadProperty(transaction, *overlay.edge, key, storage::View::NEW);
+  if (!old) {
+    auto read = base_edge.GetProperty(key, storage::View::OLD);
+    if (!read) return std::unexpected(read.error());
+    old = std::move(*read);
+  }
+  if (auto written = overlay::WriteProperty(
+          transaction, diff_engine(), overlay.edge, overlay.from, overlay.to, overlay.type, key, value);
+      !written) {
+    return std::unexpected(written.error());
+  }
+  return *std::move(old);
+}
+
 template <typename Object>
 storage::Result<storage::PropertyValue> BranchContext::SetPropertyAt(Object &object, storage::PropertyId key,
                                                                      const storage::PropertyValue &value) {
-  if (IsNative(object)) return object.SetProperty(key, value);
+  if (IsNative(object)) {
+    if (PropertyWritesDisabled(object)) return std::unexpected(storage::Error::PROPERTIES_DISABLED);
+    return object.SetProperty(key, value);
+  }
   auto overlay = OverlayForWrite(object);
   if (!overlay) return std::unexpected(overlay.error());
   RecordPropertiesWrite(object);
@@ -607,7 +694,10 @@ storage::Result<storage::PropertyValue> BranchContext::SetPropertyAt(Object &obj
 
 template <typename Object>
 storage::Result<bool> BranchContext::InitPropertiesAt(Object &object, PropertyMap &properties) {
-  if (IsNative(object)) return object.InitProperties(properties);
+  if (IsNative(object)) {
+    if (PropertyWritesDisabled(object)) return std::unexpected(storage::Error::PROPERTIES_DISABLED);
+    return object.InitProperties(properties);
+  }
   auto overlay = OverlayForWrite(object);
   if (!overlay) return std::unexpected(overlay.error());
   auto existing = Properties(object, storage::View::NEW);
@@ -634,7 +724,10 @@ storage::Result<bool> BranchContext::InitPropertiesAt(Object &object, PropertyMa
 template <typename Object>
 storage::Result<std::vector<PropertyChange>> BranchContext::UpdatePropertiesAt(Object &object,
                                                                                PropertyMap &properties) {
-  if (IsNative(object)) return object.UpdateProperties(properties);
+  if (IsNative(object)) {
+    if (PropertyWritesDisabled(object)) return std::unexpected(storage::Error::PROPERTIES_DISABLED);
+    return object.UpdateProperties(properties);
+  }
   auto overlay = OverlayForWrite(object);
   if (!overlay) return std::unexpected(overlay.error());
   auto existing = Properties(object, storage::View::NEW);
@@ -665,7 +758,10 @@ storage::Result<std::vector<PropertyChange>> BranchContext::UpdatePropertiesAt(O
 
 template <typename Object>
 storage::Result<PropertyMap> BranchContext::ClearPropertiesAt(Object &object) {
-  if (IsNative(object)) return object.ClearProperties();
+  if (IsNative(object)) {
+    if (PropertyWritesDisabled(object)) return std::unexpected(storage::Error::PROPERTIES_DISABLED);
+    return object.ClearProperties();
+  }
   auto overlay = OverlayForWrite(object);
   if (!overlay) return std::unexpected(overlay.error());
   auto existing = Properties(object, storage::View::NEW);
@@ -705,7 +801,25 @@ storage::Result<PropertyMap> BranchContext::ClearProperties(storage::VertexAcces
   return ClearPropertiesAt(vertex);
 }
 
-storage::Result<void> BranchContext::DeleteBaseEdgeOnBranch(const storage::EdgeAccessor &base_edge, ListSide sides) {
+storage::Result<storage::PropertyValue> BranchContext::SetProperty(storage::EdgeAccessor &edge, storage::PropertyId key,
+                                                                   const storage::PropertyValue &value) {
+  return SetPropertyAt(edge, key, value);
+}
+
+storage::Result<bool> BranchContext::InitProperties(storage::EdgeAccessor &edge, PropertyMap &properties) {
+  return InitPropertiesAt(edge, properties);
+}
+
+storage::Result<std::vector<PropertyChange>> BranchContext::UpdateProperties(const storage::EdgeAccessor &edge,
+                                                                             PropertyMap &properties) {
+  return UpdatePropertiesAt(edge, properties);
+}
+
+storage::Result<PropertyMap> BranchContext::ClearProperties(storage::EdgeAccessor &edge) {
+  return ClearPropertiesAt(edge);
+}
+
+storage::Result<bool> BranchContext::DeleteBaseEdgeOnBranch(const storage::EdgeAccessor &base_edge, ListSide sides) {
   auto const from = base_edge.FromVertex();
   auto const to = base_edge.ToVertex();
   core_->RecordEdgeChange(from.Gid(), storage::EdgeDirection::OUT);
@@ -724,8 +838,14 @@ storage::Result<void> BranchContext::DeleteBaseEdgeOnBranch(const storage::EdgeA
   // The edge may already be deleted by a transaction committed after this one began: not a broken precondition but a
   // conflict, which the edge overlay's PrepareForWrite reports. Already deleted by this transaction is a no-op.
   auto const deleted = overlay::MarkEdgeDeleted(txn().diff->GetTransaction(), edge_overlay);
-  if (!deleted) return std::unexpected(deleted.error());
-  return {};
+  if (deleted && *deleted) ++txn().base_deletes.edges;
+  return deleted;
+}
+
+storage::Result<bool> BranchContext::DeleteBaseEdge(const storage::EdgeAccessor &base_edge) {
+  DMG_ASSERT(!IsNative(base_edge), "a native edge is deleted by the diff engine.");
+  if (IsBaseEdgeHidden(base_edge, storage::View::NEW)) return false;
+  return DeleteBaseEdgeOnBranch(base_edge, kBothSides);
 }
 
 std::vector<storage::EdgeAccessor> BranchContext::VisibleBaseEdges(const storage::VertexAccessor &base_vertex) {
@@ -815,16 +935,19 @@ storage::Result<bool> BranchContext::DeleteBaseVertex(storage::Gid gid, bool det
              "a base vertex is deleted with a visible base edge.");
   core_->RecordVertexDeleted(gid);
   // The overlay's adjacency holds only native edges, which a detach deletes with it.
+  bool marked_deleted = false;
   if (detach) {
     auto deleted = txn().diff->DetachDeleteVertex(&*overlay);
     if (!deleted) return std::unexpected(deleted.error());
-    vertex_marked = deleted->has_value();
-    return vertex_marked;
+    marked_deleted = deleted->has_value();
+  } else {
+    auto deleted = txn().diff->DeleteVertex(&*overlay);
+    if (!deleted) return std::unexpected(deleted.error());
+    marked_deleted = deleted->has_value();
   }
-  auto deleted = txn().diff->DeleteVertex(&*overlay);
-  if (!deleted) return std::unexpected(deleted.error());
-  vertex_marked = deleted->has_value();
-  return vertex_marked;
+  vertex_marked = marked_deleted;
+  if (marked_deleted) ++txn().base_deletes.vertices;
+  return marked_deleted;
 }
 
 // ---- Adjacency
