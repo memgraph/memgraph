@@ -70,13 +70,13 @@ class BranchCore {
   };
 
   // Builds an empty diff engine whose gid floors are `fork`'s, and mirrors main's enum definitions. Durable only with a
-  // `branch_number` and a WAL-enabled main: its WAL is then under <main storage dir>/branches/<branch_number>/wal/. The
+  // `branch_id` and a WAL-enabled main: its WAL is then under <main storage dir>/branches/<branch_id>/wal/. The
   // engine has properties_on_edges and heavy edges whatever main's config says, so code that interprets an EdgeRef read
   // from main must consult MAIN's config (`main().config_`). `fork_ts` is the branch's runtime fork pin
   // (Branch::fork_ts()).
-  static std::expected<std::shared_ptr<BranchCore>, BuildError> Build(
-      storage::InMemoryStorage &main, const ForkPoint &fork, uint64_t fork_ts,
-      std::optional<uint64_t> branch_number = std::nullopt);
+  static std::expected<std::shared_ptr<BranchCore>, BuildError> Build(storage::InMemoryStorage &main,
+                                                                      const ForkPoint &fork, uint64_t fork_ts,
+                                                                      std::optional<uint64_t> branch_id = std::nullopt);
 
   BranchCore(const BranchCore &) = delete;
   BranchCore &operator=(const BranchCore &) = delete;
@@ -221,7 +221,7 @@ class BranchContext {
 
   // Unit tests; production attaches to the registry's core.
   static std::expected<std::unique_ptr<BranchContext>, BuildError> BuildFromFork(
-      storage::InMemoryStorage &main, uint64_t fork_ts, std::optional<uint64_t> branch_number = std::nullopt);
+      storage::InMemoryStorage &main, uint64_t fork_ts, std::optional<uint64_t> branch_id = std::nullopt);
 
   explicit BranchContext(std::shared_ptr<BranchCore> core) : core_(std::move(core)) {}
 
