@@ -115,17 +115,17 @@ class BranchCore {
   }
 
   // Call the Record* before the overlay write; a rolled-back write leaves the bit set (superset, never a miss).
-  void RecordVertexDeleted(storage::Gid gid) noexcept { change_filters_.RecordVertexDeleted(gid); }
+  void RecordVertexDeleted(storage::Gid gid) { change_filters_.RecordVertexDeleted(gid); }
 
   void RecordPropertyFieldChange(storage::Gid gid, storage::PropertyId pid) {
     change_filters_.RecordPropertyField(gid, pid);
   }
 
-  void RecordBaseEdgeProperty(storage::Gid edge_gid, storage::PropertyId pid) noexcept {
+  void RecordBaseEdgeProperty(storage::Gid edge_gid, storage::PropertyId pid) {
     change_filters_.RecordBaseEdgeProperty(edge_gid, pid);
   }
 
-  void RecordBaseEdgeDeleted(storage::Gid edge_gid) noexcept { change_filters_.RecordBaseEdgeDeleted(edge_gid); }
+  void RecordBaseEdgeDeleted(storage::Gid edge_gid) { change_filters_.RecordBaseEdgeDeleted(edge_gid); }
 
   bool MayHaveVertexDeleted(storage::Gid gid) const noexcept { return change_filters_.MayHaveVertexDeleted(gid); }
 
