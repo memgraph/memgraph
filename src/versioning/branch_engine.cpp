@@ -84,7 +84,6 @@ storage::Config DiffEngineConfig(const storage::Config &main_config, storage::St
   config.salient.items.storage_light_edge = false;
   // Main's telemetry label counts are not the diff engine's.
   config.track_label_counts = false;
-  // Narrowing is unbenched on the diff engine, so branch commits keep the full commit lock.
   config.experimental_commit_lock_narrowing = false;
   // config.gc stays main's: the diff engine needs its own GC or committed branch deltas are never freed while another
   // transaction is active.
