@@ -527,13 +527,6 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
 
         uint64_t merge_id = 0;
         uint64_t subquery_id = 0;
-        StoreBackIndex store_backs;
-        auto const collect = [&](Clause &clause) {
-          auto access = CollectReadsAndWrites(
-              clause, *context.symbol_table, context.bound_symbols, non_graph_symbols_, &edge_binders_);
-          MarkStoreBacks(clause, store_backs, access.writes);
-          return access;
-        };
 
         // Pattern comprehensions are planned on-demand when visited in RETURN/WITH expressions,
         // or before write clauses for comprehensions not in any expression.
@@ -661,13 +654,18 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
 
           // With and Return drain in their own Accumulate.
           auto const is_projection = utils::Downcast<Return>(clause) || utils::Downcast<query::With>(clause);
-          auto const access = is_projection && !clause_reads_new ? ReadsAndWrites{} : collect(*clause);
+          auto const access =
+              is_projection && !clause_reads_new
+                  ? ReadsAndWrites{}
+                  : CollectReadsAndWrites(
+                        *clause, *context.symbol_table, context.bound_symbols, non_graph_symbols_, &edge_binders_);
           // The items of one SET or REMOVE are one clause: the first item decides for all of them, so no barrier or
           // drain falls between two items.
           if (!clause->continues_previous_) {
             auto group_access = access;
             for (auto next = std::next(clause_it); next != clauses.end() && (*next)->continues_previous_; ++next) {
-              auto const item = collect(**next);
+              auto const item = CollectReadsAndWrites(
+                  **next, *context.symbol_table, context.bound_symbols, non_graph_symbols_, &edge_binders_);
               group_access.reads.Merge(item.reads);
               group_access.writes.Merge(item.writes);
             }
@@ -713,11 +711,6 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
           // Set by an arm that drains and advances after its own writes.
           bool advanced_after = false;
           auto const record_writes = utils::OnScopeExit{[&] {
-            auto const after = static_cast<size_t>(std::distance(clauses.begin(), clause_it)) + 1;
-            for (const auto &key : access.writes.properties) {
-              if (!access.writes.stored_back.contains(key)) store_backs.last_key_write[key] = after;
-            }
-            if (access.writes.any_property || access.writes.everything) store_backs.last_any_write = after;
             if (advanced_after) return;
             pending_writes.Merge(access.writes);
             relabel_since_access_barrier = relabel_since_access_barrier || access.writes.relabel.Any();
@@ -767,24 +760,12 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
             // site, so a comprehension in its pattern sees what earlier rows created. Only an all-anonymous one
             // reaches here; a user-declared atom fails earlier in filter generation (pre-existing, MATCH too).
             note_write();
-            for (auto *atom : merge->pattern_->atoms_) {
-              auto const &symbol = context.symbol_table->at(*atom->identifier_);
-              if (access.writes.symbols.contains(symbol)) {
-                store_backs.binders.emplace(
-                    symbol, std::pair{static_cast<size_t>(std::distance(clauses.begin(), clause_it)), atom});
-              }
-            }
             plan_and_apply_comprehensions(eligible);
             input_op = GenMerge(
                 *merge, std::move(input_op), single_query_part.merge_matching[merge_id++], pending_comprehensions);
           } else if (auto *with = utils::Downcast<query::With>(clause)) {
             CheckSubqueryBodyInvariants(context, wrote_since_drain, /*commit_frequency=*/nullptr);
             note_non_graph(with->body_.named_expressions);
-            for (auto *named : with->body_.named_expressions) {
-              if (auto path = DataPathOf(named->expression_)) {
-                data_aliases_.emplace(context.symbol_table->at(*named), std::move(*path));
-              }
-            }
             input_op = impl::GenWith(*with,
                                      std::move(input_op),
                                      *context.symbol_table,
@@ -1104,101 +1085,6 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
   std::unordered_set<Symbol> non_graph_symbols_;
   /// The single-hop edge atom of a MATCH that binds each edge variable; a pattern cannot rebind one.
   std::unordered_map<Symbol, EdgeAtom *> edge_binders_;
-
-  /// `v` or `v.a.b` over a variable that holds data: one row evaluates it to one value.
-  struct DataPath {
-    Symbol root;
-    std::vector<std::string> steps;
-    bool operator==(const DataPath &) const = default;
-  };
-
-  /// A WITH item that is a data path, by the item's symbol: `WITH row.id AS id` maps `id` to (row, [id]).
-  std::unordered_map<Symbol, DataPath> data_aliases_;
-
-  /// Per single query part: the MERGE (clause index, atom) that first bound each variable, and the clause (index + 1)
-  /// that last wrote each key other than by a store-back, or any key (`last_any_write`).
-  struct StoreBackIndex {
-    std::unordered_map<Symbol, std::pair<size_t, PatternAtom *>> binders;
-    std::unordered_map<std::string, size_t> last_key_write;
-    size_t last_any_write{0};
-  };
-
-  /// @p expr as a data path, its root followed through WITH aliases; nullopt when it is none.
-  std::optional<DataPath> DataPathOf(Expression *expr) const {
-    std::vector<std::string> steps;  // innermost last
-    while (true) {
-      // Either evaluation mode reads the same value; the second only fetches every property at once.
-      if (auto *lookup = utils::Downcast<PropertyLookup>(expr)) {
-        for (const auto &key : std::views::reverse(lookup->property_path_)) steps.push_back(key.name);
-        expr = lookup->expression_;
-      } else {
-        break;
-      }
-    }
-    auto *ident = utils::Downcast<Identifier>(expr);
-    if (!ident || ident->symbol_pos_ < 0) return std::nullopt;
-    auto const &symbol = context_->symbol_table->at(*ident);
-    DataPath path{.root = symbol, .steps = {}};
-    if (auto it = data_aliases_.find(symbol); it != data_aliases_.end()) {
-      path = it->second;
-    } else if (!non_graph_symbols_.contains(symbol)) {
-      return std::nullopt;
-    }
-    path.steps.insert(path.steps.end(), steps.rbegin(), steps.rend());
-    return path;
-  }
-
-  /// Marks in @p writes the keys the SET item @p clause stores back with the data path its target's MERGE matched the
-  /// key on, when no clause since that MERGE wrote the key (A1): an equality match of such a key cannot change.
-  void MarkStoreBacks(Clause &clause, const StoreBackIndex &index, ReadWriteSet &writes) const {
-    using Map = std::unordered_map<PropertyIx, Expression *>;
-    auto const binder_of = [&](Expression *target) -> const std::pair<size_t, PatternAtom *> * {
-      auto *ident = utils::Downcast<Identifier>(target);
-      if (!ident || ident->symbol_pos_ < 0) return nullptr;
-      auto it = index.binders.find(context_->symbol_table->at(*ident));
-      return it == index.binders.end() ? nullptr : &it->second;
-    };
-    auto const map_of = [](PatternAtom *atom) -> const Map * {
-      if (auto *node = utils::Downcast<NodeAtom>(atom)) return std::get_if<Map>(&node->properties_);
-      if (auto *edge = utils::Downcast<EdgeAtom>(atom)) return std::get_if<Map>(&edge->properties_);
-      return nullptr;
-    };
-    auto const unwritten_since = [&](const std::string &key, size_t merge) {
-      auto it = index.last_key_write.find(key);
-      return index.last_any_write <= merge && (it == index.last_key_write.end() || it->second <= merge);
-    };
-    // Each key the MERGE matched on, and the data path the item stores at it.
-    auto const mark = [&](const std::pair<size_t, PatternAtom *> *binder, auto &&stored_at) {
-      auto const *map = binder ? map_of(binder->second) : nullptr;
-      if (!map) return;
-      for (const auto &[key, matched] : *map) {
-        if (!unwritten_since(key.name, binder->first)) continue;
-        auto const want = DataPathOf(matched);
-        if (want && stored_at(key.name) == want) writes.stored_back.insert(key.name);
-      }
-    };
-    if (auto *set = utils::Downcast<query::SetProperty>(&clause)) {
-      auto const &lookup = *set->property_lookup_;
-      if (lookup.lookup_mode_ != PropertyLookup::LookupMode::REPLACE || lookup.property_path_.size() != 1) return;
-      auto const value = DataPathOf(set->expression_);
-      mark(binder_of(lookup.expression_),
-           [&](const std::string &key) { return key == lookup.property_path_.front().name ? value : std::nullopt; });
-    } else if (auto *set = utils::Downcast<query::SetProperties>(&clause)) {
-      auto *literal = utils::Downcast<MapLiteral>(set->expression_);
-      auto const value = literal ? std::nullopt : DataPathOf(set->expression_);
-      mark(binder_of(set->identifier_), [&](const std::string &key) -> std::optional<DataPath> {
-        if (literal) {
-          auto it =
-              std::ranges::find_if(literal->elements_, [&](const auto &entry) { return entry.first.name == key; });
-          return it == literal->elements_.end() ? std::nullopt : DataPathOf(it->second);
-        }
-        if (!value) return std::nullopt;
-        auto path = *value;
-        path.steps.push_back(key);
-        return path;
-      });
-    }
-  }
 
   bool BarriersOn() const { return read_scope_ == ReadScope::kRoot || read_scope_ == ReadScope::kWritingTree; }
 

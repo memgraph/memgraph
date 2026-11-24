@@ -1261,43 +1261,36 @@ TEST_F(WriteVisibilityPlan, DrainBetweenMergeAndALaterWriteOfWhatItMatched) {
             (Names{"EmptyResult", "CreateNode", "Merge", "Unwind", "Once"}));
 }
 
-// A SET that writes back the values a MERGE matched its node on changes no later row's match.
-TEST_F(WriteVisibilityPlan, AKeyedMergeThenAWriteBackOfItsKeysHasNoDrain) {
+// A SET that writes back the key a MERGE matched on keeps its drain: a named cost (no store-back exemption).
+TEST_F(WriteVisibilityPlan, AKeyedMergeThenAWriteBackOfItsKeysKeepsItsDrain) {
   auto const drains = [&](std::string_view tail) {
     return Collect<Accumulate>(Plan(fmt::format("UNWIND [{{id: 1, a: 1}}, {{id: 1.0, a: 2}}] AS row {}", tail))).size();
   };
-  EXPECT_EQ(drains("MERGE (n:N {id: row.id}) SET n += row"), 0);
-  EXPECT_EQ(drains("MERGE (n:N {id: row.id}) SET n = row"), 0);
-  EXPECT_EQ(drains("MERGE (n:N {id: row.id, a: row.a}) SET n += row"), 0);
-  EXPECT_EQ(drains("MERGE (n:N {id: row.id}) SET n.id = row.id, n.a = row.a"), 0);
-  EXPECT_EQ(drains("MERGE (n:N {id: row.id}) SET n.c = 1 SET n += row"), 0);
-  EXPECT_EQ(drains("MERGE (n:N {id: row.id}) ON CREATE SET n.created = 1 SET n += row"), 0);
-  EXPECT_EQ(drains("MERGE (n:N {id: row.id}) SET n += row, n.seen = true"), 0);
-  EXPECT_EQ(drains("WITH {id: row.id, a: row.a} AS m MERGE (n:N {id: m.id}) SET n += m"), 0);
-  EXPECT_EQ(drains("MERGE (m:M {id: row.a}) MERGE (n:N {id: row.id}) SET n += row"), 0);
-  EXPECT_EQ(drains("MERGE (n:N {id: row.id}) SET n.id = row.id SET n += row"), 0);
-  EXPECT_EQ(drains("MERGE (n:N {id: row.id}) SET n = {id: row.id, a: row.a}"), 0);
+  EXPECT_EQ(drains("MERGE (n:N {id: row.id}) SET n += row"), 1);
+  EXPECT_EQ(drains("MERGE (n:N {id: row.id}) SET n = row"), 1);
+  EXPECT_EQ(drains("MERGE (n:N {id: row.id, a: row.a}) SET n += row"), 1);
+  EXPECT_EQ(drains("MERGE (n:N {id: row.id}) SET n.id = row.id, n.a = row.a"), 1);
+  EXPECT_EQ(drains("MERGE (n:N {id: row.id}) SET n.c = 1 SET n += row"), 1);
+  EXPECT_EQ(drains("MERGE (n:N {id: row.id}) ON CREATE SET n.created = 1 SET n += row"), 1);
+  EXPECT_EQ(drains("MERGE (n:N {id: row.id}) SET n += row, n.seen = true"), 1);
+  EXPECT_EQ(drains("WITH {id: row.id, a: row.a} AS m MERGE (n:N {id: m.id}) SET n += m"), 1);
+  EXPECT_EQ(drains("MERGE (m:M {id: row.a}) MERGE (n:N {id: row.id}) SET n += row"), 1);
+  EXPECT_EQ(drains("MERGE (n:N {id: row.id}) SET n.id = row.id SET n += row"), 1);
+  EXPECT_EQ(drains("MERGE (n:N {id: row.id}) SET n = {id: row.id, a: row.a}"), 1);
   // Other spellings of the same data path: a WITH alias of a field or of the row.
-  EXPECT_EQ(drains("WITH row.id AS id, row MERGE (n:N {id: id}) SET n += row"), 0);
-  EXPECT_EQ(drains("WITH row, row AS r MERGE (n:N {id: r.id}) SET n += row"), 0);
-  EXPECT_EQ(drains("WITH row, row AS other MERGE (n:N {id: row.id}) SET n += other"), 0);
-  // A `+=` map literal writes only its keys.
-  EXPECT_EQ(drains("MERGE (n:N {id: row.id}) SET n += {id: row.id, a: row.a}"), 0);
+  EXPECT_EQ(drains("WITH row.id AS id, row MERGE (n:N {id: id}) SET n += row"), 1);
+  EXPECT_EQ(drains("WITH row, row AS r MERGE (n:N {id: r.id}) SET n += row"), 1);
+  EXPECT_EQ(drains("WITH row, row AS other MERGE (n:N {id: row.id}) SET n += other"), 1);
+  // A `+=` map literal writes only its keys: without the matched key, no drain.
+  EXPECT_EQ(drains("MERGE (n:N {id: row.id}) SET n += {id: row.id, a: row.a}"), 1);
   EXPECT_EQ(drains("MERGE (n:N {id: row.id}) SET n += {a: row.a}"), 0);
-  // A later MERGE that matches the stored-back key needs no barrier either.
-  EXPECT_EQ(drains("MERGE (p:P {id: row.id}) SET p += row MERGE (c:C {id: row.a})"), 0);
-  EXPECT_EQ(drains("MERGE (p:P {id: row.id}) SET p += row MERGE (c:C {id: row.a}) MERGE (p)-[:W]->(c)"), 0);
-#ifdef MG_ENTERPRISE
-  // The label write keeps only the access check's barrier.
-  auto &relabel = Plan("UNWIND [{id: 1}] AS row MERGE (n:N {id: row.id}) SET n:L, n.id = row.id");
-  EXPECT_EQ(Collect<Accumulate>(relabel).size(), 1);
-  EXPECT_TRUE(HasAccessCheckBarrier(relabel));
-#else
-  EXPECT_EQ(drains("MERGE (n:N {id: row.id}) SET n:L, n.id = row.id"), 0);
-#endif
+  // A later MERGE that matches the key also gets a barrier.
+  EXPECT_EQ(drains("MERGE (p:P {id: row.id}) SET p += row MERGE (c:C {id: row.a})"), 2);
+  EXPECT_EQ(drains("MERGE (p:P {id: row.id}) SET p += row MERGE (c:C {id: row.a}) MERGE (p)-[:W]->(c)"), 2);
+  EXPECT_EQ(drains("MERGE (n:N {id: row.id}) SET n:L, n.id = row.id"), 1);
   EXPECT_EQ(Collect<Accumulate>(Plan("LOAD CSV FROM '/x.csv' WITH HEADER AS row MERGE (n:N {id: row.id}) SET n += row"))
                 .size(),
-            0);
+            1);
 }
 
 // The drain stays when the SET can store another value than the match used, or a reader reads the key's value.
@@ -1336,7 +1329,7 @@ TEST_F(WriteVisibilityPlan, AKeyedMergeKeepsItsDrainWhenTheSetCanChangeAMatch) {
   EXPECT_EQ(drains("WITH row.k AS id, row MERGE (n:N {id: id}) SET n += row"), 1);
   EXPECT_EQ(drains("WITH row.id AS id, row.p AS row MERGE (n:N {id: id}) SET n += row"), 1);
   // A later reader of the key that a store-back does not cover: an any-key write of another key it matches.
-  EXPECT_EQ(drains("MERGE (p:P {id: row.id}) SET p += row MERGE (c:C {id: row.a, a: 1})"), 1);
+  EXPECT_EQ(drains("MERGE (p:P {id: row.id}) SET p += row MERGE (c:C {id: row.a, a: 1})"), 2);
   // A value read of the key before the match, in the same MERGE and in an earlier one.
   auto const t1 = [&](std::string_view merges) {
     return Collect<Accumulate>(

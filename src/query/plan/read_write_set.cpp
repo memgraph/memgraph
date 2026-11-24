@@ -376,7 +376,7 @@ class ReadWriteCollector final : public HierarchicalTreeVisitor {
   void ReadPropertyKeys(const TProperties &properties, Identifier *atom) {
     if (const auto *map = std::get_if<std::unordered_map<PropertyIx, Expression *>>(&properties)) {
       for (const auto &[key, value] : *map) {
-        result.reads.NoteProperty(key.name, KeySymbolOf(atom), /*by_value=*/false);
+        result.reads.NoteProperty(key.name, KeySymbolOf(atom));
       }
     } else {
       result.reads.NoteAnyProperty(KeySymbolOf(atom));
@@ -479,11 +479,6 @@ uint8_t KindsOf(const std::optional<Symbol> &through) {
   }
 }
 
-/// Whether @p set writes @p key other than by a store-back.
-bool WritesPlainly(const ReadWriteSet &set, const std::string &key) {
-  return (set.everything || set.any_property || set.properties.contains(key)) && !set.stored_back.contains(key);
-}
-
 }  // namespace
 
 void ReadWriteSet::KeyReach::Note(const std::optional<Symbol> &through) {
@@ -498,10 +493,9 @@ void ReadWriteSet::KeyReach::Merge(const KeyReach &other) {
   kinds |= other.kinds;
 }
 
-void ReadWriteSet::NoteProperty(const std::string &key, const std::optional<Symbol> &through, bool by_value) {
+void ReadWriteSet::NoteProperty(const std::string &key, const std::optional<Symbol> &through) {
   properties.insert(key);
   property_reach[key].Note(through);
-  if (by_value) value_properties.insert(key);
 }
 
 void ReadWriteSet::NoteAnyProperty(const std::optional<Symbol> &through) {
@@ -510,17 +504,6 @@ void ReadWriteSet::NoteAnyProperty(const std::optional<Symbol> &through) {
 }
 
 void ReadWriteSet::Merge(const ReadWriteSet &other) {
-  // A key stays stored back only while neither side writes it otherwise; before the key sets grow.
-  for (const auto &key : other.properties) {
-    if (!other.stored_back.contains(key)) stored_back.erase(key);
-  }
-  if (other.any_property || other.everything) {
-    std::erase_if(stored_back, [&](const auto &key) { return !other.stored_back.contains(key); });
-  }
-  for (const auto &key : other.stored_back) {
-    if (!WritesPlainly(*this, key)) stored_back.insert(key);
-  }
-  value_properties.insert(other.value_properties.begin(), other.value_properties.end());
   properties.insert(other.properties.begin(), other.properties.end());
   any_property |= other.any_property;
   labels.insert(other.labels.begin(), other.labels.end());
@@ -550,13 +533,10 @@ uint8_t ReachKinds(const ReadWriteSet &set, const std::string *key) {
   return kinds;
 }
 
-/// A key conflicts when both sides reach it on one entity kind, unless every write stores back the value a read
-/// only matches on.
+/// A key conflicts when both sides reach it on one entity kind.
 bool PropertiesConflict(const ReadWriteSet &reads, const ReadWriteSet &writes) {
   auto const meet = [&](const std::string *key) { return (ReachKinds(reads, key) & ReachKinds(writes, key)) != 0; };
-  auto const on = [&](const std::string &key) {
-    return !(writes.stored_back.contains(key) && !reads.value_properties.contains(key)) && meet(&key);
-  };
+  auto const on = [&](const std::string &key) { return meet(&key); };
   if (reads.any_property) {
     if (writes.any_property && meet(nullptr)) return true;
     if (std::ranges::any_of(writes.properties, [&](const auto &key) { return meet(&key); })) return true;
