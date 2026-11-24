@@ -9638,12 +9638,12 @@ PreparedQuery PrepareCreateBranchQuery(ParsedQuery parsed_query, std::string nam
 }
 
 std::vector<uint64_t> TransactionsOnBranch(const std::unordered_set<Interpreter *> &interpreters,
-                                           std::string_view db_name, uint64_t number) {
+                                           std::string_view db_name, uint64_t id) {
   std::vector<uint64_t> ids;
   for (Interpreter *interpreter : interpreters) {
     const auto verifier = interpreter->TryAcquireForVerification();
     if (!verifier) continue;
-    if (interpreter->current_db_.foreign_branch_number() != number ||
+    if (interpreter->current_db_.foreign_branch_id() != id ||
         interpreter->current_db_.foreign_db_view().name != db_name) {
       continue;
     }
