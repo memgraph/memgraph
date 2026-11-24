@@ -21,8 +21,6 @@
 #include "storage/v2/vertex.hpp"
 
 #ifdef MG_ENTERPRISE
-#include <span>
-
 #include "utils/logging.hpp"
 #endif
 
@@ -131,12 +129,6 @@ class ExpandedEdges {
   auto operator[](std::size_t index) const -> EdgeAccessor { return At(index); }
 
 #ifdef MG_ENTERPRISE
-  /// The stored triples themselves, for a reader that needs no accessor per edge. The in-memory form only.
-  auto Triples() const -> std::span<EdgeTriple const> {
-    DMG_ASSERT(from_triples_, "only the in-memory form holds triples.");
-    return {triples_.data(), triples_.size()};
-  }
-
   /// This expansion's edges behind `prefix`, the rest still built when looked at. The in-memory form only.
   auto WithPrefix(std::vector<EdgeAccessor> prefix) && -> ExpandedEdges {
     DMG_ASSERT(from_triples_, "only the in-memory form holds triples.");

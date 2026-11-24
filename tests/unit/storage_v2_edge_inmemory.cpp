@@ -5720,7 +5720,7 @@ TEST_P(StorageEdgeTest, EdgeReadsASetOfPropertiesInOnePass) {
 }
 
 #ifdef MG_ENTERPRISE
-// An expansion's stored triples can be read, and thinned in place, without building an accessor for each edge.
+// An expansion can be thinned in place by a predicate over its triples, without building an accessor for each edge.
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_P(StorageEdgeTest, ExpandedEdgesTriplesAreReadAndRetainedInPlace) {
   namespace ms = memgraph::storage;
@@ -5741,13 +5741,8 @@ TEST_P(StorageEdgeTest, ExpandedEdgesTriplesAreReadAndRetainedInPlace) {
   auto &edges = expanded->edges;
   auto const before = Materialise(edges);
   ASSERT_EQ(before.size(), 3U);
-  ASSERT_EQ(edges.Triples().size(), 3U);
-  for (std::size_t i = 0; i != before.size(); ++i) {
-    auto const &[type, other, edge] = edges.Triples()[i];
-    EXPECT_EQ(type, before[i].EdgeType());
-    EXPECT_EQ(other->gid, to.Gid());
-    EXPECT_EQ(edge, before[i].edge_);
-  }
+  ASSERT_EQ(edges.size(), 3U);
+  for (auto const &edge : before) EXPECT_EQ(edge.ToVertex(), to);
 
   std::vector<ms::EdgeTypeId> asked;
   edges.Retain([&](ms::EdgeTriple const &triple) {
@@ -5760,7 +5755,7 @@ TEST_P(StorageEdgeTest, ExpandedEdgesTriplesAreReadAndRetainedInPlace) {
 
   auto const after = Materialise(edges);
   ASSERT_EQ(after.size(), 2U);
-  EXPECT_EQ(edges.Triples().size(), 2U);
+  EXPECT_EQ(edges.size(), 2U);
   for (auto const &edge : after) {
     EXPECT_EQ(edge.EdgeType(), kept_type);
     EXPECT_EQ(edge.FromVertex(), from);
@@ -5773,7 +5768,6 @@ TEST_P(StorageEdgeTest, ExpandedEdgesTriplesAreReadAndRetainedInPlace) {
   ASSERT_EQ(expected_kept.size(), after.size());
   for (std::size_t i = 0; i != after.size(); ++i) {
     EXPECT_EQ(after[i].edge_, expected_kept[i]) << "the kept edges are the same ones, in order";
-    EXPECT_EQ(std::get<2>(edges.Triples()[i]), expected_kept[i]);
   }
   ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
 }

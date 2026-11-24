@@ -1370,8 +1370,8 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   // returned the NEW view. With this hack we simulate that behavior.
   // TODO: Remove once MERGE is reimplemented.
 #ifdef MG_ENTERPRISE
-  // The query accessor's branch test grows HasLabel past the inliner's budget at its LabelsTest call sites; a
-  // call per row on a main read costs ~2% on label-filtered expands.
+  // The query accessor's branch test grows HasLabel past the inliner's budget at its LabelsTest call sites; force
+  // inlining so a main read pays no call per row.
   [[gnu::always_inline]]
 #endif
   bool HasLabel(const VertexAccessor &vertex, const LabelIx &label) const {
