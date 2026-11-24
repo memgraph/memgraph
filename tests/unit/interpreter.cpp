@@ -165,6 +165,22 @@ class InterpreterTest : public ::testing::Test {
 using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
 TYPED_TEST_SUITE(InterpreterTest, StorageTypes);
 
+// A MERGE rejects a null property only in the pattern it creates, never in a CREATE below it.
+TYPED_TEST(InterpreterTest, MergeRejectsANullPropertyOnlyInItsOwnPattern) {
+  auto count = [&](const std::string &query) { return this->Interpret(query).GetResults()[0][0].ValueInt(); };
+  EXPECT_EQ(count("UNWIND [1, 2] AS i CREATE (:C {v: null}) MERGE (:L) RETURN count(*)"), 2);
+  EXPECT_EQ(count("UNWIND [1, 2] AS i WITH i ORDER BY i CREATE (:C {v: null}) MERGE (:L) RETURN count(*)"), 2);
+  EXPECT_EQ(count("MATCH (n) RETURN count(n)"), 5);
+  EXPECT_THROW(this->Interpret("MERGE (:M {v: null})"), memgraph::query::QueryRuntimeException);
+  EXPECT_THROW(this->Interpret("MERGE (a:M)-[:R {v: null}]->(b:M)"), memgraph::query::QueryRuntimeException);
+  EXPECT_THROW(this->Interpret("MERGE (a:L) MERGE (a)-[:R]->(:M {v: null})"), memgraph::query::QueryRuntimeException);
+  EXPECT_EQ(count("MATCH (n) RETURN count(n)"), 5);
+  // An Accumulate between two MERGEs returns buffered rows without running the inner MERGE.
+  EXPECT_EQ(count("UNWIND [2, 3] AS a MERGE (n:P)-[:R]->(m:P {id: a}) ON MATCH SET n.id = 1 "
+                  "CREATE (:Q {v: n.id}) MERGE (n)-[:R]->(m) RETURN count(*)"),
+            2);
+}
+
 // A rejected nested BEGIN must leave the open transaction as it was. An auth transaction buffers its writes in the
 // interpreter, so clearing the interpreter on the way to the rejection would lose them and let COMMIT succeed.
 TYPED_TEST(InterpreterTest, NestedBeginKeepsAnOpenAuthTransaction) {
