@@ -481,7 +481,7 @@ INSTANTIATE_TEST_SUITE_P(Variants, VersioningBranchCoreTeardownTest,
 
 namespace overlay = mv::overlay;
 
-// One overlay write as a test describes it; the fixture applies it the way the branch write path will. Labels come
+// One overlay write as a test describes it; the fixture applies it to the overlays. Labels come
 // first, then properties, then the delete.
 struct OverlayEdit {
   std::vector<std::pair<ms::PropertyId, ms::PropertyValue>> properties;  // a Null value is a removal
