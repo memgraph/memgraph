@@ -155,5 +155,9 @@ macro(target_mage_cugraph target_name)
               "$<$<COMPILE_LANGUAGE:CUDA>:${MAGE_CUDA_FLAGS}>"
     )
     target_link_libraries("${target_name}" PRIVATE mage_cugraph mage_rmm)
+    # The runtime image ships the RAPIDS libraries at the same path as the build
+    # image (/opt/conda/lib); without this the module needs LD_LIBRARY_PATH.
+    set_property(TARGET "${target_name}" APPEND PROPERTY
+      INSTALL_RPATH "${MG_CUGRAPH_ROOT}/lib")
   endif()
 endmacro()
