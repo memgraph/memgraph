@@ -8676,9 +8676,6 @@ bool Merge::MergeCursor::Pull(Frame &frame, ExecutionContext &context) {
   OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP("Merge");
 
-  context.evaluation_context.scope.in_merge = true;
-  memgraph::utils::OnScopeExit merge_exit([&] { context.evaluation_context.scope.in_merge = false; });
-
   while (true) {
     AbortCheck(context);
     if (pull_input_) {
@@ -8702,8 +8699,10 @@ bool Merge::MergeCursor::Pull(Frame &frame, ExecutionContext &context) {
     } else {
       // failed to Pull from the merge_match cursor
       if (pull_input_) {
-        // if we have just now pulled from the input
-        // and failed to pull from merge_match, we should create
+        // The input row has no match, so create. Only the pattern this MERGE creates
+        // rejects a null property, not a CREATE in its input.
+        auto &in_merge = context.evaluation_context.scope.in_merge;
+        memgraph::utils::OnScopeExit restore([&, outer = std::exchange(in_merge, true)] { in_merge = outer; });
         return merge_create_cursor_->Pull(frame, context);
       }
       // We have exhausted merge_match_cursor_ after 1 or more successful
