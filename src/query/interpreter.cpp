@@ -9464,8 +9464,8 @@ TypedValue CreatedAtValue(const versioning::BranchInfo &info) {
   return TypedValue(utils::LocalDateTime(static_cast<int64_t>(info.created_at_us)).ToStringWTZ());
 }
 
-size_t SessionsOnBranch(const std::map<uint64_t, size_t> &counts, uint64_t number) {
-  const auto it = counts.find(number);
+size_t SessionsOnBranch(const std::map<uint64_t, size_t> &counts, uint64_t id) {
+  const auto it = counts.find(id);
   return it == counts.end() ? 0 : it->second;
 }
 
@@ -9517,13 +9517,13 @@ std::vector<TypedValue> BranchRow(const std::string &name, const versioning::Ver
           TypedValue(gc.unreleased_deltas)};
 }
 
-// Keyed by branch number; 0 is main.
+// Keyed by branch id; 0 is main.
 std::map<uint64_t, size_t> CountSessionsPerBranch(InterpreterContext *interpreter_context, std::string_view db_name) {
   return interpreter_context->interpreters.WithLock([&](const auto &interpreters) {
     std::map<uint64_t, size_t> counts;
     for (const Interpreter *interpreter : interpreters) {
       if (interpreter->current_db_.foreign_db_view().name != db_name) continue;
-      ++counts[interpreter->current_db_.foreign_branch_number()];
+      ++counts[interpreter->current_db_.foreign_branch_id()];
     }
     return counts;
   });
