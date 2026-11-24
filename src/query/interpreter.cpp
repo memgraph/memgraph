@@ -9762,8 +9762,8 @@ void AttachBranchEngine(CurrentDB &current_db, versioning::VersionStore *version
     return std::move(*built);
   });
   if (!core) throw QueryRuntimeException(core.error());
-  const auto number = info.id;
-  current_db.SetBranchContext(std::make_unique<versioning::BranchContext>(std::move(*core), name, number),
+  const auto id = info.id;
+  current_db.SetBranchContext(std::make_unique<versioning::BranchContext>(std::move(*core), name, id),
                               std::move(*checkout));
 }
 
