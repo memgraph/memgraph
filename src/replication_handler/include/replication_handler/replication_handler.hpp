@@ -12,6 +12,8 @@
 
 #include <utility>
 
+#include <spdlog/spdlog.h>
+
 #include "auth/auth.hpp"
 #include "auth/profiles/user_profiles.hpp"
 #include "coordination/coordinator_rpc.hpp"
@@ -25,6 +27,7 @@
 #include "replication_coordination_glue/handler.hpp"
 #include "replication_handler/system_replication.hpp"
 #include "replication_handler/system_rpc.hpp"
+#include "utils/on_scope_exit.hpp"
 
 namespace memgraph::replication {
 
@@ -62,6 +65,8 @@ void SystemRestore(ReplicationClient &client, system::System &system, dbms::Dbms
       })) {
     return;
   }
+  utils::OnScopeExit reset_to_behind{
+      [&client] { client.state_.WithLock([](auto &state) { state = ReplicationClient::State::BEHIND; }); }};
 
   // We still need to system replicate.
   // NB: DbInfo is a local, in-process aggregate only — NOT a wire type, so it needs no versioning of
@@ -81,12 +86,16 @@ void SystemRestore(ReplicationClient &client, system::System &system, dbms::Dbms
   const auto is_enterprise = license::global_license_checker.IsEnterpriseValidFast();
 
   // Held until the stream is built so a later system tx cannot send its deltas before the recovery request.
-  auto guard = std::invoke([&]() -> std::optional<system::TransactionGuard> {
-    if constexpr (REQUIRE_LOCK) {
-      return system.GenTransactionGuard();
+  // Bounded, because threads that join this checker may hold the system lock, or hold state a system-lock holder
+  // waits on.
+  auto guard = std::optional<system::TransactionGuard>{};
+  if constexpr (REQUIRE_LOCK) {
+    guard = system.TryGenTransactionGuard();
+    if (!guard) {
+      spdlog::debug("Replica {}: system lock busy, retrying system recovery on the next check.", client.name_);
+      return;
     }
-    return std::nullopt;
-  });
+  }
 
   DbInfo db_info = std::invoke([&] {
     if (is_enterprise) {
@@ -164,15 +173,13 @@ void SystemRestore(ReplicationClient &client, system::System &system, dbms::Dbms
     if (response.result == SystemRecoveryRes::Result::FAILURE) {
       // System recovery failed; do not record confirmations so the reset is re-advertised on the next
       // SystemRestore.
-      client.state_.WithLock([](auto &state) { state = ReplicationClient::State::BEHIND; });
       return;
     }
   } catch (rpc::RpcFailedException const &) {  // intentionally RpcFailedException and not Generic because we want to
                                                // handle both Generic and timeout type of errors
-    client.state_.WithLock([](auto &state) { state = ReplicationClient::State::BEHIND; });
     return;
   }
-  // Successfully recovered
+  reset_to_behind.Disable();
   client.state_.WithLock([](auto &state) { state = memgraph::replication::ReplicationClient::State::READY; });
 }
 
