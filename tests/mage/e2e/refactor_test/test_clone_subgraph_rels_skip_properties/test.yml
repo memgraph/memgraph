@@ -1,0 +1,11 @@
+query: >
+  MATCH (n:Node)-[r:REL]->(m:Node) WHERE n.id IS NULL
+  RETURN properties(n) AS n, properties(r) AS r, properties(m) AS m;
+
+output:
+  - n:
+      name: A
+    r:
+      w: 1
+    m:
+      name: B

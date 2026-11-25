@@ -1,0 +1,13 @@
+query: >
+  MATCH (a:Node {id: 'a'})
+  CALL refactor.clone_nodes([a], false, ['id'])
+  YIELD output, error
+  RETURN output, error;
+
+output:
+  - output:
+        labels:
+          - Node
+        properties:
+          name: A
+    error: null

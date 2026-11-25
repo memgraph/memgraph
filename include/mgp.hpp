@@ -1861,7 +1861,13 @@ class Return {
 
   Return(std::string_view name, std::pair<Type, Type> list_type);
 
+  /// @brief Returns a copy of this return value that may also be NULL.
+  Return Nullable() const;
+
   mgp_type *GetMGPType() const;
+
+ private:
+  bool nullable_ = false;
 };
 
 class ExecutionHeaders {
@@ -5284,12 +5290,15 @@ inline Return::Return(std::string_view name, Type type) : name(name), type_(type
 inline Return::Return(std::string_view name, std::pair<Type, Type> list_type)
     : name(name), type_(list_type.first), list_item_type_(list_type.second) {}
 
-inline mgp_type *Return::GetMGPType() const {
-  if (type_ == Type::List) {
-    return mgp::type_list(util::ToMGPType(list_item_type_));
-  }
+inline Return Return::Nullable() const {
+  Return nullable{*this};
+  nullable.nullable_ = true;
+  return nullable;
+}
 
-  return util::ToMGPType(type_);
+inline mgp_type *Return::GetMGPType() const {
+  auto *type = type_ == Type::List ? mgp::type_list(util::ToMGPType(list_item_type_)) : util::ToMGPType(type_);
+  return nullable_ ? mgp::type_nullable(type) : type;
 }
 
 inline ExecutionHeaders::ExecutionHeaders(mgp_execution_headers *headers) : headers_(headers) {}

@@ -1,0 +1,19 @@
+query: >
+  MATCH p = (a:Node {id: 'a'})-[:REL]->(b:Node {id: 'b'})
+  CALL refactor.clone_subgraph_from_paths([p], {skipProperties: ['id']})
+  YIELD output, error
+  RETURN output, error;
+
+output:
+  - output:
+        labels:
+          - Node
+        properties:
+          name: A
+    error: null
+  - output:
+        labels:
+          - Node
+        properties:
+          name: B
+    error: null

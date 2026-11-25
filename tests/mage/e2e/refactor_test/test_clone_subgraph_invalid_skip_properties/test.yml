@@ -1,0 +1,7 @@
+query: >
+  MATCH (a:Node {id: 'a'})
+  CALL refactor.clone_subgraph([a], [], {skipProperties: ['id', 1]})
+  YIELD output
+  RETURN output;
+
+exception_contains: "Configuration map must consist of specific keys and values described in documentation."
