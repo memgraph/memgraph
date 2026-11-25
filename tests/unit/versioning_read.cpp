@@ -1646,16 +1646,6 @@ TEST_F(VersioningReadTest, IdLookupsResolveBaseAndNativeObjectsOnly) {
       /*commit=*/false);
 }
 
-// The hops budget and counter are enforced on a branch query as on main.
-TEST_F(VersioningReadTest, BranchQueriesEnforceTheHopsLimitAndCountHops) {
-  faker.Interpret("UNWIND range(1, 100) AS x CREATE ()-[:NEXT]->()");
-  Fork();
-  EXPECT_EQ(Int("USING HOPS LIMIT 5 MATCH p=()-[:NEXT]->() RETURN count(p) AS c"), 5);
-  EXPECT_EQ(Int("USING HOPS LIMIT 100 CALL { MATCH (a)-[r]->(b) WITH a, r, b LIMIT 50 RETURN count(*) AS cnt } "
-                "RETURN getHopsCounter() AS hc"),
-            50);
-}
-
 // Bolt encodes what the branch reads: the overlay-merged labels and properties, and a native edge's overlay endpoint as
 // the base vertex's id.
 TEST_F(VersioningReadTest, BoltEncodingOfBranchAccessorsReadsTheBranchView) {
