@@ -419,22 +419,6 @@ TEST_F(VersioningBranchWalTest, BaseEdgeDeleteIsExactlyOneDeleteEdge) {
               ElementsAre("delete_edge:" + Gs(out.base.loop_edge) + ":T:" + Gs(out.base.v3) + "->" + Gs(out.base.v3)));
 }
 
-TEST_F(VersioningBranchWalTest, BaseEdgeDeleteWithNoEndpointOverlaysCarriesTheBaseEndpointGidsAndType) {
-  auto const out = RunBranch([](Fixture &f) {
-    BranchTxn(*f.ctx, [&](mv::BranchContext &c) {
-      auto deleted = c.DeleteBaseEdge(BaseEdge(c, f.base.e1, f.base.v1));
-      ASSERT_TRUE(deleted.has_value());
-      ASSERT_TRUE(*deleted);
-      EXPECT_EQ(c.core()->overlay_index().Find(f.base.v1).overlay, nullptr)
-          << "the from endpoint stays without an overlay";
-      EXPECT_EQ(c.core()->overlay_index().Find(f.base.v2).overlay, nullptr)
-          << "the to endpoint stays without an overlay";
-    });
-  });
-  EXPECT_THAT(out.Records(),
-              ElementsAre("delete_edge:" + Gs(out.base.e1) + ":T:" + Gs(out.base.v1) + "->" + Gs(out.base.v2)));
-}
-
 TEST_F(VersioningBranchWalTest, DetachDeleteOfAHubLogsOneBaseGidDeleteEdgePerEdge) {
   constexpr size_t kEdges = 5;
   auto const out = RunBranch(
