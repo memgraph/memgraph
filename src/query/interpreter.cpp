@@ -3474,6 +3474,33 @@ Callback HandleSettingQuery(SettingQuery *setting_query, const Parameters &param
 
 #ifdef MG_ENTERPRISE
 namespace {
+// Whether a tenant without a valid license accepts the query before it is planned: one that leaves the tenant's data
+// and durable state alone, reads them, or copies them out. A Cypher, PROFILE or EXPLAIN query is accepted here and
+// refused after planning if the planner types it as a write.
+bool AllowedOnUnlicensedTenant(Query *query) {
+  if (auto const *parameter_query = utils::Downcast<ParameterQuery>(query)) {
+    return parameter_query->is_global_scope_;
+  }
+  if (auto const *isolation_level_query = utils::Downcast<IsolationLevelQuery>(query)) {
+    return isolation_level_query->isolation_level_scope_ != IsolationLevelQuery::IsolationLevelScope::GLOBAL;
+  }
+  if (!query->Traits().operates_on_graph_data) return true;
+  if (auto const *trigger_query = utils::Downcast<TriggerQuery>(query)) {
+    return trigger_query->action_ == TriggerQuery::Action::SHOW_TRIGGERS;
+  }
+  if (auto const *stream_query = utils::Downcast<StreamQuery>(query)) {
+    return stream_query->action_ == StreamQuery::Action::SHOW_STREAMS;
+  }
+  if (auto const *description_query = utils::Downcast<DescriptionQuery>(query)) {
+    return description_query->action_ == DescriptionQuery::Action::SHOW_ALL;
+  }
+  return utils::Downcast<CypherQuery>(query) || utils::Downcast<ProfileQuery>(query) ||
+         utils::Downcast<ExplainQuery>(query) || utils::Downcast<DatabaseInfoQuery>(query) ||
+         utils::Downcast<ShowEnumsQuery>(query) || utils::Downcast<ShowSnapshotsQuery>(query) ||
+         utils::Downcast<ShowNextSnapshotQuery>(query) || utils::Downcast<CreateSnapshotQuery>(query) ||
+         utils::Downcast<DumpQuery>(query) || utils::Downcast<ShowSchemaInfoQuery>(query);
+}
+
 // Whether an unlicensed instance in FIPS mode accepts the query: SHOW LICENSE INFO, so a client can tell why it is
 // refused, SHOW DATABASE SETTINGS, and setting one of the two settings that license it, so that a license delivered
 // over Bolt can still reach it and a client can read before it writes.
@@ -9160,12 +9187,6 @@ PreparedQuery PrepareUseDatabaseQuery(ParsedQuery parsed_query, CurrentDB &curre
                                       InterpreterContext *interpreter_context,
                                       std::optional<std::function<void(std::string_view)>> on_change_cb) {
 #ifdef MG_ENTERPRISE
-  if (!license::global_license_checker.IsEnterpriseValidFast()) {
-    throw QueryException(
-        "Trying to use enterprise feature without a valid license. Check your license status by running SHOW LICENSE "
-        "INFO.");
-  }
-
   auto *query = utils::Downcast<UseDatabaseQuery>(parsed_query.query);
   auto *db_handler = interpreter_context->dbms_handler;
 
@@ -9216,12 +9237,6 @@ PreparedQuery PrepareUseDatabaseQuery(ParsedQuery parsed_query, CurrentDB &curre
 
 PreparedQuery PrepareShowDatabaseQuery(ParsedQuery parsed_query, CurrentDB &current_db) {
 #ifdef MG_ENTERPRISE
-  if (!license::global_license_checker.IsEnterpriseValidFast()) {
-    throw QueryException(
-        "Trying to use enterprise feature without a valid license. Check your license status by running SHOW LICENSE "
-        "INFO.");
-  }
-
   return PreparedQuery{
       .header = {"Current"},
       .privileges = std::move(parsed_query.required_privileges),
@@ -9252,11 +9267,6 @@ PreparedQuery PrepareShowDatabaseQuery(ParsedQuery parsed_query, CurrentDB &curr
 PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, InterpreterContext *interpreter_context,
                                         std::shared_ptr<QueryUserOrRole> user_or_role) {
 #ifdef MG_ENTERPRISE
-  if (!license::global_license_checker.IsEnterpriseValidFast()) {
-    throw QueryRuntimeException(
-        license::LicenseCheckErrorToString(license::LicenseCheckError::NOT_ENTERPRISE_LICENSE, "multi-tenancy"));
-  }
-
   auto *db_handler = interpreter_context->dbms_handler;
   AuthQueryHandler *auth = interpreter_context->auth;
 
@@ -10814,6 +10824,16 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     query_execution->query_string = parse_info.parsed_query.query_string;
     memgraph::logging::EmitSessionTraceEvent("Query parsing time: {}", parse_info.parsing_time);
 
+#ifdef MG_ENTERPRISE
+    // Without a license, databases other than the default are read-only. A query the allowlist refuses is refused
+    // before it waits for storage access; a Cypher write is refused once planning has typed it.
+    bool const on_unlicensed_tenant = current_db_.db_acc_ && current_db_.db_acc_->get()->name() != dbms::kDefaultDB &&
+                                      !license::global_license_checker.IsEnterpriseValidFast();
+    if (on_unlicensed_tenant && !AllowedOnUnlicensedTenant(parsed_query.query)) {
+      throw WriteQueryOnUnlicensedTenantException(current_db_.db_acc_->get()->name());
+    }
+#endif
+
     // The first statement fixes the transaction's mode, and the two are mutually exclusive: an auth transaction
     // releases the accessor BEGIN opened (see PrepareAuthQuery), so a later data query would have none to run
     // against. A refusal fails the transaction like any other error in this block.
@@ -11329,6 +11349,11 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
       }
 #endif
     }
+#ifdef MG_ENTERPRISE
+    if (on_unlicensed_tenant && IsQueryWrite(rw_type)) {
+      throw WriteQueryOnUnlicensedTenantException(current_db_.db_acc_->get()->name());
+    }
+#endif
 
     // Set the target db to the current db (some queries have different target from the current db)
     if (!query_execution->prepared_query->db) {

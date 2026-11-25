@@ -19,6 +19,7 @@
 #include <tuple>
 #include <type_traits>
 
+#include "dbms/constants.hpp"
 #include "dbms/database.hpp"
 #include "dbms/database_protector.hpp"
 #include "disk_test_utils.hpp"
@@ -185,6 +186,7 @@ class TTLFixture : public ::testing::Test {
   memgraph::storage::Config config{
       [&]() {
         memgraph::storage::Config config{};
+        config.salient.name = memgraph::dbms::kDefaultDB;
         config.durability.storage_directory = data_directory_;
         config.disk.main_storage_directory = config.durability.storage_directory / "disk";
         config.salient.items.properties_on_edges = PropOnEdge::value;
@@ -616,6 +618,7 @@ TEST(TtlInfo, String) {
 TEST(TTLUserCheckTest, UserCheckFunctionality) {
   // Create a simple storage for testing
   memgraph::storage::Config config{};
+  config.salient.name = memgraph::dbms::kDefaultDB;
   config.durability.storage_directory = std::filesystem::temp_directory_path() / ("ttl_user_check_test-" + ProcessId());
   std::filesystem::remove_all(config.durability.storage_directory);
 

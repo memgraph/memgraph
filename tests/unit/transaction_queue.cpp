@@ -43,6 +43,7 @@ class TransactionQueueSimpleTest : public ::testing::Test {
   memgraph::storage::Config config{
       [&]() {
         memgraph::storage::Config config{};
+        config.salient.name = memgraph::dbms::kDefaultDB;
         config.durability.storage_directory = data_directory;
         config.disk.main_storage_directory = config.durability.storage_directory / "disk";
         if constexpr (std::is_same_v<StorageType, memgraph::storage::DiskStorage>) {
@@ -473,10 +474,9 @@ TYPED_TEST(TransactionQueueSimpleTest, StatusColumnInHeader) {
 
 TYPED_TEST(TransactionQueueSimpleTest, DatabaseColumnPresentWithCorrectArity) {
   // Pins the "database" column: it must exist at index 7, and the row must stay 8 wide --
-  // that's what actually breaks on a revert. This fixture never sets config.salient.name, so
-  // this->db->name() is the empty string; the EXPECT_EQ below therefore only proves the column
-  // carries the fixture's (empty) name, not that ShowTransactions reports a real, non-empty
-  // per-session database name. That value-level check lives in
+  // that's what actually breaks on a revert. This fixture has a single database, so the
+  // EXPECT_EQ below only proves the column carries that database's name, not that
+  // ShowTransactions reports each session's own database. That value-level check lives in
   // tests/e2e/transaction_queue/test_transaction_queue.py::test_show_transactions_database_column.
   //
   // The column is the last one appended by ShowTransactions, sourced from CurrentDB::name().
@@ -617,9 +617,8 @@ TYPED_TEST(TransactionQueueSimpleTest, CurrentDBChurnVsForeignDbViewNoTornReads)
 // auth's own logic, which has its own coverage.
 
 TYPED_TEST(TransactionQueueSimpleTest, PassesTheTargetSessionsDatabaseToThePrivilegeChecker) {
-  // The fixture's Config leaves salient.name empty, which a real tenant never is; without a name the target would
-  // short-circuit into the "holds no database" refusal and never reach the checker. Named the way
-  // DbmsHandler::Rename does it.
+  // Renamed from the fixture's default database, so the name the checker receives can only come from the target
+  // session and not from the default-database fallback. Named the way DbmsHandler::Rename does it.
   this->db->storage()->config_.salient.name = "tenant_a";
 
   auto &target = this->running_interpreter.interpreter;

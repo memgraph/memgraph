@@ -18,6 +18,7 @@
 #include <thread>
 #include <utility>
 
+#include "dbms/constants.hpp"
 #include "interpreter_faker.hpp"
 #include "query/exceptions.hpp"
 #include "query/interpreter_context.hpp"
@@ -81,7 +82,8 @@ class StorageModeMultiTxTest : public ::testing::Test {
   void TearDown() override { std::filesystem::remove_all(data_directory); }
 
   memgraph::storage::Config config{.durability.storage_directory = data_directory,
-                                   .disk.main_storage_directory = data_directory / "disk"};
+                                   .disk.main_storage_directory = data_directory / "disk",
+                                   .salient.name = memgraph::dbms::kDefaultDB};
   memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
 
       memgraph::storage::ReplicationStateRootPath(config)};

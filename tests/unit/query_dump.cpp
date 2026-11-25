@@ -417,6 +417,7 @@ class DumpTest : public ::testing::Test {
   memgraph::storage::Config config{
       [&]() {
         memgraph::storage::Config config{};
+        config.salient.name = memgraph::dbms::kDefaultDB;
         config.durability.storage_directory = data_directory;
         config.disk.main_storage_directory = config.durability.storage_directory / "disk";
         if constexpr (std::is_same_v<StorageType, memgraph::storage::DiskStorage>) {
@@ -1531,6 +1532,8 @@ TYPED_TEST(DumpTest, CheckStateVertexWithMultipleProperties) {
   }
 
   memgraph::storage::Config config{};
+
+  config.salient.name = memgraph::dbms::kDefaultDB;
   config.durability.storage_directory = this->data_directory / "s1";
   config.disk.main_storage_directory = config.durability.storage_directory / "disk";
   if constexpr (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
@@ -1740,6 +1743,7 @@ TYPED_TEST(DumpTest, CheckStateSimpleGraph) {
 
   const auto &db_initial_state = GetState(this->db->storage());
   memgraph::storage::Config config{};
+  config.salient.name = memgraph::dbms::kDefaultDB;
   config.durability.storage_directory = this->data_directory / "s2";
   config.disk.main_storage_directory = config.durability.storage_directory / "disk";
   if constexpr (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
