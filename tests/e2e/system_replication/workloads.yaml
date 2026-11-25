@@ -14,3 +14,6 @@ workloads:
   - name: "Hot/cold tenant convergence"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["system_replication/hot_cold_convergence.py"]
+  - name: "Licence loss"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["system_replication/licence_loss.py"]
