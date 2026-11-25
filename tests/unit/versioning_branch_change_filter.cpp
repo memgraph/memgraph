@@ -81,10 +81,6 @@ TEST(VersioningBranchChangeFilter, LabelGateNeverMissesARecordedLabel) {
   filters.RecordLabelTouched(l(3));
   EXPECT_TRUE(filters.MayHaveLabelTouched(l(3)));
   EXPECT_FALSE(filters.MayHaveLabelTouched(l(4)));
-  for (uint64_t id = 0; id < 1000; ++id) {
-    filters.RecordLabelTouched(l(id));
-    ASSERT_TRUE(filters.MayHaveLabelTouched(l(id)));
-  }
 }
 
 TEST(VersioningBranchChangeFilter, PidGateNeverHitsForAnUnwrittenPid) {

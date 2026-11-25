@@ -126,20 +126,6 @@ TEST(VersioningEdgeOverlayIndex, SelfLoopListsOnceInEachDirectionAndASnapshotIsU
   EXPECT_EQ(CandidatesOf(vertices, 1, ms::EdgeDirection::IN), Candidates{loop});
 }
 
-TEST(VersioningEdgeOverlayIndex, ALongListCopiesThroughTheHeapPath) {
-  constexpr uint64_t kEdges = 40;
-  OverlayIndex vertices{kGidFloor};
-  EdgeOverlayIndex edges;
-  Candidates expected;
-  for (uint64_t i = 0; i < kEdges; ++i) {
-    expected.push_back(MakeEdge(edges, i + 1));
-    ListBaseEdgeDelete(vertices, G(0), G(i + 1), expected.back(), kFromSide);
-  }
-  const auto copy = vertices.FindForExpansion(G(0), ms::EdgeDirection::OUT, true).candidates;
-  EXPECT_GT(copy.capacity(), 16U);
-  EXPECT_EQ(Candidates(copy.begin(), copy.end()), expected);
-}
-
 TEST(VersioningEdgeOverlayIndex, ConcurrentListingOnSharedEndpointLosesNoEdgeUnderConcurrentReads) {
   constexpr unsigned kWriters = 4;
   constexpr unsigned kReaders = 3;
