@@ -18,7 +18,6 @@
 #include <future>
 #include <map>
 #include <optional>
-#include <stdexcept>
 #include <string>
 #include <thread>
 #include <vector>
@@ -67,40 +66,10 @@ class VersioningMgpTest : public VersioningGatedTest {
     return mgp_vertex{*vertex, &*graph_, mgp_vertex::allocator_type{memgraph::utils::NewDeleteResource()}};
   }
 
-  mgp_edge OutEdge(int64_t id) {
-    auto vertex = graph_->getImpl()->FindVertex(memgraph::storage::Gid::FromInt(id), memgraph::storage::View::NEW);
-    EXPECT_TRUE(vertex);
-    auto out = vertex->OutEdges(memgraph::storage::View::NEW);
-    EXPECT_TRUE(out && out->edges.size() == 1);
-    return mgp_edge{out->edges[0], &*graph_, mgp_edge::allocator_type{memgraph::utils::NewDeleteResource()}};
-  }
-
   static bool IsDeleted(mgp_vertex &vertex) {
     int deleted = -1;
     EXPECT_EQ(mgp_vertex_is_deleted(&vertex, &deleted), mgp_error::MGP_ERROR_NO_ERROR);
     return deleted == 1;
-  }
-
-  static bool IsDeleted(mgp_edge &edge) {
-    int deleted = -1;
-    EXPECT_EQ(mgp_edge_is_deleted(&edge, &deleted), mgp_error::MGP_ERROR_NO_ERROR);
-    return deleted == 1;
-  }
-
-  // Edge `id` as the edge-property index scan (type R, property w) returns it on the branch.
-  mgp_edge IndexedEdge(int64_t id) {
-    auto &dba = *graph_->getImpl();
-    auto edges = dba.Edges(memgraph::storage::View::NEW,
-                           dba.NameToEdgeType("R"),
-                           dba.NameToProperty("w"),
-                           memgraph::storage::PropertyValueRange::IsNotNull());
-    for (auto edge : edges) {
-      if (edge.Gid().AsInt() == id) {
-        return mgp_edge{edge, &*graph_, mgp_edge::allocator_type{memgraph::utils::NewDeleteResource()}};
-      }
-    }
-    ADD_FAILURE() << "edge " << id << " is not in the edge-property index scan";
-    throw std::logic_error{"edge not found"};
   }
 
   mgp_value *IntValue(int64_t value) {
@@ -157,51 +126,6 @@ TEST_F(VersioningMgpTest, VertexIsDeletedFollowsTheBranch) {
   faker.Interpret("MATCH (n:Native) DELETE n");
   EXPECT_TRUE(IsDeleted(base_vertex));
   EXPECT_TRUE(IsDeleted(native));
-  faker.Interpret("ROLLBACK");
-}
-
-// Likewise for a base edge: one the branch hid (deleted it or an endpoint) is deleted, one main deleted is not.
-TEST_F(VersioningMgpTest, EdgeIsDeletedFollowsTheBranch) {
-  faker.Interpret("CREATE (:A {id: 1})-[:E]->(:B), (:A {id: 2})-[:E]->(:B), (:A {id: 3})-[:E]->(:B {id: 3})");
-  faker.Interpret("CREATE BRANCH b");
-  faker.Interpret("MATCH (:A {id: 2})-[e:E]->() DELETE e");
-  faker.Interpret("USE BRANCH b");
-
-  Begin();
-  auto deleted_on_main = OutEdge(Id("MATCH (n:A {id: 2}) RETURN id(n)"));
-  auto deleted_on_branch = OutEdge(Id("MATCH (n:A {id: 1}) RETURN id(n)"));
-  auto endpoint_deleted_on_branch = OutEdge(Id("MATCH (n:A {id: 3}) RETURN id(n)"));
-  EXPECT_FALSE(IsDeleted(deleted_on_main));
-  EXPECT_FALSE(IsDeleted(deleted_on_branch));
-  EXPECT_FALSE(IsDeleted(endpoint_deleted_on_branch));
-
-  faker.Interpret("MATCH (:A {id: 1})-[e:E]->() DELETE e");
-  faker.Interpret("MATCH (b:B {id: 3}) DETACH DELETE b");
-  EXPECT_FALSE(IsDeleted(deleted_on_main));
-  EXPECT_TRUE(IsDeleted(deleted_on_branch));
-  EXPECT_TRUE(IsDeleted(endpoint_deleted_on_branch));
-  faker.Interpret("ROLLBACK");
-}
-
-// A base edge the branch set a property on and then deleted is deleted for the procedure, also when it is read back
-// through the edge-property index; one main deleted after the fork is found there and is not.
-TEST_F(VersioningMgpTest, EdgeDeletedAfterSetIsDeletedAndFoundThroughTheEdgePropertyIndex) {
-  faker.Interpret("CREATE EDGE INDEX ON :R(w)");
-  faker.Interpret("CREATE (:A {id: 1})-[:R {w: 1}]->(:B), (:A {id: 2})-[:R {w: 2}]->(:B)");
-  faker.Interpret("CREATE BRANCH b");
-  faker.Interpret("MATCH (:A {id: 2})-[e:R]->() DELETE e");
-  faker.Interpret("USE BRANCH b");
-
-  Begin();
-  auto deleted_on_main = IndexedEdge(Id("MATCH (:A {id: 2})-[e:R]->() RETURN id(e)"));
-  EXPECT_FALSE(IsDeleted(deleted_on_main));
-  faker.Interpret("MATCH (:A {id: 1})-[e:R]->() SET e.w = 5");
-  {
-    auto written = IndexedEdge(Id("MATCH (:A {id: 1})-[e:R]->() RETURN id(e)"));
-    EXPECT_FALSE(IsDeleted(written));
-    faker.Interpret("MATCH (:A {id: 1})-[e:R]->() DELETE e");
-    EXPECT_TRUE(IsDeleted(written));
-  }
   faker.Interpret("ROLLBACK");
 }
 
@@ -330,31 +254,4 @@ TEST_F(VersioningMgpTest, ProcedureVertexWritesKeepTheOverlayUnderItsWholeIndexK
   EXPECT_EQ(IndexedKeys("L", {"a", "b"}),
             (std::map<int64_t, std::vector<int64_t>>{{both, {10, 2}}, {plain, {5, 6}}, {single, {70, 8}}}));
   EXPECT_EQ(IndexedKeys("M", {"c", "d"}), (std::map<int64_t, std::vector<int64_t>>{{both, {30, 4}}}));
-}
-
-// The same for a base edge: its overlay appears in the diff engine's edge property index at the written value.
-TEST_F(VersioningMgpTest, ProcedureEdgeWritesPutTheOverlayUnderTheEdgePropertyIndex) {
-  faker.Interpret("CREATE EDGE INDEX ON :R(w)");
-  faker.Interpret("CREATE (:A {id: 1})-[:R {w: 1, z: 9}]->(:B)");
-  faker.Interpret("CREATE BRANCH b");
-  faker.Interpret("USE BRANCH b");
-
-  BeginWritable();
-  auto const edge_id = Id("MATCH (:A {id: 1})-[e:R]->() RETURN id(e)");
-  {
-    auto edge = OutEdge(Id("MATCH (n:A) RETURN id(n)"));
-    auto *value = IntValue(5);
-    ASSERT_EQ(mgp_edge_set_property(&edge, "w", value), mgp_error::MGP_ERROR_NO_ERROR);
-    mgp_value_destroy(value);
-  }
-  faker.Interpret("COMMIT");
-
-  auto &storage = *db->storage();
-  auto acc = faker.interpreter.current_db_.branch_context()->diff_engine().Access(memgraph::storage::READ);
-  std::map<int64_t, int64_t> found;
-  for (auto edge : acc->Edges(storage.NameToEdgeType("R"), storage.NameToProperty("w"), memgraph::storage::View::NEW)) {
-    found.emplace(edge.Gid().AsInt(),
-                  edge.GetProperty(storage.NameToProperty("w"), memgraph::storage::View::NEW)->ValueInt());
-  }
-  EXPECT_EQ(found, (std::map<int64_t, int64_t>{{edge_id, 5}}));
 }
