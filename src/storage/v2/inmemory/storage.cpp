@@ -1213,7 +1213,7 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
   };
 
   // Specific case in which durability mode is != PERIODIC_SNAPSHOT_WITH_WAL
-  if (!mem_storage->InitializeWalFile(epoch_id)) {
+  if (!commit_args.wal_allowed() || !mem_storage->InitializeWalFile(epoch_id)) {
     with_engine_lock([&] { FinalizeCommitPhase(durability_commit_timestamp, engine_guard); });
     // No WAL file, hence no need to finalize it
     return {};
@@ -5255,6 +5255,20 @@ void InMemoryStorage::FreeMemory(utils::ResourceLockGuard main_guard, bool perio
 }
 
 uint64_t InMemoryStorage::GetCommitTimestamp() { return timestamp_++; }
+
+#ifdef MG_ENTERPRISE
+void InMemoryStorage::BumpClockPastDurable(uint64_t min_next) {
+  auto guard = std::scoped_lock{engine_lock_};
+  auto const ldt = repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_;
+  auto const target = std::max(ldt + 1, min_next);
+  if (timestamp_ >= target) return;
+  // Ids in [timestamp_, target) were never handed out, so no transaction can hold them: mark them finished or the
+  // oldest-active id would stall at the gap and block GC.
+  auto const first_skipped = timestamp_;
+  SetTimestampQuiescent(target);
+  commit_log_->MarkFinishedInRange(first_skipped, target - 1);
+}
+#endif
 
 void InMemoryStorage::PrepareForNewEpoch() {
   // Committer lock order: keeps this WAL reset from racing a committer's WAL append.
