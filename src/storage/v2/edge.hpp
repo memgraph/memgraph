@@ -43,10 +43,33 @@ struct Edge {
 
   void SetDeleted(bool b) { delta_.Set<kDeletedBit>(b ? 1 : 0); }
 
+#ifdef MG_ENTERPRISE
+  // Whether a branch ever wrote this edge (base-edge reads short-circuit on it); set only with properties_on_edges.
+  // Same monotonic, lock-free-read contract as Vertex::branched().
+  bool branched() const { return delta_.GetRelaxed<kBranchedBit>(); }
+
+  // Caller MUST hold `lock`.
+  void SetBranched() { delta_.AtomicSetBit<kBranchedBit>(); }
+#endif
+
+  // Fast-discard cleanup, runs without `lock`; enterprise must not lose a concurrent SetBranched.
+  void ClearDeltaUnlocked() {
+#ifdef MG_ENTERPRISE
+    delta_.AtomicSetPtr(nullptr);
+#else
+    SetDelta(nullptr);
+#endif
+  }
+
  private:
   static constexpr int kDeletedBit = 0;
+#ifdef MG_ENTERPRISE
+  static constexpr int kBranchedBit = 1;
 
+  utils::PointerPack<Delta, 2> delta_{};
+#else
   utils::PointerPack<Delta, 1> delta_{};
+#endif
 };
 
 static_assert(alignof(Edge) >= 8, "The Edge should be aligned to at least 8!");
