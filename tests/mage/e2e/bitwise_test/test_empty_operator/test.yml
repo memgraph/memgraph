@@ -1,0 +1,4 @@
+query: >
+  RETURN bitwise.op(60, '', 13) AS result;
+output:
+  - result: null

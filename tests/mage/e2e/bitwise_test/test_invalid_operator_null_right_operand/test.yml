@@ -1,0 +1,6 @@
+# The null checks run before the operator is looked at, so this is null rather than an error (intentional, for
+# compatibility).
+query: >
+  RETURN bitwise.op(60, 'NAND', null) AS result;
+output:
+  - result: null

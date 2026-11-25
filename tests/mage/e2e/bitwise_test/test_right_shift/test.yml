@@ -1,0 +1,6 @@
+query: >
+  RETURN bitwise.op(60, '>>', 2) AS symbol, bitwise.op(60, 'RIGHT SHIFT', 2) AS word, bitwise.op(-60, '>>', 2) AS negative;
+output:
+  - symbol: 15
+    word: 15
+    negative: -15

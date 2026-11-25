@@ -1,0 +1,5 @@
+query: >
+  MATCH (u:User) WHERE bitwise.op(u.permissions, '&', 4) <> 0 RETURN u.name AS name ORDER BY name;
+output:
+  - name: alice
+  - name: carol

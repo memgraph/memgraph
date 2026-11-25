@@ -1,0 +1,6 @@
+query: >
+  RETURN bitwise.op(null, '&', 13) AS null_a, bitwise.op(60, null, 13) AS null_operator, bitwise.op(60, '&', null) AS null_b;
+output:
+  - null_a: null
+    null_operator: null
+    null_b: null

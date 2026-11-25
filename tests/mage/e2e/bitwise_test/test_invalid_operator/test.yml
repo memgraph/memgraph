@@ -1,0 +1,4 @@
+query: >
+  RETURN bitwise.op(60, 'NAND', 13) AS result;
+exception_contains: >
+  Invalid bitwise operator : 'NAND'

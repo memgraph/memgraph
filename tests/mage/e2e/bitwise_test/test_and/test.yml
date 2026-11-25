@@ -1,0 +1,5 @@
+query: >
+  RETURN bitwise.op(60, '&', 13) AS symbol, bitwise.op(60, 'AND', 13) AS word;
+output:
+  - symbol: 12
+    word: 12

@@ -1,0 +1,5 @@
+query: >
+  RETURN bitwise.op(1, '<<', 63) AS to_sign_bit, bitwise.op(9223372036854775807, '<<', 1) AS wrapped;
+output:
+  - to_sign_bit: -9223372036854775808
+    wrapped: -2

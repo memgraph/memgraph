@@ -1,0 +1,7 @@
+# As in Java, only the six low bits of the shift distance are used.
+query: >
+  RETURN bitwise.op(1, '<<', 64) AS by_64, bitwise.op(1, '<<', 65) AS by_65, bitwise.op(1, '<<', -1) AS by_minus_1;
+output:
+  - by_64: 1
+    by_65: 2
+    by_minus_1: -9223372036854775808
