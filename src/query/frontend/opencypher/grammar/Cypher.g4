@@ -70,7 +70,9 @@ explainQuery : EXPLAIN cypherQuery ;
 
 profileQuery : PROFILE cypherQuery ;
 
-cypherQuery : singleQuery ( cypherUnion )* ( queryMemoryLimit )? ;
+cypherQuery : regularQuery ( queryMemoryLimit )? ;
+
+regularQuery : singleQuery ( cypherUnion )* | conditionalQuery ;
 
 indexQuery : createIndex | dropIndex;
 
@@ -84,7 +86,7 @@ conditionalQuery : conditionalBranch+ ( ELSE conditionalBody )? ;
 
 conditionalBranch : WHEN expression THEN conditionalBody ;
 
-conditionalBody : '{' ( conditionalQuery | cypherQuery ) '}' | singleQuery ;
+conditionalBody : '{' cypherQuery '}' | singleQuery ;
 
 clause : cypherMatch
        | unwind
@@ -368,7 +370,6 @@ extractExpression : idInColl '|' expression ;
 existsExpression : forcePatternPart | .* ;
 
 subqueryBody : pattern where?
-             | conditionalQuery
              | cypherQuery
              ;
 

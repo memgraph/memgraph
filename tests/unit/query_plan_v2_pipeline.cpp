@@ -379,6 +379,13 @@ TEST_F(PlannerV2PipelineTest, OptionalCallSubqueryIsRejected) {
   EXPECT_THROW(ConvertToEgraph(*optional_call, optional_symbols, parameters), NotYetImplemented);
 }
 
+TEST_F(PlannerV2PipelineTest, TopLevelConditionalIsRejected) {
+  auto *query = ParseQuery("WHEN $a THEN RETURN 1 AS x ELSE RETURN 2 AS x;");
+  ASSERT_NE(query, nullptr);
+  auto symbols = MakeSymbolTable(query);
+  EXPECT_THROW(ConvertToEgraph(*query, symbols), NotYetImplemented);
+}
+
 TEST_F(PlannerV2PipelineTest, ExtractedSymbolPositionsResolveInCompactTable) {
   // Guards the compact-SymbolTable contract: ConvertToLogicalOperator returns a
   // compact SymbolTable alongside the plan, PlanQuery installs it as the
