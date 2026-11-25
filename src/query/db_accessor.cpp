@@ -20,9 +20,32 @@
 #include "storage/v2/indices/text_index_utils.hpp"
 #include "storage/v2/indices/vector_edge_index.hpp"
 #include "storage/v2/indices/vector_index.hpp"
+#include "storage/v2/indices/vector_property_conflicts.hpp"
+#include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/storage_mode.hpp"
 
 namespace memgraph::query {
+void DbAccessor::ThrowOnVectorPropertyConflict(
+    storage::IndicesInfo proposed,
+    std::vector<std::pair<storage::LabelId, std::set<storage::PropertyId>>> proposed_unique) const {
+  auto &name_id_mapper = *accessor_->GetNameIdMapper();
+  auto indices = ListAllIndices();
+
+  if (!proposed.vector_indices_spec.empty() || !proposed.vector_edge_indices_spec.empty()) {
+    indices.vector_indices_spec = std::move(proposed.vector_indices_spec);
+    indices.vector_edge_indices_spec = std::move(proposed.vector_edge_indices_spec);
+    auto const conflicts = storage::FindVectorPropertyConflicts(indices, ListAllConstraints().unique, name_id_mapper);
+    if (!conflicts.empty()) throw QueryRuntimeException(storage::VectorIndexOnIndexedPropertyError(conflicts.front()));
+    return;
+  }
+
+  if (indices.vector_indices_spec.empty() && indices.vector_edge_indices_spec.empty()) return;
+  proposed.vector_indices_spec = std::move(indices.vector_indices_spec);
+  proposed.vector_edge_indices_spec = std::move(indices.vector_edge_indices_spec);
+  auto const conflicts = storage::FindVectorPropertyConflicts(proposed, proposed_unique, name_id_mapper);
+  if (!conflicts.empty()) throw QueryRuntimeException(storage::OrdinaryIndexOnVectorPropertyError(conflicts.front()));
+}
+
 SubgraphDbAccessor::SubgraphDbAccessor(query::DbAccessor db_accessor, Graph *graph)
     : db_accessor_(db_accessor), graph_(graph) {}
 
