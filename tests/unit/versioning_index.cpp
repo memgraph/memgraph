@@ -20,7 +20,7 @@
 #include <filesystem>
 #include <functional>
 #include <limits>
-#include <map>
+#include <numeric>
 #include <optional>
 #include <random>
 #include <ranges>
@@ -939,147 +939,6 @@ TEST_F(VersioningIndexTest, ConcurrentIndexScansSeeExactlyOneHolderOfAMovingLabe
   EXPECT_EQ(IntRows(main_session, "MATCH (n:A) RETURN count(n)"), (Rows{{kVertices}}));
 }
 
-namespace {
-
-struct ModelVertex {
-  int64_t id;
-  std::set<std::string> labels;
-  std::optional<int64_t> p;
-};
-
-using Model = std::map<int64_t, ModelVertex>;
-
-Rows IdRows(Model const &model, auto &&keep) {
-  Rows rows;
-  for (auto const &[id, vertex] : model) {
-    if (keep(vertex)) rows.push_back({id});
-  }
-  return rows;
-}
-
-void RandomBranchWrite(InterpreterFaker &session, std::mt19937 &rng, Model &model, int64_t &next_native_id) {
-  auto const pick = [&](int64_t bound) { return static_cast<int64_t>(rng() % static_cast<uint64_t>(bound)); };
-  auto const target = [&]() -> std::optional<int64_t> {
-    if (model.empty()) return std::nullopt;
-    auto it = model.begin();
-    std::advance(it, pick(static_cast<int64_t>(model.size())));
-    return it->first;
-  };
-  bool const rolled_back = pick(6) == 0;
-  auto const run = [&](std::string const &statement) {
-    if (!rolled_back) {
-      session.Interpret(statement);
-      return;
-    }
-    session.Interpret("BEGIN");
-    session.Interpret(statement);
-    session.Interpret("ROLLBACK");
-  };
-  auto const match = [](int64_t id) { return "MATCH (n {id: " + std::to_string(id) + "}) "; };
-
-  auto const id = target();
-  auto const kind = pick(7);
-  if (kind == 6 || !id) {
-    auto const native = next_native_id++;
-    auto const p = pick(8);
-    run("CREATE (:L {id: " + std::to_string(native) + ", p: " + std::to_string(p) + "})");
-    if (!rolled_back) model[native] = ModelVertex{native, {"L"}, p};
-    return;
-  }
-  auto &vertex = model.at(*id);
-  switch (kind) {
-    case 0: {
-      auto const label = pick(2) == 0 ? "L" : "K";
-      run(match(*id) + "SET n:" + label);
-      if (!rolled_back) vertex.labels.insert(label);
-      break;
-    }
-    case 1: {
-      auto const label = pick(2) == 0 ? "L" : "K";
-      run(match(*id) + "REMOVE n:" + label);
-      if (!rolled_back) vertex.labels.erase(label);
-      break;
-    }
-    case 2:
-    case 3: {
-      auto const p = pick(8);
-      run(match(*id) + "SET n.p = " + std::to_string(p));
-      if (!rolled_back) vertex.p = p;
-      break;
-    }
-    case 4:
-      run(match(*id) + "REMOVE n.p");
-      if (!rolled_back) vertex.p.reset();
-      break;
-    default:
-      run(match(*id) + "DETACH DELETE n");
-      if (!rolled_back) model.erase(*id);
-      break;
-  }
-}
-
-}  // namespace
-
-// Under random writes, some rolled back, every scan (the label-property one in index order) must equal the hand-kept
-// model after each write, and again inside one explicit transaction.
-TEST_F(VersioningIndexTest, BranchScansEqualAModelOfBaseAndNativeWrites) {
-  faker.Interpret("CREATE INDEX ON :L");
-  faker.Interpret("CREATE INDEX ON :K");
-  faker.Interpret("CREATE INDEX ON :L(p)");
-  faker.Interpret("CREATE GLOBAL INDEX ON :(p)");
-  Model model;
-  for (int64_t id = 0; id < 14; ++id) {
-    std::string const props = "id: " + std::to_string(id) + (id % 3 == 0 ? "" : ", p: " + std::to_string(id % 5));
-    faker.Interpret(std::string(id % 2 == 0 ? "CREATE (:L {" : "CREATE (:L:K {") + props + "})");
-    model[id] = ModelVertex{id,
-                            id % 2 == 0 ? std::set<std::string>{"L"} : std::set<std::string>{"L", "K"},
-                            id % 3 == 0 ? std::nullopt : std::optional<int64_t>{id % 5}};
-  }
-  Fork();
-  ExpectPlanUses(faker, "MATCH (n:K) RETURN n.id", "ScanAllByLabel");
-  ExpectPlanUses(faker, "MATCH (n:L) WHERE n.p >= 0 RETURN n.id", "ScanAllByLabelProperties");
-  ExpectPlanUses(faker, "MATCH (n) WHERE n.p >= 0 RETURN n.id", "ScanAllByVertexProperty");
-
-  auto const expect_model = [&](std::string const &where) {
-    auto const has_label = [](ModelVertex const &v) { return v.labels.contains("L"); };
-    auto const has_p = [](ModelVertex const &v) { return v.p.has_value(); };
-    auto const everything = [](ModelVertex const &) { return true; };
-    EXPECT_EQ(IntRows(faker, "MATCH (n:L) RETURN n.id ORDER BY n.id"), IdRows(model, has_label)) << where;
-    EXPECT_EQ(IntRows(faker, "MATCH (n:L) WHERE n.p >= 0 RETURN n.id ORDER BY n.id"),
-              IdRows(model, [&](auto const &v) { return has_label(v) && has_p(v); }))
-        << where;
-    EXPECT_EQ(IntRows(faker, "MATCH (n) WHERE n.p >= 0 RETURN n.id ORDER BY n.id"), IdRows(model, has_p)) << where;
-    EXPECT_EQ(IntRows(faker, "MATCH (n) RETURN n.id ORDER BY n.id"), IdRows(model, everything)) << where;
-    EXPECT_EQ(IntRows(faker, "MATCH (n) WHERE 'L' IN labels(n) RETURN n.id ORDER BY n.id"), IdRows(model, has_label))
-        << where;
-    EXPECT_EQ(IntRows(faker, "MATCH (n:K) RETURN n.id ORDER BY n.id"),
-              IdRows(model, [](auto const &v) { return v.labels.contains("K"); }))
-        << where;
-    EXPECT_EQ(IntRows(faker, "MATCH (n:L:K) RETURN n.id ORDER BY n.id"),
-              IdRows(model, [&](auto const &v) { return has_label(v) && v.labels.contains("K"); }))
-        << where;
-    Rows by_p;
-    for (auto const &[id, v] : model) {
-      if (has_label(v) && has_p(v)) by_p.push_back({*v.p});
-    }
-    std::ranges::sort(by_p);
-    EXPECT_EQ(IntRows(faker, "MATCH (n:L) WHERE n.p >= 0 RETURN n.p ORDER BY n.p"), by_p) << where;
-  };
-
-  expect_model("at the fork");
-  int64_t next_native_id = 100;
-  for (uint32_t seed = 1; seed <= 5; ++seed) {
-    std::mt19937 rng(seed);
-    for (int step = 0; step < 30; ++step) {
-      RandomBranchWrite(faker, rng, model, next_native_id);
-      expect_model("seed " + std::to_string(seed) + " step " + std::to_string(step));
-    }
-    faker.Interpret("BEGIN");
-    expect_model("seed " + std::to_string(seed) + " inside one transaction");
-    faker.Interpret("COMMIT");
-  }
-}
-
 // An overlay write that no change filter recorded is not read, and a diff-engine index hit on an overlay is never
 // yielded as a vertex.
 TEST_F(VersioningIndexTest, BranchScansSkipFilteredOverlaysAndNeverYieldAnOverlayHit) {
@@ -1477,8 +1336,10 @@ TEST_F(VersioningIndexTest, StreamedScansEqualFullScansAfterRandomKeyChanges) {
   faker.Interpret(R"(CREATE INDEX ON :L(a) WITH CONFIG {"order": "DESC"})");
   faker.Interpret("CREATE INDEX ON :L(a, b)");
   faker.Interpret("CREATE INDEX ON :L");
+  faker.Interpret("CREATE INDEX ON :K");
   faker.Interpret("CREATE GLOBAL INDEX ON :(a)");
   faker.Interpret("UNWIND range(0, 15) AS i CREATE (:L {id: i, a: i % 6, b: i % 4})");
+  faker.Interpret("MATCH (n:L) WHERE n.id % 2 = 1 SET n:K");
   faker.Interpret("UNWIND range(16, 21) AS i CREATE (:M {id: i, a: i % 6})");
   Fork();
 
@@ -1514,6 +1375,12 @@ TEST_F(VersioningIndexTest, StreamedScansEqualFullScansAfterRandomKeyChanges) {
       {"MATCH (n:L) RETURN n.id ORDER BY n.id",
        "MATCH (n) WHERE 'L' IN labels(n) RETURN n.id ORDER BY n.id",
        "ScanAllByLabel"},
+      {"MATCH (n:K) RETURN n.id ORDER BY n.id",
+       "MATCH (n) WHERE 'K' IN labels(n) RETURN n.id ORDER BY n.id",
+       "ScanAllByLabel"},
+      {"MATCH (n:L:K) RETURN n.id ORDER BY n.id",
+       "MATCH (n) WHERE 'L' IN labels(n) AND 'K' IN labels(n) RETURN n.id ORDER BY n.id",
+       "ScanAllByLabel"},
   };
   for (auto const &check : checks) ExpectPlanUses(faker, check.indexed, check.op);
   EXPECT_FALSE(PlanHasOperator(ExplainText(faker, checks[0].indexed), "OrderBy")) << "the index order is main's";
@@ -1530,12 +1397,14 @@ TEST_F(VersioningIndexTest, StreamedScansEqualFullScansAfterRandomKeyChanges) {
   expect_equal("at the fork");
   for (uint32_t seed = 1; seed <= 10; ++seed) {
     std::mt19937 rng(seed);
+    std::vector<int> targets(26);  // the fork's vertices, then the branch-native ones as they are created
+    std::iota(targets.begin(), targets.end(), 0);
     for (int step = 0; step < 14; ++step) {
       auto const pick = [&](int bound) { return static_cast<int>(rng() % static_cast<uint32_t>(bound)); };
-      auto const id = std::to_string(pick(26));
+      auto const id = std::to_string(targets[static_cast<size_t>(pick(static_cast<int>(targets.size())))]);
       auto const match = "MATCH (n {id: " + id + "}) ";
       std::string statement;
-      switch (pick(10)) {
+      switch (pick(12)) {
         case 0:
           statement = match + "SET n.a = " + std::to_string(pick(7));
           break;
@@ -1560,9 +1429,18 @@ TEST_F(VersioningIndexTest, StreamedScansEqualFullScansAfterRandomKeyChanges) {
         case 7:
           statement = match + "DETACH DELETE n";
           break;
-        case 8:
-          statement = "CREATE (:L {id: " + std::to_string(100 + seed * 20 + step) + ", a: " + std::to_string(pick(7)) +
+        case 8: {
+          auto const native = static_cast<int>(100 + seed * 20 + step);
+          targets.push_back(native);
+          statement = "CREATE (:L {id: " + std::to_string(native) + ", a: " + std::to_string(pick(7)) +
                       ", b: " + std::to_string(pick(5)) + "})";
+          break;
+        }
+        case 9:
+          statement = match + "SET n:K";
+          break;
+        case 10:
+          statement = match + "REMOVE n:K";
           break;
         default:
           statement = match + "SET n.a = n.a";
