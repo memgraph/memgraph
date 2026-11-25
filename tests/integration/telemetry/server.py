@@ -71,6 +71,9 @@ def build_handler(storage, args):
                 assert "run_id" in item
                 assert "type" in item
                 assert "machine_id" in item
+                assert "install_id" in item
+                assert "hostname" in item
+                assert "k8s_pod_uid" in item
                 assert "data" in item
                 assert "timestamp" in item
                 storage.append(item)
@@ -214,6 +217,20 @@ def verify_storage(storage, args):
             assert "sync" in item["data"]["replication"]
 
 
+def verify_install_id(items, install_id_file):
+    """
+    Every startup reuses the install id persisted in the data directory, so all items must carry the same one, and it
+    must match what's stored in the install id file.
+    """
+    install_ids = {item["install_id"] for item in items}
+    assert len(install_ids) == 1, f"Multiple install IDs found: {install_ids}"
+    if install_id_file:
+        with open(install_id_file) as f:
+            stored = f.read().strip()
+        (install_id,) = install_ids
+        assert install_id == stored, f"Install ID {install_id} doesn't match {stored} stored in {install_id_file}"
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--address", type=str, default="127.0.0.1")
@@ -228,6 +245,7 @@ if __name__ == "__main__":
     parser.add_argument("--duration", type=int, default=10)
     parser.add_argument("--startups", type=int, default=1)
     parser.add_argument("--no-check-duration", action="store_true")
+    parser.add_argument("--install-id-file", type=str, default="")
     args = parser.parse_args()
     args.redirect_path = os.path.join(args.path, "redirect")
 
@@ -272,3 +290,7 @@ if __name__ == "__main__":
 
     # machine id has to be same for every run on the same machine
     assert len(set(map(lambda x: x["machine_id"], itertools.chain(*startups)))) == 1
+    # so does the hostname
+    assert len(set(map(lambda x: x["hostname"], itertools.chain(*startups)))) == 1
+    # every run shares the same data directory, so it has to reuse the same install id
+    verify_install_id(list(itertools.chain(*startups)), args.install_id_file)
