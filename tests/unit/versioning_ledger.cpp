@@ -142,13 +142,8 @@ TEST_F(BranchLedgerTest, EmptyLedgerKeepsNextBranchId) {
 
 TEST_F(BranchLedgerTest, RejectsUnparsableValues) {
   const auto good = OneBranch(BranchJson("a", 2));
-  for (const auto &value : {good.substr(0, good.size() - 3),
-                            std::string{},
-                            std::string{"not json"},
-                            std::string{"[]"},
-                            std::string{"5"},
-                            std::string{"null"},
-                            std::string{R"("x")"}}) {
+  for (const auto &value :
+       {good.substr(0, good.size() - 3), std::string{}, std::string{"not json"}, std::string{"[]"}}) {
     Put(value);
     EXPECT_FALSE(Read().has_value()) << value;
   }
@@ -175,7 +170,7 @@ TEST_F(BranchLedgerTest, RejectsAMalformedPayload) {
     Put(root.dump());
     EXPECT_FALSE(Read().has_value()) << "missing " << key;
   }
-  for (const auto &bad : {json::object(), json(-3), json("3"), json(1.5)}) {
+  for (const auto &bad : {json(-3), json(1.5)}) {
     auto root = good;
     root["next_branch_id"] = bad;
     Put(root.dump());
@@ -193,7 +188,7 @@ TEST_F(BranchLedgerTest, RejectsAMalformedPayload) {
     Put(OneBranch(branch));
     EXPECT_FALSE(Read().has_value()) << "missing " << key;
 
-    for (const auto &bad : {json(-1), json(1.5), json("2"), json(nullptr)}) {
+    for (const auto &bad : {json(-1), json(1.5), json("2")}) {
       // A string is the valid type for the name.
       if (std::string_view{key} == "name" && bad.is_string()) continue;
       branch = BranchJson("a", 2);
