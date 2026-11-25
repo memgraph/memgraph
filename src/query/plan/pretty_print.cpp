@@ -52,6 +52,7 @@ PRE_VISIT(Delete);
 PRE_VISIT_TS(ScanAll);
 PRE_VISIT_TS(ScanAllByLabel);
 PRE_VISIT_TS(ScanAllByLabelProperties);
+PRE_VISIT_TS(ScanAllByIndexDisjunction);
 PRE_VISIT_TS(ScanAllById);
 PRE_VISIT_TS(ScanAllByEdge);
 PRE_VISIT_TS(ScanAllByEdgeType);
