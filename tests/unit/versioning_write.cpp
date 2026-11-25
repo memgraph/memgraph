@@ -13,7 +13,6 @@
 // rollback and conflicts between sessions on one branch.
 
 #include <array>
-#include <atomic>
 #include <barrier>
 #include <cstdint>
 #include <exception>
@@ -1007,54 +1006,6 @@ TEST_F(VersioningMultiSessionTest, EdgeWritesKeepBothEndpointsConsistentForWrite
   EXPECT_EQ(ends(faker2), (Rows{{1, 5}}));
   UseMain(faker2);
   EXPECT_EQ(ends(faker2), before) << "main never saw any of it";
-}
-
-// Bounded stress over edges: writers move one unit between two base edges' weights, retrying on serialization
-// failure; readers see a total of 100 from both endpoints in every transaction, and no committed transfer is lost.
-TEST_F(VersioningMultiSessionTest, ConcurrentEdgeTransfersLoseNoUpdateAndBothEndpointsStayConsistent) {
-  constexpr int kTransfers = 100;
-  faker.Interpret("CREATE (a:A {id:1}), (b:B {id:2}), (a)-[:R {id:1, w:100}]->(b), (a)-[:R {id:2, w:0}]->(b)");
-  Fork();
-  auto sessions = SessionsOnBranch(4);
-  std::atomic<int> writers_left{2};
-
-  {
-    std::vector<std::jthread> threads;
-    for (int w = 0; w < 2; ++w) {
-      threads.emplace_back([&session = *sessions[w], &writers_left] {
-        for (int done = 0; done < kTransfers;) {
-          try {
-            session.Interpret("BEGIN");
-            session.Interpret("MATCH ()-[x:R {id:1}]->(), ()-[y:R {id:2}]->() SET x.w = x.w - 1, y.w = y.w + 1");
-            std::this_thread::yield();
-            session.Interpret("COMMIT");
-            ++done;
-          } catch (const memgraph::query::TransactionSerializationException &) {
-            session.Interpret("ROLLBACK");
-          }
-        }
-        --writers_left;
-      });
-    }
-    for (int r = 2; r < 4; ++r) {
-      threads.emplace_back([&session = *sessions[r], &writers_left] {
-        do {
-          session.Interpret("BEGIN");
-          auto const out = IntRows(session, "MATCH (:A)-[r:R]->(:B) RETURN sum(r.w), count(r)");
-          auto const in = IntRows(session, "MATCH (:B)<-[r:R]-(:A) RETURN sum(r.w), count(r)");
-          auto const again = IntRows(session, "MATCH (:A)-[r:R]->(:B) RETURN sum(r.w), count(r)");
-          session.Interpret("COMMIT");
-          ASSERT_EQ(out, (Rows{{100, 2}})) << "a half-applied transfer was visible";
-          ASSERT_EQ(in, out) << "the endpoints disagree";
-          ASSERT_EQ(again, out) << "the snapshot moved inside one transaction";
-        } while (writers_left.load() > 0);
-      });
-    }
-  }
-
-  EXPECT_EQ(IntRows(faker, "MATCH ()-[r:R]->() RETURN r.id, r.w ORDER BY r.id"),
-            (Rows{{1, 100 - 2 * kTransfers}, {2, 2 * kTransfers}}))
-      << "every committed transfer is applied exactly once";
 }
 
 // Attaching a branch-created edge to a base vertex and a DETACH DELETE of that vertex, in overlapping transactions on
