@@ -20,6 +20,7 @@
 #include <string_view>
 #include <utility>
 
+#include "query/checked_arith.hpp"
 #include "query/fmt.hpp"
 #include "query/graph.hpp"
 #include "query/relations/comparability.hpp"
@@ -1668,7 +1669,7 @@ TypedValue operator!(const TypedValue &a) {
 
 TypedValue operator-(const TypedValue &a) {
   if (a.IsNull()) return TypedValue(a.alloc_);
-  if (a.IsInt()) return TypedValue(-a.ValueInt(), a.alloc_);
+  if (a.IsInt()) return TypedValue(CheckedNeg(a.ValueInt()), a.alloc_);
   if (a.IsDouble()) return TypedValue(-a.ValueDouble(), a.alloc_);
   if (a.IsDuration()) return TypedValue(-a.ValueDuration(), a.alloc_);
   throw TypedValueException("Invalid unary minus operand type (-{})", a.type());
@@ -1681,6 +1682,7 @@ TypedValue operator+(const TypedValue &a) {
   throw TypedValueException("Invalid unary plus operand type (+{})", a.type());
 }
 
+namespace {
 /**
  * Raises a TypedValueException if the given values do not support arithmetic
  * operations. If they do, nothing happens.
@@ -1692,8 +1694,7 @@ TypedValue operator+(const TypedValue &a) {
  *  @param op_name Name of the operation, used only for exception description,
  *  if raised.
  */
-inline void EnsureArithmeticallyOk(const TypedValue &a, const TypedValue &b, bool string_ok,
-                                   const std::string &op_name) {
+void EnsureArithmeticallyOk(const TypedValue &a, const TypedValue &b, bool string_ok, const char *op_name) {
   auto is_legal = [string_ok](const TypedValue &value) {
     return value.IsNumeric() || (string_ok && value.type() == TypedValue::Type::String);
   };
@@ -1706,8 +1707,6 @@ inline void EnsureArithmeticallyOk(const TypedValue &a, const TypedValue &b, boo
     throw TypedValueException("Invalid {} operand types {}, {}", op_name, a.type(), b.type());
   }
 }
-
-namespace {
 
 /// Appends @p value to @p out as string concatenation renders it. Appends rather than returns so
 /// the only buffer it passes through is the one it ends up in.
@@ -1850,7 +1849,7 @@ TypedValue operator+(const TypedValue &a, const TypedValue &b) {
   if (a.IsDouble() || b.IsDouble()) {
     return TypedValue(ToDouble(a) + ToDouble(b), a.alloc_);
   }
-  return TypedValue(a.ValueInt() + b.ValueInt(), a.alloc_);
+  return TypedValue(CheckedAdd(a.ValueInt(), b.ValueInt()), a.alloc_);
 }
 
 TypedValue operator-(const TypedValue &a, const TypedValue &b) {
@@ -1863,7 +1862,7 @@ TypedValue operator-(const TypedValue &a, const TypedValue &b) {
   if (a.IsDouble() || b.IsDouble()) {
     return TypedValue(ToDouble(a) - ToDouble(b), a.alloc_);
   }
-  return TypedValue(a.ValueInt() - b.ValueInt(), a.alloc_);
+  return TypedValue(CheckedSub(a.ValueInt(), b.ValueInt()), a.alloc_);
 }
 
 TypedValue operator/(const TypedValue &a, const TypedValue &b) {
@@ -1874,8 +1873,7 @@ TypedValue operator/(const TypedValue &a, const TypedValue &b) {
   if (a.IsDouble() || b.IsDouble()) {
     return TypedValue(ToDouble(a) / ToDouble(b), a.alloc_);
   } else {
-    if (b.ValueInt() == 0LL) throw TypedValueException("Division by zero");
-    return TypedValue(a.ValueInt() / b.ValueInt(), a.alloc_);
+    return TypedValue(CheckedDiv(a.ValueInt(), b.ValueInt()), a.alloc_);
   }
 }
 
@@ -1887,7 +1885,7 @@ TypedValue operator*(const TypedValue &a, const TypedValue &b) {
   if (a.IsDouble() || b.IsDouble()) {
     return TypedValue(ToDouble(a) * ToDouble(b), a.alloc_);
   } else {
-    return TypedValue(a.ValueInt() * b.ValueInt(), a.alloc_);
+    return TypedValue(CheckedMul(a.ValueInt(), b.ValueInt()), a.alloc_);
   }
 }
 
@@ -1899,8 +1897,7 @@ TypedValue operator%(const TypedValue &a, const TypedValue &b) {
   if (a.IsDouble() || b.IsDouble()) {
     return TypedValue(static_cast<double>(fmod(ToDouble(a), ToDouble(b))), a.alloc_);
   } else {
-    if (b.ValueInt() == 0LL) throw TypedValueException("Mod with zero");
-    return TypedValue(a.ValueInt() % b.ValueInt(), a.alloc_);
+    return TypedValue(CheckedMod(a.ValueInt(), b.ValueInt()), a.alloc_);
   }
 }
 

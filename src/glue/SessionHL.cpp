@@ -186,6 +186,13 @@ std::shared_ptr<memgraph::utils::UserResources> ResourceAtLogin(
         "InternalBug",
         e.what()};
   }
+  if (dynamic_cast<memgraph::query::ArithmeticException const *>(&e) != nullptr) {
+    throw memgraph::communication::bolt::VerboseError{
+        memgraph::communication::bolt::VerboseError::Classification::CLIENT_ERROR,
+        "Statement",
+        "ArithmeticError",
+        e.what()};
+  }
   throw memgraph::communication::bolt::ClientError(e.what());
 }
 
