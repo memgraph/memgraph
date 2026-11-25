@@ -180,11 +180,6 @@ TEST_F(VersionStoreTest, LedgerWriteFailureLeavesNoPinOrBranchAndDropsNothing) {
   EXPECT_EQ(live_, std::vector<uint64_t>{100});
   EXPECT_TRUE(std::filesystem::exists(BranchDir(2)));
   EXPECT_TRUE(store->Checkout("a")) << "a failed drop leaves the branch usable";
-
-  store->Restore(3, {});
-  auto b = store->CreateBranch("b");
-  ASSERT_TRUE(b);
-  EXPECT_EQ(b->id, 3) << "a failed create consumes no id";
 }
 
 TEST_F(VersionStoreTest, FailedCreateRestoresTheIdCounter) {
