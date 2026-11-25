@@ -391,6 +391,17 @@ struct Delta {
   };
 };
 
+#ifdef MG_ENTERPRISE
+// Before-image sentinel for a SET_PROPERTY delta whose old value was an explicit null (PropertyStore::SetExplicitNull),
+// as opposed to an absent key. Only the versioning overlay writer assigns it, after constructing the delta. Every stock
+// reader dereferences it as a plain Null; abort alone distinguishes it, to restore the explicit null instead of
+// erasing the key. Static storage: never slab-allocated, so GC and slab release must not (and do not) free or destroy
+// it (delta_container.hpp registers only vector-index before-images for destruction, and this one is Null).
+inline pmr::PropertyValue kExplicitNullBeforeImage{};
+
+inline bool IsExplicitNullBeforeImage(pmr::PropertyValue const *value) { return value == &kExplicitNullBeforeImage; }
+#endif
+
 constexpr bool CanBeNonSequential(Delta::Action action) noexcept {
   return action == Delta::Action::REMOVE_IN_EDGE || action == Delta::Action::REMOVE_OUT_EDGE;
 }

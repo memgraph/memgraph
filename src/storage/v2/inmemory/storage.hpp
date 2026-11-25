@@ -82,6 +82,15 @@ using EdgeInfo = std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex 
 // The paper implements a fully serializable storage, in our implementation we
 // only implement snapshot isolation for transactions.
 
+#ifdef MG_ENTERPRISE
+// A branch's diff engine only: gids below a floor are overlays (owned outside the engine's vertices_/edges_) that a
+// collection pass unlinks the deltas of but never retires. 0 retains nothing, as on main.
+struct RetainedGidFloors {
+  uint64_t vertex{0};
+  uint64_t edge{0};
+};
+#endif
+
 class InMemoryStorage final : public Storage {
   friend struct memgraph::replication::ReplicationHandler;
   friend class memgraph::dbms::InMemoryReplicationHandlers;
@@ -164,7 +173,7 @@ class InMemoryStorage final : public Storage {
                            utils::MemoryTracker *db_embedding_memory_tracker = nullptr
 #ifdef MG_ENTERPRISE
                            ,
-                           durability::HistoryBounds history_bounds = {}
+                           durability::HistoryBounds history_bounds = {}, RetainedGidFloors retained_gid_floors = {}
 #endif
   );
 
@@ -1345,6 +1354,13 @@ class InMemoryStorage final : public Storage {
   // splice: the FastDiscard/Abort critical sections must not do O(batch) work
   // while holding this SpinLock. The GC consume side runs off the lock.
   utils::Synchronized<BatchedList<Edge *>, utils::SpinLock> deleted_edges_;
+
+#ifdef MG_ENTERPRISE
+  // The ctor's retained_gid_floors, fixed before the GC thread starts. A deleted object below a floor is an overlay:
+  // the collection pass unlinks its deltas but never retires it. A floor of 0 retains nothing.
+  const uint64_t retained_vertex_floor_;
+  const uint64_t retained_edge_floor_;
+#endif
 
   // Deleted light edges awaiting deferred free (see DrainLightEdgeGraveyard).
   utils::Synchronized<std::list<LightEdgeGraveyardEntry, memory::DbAwareAllocator<LightEdgeGraveyardEntry>>,

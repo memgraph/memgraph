@@ -2573,6 +2573,17 @@ struct SafeReader {
 template <typename GetFunc, typename ApplyFunc, typename MissingValue>
 SafeReader(Reader &, GetFunc &&, ApplyFunc &&, MissingValue) -> SafeReader<GetFunc, ApplyFunc, MissingValue>;
 
+#ifdef MG_ENTERPRISE
+std::optional<PropertyValue> PropertyStore::FindProperty(PropertyId property) const {
+  auto find_property = [&](Reader &reader) -> std::optional<PropertyValue> {
+    PropertyValue value;
+    if (FindSpecificProperty(&reader, property, value) != ExpectedPropertyStatus::EQUAL) return std::nullopt;
+    return value;
+  };
+  return WithReader(find_property);
+}
+#endif
+
 PropertyValue PropertyStore::GetProperty(PropertyId property) const {
   auto get_property = [&](Reader &reader) -> PropertyValue {
     PropertyValue value;
@@ -2884,9 +2895,12 @@ std::vector<PropertyId> PropertyStore::ExtractPropertyIds() const {
   return WithReader(get_properties);
 }
 
-bool PropertyStore::SetProperty(PropertyId property, const PropertyValue &value) {
+template <bool kStoreNull>
+bool PropertyStore::SetPropertyImpl(PropertyId property, const PropertyValue &value) {
+  // A null value erases the key (main never stores one); the enterprise-only explicit-null path keeps it.
+  const bool erase = !kStoreNull && value.IsNull();
   uint32_t property_size = 0;
-  if (!value.IsNull()) {
+  if (!erase) {
     Writer writer;
     EncodeProperty(&writer, property, value);
     property_size = writer.Written();
@@ -2896,7 +2910,7 @@ bool PropertyStore::SetProperty(PropertyId property, const PropertyValue &value)
 
   bool existed = false;
   if (buffer_info.storage_mode == BufferMode::EMPTY) {
-    if (!value.IsNull()) {
+    if (!erase) {
       // We don't have a data buffer. Setup on for writting
       auto new_buffer_info = SetupBuffer(buffer_, property_size);
       auto new_view = new_buffer_info.view;
@@ -2994,7 +3008,7 @@ bool PropertyStore::SetProperty(PropertyId property, const PropertyValue &value)
       };
     }
 
-    if (!value.IsNull()) {
+    if (!erase) {
       // We need to encode the new value.
       Writer writer(current_view.data() + info.property_begin, property_size);
       MG_ASSERT(EncodeProperty(&writer, property, value), "Invalid database state!");
@@ -3014,6 +3028,14 @@ bool PropertyStore::SetProperty(PropertyId property, const PropertyValue &value)
 
   return !existed;
 }
+
+bool PropertyStore::SetProperty(PropertyId property, const PropertyValue &value) {
+  return SetPropertyImpl<false>(property, value);
+}
+
+#ifdef MG_ENTERPRISE
+bool PropertyStore::SetExplicitNull(PropertyId property) { return SetPropertyImpl<true>(property, PropertyValue{}); }
+#endif
 
 template <typename TContainer>
 bool PropertyStore::DoInitProperties(const TContainer &properties) {
