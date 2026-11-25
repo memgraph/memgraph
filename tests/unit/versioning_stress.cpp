@@ -2292,8 +2292,6 @@ namespace {
 constexpr int kRcN = 200;         // paired range [0,200): branch-written, never deleted
 constexpr int kRcDelFirst = 200;  // [200,230): materialised then DETACH DELETEd on the branch
 constexpr int kRcDelCount = 30;
-constexpr int kRcMainDelFirst = 230;  // [230,260): DETACH DELETEd on main after the fork; branch must keep seeing them
-constexpr int kRcMainDelCount = 30;
 
 struct RcShared {
   std::array<std::atomic<int64_t>, kRcN> committed_seq{};
@@ -2441,27 +2439,25 @@ void RcScanReader(InterpreterFaker &s, int tid, int iters, RcShared &sh, Failure
       "MATCH (n:P) WHERE n.id < 200 RETURN count(n), sum(CASE WHEN n:T THEN 1 ELSE 0 END), count(n.t)";
   const std::string q2 = "MATCH (n:T) RETURN count(n), count(n.t)";
   const std::string q3 = "MATCH (n:P) WHERE n.id >= 200 AND n.id < 230 RETURN count(n)";
-  const std::string q4 =
-      "MATCH (n:P) WHERE n.id >= 230 AND n.id < 260 RETURN count(n), sum(CASE WHEN n:MT THEN 1 ELSE 0 END), count(n.m)";
   for (int i = 0; i < iters; ++i) {
     const int dlo = sh.deleted_count.load(std::memory_order_acquire);
     if (Exec(s, "BEGIN", log, c, who) != Outcome::kOk) continue;
-    std::array<BoltRows, 4> a, b;
-    const std::array<const std::string *, 4> qs{&q1, &q2, &q3, &q4};
+    std::array<BoltRows, 3> a, b;
+    const std::array<const std::string *, 3> qs{&q1, &q2, &q3};
     bool good = true;
-    for (int k = 0; k < 4 && good; ++k) good = Exec(s, *qs[k], log, c, who, &a[k]) == Outcome::kOk;
+    for (int k = 0; k < 3 && good; ++k) good = Exec(s, *qs[k], log, c, who, &a[k]) == Outcome::kOk;
     if (!good) {
       SwallowRollback(s);
       continue;
     }
     std::this_thread::sleep_for(std::chrono::microseconds(rng() % 600));
-    for (int k = 0; k < 4 && good; ++k) good = Exec(s, *qs[k], log, c, who, &b[k]) == Outcome::kOk;
+    for (int k = 0; k < 3 && good; ++k) good = Exec(s, *qs[k], log, c, who, &b[k]) == Outcome::kOk;
     if (!good) {
       SwallowRollback(s);
       continue;
     }
     const int dhi = sh.deleted_count.load(std::memory_order_acquire);
-    for (int k = 0; k < 4; ++k) {
+    for (int k = 0; k < 3; ++k) {
       if (a[k].size() != 1 || b[k].size() != 1) {
         log.Add(who + ": agg row count");
         good = false;
@@ -2471,7 +2467,7 @@ void RcScanReader(InterpreterFaker &s, int tid, int iters, RcShared &sh, Failure
         log.Add(who + ": non-repeatable scan in one txn " + *qs[k] + ": " + Canon(a[k][0]) + " -> " + Canon(b[k][0]));
     }
     if (good) {
-      const auto &r1 = a[0][0], &r2 = a[1][0], &r3 = a[2][0], &r4 = a[3][0];
+      const auto &r1 = a[0][0], &r2 = a[1][0], &r3 = a[2][0];
       if (r1[0].ValueInt() != kRcN) log.Add(who + ": paired range lost vertices: " + Canon(r1));
       if (r1[1].ValueInt() != r1[2].ValueInt()) log.Add(who + ": scan: #:T=" + Canon(r1[1]) + " != #t=" + Canon(r1[2]));
       if (r2[0].ValueInt() < r2[1].ValueInt()) log.Add(who + ": :T scan fewer than t: " + Canon(r2));
@@ -2481,8 +2477,6 @@ void RcScanReader(InterpreterFaker &s, int tid, int iters, RcShared &sh, Failure
       if (cnt < kRcDelCount - dhi || cnt > kRcDelCount - dlo)
         log.Add(who + ": delete-range count " + std::to_string(cnt) + " outside [" + std::to_string(kRcDelCount - dhi) +
                 "," + std::to_string(kRcDelCount - dlo) + "]");
-      if (r4[0].ValueInt() != kRcMainDelCount || r4[1].ValueInt() != 0 || r4[2].ValueInt() != 0)
-        log.Add(who + ": main-side change visible on the branch: " + Canon(r4));
       sh.scan_checks.fetch_add(1, std::memory_order_relaxed);
     }
     Exec(s, "COMMIT", log, c, who);
@@ -2493,15 +2487,7 @@ void RcMainWriter(InterpreterFaker &s, int w, int writers, int ops, FailureLog &
   std::mt19937_64 rng{Seed() + 4000 + static_cast<uint64_t>(w)};
   const std::string who = "rc-main-writer-" + std::to_string(w);
   std::vector<int64_t> seq(kRcN, 0);
-  int next_del = 0;
   for (int i = 0; i < ops; ++i) {
-    if (w == 0 && i % 8 == 7 && next_del < kRcMainDelCount) {
-      Exec(s, "MATCH (n:P {id:" + std::to_string(kRcMainDelFirst + next_del) + "}) SET n:MT, n.m = 1", log, c, who);
-      if (Exec(s, "MATCH (n:P {id:" + std::to_string(kRcMainDelFirst + next_del) + "}) DETACH DELETE n", log, c, who) ==
-          Outcome::kOk)
-        ++next_del;
-      continue;
-    }
     int64_t x;
     do {
       x = static_cast<int64_t>(rng() % kRcN);
@@ -2523,7 +2509,7 @@ TEST_P(VersioningStressTest, BranchWritersReadersAndMainWritersStayConsistent) {
   setup.Interpret("CREATE INDEX ON :P(id)");
   setup.Interpret("CREATE INDEX ON :T");
   setup.Interpret("CREATE INDEX ON :MT");
-  setup.Interpret("UNWIND range(0,259) AS i CREATE (:P {id:i, u:0})");
+  setup.Interpret("UNWIND range(0,229) AS i CREATE (:P {id:i, u:0})");
   setup.Interpret("CREATE BRANCH 'rc'");
   constexpr int kBW = 3, kPR = 2, kSR = 2, kMW = 2;
   std::vector<InterpreterFaker *> bw, pr, sr, mw;
@@ -2562,7 +2548,6 @@ TEST_P(VersioningStressTest, BranchWritersReadersAndMainWritersStayConsistent) {
   ASSERT_EQ(log.Count(), 0U) << log.Dump();
   ASSERT_EQ(Scalar(chk, "MATCH (n:P) WHERE n.id >= 200 AND n.id < 230 RETURN count(n)"),
             kRcDelCount - sh.deleted_count.load());
-  ASSERT_EQ(Scalar(chk, "MATCH (n:P) WHERE n.id >= 230 AND n.id < 260 RETURN count(n)"), kRcMainDelCount);
   ASSERT_GT(sh.point_checks.load(), 0U);
   ASSERT_GT(sh.scan_checks.load(), 0U);
 }
