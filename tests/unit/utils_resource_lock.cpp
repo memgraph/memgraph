@@ -176,32 +176,37 @@ TEST_F(ResourceLockTest, PrioritiseReadOnlyLock) {
   // Pin with one write lock
   auto guard_w_1 = SharedResourceLockGuard(lock, SharedResourceLockGuard::WRITE);
 
-  std::latch latch(2);
-
   // Concurrently acquire read only lock
-  auto ro_outcome = std::async([&] {
+  auto ro_outcome = std::async(std::launch::async, [&] {
     auto guard_ro = SharedResourceLockGuard(lock, SharedResourceLockGuard::READ_ONLY, std::defer_lock);
     if (guard_ro.owns_lock()) return Outcome::ErrorAcquiredButShouldBeDefered;
     if (guard_ro.try_lock()) return Outcome::ErrorAcquiredButTryShouldHaveFailed;
-    latch.arrive_and_wait();
     guard_ro.lock();
     return Outcome::Success;
   });
 
   using namespace std::chrono_literals;
-  // sync on before read only lock is asked for
-  latch.arrive_and_wait();
-  // wait for read only to `lock()` and hence blocks waiting for no writers
-  std::this_thread::sleep_for(15ms);
 
-  // should not be able to get write lock, because ro lock is requested
-  auto guard_w_2 = SharedResourceLockGuard(lock, SharedResourceLockGuard::WRITE, std::try_to_lock);
-  ASSERT_FALSE(guard_w_2.owns_lock());
+  // Retry until the read only thread has registered, since a probe that lands first sees a gate
+  // that is legitimately still open.
+  auto write_is_gated = [&] {
+    auto guard_w_2 = SharedResourceLockGuard(lock, SharedResourceLockGuard::WRITE, std::try_to_lock);
+    return !guard_w_2.owns_lock();  // guard_w_1 is a compatible WRITE, so only ro_pending_count refuses
+  };
+  constexpr auto kRegistrationBound = 5s;
+  const auto deadline = std::chrono::steady_clock::now() + kRegistrationBound;
+  bool gated = write_is_gated();
+  while (!gated && std::chrono::steady_clock::now() < deadline) {
+    std::this_thread::yield();
+    gated = write_is_gated();
+  }
 
-  // release write lock that is preventing the read only lock from being acquired
   guard_w_1.unlock();
 
-  // wait for thread to finish, check result
+  EXPECT_TRUE(gated) << "a WRITE was still admitted " << kRegistrationBound.count()
+                     << "s after the READ_ONLY thread was launched: ro_pending_count priority not honoured, or "
+                        "the thread returned before lock() or did not reach it within the bound";
+
   ASSERT_EQ(ro_outcome.get(), Outcome::Success);
 }
 
