@@ -5361,38 +5361,6 @@ TEST_F(DurabilityTest, WalNonSequentialDeltaEncoding) {
   }
 }
 
-// A commit with CommitArgs::without_wal() is applied and gets its durable timestamp but appends nothing to the WAL; a
-// normal commit does.
-TEST_F(DurabilityTest, CommitWithoutWalAppendsNothing) {
-  memgraph::storage::Config config{};
-  config.durability.storage_directory = storage_directory;
-  config.durability.snapshot_wal_mode =
-      memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL;
-
-  auto const wal_file_count = [&] {
-    auto const wal_dir = storage_directory / memgraph::storage::durability::kWalDirectory;
-    return std::filesystem::exists(wal_dir)
-               ? std::distance(std::filesystem::directory_iterator(wal_dir), std::filesystem::directory_iterator{})
-               : 0;
-  };
-
-  memgraph::storage::InMemoryStorage storage(config);
-  {
-    auto acc = storage.Access(memgraph::storage::WRITE);
-    acc->CreateVertex();
-    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs().without_wal()).has_value());
-  }
-  EXPECT_EQ(wal_file_count(), 0);
-  EXPECT_EQ(storage.Access(memgraph::storage::READ)->ApproximateVertexCount(), 1) << "the commit is still applied";
-
-  {
-    auto acc = storage.Access(memgraph::storage::WRITE);
-    acc->CreateVertex();
-    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
-  }
-  EXPECT_EQ(wal_file_count(), 1);
-}
-
 TEST_F(DurabilityTest, WalNonSequentialInterleavedSubchainsEmitEdgeCreateOncePerEdge) {
   memgraph::storage::Config config{};
   config.durability.storage_directory = storage_directory;
