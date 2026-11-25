@@ -159,5 +159,45 @@ def test_plan_cache_invalidation_on_index_drop(first_connection, second_connecti
     assert res == [(" * Produce {n}",), (" * Filter (n :Label), {n.prop}",), (" * ScanAll (n)",), (" * Once",)]
 
 
+def test_edge_gid_lookup_matches_scan_in_snapshot_after_concurrent_delete(first_connection, second_connection):
+    m1c = first_connection.cursor()
+    m2c = second_connection.cursor()
+
+    # One edge, and the ids the snapshot will later look it up by.
+    execute_and_fetch_all(m1c, "CREATE (a:A)-[:R]->(b:B)")
+    first_connection.commit()
+    rows = execute_and_fetch_all(m1c, "MATCH (a)-[e:R]->(b) RETURN id(a), id(e)")
+    assert len(rows) == 1
+    from_gid, edge_gid = rows[0]
+    first_connection.commit()
+
+    def count(query, params={}):
+        return len(execute_and_fetch_all(m1c, query, params))
+
+    # Negative control: the id lookup resolves the live edge.
+    assert count("MATCH ()-[e]->() WHERE id(e) = $x RETURN e", {"x": edge_gid}) == 1
+    first_connection.commit()
+
+    # Session 1 opens a snapshot and records it by reading the edge.
+    assert execute_and_fetch_all(m1c, "MATCH ()-[e]->() RETURN id(e)") == [(edge_gid,)]
+
+    # Session 2 deletes the edge and commits, after the snapshot was taken.
+    execute_and_fetch_all(m2c, "MATCH ()-[e]->() DELETE e")
+    second_connection.commit()
+
+    # In session 1's snapshot the edge is still visible to a scan, to a node-anchored expansion and
+    # to every by-gid lookup form; they must all agree on that single row.
+    assert count("MATCH ()-[e]->() RETURN e") == 1
+    assert count("MATCH (a)-[e]->() WHERE id(a) = $a RETURN e", {"a": from_gid}) == 1
+    assert count("MATCH ()-[e]->() WHERE id(e) = $x RETURN e", {"x": edge_gid}) == 1
+    assert count(f"MATCH ()-[e]->() WHERE id(e) = {edge_gid} RETURN e") == 1
+    assert count("MATCH ()-[e]->() WHERE id(e) IN $xs RETURN e", {"xs": [edge_gid]}) == 1
+    first_connection.rollback()
+
+    # A fresh transaction sees the current state, where the edge is gone.
+    assert count("MATCH ()-[e]->() WHERE id(e) = $x RETURN e", {"x": edge_gid}) == 0
+    first_connection.rollback()
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))

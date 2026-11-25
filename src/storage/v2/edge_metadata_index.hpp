@@ -61,18 +61,7 @@ class EdgeMetadataIndex {
     }
   }
 
-  // Returns the `from_vertex` recorded for `edge_gid`. Hard-asserts on miss:
-  // every Edge in `edges_` has a metadata entry when the index is enabled.
-  Vertex *FromVertexOf(Gid edge_gid) const {
-    auto acc = data_.access();
-    auto it = acc.find(edge_gid);
-    MG_ASSERT(it != acc.end(), "Edge metadata missing for gid {}!", edge_gid.AsUint());
-    return it->from_vertex;
-  }
-
-  // Soft-miss variant of FromVertexOf used by the gated light-edge find path:
-  // returns nullptr when no metadata entry exists for edge_gid (a light edge
-  // deleted from adjacency has no entry) instead of hard-asserting.
+  // Returns the `from_vertex` recorded for `edge_gid`, or nullptr when the index has no entry for it.
   Vertex *TryFromVertexOf(Gid edge_gid) const {
     auto acc = data_.access();
     auto it = acc.find(edge_gid);

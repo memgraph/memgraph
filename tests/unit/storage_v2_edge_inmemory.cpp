@@ -13,6 +13,8 @@
 #include <gtest/gtest.h>
 
 #include <limits>
+#include <optional>
+#include <utility>
 
 #include "materialise_edges.hpp"
 #include "storage/v2/inmemory/storage.hpp"
@@ -25,6 +27,7 @@ using testing::UnorderedElementsAre;
 struct StorageEdgeConfig {
   bool properties_on_edges{true};
   bool light_edge{false};
+  bool edges_metadata{false};
 };
 
 class StorageEdgeTest : public ::testing::TestWithParam<StorageEdgeConfig> {};
@@ -35,6 +38,8 @@ INSTANTIATE_TEST_SUITE_P(EdgesWithoutProperties, StorageEdgeTest,
                          ::testing::Values(StorageEdgeConfig{.properties_on_edges = false}));
 INSTANTIATE_TEST_SUITE_P(LightEdges, StorageEdgeTest,
                          ::testing::Values(StorageEdgeConfig{.properties_on_edges = true, .light_edge = true}));
+INSTANTIATE_TEST_SUITE_P(EdgesWithMetadata, StorageEdgeTest,
+                         ::testing::Values(StorageEdgeConfig{.properties_on_edges = true, .edges_metadata = true}));
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_P(StorageEdgeTest, EdgeCreateFromSmallerCommit) {
@@ -5717,4 +5722,188 @@ TEST_P(StorageEdgeTest, EdgeReadsASetOfPropertiesInOnePass) {
     EXPECT_TRUE(values[1].IsNull());
   }
   EXPECT_TRUE(values[2].IsNull());
+}
+
+// A by-gid lookup is a lookup into the requested View, so it must agree with the adjacency walk
+// (scan / node-anchored expansion) that defines visibility for that View. This covers every
+// representation a configuration can keep for the edge: properties on the edge, no properties
+// (adjacency-only), light edges (adjacency-only Edge*) and the edges-metadata index.
+TEST_P(StorageEdgeTest, EdgeGidLookupHonoursView) {
+  using memgraph::storage::Gid;
+  using memgraph::storage::View;
+  std::unique_ptr<memgraph::storage::Storage> store(new memgraph::storage::InMemoryStorage(
+      {.salient = {.items = {.properties_on_edges = GetParam().properties_on_edges,
+                             .enable_edges_metadata = GetParam().edges_metadata,
+                             .storage_light_edge = GetParam().light_edge}}}));
+
+  auto gid_from = Gid::FromUint(0);
+  auto gid_to = Gid::FromUint(0);
+  auto edge_gid = Gid::FromUint(0);
+  {
+    auto acc = store->Access(memgraph::storage::WRITE);
+    auto from = acc->CreateVertex();
+    auto to = acc->CreateVertex();
+    gid_from = from.Gid();
+    gid_to = to.Gid();
+    auto et = acc->NameToEdgeType("et");
+    auto edge = acc->CreateEdge(&from, &to, et);
+    ASSERT_TRUE(edge.has_value());
+    edge_gid = edge->Gid();
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  // The endpoints an adjacency walk from the same accessor reports for `gid` in `view`, if any.
+  auto scan_endpoints = [&](auto *acc, Gid gid, View view) -> std::optional<std::pair<Gid, Gid>> {
+    auto from = acc->FindVertex(gid_from, view);
+    if (!from) return std::nullopt;
+    auto out = from->OutEdges(view);
+    if (!out) return std::nullopt;
+    for (auto const &edge : out->edges) {
+      if (edge.Gid() == gid) return std::make_pair(edge.FromVertex().Gid(), edge.ToVertex().Gid());
+    }
+    return std::nullopt;
+  };
+
+  // Both by-gid forms must answer exactly what the walk answers, with the walk's endpoints.
+  auto expect_matches_scan = [&](auto *acc, Gid gid, View view, const char *when) {
+    SCOPED_TRACE(testing::Message() << when << " view=" << (view == View::OLD ? "OLD" : "NEW"));
+    auto const expected = scan_endpoints(acc, gid, view);
+    auto const by_gid = acc->FindEdge(gid, view);
+    auto const by_gid_and_from = acc->FindEdge(gid, gid_from, view);
+    EXPECT_EQ(by_gid.has_value(), expected.has_value());
+    EXPECT_EQ(by_gid_and_from.has_value(), expected.has_value());
+    if (!expected) return;
+    ASSERT_TRUE(by_gid.has_value());
+    EXPECT_EQ(by_gid->Gid(), gid);
+    EXPECT_EQ(by_gid->FromVertex().Gid(), expected->first);
+    EXPECT_EQ(by_gid->ToVertex().Gid(), expected->second);
+    ASSERT_TRUE(by_gid_and_from.has_value());
+    EXPECT_EQ(by_gid_and_from->Gid(), gid);
+    EXPECT_EQ(by_gid_and_from->FromVertex().Gid(), expected->first);
+    EXPECT_EQ(by_gid_and_from->ToVertex().Gid(), expected->second);
+  };
+
+  // A live edge is visible in both Views of a freshly opened accessor.
+  {
+    auto acc = store->Access(memgraph::storage::READ);
+    expect_matches_scan(acc.get(), edge_gid, View::OLD, "live");
+    expect_matches_scan(acc.get(), edge_gid, View::NEW, "live");
+  }
+
+  // This snapshot must keep seeing the edge after another transaction deletes it.
+  auto snapshot = store->Access(memgraph::storage::READ);
+  expect_matches_scan(snapshot.get(), edge_gid, View::OLD, "snapshot before delete");
+  expect_matches_scan(snapshot.get(), edge_gid, View::NEW, "snapshot before delete");
+
+  {
+    auto acc = store->Access(memgraph::storage::WRITE);
+    auto from = acc->FindVertex(gid_from, memgraph::storage::View::NEW);
+    ASSERT_TRUE(from);
+    auto edges = from->OutEdges(memgraph::storage::View::NEW).value().edges;
+    ASSERT_EQ(edges.size(), 1);
+    auto edge = edges[0];
+    ASSERT_EQ(edge.Gid(), edge_gid);
+    ASSERT_TRUE(acc->DeleteEdge(&edge).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  // The open snapshot still sees the edge from adjacency, so neither by-gid form may report a miss.
+  expect_matches_scan(snapshot.get(), edge_gid, View::OLD, "deleted");
+  expect_matches_scan(snapshot.get(), edge_gid, View::NEW, "deleted");
+
+  // An edge committed after the snapshot opened is invisible to it in both Views.
+  auto late_edge_gid = Gid::FromUint(0);
+  {
+    auto acc = store->Access(memgraph::storage::WRITE);
+    auto from = acc->FindVertex(gid_from, memgraph::storage::View::NEW);
+    auto to = acc->FindVertex(gid_to, memgraph::storage::View::NEW);
+    ASSERT_TRUE(from && to);
+    auto et = acc->NameToEdgeType("et");
+    auto edge = acc->CreateEdge(&*from, &*to, et);
+    ASSERT_TRUE(edge.has_value());
+    late_edge_gid = edge->Gid();
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+  expect_matches_scan(snapshot.get(), late_edge_gid, View::OLD, "late edge");
+  expect_matches_scan(snapshot.get(), late_edge_gid, View::NEW, "late edge");
+
+  // A fresh accessor sees the current state: the deleted edge is gone, the late one is there.
+  {
+    auto acc = store->Access(memgraph::storage::READ);
+    EXPECT_FALSE(acc->FindEdge(edge_gid, View::NEW).has_value());
+    EXPECT_FALSE(acc->FindEdge(edge_gid, gid_from, View::NEW).has_value());
+    expect_matches_scan(acc.get(), late_edge_gid, View::NEW, "fresh");
+  }
+
+  // Forced GC while the snapshot is open must not change any of the above.
+  for (int i = 0; i < 4; ++i) store->FreeMemory();
+  expect_matches_scan(snapshot.get(), edge_gid, View::OLD, "after GC");
+  expect_matches_scan(snapshot.get(), edge_gid, View::NEW, "after GC");
+  expect_matches_scan(snapshot.get(), late_edge_gid, View::OLD, "after GC");
+  expect_matches_scan(snapshot.get(), late_edge_gid, View::NEW, "after GC");
+}
+
+// A transaction's own creates and deletes: OLD is the state before the current command, NEW includes it. A parallel
+// edge (same endpoints and type) must not stand in for the looked-up one, and an unknown gid is a plain miss.
+TEST_P(StorageEdgeTest, EdgeGidLookupHonoursOwnWrites) {
+  using memgraph::storage::Gid;
+  using memgraph::storage::View;
+  std::unique_ptr<memgraph::storage::Storage> store(new memgraph::storage::InMemoryStorage(
+      {.salient = {.items = {.properties_on_edges = GetParam().properties_on_edges,
+                             .enable_edges_metadata = GetParam().edges_metadata,
+                             .storage_light_edge = GetParam().light_edge}}}));
+
+  auto gid_from = Gid::FromUint(0);
+  auto kept_gid = Gid::FromUint(0);
+  auto doomed_gid = Gid::FromUint(0);
+  {
+    auto acc = store->Access(memgraph::storage::WRITE);
+    auto from = acc->CreateVertex();
+    auto to = acc->CreateVertex();
+    gid_from = from.Gid();
+    auto et = acc->NameToEdgeType("et");
+    kept_gid = acc->CreateEdge(&from, &to, et)->Gid();
+    doomed_gid = acc->CreateEdge(&from, &to, et)->Gid();
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  auto found = [&](auto *acc, Gid gid, View view) {
+    auto const by_gid = acc->FindEdge(gid, view);
+    auto const by_gid_and_from = acc->FindEdge(gid, gid_from, view);
+    EXPECT_EQ(by_gid.has_value(), by_gid_and_from.has_value());
+    if (by_gid) EXPECT_EQ(by_gid->Gid(), gid);
+    if (by_gid_and_from) EXPECT_EQ(by_gid_and_from->Gid(), gid);
+    return by_gid.has_value();
+  };
+
+  auto acc = store->Access(memgraph::storage::WRITE);
+  auto from = acc->FindVertex(gid_from, View::NEW);
+  ASSERT_TRUE(from);
+  std::optional<memgraph::storage::EdgeAccessor> doomed;
+  for (auto const &edge : from->OutEdges(View::NEW)->edges) {
+    if (edge.Gid() == doomed_gid) doomed = edge;
+  }
+  ASSERT_TRUE(doomed);
+  auto to = doomed->ToVertex();
+  ASSERT_TRUE(acc->DeleteEdge(&*doomed).has_value());
+  auto created = acc->CreateEdge(&*from, &to, acc->NameToEdgeType("et"));
+  ASSERT_TRUE(created.has_value());
+  auto const created_gid = created->Gid();
+
+  EXPECT_TRUE(found(acc.get(), doomed_gid, View::OLD));
+  EXPECT_FALSE(found(acc.get(), doomed_gid, View::NEW));
+  EXPECT_FALSE(found(acc.get(), created_gid, View::OLD));
+  EXPECT_TRUE(found(acc.get(), created_gid, View::NEW));
+  EXPECT_TRUE(found(acc.get(), kept_gid, View::OLD));
+  EXPECT_TRUE(found(acc.get(), kept_gid, View::NEW));
+  EXPECT_FALSE(found(acc.get(), Gid::FromUint(1'000'000), View::NEW));
+
+  acc->AdvanceCommand();
+  EXPECT_FALSE(found(acc.get(), doomed_gid, View::OLD));
+  EXPECT_TRUE(found(acc.get(), created_gid, View::OLD));
+
+  // Another transaction sees neither uncommitted change.
+  auto other = store->Access(memgraph::storage::READ);
+  EXPECT_TRUE(found(other.get(), doomed_gid, View::NEW));
+  EXPECT_FALSE(found(other.get(), created_gid, View::NEW));
 }

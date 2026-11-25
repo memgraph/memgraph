@@ -990,15 +990,12 @@ class InMemoryStorage final : public Storage {
 
   void PrepareForNewEpoch() override;
 
-  EdgeInfo FindEdge(Gid edge_gid);
+  // View-aware by-gid resolution: the candidate from-vertex is enumerated here (metadata-index hint else a
+  // vertices_ scan), while ResolveVisibleOutEdge decides existence and endpoints for `view` from the kept
+  // representation. `transaction == nullptr` keeps replica/recovery callers current-state and adjacency-only.
+  EdgeInfo FindEdge(Gid edge_gid, View view, const Transaction *transaction);
 
-  EdgeInfo FindEdge(Gid edge_gid, Gid from_vertex_gid);
-
-  // Light-edge find helpers (gated by salient.items.storage_light_edge). The
-  // heavy path remains FindHeavyEdge (== prior FindEdge(Gid) body).
-  EdgeInfo FindLightEdgeFromMetadata(Gid edge_gid);
-  EdgeInfo FindLightEdgeByScan(Gid edge_gid);
-  EdgeInfo FindHeavyEdge(Gid edge_gid);
+  EdgeInfo FindEdge(Gid edge_gid, Gid from_vertex_gid, View view, const Transaction *transaction);
 
   // Light-edge teardown (frees pool-allocated Edge* still live in vertex
   // adjacency). Gated at every call site by salient.items.storage_light_edge.

@@ -1618,14 +1618,14 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
               return storage::EdgeInfo{
                   std::in_place, found->edge_, found->edge_type_, found->from_vertex_, found->to_vertex_};
             } else if (data.from_gid.has_value()) {
-              auto info = storage->FindEdge(data.gid, *data.from_gid);
+              auto info = storage->FindEdge(data.gid, *data.from_gid, View::NEW, nullptr);
               if (!info)
                 throw utils::BasicException("Failed to find edge {} from vertex {} when setting edge property.",
                                             edge_gid,
                                             data.from_gid->AsUint());
               return info;
             } else {
-              auto info = storage->FindEdge(data.gid);
+              auto info = storage->FindEdge(data.gid, View::NEW, nullptr);
               if (!info) throw utils::BasicException("Failed to find edge {} when setting edge property.", edge_gid);
               return info;
             }
