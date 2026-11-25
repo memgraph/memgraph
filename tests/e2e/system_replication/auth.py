@@ -821,7 +821,12 @@ def test_auth_replication(connection, test_name):
     execute_and_fetch_all(cursor_main, "DENY DELETE TO user4")
     check(
         partial(show_privileges_func, user_or_role="user4"),
-        {("CREATE", "GRANT", "GRANTED TO USER"), ("DELETE", "DENY", "DENIED TO USER")},
+        {("CREATE", "GRANT", "GRANTED TO USER"), ("DELETE", "STRONG DENY", "DENIED TO USER")},
+    )
+    execute_and_fetch_all(cursor_main, "WEAK DENY DELETE TO user4")
+    check(
+        partial(show_privileges_func, user_or_role="user4"),
+        {("CREATE", "GRANT", "GRANTED TO USER"), ("DELETE", "WEAK DENY", "DENIED TO USER")},
     )
 
     # GRANT/REVOKE/DENY privileges TO role
@@ -856,11 +861,11 @@ def test_auth_replication(connection, test_name):
     execute_and_fetch_all(cursor_main, "DENY DELETE TO role3")
     check(
         partial(show_privileges_func, user_or_role="role3"),
-        {("CREATE", "GRANT", "GRANTED TO ROLE"), ("DELETE", "DENY", "DENIED TO ROLE")},
+        {("CREATE", "GRANT", "GRANTED TO ROLE"), ("DELETE", "STRONG DENY", "DENIED TO ROLE")},
     )
     check(
         partial(show_privileges_func, user_or_role="user3b"),
-        {("CREATE", "GRANT", "GRANTED TO ROLE"), ("DELETE", "DENY", "DENIED TO ROLE")},
+        {("CREATE", "GRANT", "GRANTED TO ROLE"), ("DELETE", "STRONG DENY", "DENIED TO ROLE")},
     )
 
     # GRANT permission ON LABEL/EDGE to user/role
@@ -1052,6 +1057,27 @@ def test_auth_replication(connection, test_name):
         assert False, "Expected exception when setting role without database access"
     except mgclient.DatabaseError:
         pass  # Expected
+
+    # A role's grant overrides a user's weak deny on the replicas too
+    execute_and_fetch_all(cursor_main, "CREATE USER weak_reader")
+    execute_and_fetch_all(cursor_main, "WEAK DENY MATCH TO weak_reader")
+    execute_and_fetch_all(cursor_main, "CREATE ROLE matcher")
+    execute_and_fetch_all(cursor_main, "GRANT MATCH TO matcher")
+    execute_and_fetch_all(cursor_main, "GRANT DATABASE * TO matcher")
+    execute_and_fetch_all(cursor_main, "SET ROLE FOR weak_reader TO matcher")
+
+    def match_as_weak_reader(port):
+        def run():
+            try:
+                cursor = connect(host="localhost", port=port, username="weak_reader", password="").cursor()
+                return execute_and_fetch_all(cursor, "MATCH (n) RETURN count(n) >= 0")
+            except mgclient.DatabaseError as e:
+                return str(e)
+
+        return run
+
+    for replica in ("replica_1", "replica_2"):
+        mg_sleep_and_assert([(True,)], match_as_weak_reader(BOLT_PORTS[replica]))
 
     # Clean up
     interactive_mg_runner.stop_all(keep_directories=False)

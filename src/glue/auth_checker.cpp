@@ -292,7 +292,7 @@ bool FineGrainedAuthChecker::HasAllGlobalPrivilegesOnVertices() const {
   }
   auto const &permissions = GetCachedLabelPermissions();
   auto const &global_grants = permissions.GetGlobalGrants();
-  auto const &global_denies = permissions.GetGlobalDenies();
+  auto const &global_denies = permissions.GetGlobalStrongDenies();
   return global_grants.has_value() &&
          static_cast<memgraph::auth::FineGrainedPermission>(global_grants.value()) ==
              memgraph::auth::kAllLabelPermissions &&
@@ -305,7 +305,7 @@ bool FineGrainedAuthChecker::HasAllGlobalPrivilegesOnEdges() const {
   }
   auto const &permissions = GetCachedEdgePermissions();
   auto const &global_grants = permissions.GetGlobalGrants();
-  auto const &global_denies = permissions.GetGlobalDenies();
+  auto const &global_denies = permissions.GetGlobalStrongDenies();
   return global_grants.has_value() &&
          static_cast<memgraph::auth::FineGrainedPermission>(global_grants.value()) ==
              memgraph::auth::kAllEdgeTypePermissions &&

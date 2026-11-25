@@ -206,6 +206,8 @@ std::string PermissionToString(Permission permission);
 // Class that indicates what permission level the user/role has.
 enum class PermissionLevel : uint8_t { GRANT, NEUTRAL, DENY };
 
+enum class DenyStrength : uint8_t { STRONG, WEAK };
+
 // Function that converts a permission level to its string representation.
 std::string PermissionLevelToString(PermissionLevel level);
 
@@ -217,7 +219,7 @@ std::string FineGrainedPermissionToString(uint64_t permission, bool is_label);
 
 class Permissions final {
  public:
-  explicit Permissions(uint64_t grants = 0, uint64_t denies = 0);
+  explicit Permissions(uint64_t grants = 0, uint64_t strong_denies = 0, uint64_t weak_denies = 0);
 
   Permissions(const Permissions &) = default;
   Permissions &operator=(const Permissions &) = default;
@@ -231,7 +233,7 @@ class Permissions final {
 
   void Revoke(Permission permission);
 
-  void Deny(Permission permission);
+  void Deny(Permission permission, DenyStrength strength = DenyStrength::STRONG);
 
   std::vector<Permission> GetGrants() const;
 
@@ -244,12 +246,17 @@ class Permissions final {
 
   uint64_t grants() const { return grants_; }
 
-  uint64_t denies() const { return denies_; }
+  uint64_t strong_denies() const { return strong_denies_; }
+
+  uint64_t weak_denies() const { return weak_denies_; }
 
  private:
   uint64_t grants_{0};
-  uint64_t denies_{0};
+  uint64_t strong_denies_{0};
+  uint64_t weak_denies_{0};
 };
+
+Permissions Merge(Permissions const &first, Permissions const &second);
 
 bool operator==(const Permissions &first, const Permissions &second);
 
@@ -347,17 +354,21 @@ enum class PropertyEntityKind : uint8_t { NODE, EDGE };
 struct FineGrainedAccessRule {
   std::unordered_set<std::string> symbols;
   FineGrainedPermission grants{FineGrainedPermission::NONE};
-  FineGrainedPermission denies{FineGrainedPermission::NONE};
+  FineGrainedPermission strong_denies{FineGrainedPermission::NONE};
   MatchingMode matching_mode{MatchingMode::ANY};
+  FineGrainedPermission weak_denies{FineGrainedPermission::NONE};
 
   bool operator==(const FineGrainedAccessRule &other) const = default;
 };
 
 class FineGrainedAccessPermissions final {
+  friend FineGrainedAccessPermissions Merge(FineGrainedAccessPermissions const &, FineGrainedAccessPermissions const &);
+  friend bool operator==(FineGrainedAccessPermissions const &, FineGrainedAccessPermissions const &);
+
  public:
   explicit FineGrainedAccessPermissions(std::optional<uint64_t> global_grants = std::nullopt,
-                                        std::optional<uint64_t> global_denies = std::nullopt,
-                                        std::vector<FineGrainedAccessRule> rules = {});
+                                        std::optional<uint64_t> global_strong_denies = std::nullopt,
+                                        std::vector<FineGrainedAccessRule> rules = {}, uint64_t global_weak_denies = 0);
   FineGrainedAccessPermissions(const FineGrainedAccessPermissions &) = default;
   FineGrainedAccessPermissions &operator=(const FineGrainedAccessPermissions &) = default;
   FineGrainedAccessPermissions(FineGrainedAccessPermissions &&) = default;
@@ -374,9 +385,9 @@ class FineGrainedAccessPermissions final {
   void GrantGlobal(FineGrainedPermission fine_grained_permission);
 
   void Deny(std::unordered_set<std::string> const &symbols, FineGrainedPermission fine_grained_permission,
-            MatchingMode matching_mode = MatchingMode::ANY);
+            MatchingMode matching_mode = MatchingMode::ANY, DenyStrength strength = DenyStrength::STRONG);
 
-  void DenyGlobal(FineGrainedPermission fine_grained_permission);
+  void DenyGlobal(FineGrainedPermission fine_grained_permission, DenyStrength strength = DenyStrength::STRONG);
 
   void Revoke(std::unordered_set<std::string> const &symbols, FineGrainedPermission fine_grained_permission,
               MatchingMode matching_mode = MatchingMode::ANY);
@@ -394,14 +405,23 @@ class FineGrainedAccessPermissions final {
 
   std::optional<uint64_t> const &GetGlobalGrants() const { return global_grants_; }
 
-  std::optional<uint64_t> const &GetGlobalDenies() const { return global_denies_; }
+  std::optional<uint64_t> const &GetGlobalStrongDenies() const { return global_strong_denies_; }
+
+  uint64_t GetGlobalWeakDenies() const { return global_weak_denies_; }
 
   std::vector<FineGrainedAccessRule> const &GetRules() const { return rules_; }
 
  private:
+  bool WeakDenyOverridden(FineGrainedAccessRule const &rule, std::span<std::string const> symbols,
+                          FineGrainedPermission fine_grained_permission) const;
+
   std::optional<uint64_t> global_grants_;
-  std::optional<uint64_t> global_denies_;
+  std::optional<uint64_t> global_strong_denies_;
   std::vector<FineGrainedAccessRule> rules_;
+  uint64_t global_weak_denies_{0};
+  // The unmerged permissions a merge with weak denies was built from, and the rule grants per symbol across them.
+  std::vector<FineGrainedAccessPermissions> sources_;
+  std::unordered_map<std::string, FineGrainedPermission> rule_grants_;
 };
 
 bool operator==(const FineGrainedAccessPermissions &first, const FineGrainedAccessPermissions &second);
@@ -465,7 +485,8 @@ constexpr auto kAllPropertyPermissionTypes = PropertyPermissionType::READ | Prop
 
 struct PropertyPermission {
   PropertyPermissionType grants{PropertyPermissionType::NONE};
-  PropertyPermissionType denies{PropertyPermissionType::NONE};
+  PropertyPermissionType strong_denies{PropertyPermissionType::NONE};
+  PropertyPermissionType weak_denies{PropertyPermissionType::NONE};
 
   bool operator==(PropertyPermission const &) const = default;
 };
@@ -486,12 +507,13 @@ class PropertyAccessPermissions final {
   void Grant(std::unordered_set<std::string> const &entities, std::string const &property, PropertyPermissionType type,
              MatchingMode matching_mode = MatchingMode::ANY);
   void Deny(std::unordered_set<std::string> const &entities, std::string const &property, PropertyPermissionType type,
-            MatchingMode matching_mode = MatchingMode::ANY);
+            MatchingMode matching_mode = MatchingMode::ANY, DenyStrength strength = DenyStrength::STRONG);
   void Revoke(std::unordered_set<std::string> const &entities, std::string const &property, PropertyPermissionType type,
               MatchingMode matching_mode = MatchingMode::ANY);
 
   void GrantGlobal(std::string const &property, PropertyPermissionType type);
-  void DenyGlobal(std::string const &property, PropertyPermissionType type);
+  void DenyGlobal(std::string const &property, PropertyPermissionType type,
+                  DenyStrength strength = DenyStrength::STRONG);
   void RevokeGlobal(std::string const &property, PropertyPermissionType type);
 
   PermissionLevel Has(std::span<std::string const> entities, std::string const &property,
@@ -516,8 +538,15 @@ class PropertyAccessPermissions final {
 
   PropertyAccessRule &FindOrCreateRule(std::unordered_set<std::string> const &entities, MatchingMode matching_mode);
 
+  bool WeakDenyOverridden(PropertyAccessRule const &rule, std::span<std::string const> entities,
+                          std::string const &property, bool wildcard, PropertyPermissionType type) const;
+
   std::vector<PropertyAccessRule> rules_;
   std::unordered_map<std::string, PropertyPermission> global_;
+  // The unmerged permissions a merge with weak denies was built from, and the rule grants per entity and property
+  // across them.
+  std::vector<PropertyAccessPermissions> sources_;
+  std::unordered_map<std::string, std::unordered_map<std::string, PropertyPermissionType>> rule_grants_;
 };
 
 class PropertyAccessHandler final {
@@ -854,12 +883,10 @@ class Roles {
     for (const auto &role : roles_) {
 #ifdef MG_ENTERPRISE
       if (!db_name || role.HasAccess(*db_name)) {
-        permissions = Permissions{permissions.grants() | role.permissions().grants(),
-                                  permissions.denies() | role.permissions().denies()};
+        permissions = Merge(permissions, role.permissions());
       }
 #else
-      permissions = Permissions{permissions.grants() | role.permissions().grants(),
-                                permissions.denies() | role.permissions().denies()};
+      permissions = Merge(permissions, role.permissions());
 #endif
     }
     return permissions;
@@ -1096,14 +1123,12 @@ class User final {
     // filter roles based on the database name and combine with user permissions
     const auto &roles_permissions = roles_.GetPermissions(db_name);
     if (!db_name || has_access(*db_name)) {  // User only level access check
-      return Permissions{permissions_.grants() | roles_permissions.grants(),
-                         permissions_.denies() | roles_permissions.denies()};
+      return Merge(permissions_, roles_permissions);
     }
     return roles_permissions;
 #else
     const auto roles_permissions = roles_.GetPermissions();
-    return Permissions{permissions_.grants() | roles_permissions.grants(),
-                       permissions_.denies() | roles_permissions.denies()};
+    return Merge(permissions_, roles_permissions);
 #endif
   }
 
@@ -1172,7 +1197,7 @@ FineGrainedAccessPermissions Merge(const FineGrainedAccessPermissions &first,
                                    const FineGrainedAccessPermissions &second);
 #endif
 
-constexpr int kCurrentEntityVersion = 4;
+constexpr int kCurrentEntityVersion = 5;
 
 /// Migrate a single user or role JSON object to the latest format in-place.
 void MigrateAuthJson(nlohmann::json &data);
