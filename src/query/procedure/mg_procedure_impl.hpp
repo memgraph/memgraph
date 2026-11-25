@@ -837,6 +837,13 @@ struct mgp_graph {
   // `ctx` field is out of place here.
   memgraph::query::ExecutionContext *ctx;
   memgraph::storage::StorageMode storage_mode;
+  /// Edge type names this procedure call already looked up, so iterating many vertices' edges by type looks each
+  /// name up once rather than once per vertex. It lasts one call: a procedure called once per input row starts
+  /// empty each time. A procedure runs on a single thread, like the rest of the API.
+  std::vector<std::pair<std::string, memgraph::storage::EdgeTypeId>> known_edge_types{};
+
+  /// The id of the edge type `name`, from `known_edge_types` when it is there.
+  memgraph::storage::EdgeTypeId KnownEdgeType(const char *name);
 
   /// Null for the graph handed to a procedure that declared it needs none.
   [[nodiscard]] memgraph::query::DbAccessor *TryGetImpl() const {
@@ -1018,11 +1025,23 @@ struct mgp_edges_iterator {
   };
 
   struct VirtualCursor {
+    /// Set only when the edges were filtered by type; `edges` then refers to it.
+    std::optional<memgraph::utils::pmr::vector<const memgraph::query::VirtualEdge *>> kept;
     std::span<const memgraph::query::VirtualEdge *const> edges;
     std::span<const memgraph::query::VirtualEdge *const>::iterator it;
 
     explicit VirtualCursor(std::span<const memgraph::query::VirtualEdge *const> edges)
         : edges(edges), it(this->edges.begin()) {}
+
+    explicit VirtualCursor(memgraph::utils::pmr::vector<const memgraph::query::VirtualEdge *> kept_edges)
+        : kept(std::move(kept_edges)), edges(*kept), it(this->edges.begin()) {}
+
+    /// `edges` may refer to `kept` beside it, so like RealCursor this stays where it was built.
+    VirtualCursor(VirtualCursor const &) = delete;
+    VirtualCursor(VirtualCursor &&) = delete;
+    VirtualCursor &operator=(VirtualCursor const &) = delete;
+    VirtualCursor &operator=(VirtualCursor &&) = delete;
+    ~VirtualCursor() = default;
   };
 
   using Cursor = std::variant<std::monostate, RealCursor, VirtualCursor>;
