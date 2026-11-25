@@ -12,6 +12,7 @@
 #pragma once
 
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <expected>
 #include <functional>
@@ -244,8 +245,11 @@ class BranchContext {
 
   // Ends any open transaction, then opens main at fork_ts; fails, leaving nothing open, if it is no longer pinned.
   // Call BEFORE opening the diff-engine accessor (lock order: main READ -> diff engine), then pass both to
-  // BeginTransaction.
-  std::expected<HistoricalAccessor, BuildError> OpenHistorical();
+  // BeginTransaction. `timeout` bounds the wait for main's READ guard (see InMemoryStorage::HistoricalAccess): a
+  // session opening a second branch transaction under an open one must pass it, or it can wait forever behind a queued
+  // UNIQUE.
+  std::expected<HistoricalAccessor, BuildError> OpenHistorical(
+      std::optional<std::chrono::milliseconds> timeout = std::nullopt);
 
   // `diff_txn` is the session's diff-engine accessor, not owned; it must outlive the transaction.
   void BeginTransaction(HistoricalAccessor historical, storage::Storage::Accessor &diff_txn);

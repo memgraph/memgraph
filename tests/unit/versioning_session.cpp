@@ -12,9 +12,12 @@
 // A session's branch state: checkout bookkeeping across database switches, detach/reattach, parking, nested sessions,
 // a branch dropped under the session, and the per-checkout plan cache.
 
+#include <atomic>
+#include <chrono>
 #include <optional>
 #include <string>
 #include <string_view>
+#include <thread>
 
 #include <gtest/gtest.h>
 
@@ -356,6 +359,29 @@ TEST_F(VersioningGatedTest, FailedBranchTransactionSetupReleasesMainsStorageGuar
 
   EXPECT_NO_THROW(db->storage()->UniqueAccess(std::nullopt, std::chrono::milliseconds{200}))
       << "main's READ guard is still held by the half-open branch transaction";
+}
+
+// Opening a branch transaction waits for main's storage guard at most the storage access timeout: behind a queued
+// UNIQUE request (SET STORAGE MODE, SET GLOBAL ISOLATION LEVEL) it throws like main's accessors instead of waiting
+// forever.
+TEST_F(VersioningGatedTest, BranchTransactionSetupTimesOutBehindAQueuedUniqueRequest) {
+  Fork();
+  auto &current_db = faker.interpreter.current_db_;
+  auto holder = db->storage()->Access(memgraph::storage::StorageAccessType::READ);  // Main's guard, held shared.
+
+  std::atomic<bool> unique_requested{false};
+  std::thread unique([&] {
+    unique_requested = true;
+    auto accessor = db->storage()->UniqueAccess();
+  });
+  while (!unique_requested) std::this_thread::yield();
+  std::this_thread::sleep_for(std::chrono::milliseconds(300));  // The request is queued behind `holder`.
+
+  EXPECT_THROW(current_db.SetupDatabaseTransaction(std::nullopt, false, memgraph::storage::StorageAccessType::READ),
+               memgraph::storage::SharedAccessTimeout);
+
+  holder.reset();
+  unique.join();
 }
 
 // The session commits through the BranchContext, which publishes the transaction's base deletes: the interpreter's

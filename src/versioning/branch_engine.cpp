@@ -197,9 +197,10 @@ std::expected<std::unique_ptr<BranchContext>, BranchContext::BuildError> BranchC
   return std::make_unique<BranchContext>(std::move(*core), std::string{}, branch_id.value_or(0));
 }
 
-std::expected<BranchContext::HistoricalAccessor, BranchContext::BuildError> BranchContext::OpenHistorical() {
+std::expected<BranchContext::HistoricalAccessor, BranchContext::BuildError> BranchContext::OpenHistorical(
+    std::optional<std::chrono::milliseconds> timeout) {
   EndTransaction();
-  auto historical = main().HistoricalAccess(fork_ts());
+  auto historical = main().HistoricalAccess(fork_ts(), timeout);
   if (!historical) {
     return std::unexpected(BuildError{
         .message = HistoricalOpenFailure(historical.error(), fork_ts(), "The branch is no longer available")});

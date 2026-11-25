@@ -280,7 +280,7 @@ void memgraph::query::CurrentDB::SetupBranchTransaction(std::optional<storage::I
                                                         std::chrono::seconds timeout) {
   ThrowIfBranchGone();
   // Lock order: main READ (OpenHistorical) before the diff engine.
-  auto historical = branch_context_->OpenHistorical();
+  auto historical = branch_context_->OpenHistorical(timeout);
   if (!historical) {
     throw QueryRuntimeException(historical.error().message);
   }
