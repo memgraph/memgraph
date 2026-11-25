@@ -443,6 +443,11 @@ TEST_F(PlannerV2PipelineTest, StarProjectionIsUnsupported) {
   EXPECT_THROW(PlanQuery("UNWIND [1, 2, 3] AS x WITH * RETURN 42;"), NotYetImplemented);
 }
 
+TEST_F(PlannerV2PipelineTest, StandaloneOrderByIsNotYetImplemented) {
+  // A standalone ORDER BY parses as `WITH *`, which plan_v2 refuses.
+  EXPECT_THROW(PlanQuery("UNWIND [1, 2] AS x ORDER BY x RETURN x;"), NotYetImplemented);
+}
+
 // clang-format off
 INSTANTIATE_TEST_SUITE_P(
     InlineRewrites,

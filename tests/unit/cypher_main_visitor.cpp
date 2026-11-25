@@ -2440,6 +2440,116 @@ TEST_P(CypherMainVisitorTest, WithAnonymousVariableCapture) {
   CheckRWType(query, kRead);
 }
 
+std::vector<std::string> ClauseNames(const SingleQuery &single_query) {
+  std::vector<std::string> names;
+  for (const auto *clause : single_query.clauses_) names.emplace_back(clause->GetTypeInfo().name);
+  return names;
+}
+
+TEST_P(CypherMainVisitorTest, StandaloneOrderSkipLimitIsWithStar) {
+  auto &ast_generator = *GetParam();
+  // The standalone spelling and the `WITH *` spelling build the same clauses.
+  for (const auto *text : {"MATCH (n) WITH n WHERE n.k > 1 ORDER BY n.k DESC SKIP 1 LIMIT 2 RETURN n",
+                           "MATCH (n) WITH n WHERE n.k > 1 WITH * ORDER BY n.k DESC SKIP 1 LIMIT 2 RETURN n"}) {
+    SCOPED_TRACE(text);
+    auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(text));
+    ASSERT_TRUE(query);
+    const auto &clauses = query->single_query_->clauses_;
+    ASSERT_EQ(ClauseNames(*query->single_query_), (std::vector<std::string>{"Match", "With", "With", "Return"}));
+    EXPECT_TRUE(dynamic_cast<With *>(clauses[1])->where_);
+    const auto *with = dynamic_cast<With *>(clauses[2]);
+    EXPECT_EQ(with->where_, nullptr);
+    EXPECT_TRUE(with->body_.all_identifiers);
+    EXPECT_FALSE(with->body_.distinct);
+    EXPECT_TRUE(with->body_.named_expressions.empty());
+    ASSERT_EQ(with->body_.order_by.size(), 1U);
+    EXPECT_EQ(with->body_.order_by[0].ordering, Ordering::DESC);
+    EXPECT_TRUE(dynamic_cast<PropertyLookup *>(with->body_.order_by[0].expression));
+    ASSERT_TRUE(with->body_.skip);
+    ast_generator.CheckLiteral(with->body_.skip, 1);
+    ASSERT_TRUE(with->body_.limit);
+    ast_generator.CheckLiteral(with->body_.limit, 2);
+    CheckRWType(query, kRead);
+  }
+}
+
+TEST_P(CypherMainVisitorTest, StandaloneRunsSplitOutOfOrder) {
+  auto &ast_generator = *GetParam();
+  // A keyword out of the ORDER BY, SKIP, LIMIT order starts a new clause.
+  auto *query = dynamic_cast<CypherQuery *>(
+      ast_generator.ParseQuery("UNWIND [1] AS a LIMIT 2 ORDER BY a SKIP 1 ORDER BY a RETURN a"));
+  ASSERT_TRUE(query);
+  const auto &clauses = query->single_query_->clauses_;
+  ASSERT_EQ(ClauseNames(*query->single_query_), (std::vector<std::string>{"Unwind", "With", "With", "With", "Return"}));
+  const auto &limit_only = dynamic_cast<With *>(clauses[1])->body_;
+  EXPECT_TRUE(limit_only.order_by.empty());
+  EXPECT_EQ(limit_only.skip, nullptr);
+  ASSERT_TRUE(limit_only.limit);
+  ast_generator.CheckLiteral(limit_only.limit, 2);
+  const auto &order_skip = dynamic_cast<With *>(clauses[2])->body_;
+  EXPECT_EQ(order_skip.order_by.size(), 1U);
+  ASSERT_TRUE(order_skip.skip);
+  ast_generator.CheckLiteral(order_skip.skip, 1);
+  EXPECT_EQ(order_skip.limit, nullptr);
+  const auto &order_only = dynamic_cast<With *>(clauses[3])->body_;
+  EXPECT_EQ(order_only.order_by.size(), 1U);
+  EXPECT_EQ(order_only.skip, nullptr);
+  EXPECT_EQ(order_only.limit, nullptr);
+}
+
+TEST_P(CypherMainVisitorTest, StandaloneInWhenBranch) {
+  auto &ast_generator = *GetParam();
+  auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(
+      "UNWIND [1, 2] AS x CALL (x) { WHEN x > 1 THEN UNWIND [3, 1, 2] AS a ORDER BY a DESC LIMIT 1 RETURN a "
+      "ELSE RETURN 0 AS a } RETURN x, a"));
+  ASSERT_TRUE(query);
+  const auto *call_subquery = dynamic_cast<CallSubquery *>(query->single_query_->clauses_[1]);
+  ASSERT_TRUE(call_subquery);
+  const auto *branches = dynamic_cast<ConditionalBranches *>(call_subquery->cypher_query_->single_query_->clauses_[0]);
+  ASSERT_TRUE(branches);
+  const auto &body = *branches->branches_[0].body->single_query_;
+  ASSERT_EQ(ClauseNames(body), (std::vector<std::string>{"Unwind", "With", "Return"}));
+  const auto &tail = dynamic_cast<With *>(body.clauses_[1])->body_;
+  EXPECT_TRUE(tail.all_identifiers);
+  ASSERT_EQ(tail.order_by.size(), 1U);
+  EXPECT_EQ(tail.order_by[0].ordering, Ordering::DESC);
+  EXPECT_EQ(tail.skip, nullptr);
+  ASSERT_TRUE(tail.limit);
+  ast_generator.CheckLiteral(tail.limit, 1);
+}
+
+TEST_P(CypherMainVisitorTest, ProjectionKeepsItsOrderSkipLimit) {
+  auto &ast_generator = *GetParam();
+  auto *query = dynamic_cast<CypherQuery *>(
+      ast_generator.ParseQuery("UNWIND [1] AS a WITH a ORDER BY a SKIP 1 LIMIT 1 RETURN a ORDER BY a LIMIT 1"));
+  ASSERT_TRUE(query);
+  ASSERT_EQ(ClauseNames(*query->single_query_), (std::vector<std::string>{"Unwind", "With", "Return"}));
+  const auto &with = dynamic_cast<With *>(query->single_query_->clauses_[1])->body_;
+  EXPECT_FALSE(with.all_identifiers);
+  EXPECT_EQ(with.order_by.size(), 1U);
+  EXPECT_TRUE(with.skip);
+  EXPECT_TRUE(with.limit);
+  const auto &ret = dynamic_cast<Return *>(query->single_query_->clauses_[2])->body_;
+  EXPECT_EQ(ret.order_by.size(), 1U);
+  EXPECT_EQ(ret.skip, nullptr);
+  EXPECT_TRUE(ret.limit);
+
+  // The tail may sort by a variable the projection renames.
+  query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("UNWIND [1] AS a WITH a AS b ORDER BY a RETURN b"));
+  ASSERT_TRUE(query);
+  EXPECT_EQ(ClauseNames(*query->single_query_), (std::vector<std::string>{"Unwind", "With", "Return"}));
+}
+
+TEST_P(CypherMainVisitorTest, StandaloneClauseTakesNoWhere) {
+  auto &ast_generator = *GetParam();
+  try {
+    ast_generator.ParseQuery("UNWIND [1] AS a WITH a WHERE a > 0 ORDER BY a WHERE a < 3 RETURN a");
+    FAIL() << "expected a SyntaxException";
+  } catch (const SyntaxException &e) {
+    EXPECT_THAT(std::string{e.what()}, HasSubstr("'WHERE'"));
+  }
+}
+
 TEST_P(CypherMainVisitorTest, MatchAfterOptionalMatch) {
   auto &ast_generator = *GetParam();
   CypherQuery *query = nullptr;
@@ -6931,6 +7041,31 @@ void CheckParsedCallProcedure(const CypherQuery &query, Base &ast_generator,
 };
 }  // namespace
 
+TEST_P(CypherMainVisitorTest, StandaloneClauseAfterReturn) {
+  auto &ast_generator = *GetParam();
+  for (const auto *query :
+       {"UNWIND [1] AS a RETURN a LIMIT 1 ORDER BY a", "UNWIND [1] AS a RETURN a LIMIT 1 LIMIT 1"}) {
+    SCOPED_TRACE(query);
+    TestInvalidQueryWithMessage<SemanticException>(
+        query,
+        ast_generator,
+        "RETURN takes ORDER BY, SKIP and LIMIT once each, in that order: RETURN … ORDER BY … SKIP … LIMIT ….");
+  }
+  TestInvalidQueryWithMessage<SemanticException>(
+      "UNWIND [1] AS a RETURN a WITH a RETURN a", ast_generator, "RETURN can't be put before WITH.");
+}
+
+TEST_P(CypherMainVisitorTest, StandaloneClauseEndsQuery) {
+  auto &ast_generator = *GetParam();
+  for (const auto *query : {"UNWIND [1] AS a ORDER BY a", "UNWIND [1] AS a CREATE (:T {v: a}) LIMIT 1"}) {
+    SCOPED_TRACE(query);
+    TestInvalidQueryWithMessage<SemanticException>(
+        query, ast_generator, "A query cannot end with ORDER BY, SKIP or LIMIT; add a RETURN clause.");
+  }
+  TestInvalidQueryWithMessage<SemanticException>(
+      "UNWIND [1] AS a WITH a", ast_generator, "Query should either create or update something, or return results!");
+}
+
 TEST_P(CypherMainVisitorTest, CallProcedureMultipleQueryPartsAfter) {
   auto &ast_generator = *GetParam();
   static constexpr std::string_view fst{"fst"};
@@ -6959,6 +7094,14 @@ TEST_P(CypherMainVisitorTest, CallProcedureMultipleQueryPartsAfter) {
             query_str,
             ast_generator,
             "WITH can't be put after calling a writeable procedure, only RETURN clause can be put after.");
+      }
+      {
+        SCOPED_TRACE("Write proc, standalone ORDER BY");
+        TestInvalidQueryWithMessage<SemanticException>(
+            fmt::format("CALL {}() YIELD {},{} ORDER BY {} RETURN {}", write_proc, fst, snd, fst, fst),
+            ast_generator,
+            "ORDER BY, SKIP and LIMIT can't be put after calling a writeable procedure, only RETURN clause can be put "
+            "after.");
       }
       {
         SCOPED_TRACE("Read proc");
@@ -11100,7 +11243,12 @@ TEST(CypherParserTest, ValidQueryNeedsNoFullContextPrediction) {
                             "UNWIND [1] AS i CALL (i) { WHEN i = 1 THEN RETURN 1 AS x WHEN i = 2 THEN { RETURN 2 AS x "
                             "UNION RETURN 3 AS x } ELSE { WHEN true THEN RETURN 4 AS x } } RETURN x",
                             "UNWIND [1] AS i CALL (i) { WHEN CASE WHEN i = 1 THEN true ELSE false END THEN RETURN CASE "
-                            "WHEN i = 1 THEN 1 ELSE 2 END AS x ELSE RETURN 3 AS x } RETURN x"}) {
+                            "WHEN i = 1 THEN 1 ELSE 2 END AS x ELSE RETURN 3 AS x } RETURN x",
+                            "MATCH (n) RETURN n ORDER BY n.a, toLower(n.b) DESC, n.c SKIP $s LIMIT $l",
+                            "MATCH (n) WITH n WHERE n.a > 1 ORDER BY n.a DESC SKIP 1 LIMIT 2 RETURN n",
+                            "UNWIND [1] AS a LIMIT 2 ORDER BY a SKIP 1 ORDER BY a RETURN a",
+                            "UNWIND [1] AS a WITH a ORDER BY a SKIP 1 LIMIT 1 RETURN a ORDER BY a LIMIT 1",
+                            "ORDER BY $x SKIP $s LIMIT $l RETURN 1"}) {
     ::frontend::opencypher::Parser parser(query);
     ASSERT_TRUE(parser.tree()) << query;
     EXPECT_EQ(parser.FullContextPredictions(), 0U) << query;

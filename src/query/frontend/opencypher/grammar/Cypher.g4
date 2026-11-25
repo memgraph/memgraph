@@ -96,6 +96,7 @@ clause : cypherMatch
        | with
        | cypherReturn
        | callProcedure
+       | orderSkipLimit
        ;
 
 cypherMatch : OPTIONAL? MATCH pattern where? ;
@@ -145,7 +146,12 @@ procedureMemoryLimit : PROCEDURE memoryLimit ;
 
 procedureResult : ( variable AS variable ) | variable ;
 
-returnBody : returnItems ( order )? ( skip )? ( limit )? ;
+returnBody : returnItems ( orderSkipLimit )? ;
+
+orderSkipLimit : order ( skip )? ( limit )?
+               | skip ( limit )?
+               | limit
+               ;
 
 returnItems : ( '*' ( ',' returnItem )* )
             | ( returnItem ( ',' returnItem )* )

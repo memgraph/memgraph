@@ -397,6 +397,7 @@ clause : cypherMatch
        | callSubquery
        | loadParquet
        | loadJsonl
+       | orderSkipLimit
        ;
 
 updateClause : set
