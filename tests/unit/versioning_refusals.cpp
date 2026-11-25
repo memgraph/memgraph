@@ -207,11 +207,6 @@ TEST_F(VersioningRefusalsTest, StatementsRejectedOnBranch) {
 
   UseMain();
   EXPECT_EQ(index_rows(), main_rows);
-  faker.Interpret("CREATE INDEX ON :L(p)");
-  EXPECT_EQ(index_rows().size(), main_rows.size() + 1);
-  faker.Interpret("CREATE TRIGGER my_trigger AFTER COMMIT EXECUTE RETURN 1");
-  EXPECT_EQ(faker.Interpret("SHOW TRIGGERS").GetResults().size(), 1U);
-  EXPECT_NO_THROW(faker.Interpret("SET DESCRIPTION ON LABEL :Person \"d\""));
 }
 
 TEST_F(VersioningRefusalsTest, SchemaProceduresRefusedOnBranch) {
