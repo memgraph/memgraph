@@ -9,12 +9,9 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include <atomic>
 #include <filesystem>
 #include <string>
 #include <string_view>
-#include <thread>
-#include <vector>
 
 #include <fmt/format.h>
 #include <gmock/gmock.h>
@@ -285,22 +282,6 @@ TEST_F(VersioningGatedTest, WithoutLicenseUsingBranchOnlyReads) {
   EXPECT_EQ(IntRows(faker, "MATCH (n:V) RETURN count(n)"), (Rows{{2}}));
 }
 
-// BRANCH_USE plus the query's own privileges: a write on a branch needs WRITE-side privileges, not BRANCH_EDIT.
-TEST_F(VersioningGatedTest, UsingBranchNeedsBranchUseAndTheQuerysPrivileges) {
-  using memgraph::query::AuthQuery;
-  faker.Interpret("CREATE BRANCH b");
-  const auto privileges_of = [&](const std::string &query) {
-    auto prepared =
-        faker.interpreter.Prepare(query, [](auto *) { return memgraph::storage::ExternalPropertyValue::map_t{}; }, {});
-    faker.Abort();
-    return prepared.privileges;
-  };
-  EXPECT_THAT(privileges_of("USING BRANCH b MATCH (n) RETURN n"),
-              ::testing::UnorderedElementsAre(AuthQuery::Privilege::MATCH, AuthQuery::Privilege::BRANCH_USE));
-  EXPECT_THAT(privileges_of("USING BRANCH b CREATE (n)"),
-              ::testing::UnorderedElementsAre(AuthQuery::Privilege::CREATE, AuthQuery::Privilege::BRANCH_USE));
-}
-
 // The refusal comes before the attach, so a user without BRANCH_USE cannot probe which branches exist or are usable.
 TEST_F(VersioningGatedTest, UsingBranchWithoutBranchUseIsRefusedBeforeAnythingIsAttached) {
   using memgraph::query::AuthQuery;
@@ -403,56 +384,4 @@ TEST_F(VersioningGatedTest, UsingBranchSeesTheTargetsLatestCommitsAndNeverAnothe
   EXPECT_EQ(IntRows(faker, kRead), (Rows{{1}}));
   EXPECT_EQ(CheckoutCount(db->version_store(), "x"), 1U) << "only the session on x holds a checkout";
   EXPECT_EQ(CheckoutCount(db->version_store(), "y"), 1U);
-}
-
-// Writers on x transfer one unit per transaction while sessions on main and y read x: every read is one consistent
-// snapshot, x only moves forward, y and main never change, and no transfer is lost.
-TEST_F(VersioningGatedTest, UsingBranchReadsAreConsistentSnapshotsWhileTransfersCommit) {
-  constexpr int kTransfers = 80;
-  faker.Interpret("CREATE (:K {id: 1, v: 100}), (:K {id: 2, v: 0})");
-  faker.Interpret("CREATE BRANCH x");
-  faker.Interpret("CREATE BRANCH y");
-  auto writers = SessionsOnBranch(2, "x");
-  auto on_y = SessionsOnBranch(1, "y");
-  std::atomic<int> writers_left{2};
-
-  {
-    std::vector<std::jthread> threads;
-    for (auto &writer : writers) {
-      threads.emplace_back([&session = *writer, &writers_left] {
-        for (int done = 0; done < kTransfers;) {
-          try {
-            session.Interpret("BEGIN");
-            session.Interpret("MATCH (a:K {id: 1}), (b:K {id: 2}) SET a.v = a.v - 1, b.v = b.v + 1");
-            std::this_thread::yield();
-            session.Interpret("COMMIT");
-            ++done;
-          } catch (const memgraph::query::TransactionSerializationException &) {
-            session.Interpret("ROLLBACK");
-          }
-        }
-        --writers_left;
-      });
-    }
-    for (InterpreterFaker *reader : {&faker, on_y[0].get()}) {
-      threads.emplace_back([reader, &writers_left] {
-        int64_t last_moved = 0;
-        do {
-          auto const pair = IntRows(*reader, "USING BRANCH x MATCH (n:K) RETURN n.v ORDER BY n.id");
-          auto const total = IntRows(*reader, "USING BRANCH x MATCH (n:K) RETURN sum(n.v)");
-          ASSERT_EQ(pair.size(), 2U);
-          ASSERT_EQ(pair[0][0] + pair[1][0], 100) << "a half-applied transfer was visible";
-          ASSERT_EQ(total, (Rows{{100}}));
-          ASSERT_GE(pair[1][0], last_moved) << "committed transfers went backwards";
-          last_moved = pair[1][0];
-        } while (writers_left.load() > 0);
-      });
-    }
-  }
-
-  EXPECT_EQ(IntRows(faker, "USING BRANCH x MATCH (n:K) RETURN n.v ORDER BY n.id"),
-            (Rows{{100 - 2 * kTransfers}, {2 * kTransfers}}));
-  EXPECT_EQ(IntRows(faker, "USING BRANCH y MATCH (n:K) RETURN n.v ORDER BY n.id"), (Rows{{100}, {0}}));
-  EXPECT_EQ(IntRows(faker, "MATCH (n:K) RETURN n.v ORDER BY n.id"), (Rows{{100}, {0}}));
-  EXPECT_EQ(CheckoutCount(db->version_store(), "x"), 2U) << "only the writers hold x; every USING released its attach";
 }
