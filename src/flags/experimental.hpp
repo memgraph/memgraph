@@ -33,6 +33,8 @@ enum class Experiments : uint8_t {
   NONE = 0,
   PLANNER_V2 = 1 << 0,
   COMMIT_LOCK_NARROWING = 1 << 1,
+  // Value reserved in all builds; only enterprise maps the name.
+  VERSIONING = 1 << 2,
 };
 
 bool AreExperimentsEnabled(Experiments experiments);

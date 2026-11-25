@@ -553,6 +553,27 @@ PrometheusMetrics::PrometheusMetrics()
                                           .Name("memgraph_database_resume_latency_seconds")
                                           .Help("Latency of a successful database RESUME in seconds")
                                           .Register(registry_)},
+#ifdef MG_ENTERPRISE
+      versioning_branches_created_family_{
+          prometheus::BuildCounter()
+              .Name("memgraph_versioning_branches_created_total")
+              .Help("Total number of branches created, not counting those restored at startup")
+              .Register(registry_)},
+      versioning_branches_dropped_family_{prometheus::BuildCounter()
+                                              .Name("memgraph_versioning_branches_dropped_total")
+                                              .Help("Total number of branches dropped, including automatic drops; "
+                                                    "branches removed with their database are not counted")
+                                              .Register(registry_)},
+      versioning_active_branches_family_{prometheus::BuildGauge()
+                                             .Name("memgraph_versioning_active_branches")
+                                             .Help("Current number of live and unavailable branches of loaded "
+                                                   "databases")
+                                             .Register(registry_)},
+      versioning_active_sessions_family_{prometheus::BuildGauge()
+                                             .Name("memgraph_versioning_active_sessions")
+                                             .Help("Current number of sessions checked out on a branch")
+                                             .Register(registry_)},
+#endif
       // HighAvailability counters
       successful_failovers_family_{prometheus::BuildCounter()
                                        .Name("memgraph_successful_failovers_total")
@@ -835,6 +856,12 @@ PrometheusMetrics::PrometheusMetrics()
   global.cold_databases = &cold_databases_family_.Add(no_labels);
   global.database_suspend_latency_seconds = &database_suspend_latency_family_.Add(no_labels, kLatencyBuckets);
   global.database_resume_latency_seconds = &database_resume_latency_family_.Add(no_labels, kLatencyBuckets);
+#ifdef MG_ENTERPRISE
+  global.versioning_branches_created = &versioning_branches_created_family_.Add(no_labels);
+  global.versioning_branches_dropped = &versioning_branches_dropped_family_.Add(no_labels);
+  global.versioning_active_branches = &versioning_active_branches_family_.Add(no_labels);
+  global.versioning_active_sessions = &versioning_active_sessions_family_.Add(no_labels);
+#endif
   // No-db fallback counters: same family as per-db, but with no database label.
   // Incremented only when a query fires outside any database context.
   global.transient_errors = &transient_errors_family_.Add(no_labels);
@@ -2124,6 +2151,25 @@ std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfo() const {
   out.push_back({"ColdDatabases", "HotCold", "Gauge", static_cast<int64_t>(global.cold_databases->Value())});
   AppendHistogramPercentiles(out, "DatabaseSuspendLatency", "HotCold", *global.database_suspend_latency_seconds);
   AppendHistogramPercentiles(out, "DatabaseResumeLatency", "HotCold", *global.database_resume_latency_seconds);
+#ifdef MG_ENTERPRISE
+  // Graph versioning (global only)
+  out.push_back({.name = "VersioningBranchesCreated",
+                 .type = "Versioning",
+                 .metric_type = "Counter",
+                 .value = static_cast<int64_t>(global.versioning_branches_created->Value())});
+  out.push_back({.name = "VersioningBranchesDropped",
+                 .type = "Versioning",
+                 .metric_type = "Counter",
+                 .value = static_cast<int64_t>(global.versioning_branches_dropped->Value())});
+  out.push_back({.name = "VersioningActiveBranches",
+                 .type = "Versioning",
+                 .metric_type = "Gauge",
+                 .value = static_cast<int64_t>(global.versioning_active_branches->Value())});
+  out.push_back({.name = "VersioningActiveSessions",
+                 .type = "Versioning",
+                 .metric_type = "Gauge",
+                 .value = static_cast<int64_t>(global.versioning_active_sessions->Value())});
+#endif
 
   // Session
   out.push_back({"ActiveSessions", "Session", "Gauge", static_cast<int64_t>(global.active_sessions->Value())});
