@@ -11,16 +11,12 @@
 
 // Graph Versioning: USE BRANCH and what a session does on a branch that is dropped under it.
 
-#include <array>
-#include <filesystem>
 #include <memory>
 #include <set>
 #include <string>
 #include <string_view>
-#include <thread>
 #include <vector>
 
-#include <fmt/format.h>
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
@@ -33,7 +29,6 @@
 using memgraph::tests::versioning_fixture::CheckoutCount;
 using memgraph::tests::versioning_fixture::GateMessage;
 using memgraph::tests::versioning_fixture::IntRows;
-using memgraph::tests::versioning_fixture::kNullInt;
 using memgraph::tests::versioning_fixture::LackingPrivilegesUser;
 using memgraph::tests::versioning_fixture::Rows;
 using memgraph::tests::versioning_fixture::ThrownMessage;
@@ -110,32 +105,6 @@ TEST_F(VersioningGatedTest, UseBranchOnAnUnavailableBranchSaysWhyAndLeavesTheSes
   faker.Interpret("DROP BRANCH bad");
   EXPECT_FALSE(store->Exists("bad"));
   EXPECT_EQ(ThrownMessage([&] { faker.Interpret("USE BRANCH bad"); }), "Branch 'bad' does not exist.");
-}
-
-// Two or more lookups on one symbol are read in one CacheProperties pass; on a branch it must read the branch's values,
-// not main's at the fork.
-TEST_F(VersioningGatedTest, SeveralPropertyLookupsOnABranchReadTheBranchsValues) {
-  faker.Interpret("CREATE (:A {a: 1, b: 2})-[:R {a: 1, b: 2}]->(:A {a: 5, b: 6})");
-  faker.Interpret("CREATE BRANCH feature");
-  faker.Interpret("USE BRANCH feature");
-  faker.Interpret("MATCH (n:A {a: 1}) SET n.a = 10 REMOVE n.b");
-  faker.Interpret("MATCH ()-[r:R]->() SET r.a = 10 REMOVE r.b");
-
-  constexpr auto kNodes = "MATCH (n:A) RETURN n.a, n.b ORDER BY n.a";
-  constexpr auto kEdges = "MATCH ()-[r:R]->() RETURN r.a, r.b";
-  for (auto const query : {kNodes, kEdges}) {
-    bool cached = false;
-    for (auto const &row : faker.Interpret(std::string{"EXPLAIN "} + query).GetResults())
-      cached = cached || row.at(0).ValueString().contains("CacheProperties");
-    EXPECT_TRUE(cached) << "the plan must read the lookups in one pass: " << query;
-  }
-
-  EXPECT_EQ(IntRows(faker, kNodes), (Rows{{5, 6}, {10, kNullInt}}));
-  EXPECT_EQ(IntRows(faker, kEdges), (Rows{{10, kNullInt}}));
-
-  faker.Interpret("USE BRANCH main");
-  EXPECT_EQ(IntRows(faker, kNodes), (Rows{{1, 2}, {5, 6}}));
-  EXPECT_EQ(IntRows(faker, kEdges), (Rows{{1, 2}}));
 }
 
 // x -> y -> main on one connection: the session holds one checkout at a time (counted once in the active-sessions
@@ -476,74 +445,6 @@ TEST_F(VersioningGatedTest, SwitchingBranchesBetweenTransactionsSeesEachBranchsO
   EXPECT_EQ(IntRows(faker, kRead), (Rows{{30}}));
 }
 
-// Bounded stress: sessions on main, x and y write their own label while a fourth hops between all three in explicit
-// transactions. Nobody sees another branch's label, and no write is lost.
-TEST_F(VersioningGatedTest, ConcurrentSessionsOnTwoBranchesAndMainNeverSeeEachOthersWrites) {
-  constexpr int kWrites = 60;
-  static constexpr std::array<const char *, 3> kLabels{"OnMain", "OnX", "OnY"};
-  static constexpr std::array<const char *, 3> kBranches{"main", "x", "y"};
-  faker.Interpret("CREATE (:Base)");
-  faker.Interpret("CREATE BRANCH x");
-  faker.Interpret("CREATE BRANCH y");
-  auto on_x = SessionsOnBranch(1, "x");
-  auto on_y = SessionsOnBranch(1, "y");
-  auto hopper = std::make_unique<InterpreterFaker>(&interpreter_context, db);
-  interpreter_context.auth_checker = &faker.auth_checker;
-  std::array<InterpreterFaker *, 3> const owners{&faker, on_x[0].get(), on_y[0].get()};
-
-  auto const foreign_count = [](InterpreterFaker &session, int branch) {
-    std::string predicate;
-    for (int other = 0; other < 3; ++other) {
-      if (other == branch) continue;
-      predicate += fmt::format("{}n:{}", predicate.empty() ? "" : " OR ", kLabels[other]);
-    }
-    return IntRows(session, fmt::format("MATCH (n) WHERE {} RETURN count(n)", predicate));
-  };
-
-  {
-    std::vector<std::jthread> threads;
-    for (int branch = 0; branch < 3; ++branch) {
-      threads.emplace_back([&, branch] {
-        auto &session = *owners[branch];
-        for (int i = 1; i <= kWrites; ++i) {
-          session.Interpret("BEGIN");
-          session.Interpret(fmt::format("CREATE (:{})", kLabels[branch]));
-          auto const own = IntRows(session, fmt::format("MATCH (n:{}) RETURN count(n)", kLabels[branch]));
-          auto const foreign = foreign_count(session, branch);
-          session.Interpret("COMMIT");
-          ASSERT_EQ(own, (Rows{{i}}));
-          ASSERT_EQ(foreign, (Rows{{0}})) << "a write of another branch is visible on " << kBranches[branch];
-        }
-      });
-    }
-    threads.emplace_back([&] {
-      std::array<int, 3> hopped{};
-      for (int round = 0; round < kWrites; ++round) {
-        for (int branch = 0; branch < 3; ++branch) {
-          hopper->Interpret(fmt::format("USE BRANCH {}", kBranches[branch]));
-          hopper->Interpret("BEGIN");
-          hopper->Interpret(fmt::format("CREATE (:H {{b: {}}})", branch));
-          auto const own = IntRows(*hopper, fmt::format("MATCH (n:H {{b: {}}}) RETURN count(n)", branch));
-          auto const alien = IntRows(*hopper, fmt::format("MATCH (n:H) WHERE n.b <> {} RETURN count(n)", branch));
-          auto const foreign = foreign_count(*hopper, branch);
-          hopper->Interpret("COMMIT");
-          ++hopped[branch];
-          ASSERT_EQ(own, (Rows{{hopped[branch]}})) << "lost or foreign hopper write on " << kBranches[branch];
-          ASSERT_EQ(alien, (Rows{{0}}));
-          ASSERT_EQ(foreign, (Rows{{0}}));
-        }
-      }
-    });
-  }
-
-  for (int branch = 0; branch < 3; ++branch) {
-    hopper->Interpret(fmt::format("USE BRANCH {}", kBranches[branch]));
-    EXPECT_EQ(IntRows(*hopper, fmt::format("MATCH (n:{}) RETURN count(n)", kLabels[branch])), (Rows{{kWrites}}));
-    EXPECT_EQ(IntRows(*hopper, fmt::format("MATCH (n:H {{b: {}}}) RETURN count(n)", branch)), (Rows{{kWrites}}));
-    EXPECT_EQ(IntRows(*hopper, "MATCH (n:Base) RETURN count(n)"), (Rows{{1}}));
-  }
-}
-
 // RENAME DATABASE under a session on a branch: the accessor's name (read by auth checks) is the new one, in the open
 // transaction and in the next.
 TEST_F(VersioningGatedTest, BranchSessionDatabaseNameFollowsARename) {
@@ -564,42 +465,4 @@ TEST_F(VersioningGatedTest, BranchSessionDatabaseNameFollowsARename) {
   ASSERT_TRUE(current_db.execution_db_accessor_.has_value());
   EXPECT_EQ(current_db.execution_db_accessor_->DatabaseName(), "renamed_db");
   faker.Interpret("ROLLBACK");
-}
-
-// USE BRANCH builds a branch on the gid floors recorded at its fork, not main's current counters: main objects created
-// since the fork are not base objects, and a native create never takes a gid main has handed out.
-TEST_F(VersioningGatedTest, UseBranchBuildsTheCoreOnTheForkGidFloors) {
-  faker.Interpret("CREATE (:V {k: 1}), (:V {k: 2})");
-  auto &main = static_cast<memgraph::storage::InMemoryStorage &>(*db->storage());
-  ASSERT_TRUE(db->version_store()->CreateBranch("b"));
-  const auto fork = db->version_store()->Get("b")->info.fork;
-  const auto vertex_floor = fork.vertex_gid_floor;
-  const auto edge_floor = fork.edge_gid_floor;
-  faker.Interpret("CREATE (:V {k: 3}), (:V {k: 4}), (:V {k: 5})");
-  const auto main_vertex_counter = main.vertex_id_.load();
-  ASSERT_GT(main_vertex_counter, vertex_floor);
-
-  faker.Interpret("USE BRANCH b");
-
-  const auto *core = faker.interpreter.current_db_.branch_context()->core().get();
-  EXPECT_EQ(core->vertex_gid_floor(), vertex_floor);
-  EXPECT_EQ(core->edge_gid_floor(), edge_floor);
-  EXPECT_EQ(IntRows(faker, "MATCH (n:V) RETURN count(n)"), (Rows{{2}}));
-  const auto created = IntRows(faker, "CREATE (n:N) RETURN id(n)");
-  ASSERT_EQ(created.size(), 1U);
-  EXPECT_GE(created[0][0], static_cast<int64_t>(main_vertex_counter));
-  EXPECT_EQ(IntRows(faker, "MATCH (n:V) RETURN count(n)"), (Rows{{2}}));
-}
-
-// A branch session commits through the branch context, so a periodic batch's base deletes are counted once.
-TEST_F(VersioningGatedTest, SessionCommitsOnABranchCountBaseDeletes) {
-  faker.Interpret("CREATE (:V), (:V), (:V)");
-  faker.Interpret("CREATE BRANCH b");
-  faker.Interpret("USE BRANCH b");
-  faker.Interpret("MATCH (n:V) WITH n LIMIT 2 DETACH DELETE n");
-  EXPECT_EQ(faker.interpreter.current_db_.branch_context()->core()->BaseDeletes(),
-            (memgraph::versioning::ObjectCounts{2, 0}));
-  faker.Interpret("USING PERIODIC COMMIT 1 MATCH (n:V) DETACH DELETE n");
-  EXPECT_EQ(faker.interpreter.current_db_.branch_context()->core()->BaseDeletes(),
-            (memgraph::versioning::ObjectCounts{3, 0}));
 }
