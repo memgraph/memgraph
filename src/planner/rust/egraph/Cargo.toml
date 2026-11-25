@@ -1,0 +1,30 @@
+[package]
+name = "mg_planner_egraph"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "E-graph core with deferred congruence maintenance; a Rust counterpart of memgraph.planner.core.egraph"
+
+[dependencies]
+hashbrown = { version = "0.15", default-features = false }
+rustc-hash = "2"
+smallvec = { version = "1", features = ["union", "const_generics"] }
+
+[dev-dependencies]
+egraph_oracle = { path = "../../../../tests/oracle/egraph" }
+proptest = "1"
+criterion = { version = "0.5", default-features = false, features = ["cargo_bench_support"] }
+
+[[bench]]
+name = "rebuild"
+harness = false
+
+[profile.release]
+debug = true
+codegen-units = 1
+lto = "thin"
+
+[profile.bench]
+debug = true
+codegen-units = 1
+lto = "thin"
