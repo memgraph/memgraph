@@ -115,9 +115,10 @@ std::expected<std::shared_ptr<BranchCore>, BranchCore::BuildError> BranchCore::B
   std::unique_ptr<storage::Storage::Accessor> historical = std::move(*hist_exp);
 
   const storage::Config config = DiffEngineConfig(main.config_, main.GetStorageMode());
-  // Only the unreleased-delta gauge is shared, so branch memory shows up under the tenant.
+  // The branch counts its own deltas, apart from main's gauge.
+  auto delta_gauge = std::make_unique<prometheus::Gauge>();
   metrics::DatabaseMetricHandles metric_handles{};
-  metric_handles.unreleased_delta_objects = main.metric_handles_.unreleased_delta_objects;
+  metric_handles.unreleased_delta_objects = {delta_gauge.get()};
   auto diff_engine = std::make_unique<storage::InMemoryStorage>(
       config,
       std::nullopt,
@@ -134,15 +135,19 @@ std::expected<std::shared_ptr<BranchCore>, BranchCore::BuildError> BranchCore::B
   // Done before the core is visible to any session, so the diff engine never needs UNIQUE access afterwards.
   MirrorMainEnumsIntoDiffEngine(*diff_engine, historical->GetEnumStoreShared());
 
-  return std::shared_ptr<BranchCore>(new BranchCore(&main, fork, fork_ts, std::move(diff_engine)));
+  return std::shared_ptr<BranchCore>(
+      new BranchCore(&main, fork, fork_ts, std::move(delta_gauge), std::move(diff_engine)));
 }
 
 BranchCore::BranchCore(storage::InMemoryStorage *main, const ForkPoint &fork, uint64_t fork_ts,
+                       std::unique_ptr<prometheus::Gauge> delta_gauge,
                        std::unique_ptr<storage::InMemoryStorage> diff_engine)
     : main_(main),
       fork_(fork),
       fork_ts_(fork_ts),
+      delta_gauge_(std::move(delta_gauge)),
       diff_engine_(std::move(diff_engine)),
+      change_filters_(fork.counts.vertices),
       overlay_index_(fork.vertex_gid_floor) {
   // Overlays keep base gids and the diff engine's index scans skip entries at or above its own counters, so the
   // counters start at the floors; native gids come from main's counters and raise these again by fetch_max.

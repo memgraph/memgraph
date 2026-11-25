@@ -19,6 +19,7 @@
 #include <string>
 
 #include "memory/db_arena_fwd.hpp"
+#include "metrics/metric_handles.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "versioning/branch_change_filter.hpp"
@@ -62,6 +63,11 @@ class BranchCore {
 
   storage::InMemoryStorage &main() { return *main_; }
 
+  // Deltas the diff engine holds that no GC has freed yet: the branch's own, never counted in main's gauge.
+  uint64_t UnreleasedDeltas() const noexcept {
+    return static_cast<uint64_t>(metrics::GaugeHandle{delta_gauge_.get()}.Value());
+  }
+
   uint64_t fork_ts() const { return fork_ts_; }
 
   // Resolves text a user typed on a branch, on main's mapper (the diff engine's is the same one).
@@ -78,12 +84,13 @@ class BranchCore {
 
   uint64_t edge_gid_floor() const { return fork_.edge_gid_floor; }
 
-  // Per-kind change filters (branch_change_filter.hpp); lock-free, safe for concurrent sessions.
-  void RecordLabelChange(storage::Gid gid) noexcept { change_filters_.RecordLabelChange(gid); }
+  // Per-kind change filters (branch_change_filter.hpp); lock-free, safe for concurrent sessions. The first Record
+  // of a kind allocates its words and can throw std::bad_alloc, before the caller writes anything.
+  void RecordLabelChange(storage::Gid gid) { change_filters_.RecordLabelChange(gid); }
 
-  void RecordPropertyChange(storage::Gid gid) noexcept { change_filters_.RecordPropertyChange(gid); }
+  void RecordPropertyChange(storage::Gid gid) { change_filters_.RecordPropertyChange(gid); }
 
-  void RecordEdgeChange(storage::Gid endpoint_gid, storage::EdgeDirection direction) noexcept {
+  void RecordEdgeChange(storage::Gid endpoint_gid, storage::EdgeDirection direction) {
     change_filters_.RecordEdgeChange(endpoint_gid, direction);
   }
 
@@ -132,7 +139,7 @@ class BranchCore {
 
  private:
   BranchCore(storage::InMemoryStorage *main, const ForkPoint &fork, uint64_t fork_ts,
-             std::unique_ptr<storage::InMemoryStorage> diff_engine);
+             std::unique_ptr<prometheus::Gauge> delta_gauge, std::unique_ptr<storage::InMemoryStorage> diff_engine);
 
   // Emplaced by ~BranchCore and destroyed last: the overlays go back to main's arenas whichever thread drops the last
   // reference.
@@ -140,6 +147,8 @@ class BranchCore {
   storage::InMemoryStorage *main_;  // Not owned.
   ForkPoint fork_;
   uint64_t fork_ts_;
+  // The diff engine's unreleased-delta gauge, unregistered; declared before the engine so it outlives it.
+  std::unique_ptr<prometheus::Gauge> delta_gauge_;
   std::unique_ptr<storage::InMemoryStorage> diff_engine_;
 
   BranchChangeFilters change_filters_;

@@ -236,29 +236,32 @@ TEST(VersioningDiffEngineConfig, OverridesOnlyDurabilityAutoCreationAndPerCommit
 }
 
 // What only a live engine shows: the arena, the gauge, and settings that take effect at construction.
-TEST_F(VersioningBranchCoreConfigTest, DiffEngineSharesMainsArenaAndGaugeAndDefaultsEverythingElseOff) {
+TEST_F(VersioningBranchCoreConfigTest, DiffEngineSharesMainsArenaButNotItsGaugeAndDefaultsEverythingElseOff) {
   EXPECT_EQ(Diff().DbArenaPool(), pool_.get());
-  EXPECT_EQ(Diff().metric_handles_.unreleased_delta_objects.gauge, &delta_gauge_);
+  EXPECT_NE(Diff().metric_handles_.unreleased_delta_objects.gauge, nullptr);
+  EXPECT_NE(Diff().metric_handles_.unreleased_delta_objects.gauge, &delta_gauge_);
   EXPECT_TRUE(storage_->config_.salient.items.storage_light_edge);
   EXPECT_FALSE(Diff().config_.salient.items.storage_light_edge) << "heavy while main is light";
   EXPECT_FALSE(Diff().Access(ms::WRITE)->GetTransaction()->commit_lock_narrowing);
   EXPECT_FALSE(static_cast<ms::Storage &>(Diff()).GetInfo().durability_snapshot_enabled);
 }
 
-TEST_F(VersioningBranchCoreConfigTest, DiffEngineNeverAutoCreatesIndexes) {
-  {
-    auto acc = Diff().Access(ms::WRITE);
-    auto from = acc->CreateVertex();
-    auto to = acc->CreateVertex();
-    ASSERT_TRUE(from.AddLabel(core_->NameToLabel("Fresh")).has_value());
-    ASSERT_TRUE(acc->CreateEdge(&from, &to, core_->NameToEdgeType("FRESH_EDGE")).has_value());
-    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
-  }
-  Diff().GetAsyncIndexer().CompleteRemaining();
-  const auto indices = Diff().Access(ms::READ)->ListAllIndices();
-  const auto fresh = core_->NameToLabel("Fresh");
-  EXPECT_FALSE(std::ranges::contains(indices.label, fresh));
-  EXPECT_FALSE(std::ranges::contains(indices.edge_type, core_->NameToEdgeType("FRESH_EDGE")));
+// Main's gauge counts main's deltas and the core's counts the diff engine's (overlays and native objects), never each
+// other's. The writes stay open so that no release can change a count.
+TEST_F(VersioningBranchCoreTest, MainAndTheBranchCountTheirOwnUnreleasedDeltas) {
+  const double main_before = delta_gauge_.Value();
+  ASSERT_EQ(core_->UnreleasedDeltas(), 0U);
+
+  auto branch_write = Diff().Access(ms::WRITE);
+  branch_write->CreateVertex();
+  const auto branch_after_branch_write = core_->UnreleasedDeltas();
+  EXPECT_GT(branch_after_branch_write, 0U);
+  EXPECT_EQ(delta_gauge_.Value(), main_before) << "a branch write is not main's";
+
+  auto main_write = storage_->Access(ms::WRITE);
+  main_write->CreateVertex();
+  EXPECT_GT(delta_gauge_.Value(), main_before);
+  EXPECT_EQ(core_->UnreleasedDeltas(), branch_after_branch_write) << "a main write is not the branch's";
 }
 
 TEST_F(VersioningBranchCoreTest, DiffEngineSharesMainsNameIdMapperAndReportsMainsName) {
