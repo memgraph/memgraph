@@ -236,6 +236,9 @@ class AuthQueryHandler {
       auth::UserOrRoleType type, auth::AuthTransaction *auth_tx, system::Transaction *system_tx) = 0;
 
 #ifdef MG_ENTERPRISE
+  virtual std::vector<TypedValue> GetImpersonationPrivileges(const std::string &user_or_role, auth::UserOrRoleType type,
+                                                             auth::AuthTransaction *auth_tx) = 0;
+
   virtual void GrantImpersonateUser(const std::string &user_or_role, const std::vector<std::string> &targets,
                                     auth::UserOrRoleType type, auth::AuthTransaction *auth_tx,
                                     system::Transaction *system_tx) = 0;

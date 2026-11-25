@@ -10,10 +10,136 @@
 # licenses/APL.txt.
 
 import sys
+from uuid import UUID
 
 import pytest
 from common import memgraph, provide_user
 from gqlalchemy import Memgraph
+
+
+def _impersonation_inventory(connection, principal_type, principal="inventory"):
+    rows = list(connection.execute_and_fetch(f"SHOW IMPERSONATION PRIVILEGES FOR {principal_type} `{principal}`"))
+    assert len(rows) == 1
+    row = rows[0]
+    assert set(row) == {
+        "schema_version",
+        "principal_type",
+        "principal",
+        "coarse_permission",
+        "policy_present",
+        "grant_all",
+        "granted_users",
+        "denied_users",
+    }
+    assert type(row["schema_version"]) is int and row["schema_version"] == 1
+    assert row["principal_type"] == principal_type
+    assert row["principal"] == principal.lower()
+    assert type(row["policy_present"]) is bool
+    assert type(row["grant_all"]) is bool
+    for column in ("granted_users", "denied_users"):
+        assert isinstance(row[column], list)
+        assert row[column] == sorted(row[column], key=lambda target: (target["name"], target["uuid"]))
+        for target in row[column]:
+            assert set(target) == {"name", "uuid", "current_uuid"}
+            assert str(UUID(target["uuid"])) == target["uuid"]
+            if target["current_uuid"] is not None:
+                assert str(UUID(target["current_uuid"])) == target["current_uuid"]
+    return row
+
+
+@pytest.fixture
+def impersonation_admin(provide_user):
+    admin = Memgraph(username="superuser", password="superpassword")
+    users = ("inventory", "viewer_a", "viewer_z", "denied_a", "denied_z")
+    try:
+        for user in users:
+            admin.execute(f"CREATE USER {user}")
+        admin.execute("CREATE ROLE inventory")
+        yield admin
+    finally:
+        for user in users:
+            if any(row["user"] == user for row in admin.execute_and_fetch("SHOW USERS")):
+                admin.execute(f"DROP USER {user}")
+        admin.execute("DROP ROLE inventory")
+
+
+def test_impersonation_inventory_keeps_user_and_role_policy_separate(impersonation_admin):
+    admin = impersonation_admin
+    admin.execute("GRANT IMPERSONATE_USER * TO ROLE inventory")
+    admin.execute("DENY IMPERSONATE_USER denied_z, denied_a TO ROLE inventory")
+    admin.execute("SET ROLE FOR inventory TO inventory")
+    user = _impersonation_inventory(admin, "USER", "INVENTORY")
+    role = _impersonation_inventory(admin, "ROLE")
+    assert user["coarse_permission"] == "NEUTRAL"
+    assert user["policy_present"] is False and user["grant_all"] is False
+    assert user["granted_users"] == user["denied_users"] == []
+    assert role["coarse_permission"] == "GRANT"
+    assert role["policy_present"] is True and role["grant_all"] is True
+    assert role["granted_users"] == []
+    assert [target["name"] for target in role["denied_users"]] == ["denied_a", "denied_z"]
+
+
+@pytest.mark.parametrize("principal_type", ["USER", "ROLE"])
+def test_impersonation_inventory_preserves_revoked_and_denied_target_policy(impersonation_admin, principal_type):
+    admin = impersonation_admin
+    admin.execute(f"GRANT IMPERSONATE_USER viewer_z, viewer_a TO {principal_type} inventory")
+    admin.execute(f"DENY IMPERSONATE_USER denied_z, denied_a TO {principal_type} inventory")
+    granted = _impersonation_inventory(admin, principal_type)
+    assert [target["name"] for target in granted["granted_users"]] == ["viewer_a", "viewer_z"]
+    assert [target["name"] for target in granted["denied_users"]] == ["denied_a", "denied_z"]
+    admin.execute(f"REVOKE IMPERSONATE_USER FROM {principal_type} inventory")
+    revoked = _impersonation_inventory(admin, principal_type)
+    assert revoked == dict(granted, coarse_permission="NEUTRAL")
+    admin.execute(f"DENY IMPERSONATE_USER TO {principal_type} inventory")
+    assert _impersonation_inventory(admin, principal_type) == dict(granted, coarse_permission="DENY")
+    admin.execute(f"GRANT IMPERSONATE_USER * TO {principal_type} inventory")
+    wildcard = _impersonation_inventory(admin, principal_type)
+    assert wildcard["grant_all"] is True
+    assert wildcard["granted_users"] == wildcard["denied_users"] == []
+    admin.execute(f"GRANT IMPERSONATE_USER viewer_a, viewer_z TO {principal_type} inventory")
+    admin.execute(f"DENY IMPERSONATE_USER viewer_z TO {principal_type} inventory")
+    admin.execute(f"GRANT IMPERSONATE_USER viewer_a TO {principal_type} inventory")
+    explicit = _impersonation_inventory(admin, principal_type)
+    assert explicit["grant_all"] is False
+    assert [target["name"] for target in explicit["granted_users"]] == ["viewer_a"]
+    assert [target["name"] for target in explicit["denied_users"]] == ["viewer_z"]
+    admin.execute(f"DENY IMPERSONATE_USER viewer_a TO {principal_type} inventory")
+    replaced_denies = _impersonation_inventory(admin, principal_type)
+    assert replaced_denies["granted_users"] == []
+    assert [target["name"] for target in replaced_denies["denied_users"]] == ["viewer_a"]
+
+
+@pytest.mark.parametrize("principal_type", ["USER", "ROLE"])
+def test_impersonation_inventory_exposes_deleted_and_recreated_targets(impersonation_admin, principal_type):
+    admin = impersonation_admin
+    admin.execute(f"GRANT IMPERSONATE_USER viewer_a TO {principal_type} inventory")
+    admin.execute(f"DENY IMPERSONATE_USER denied_a TO {principal_type} inventory")
+    initial = _impersonation_inventory(admin, principal_type)
+    for user in ("viewer_a", "denied_a"):
+        admin.execute(f"DROP USER {user}")
+    deleted = _impersonation_inventory(admin, principal_type)
+    for column in ("granted_users", "denied_users"):
+        assert deleted[column] == [dict(initial[column][0], current_uuid=None)]
+    for user in ("viewer_a", "denied_a"):
+        admin.execute(f"CREATE USER {user}")
+    recreated = _impersonation_inventory(admin, principal_type)
+    for column in ("granted_users", "denied_users"):
+        target = recreated[column][0]
+        assert target["uuid"] == initial[column][0]["uuid"]
+        assert target["current_uuid"] is not None and target["current_uuid"] != target["uuid"]
+    assert _impersonation_inventory(admin, principal_type) == recreated
+
+
+def test_impersonation_inventory_requires_auth_before_disclosing_principals(impersonation_admin):
+    admin = impersonation_admin
+    admin.execute("GRANT IMPERSONATE_USER * TO USER anthony")
+    restricted = Memgraph(username="anthony", password="password")
+    for principal_type, principal in (("USER", "anthony"), ("USER", "missing"), ("ROLE", "inventory")):
+        with pytest.raises(Exception, match="not authorized"):
+            list(restricted.execute_and_fetch(f"SHOW IMPERSONATION PRIVILEGES FOR {principal_type} {principal}"))
+    for principal_type, principal in (("USER", "missing"), ("ROLE", "viewer_a")):
+        with pytest.raises(Exception, match="doesn't exist"):
+            list(admin.execute_and_fetch(f"SHOW IMPERSONATION PRIVILEGES FOR {principal_type} {principal}"))
 
 
 def test_user_creation(memgraph):

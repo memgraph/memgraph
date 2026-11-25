@@ -93,6 +93,139 @@ TEST_F(AuthQueryHandlerFixture, GivenAuthQueryHandlerWhenInitializedHaveNoUserna
   ASSERT_EQ(auth_handler.GetRolenames(nullptr).size(), 0);
 }
 
+#ifdef MG_ENTERPRISE
+TEST_F(AuthQueryHandlerFixture, ImpersonationInventoryUsesExplicitNamespaceAndDirectPermissions) {
+  memgraph::auth::Role role{"operator"};
+  role.permissions().Grant(memgraph::auth::Permission::IMPERSONATE_USER);
+  role.GrantUserImp();
+  auth.value()->SaveRole(role);
+  memgraph::auth::User user{"operator"};
+  user.AddRole(role);
+  auth.value()->SaveUser(user);
+
+  const auto user_row =
+      auth_handler.GetImpersonationPrivileges("operator", memgraph::auth::UserOrRoleType::USER, nullptr);
+  ASSERT_EQ(user_row.size(), 8);
+  EXPECT_EQ(user_row[0].ValueInt(), 1);
+  EXPECT_EQ(user_row[1].ValueString(), "USER");
+  EXPECT_EQ(user_row[2].ValueString(), "operator");
+  EXPECT_EQ(user_row[3].ValueString(), "NEUTRAL");
+  EXPECT_FALSE(user_row[4].ValueBool());
+  EXPECT_FALSE(user_row[5].ValueBool());
+  EXPECT_TRUE(user_row[6].ValueList().empty());
+  EXPECT_TRUE(user_row[7].ValueList().empty());
+
+  const auto role_row =
+      auth_handler.GetImpersonationPrivileges("operator", memgraph::auth::UserOrRoleType::ROLE, nullptr);
+  EXPECT_EQ(role_row[1].ValueString(), "ROLE");
+  EXPECT_EQ(role_row[3].ValueString(), "GRANT");
+  EXPECT_TRUE(role_row[4].ValueBool());
+  EXPECT_TRUE(role_row[5].ValueBool());
+  EXPECT_TRUE(role_row[6].ValueList().empty());
+  EXPECT_TRUE(role_row[7].ValueList().empty());
+  EXPECT_THROW(
+      auth_handler.GetImpersonationPrivileges("operator", memgraph::auth::UserOrRoleType::UNSPECIFIED, nullptr),
+      memgraph::query::QueryRuntimeException);
+  EXPECT_THROW(auth_handler.GetImpersonationPrivileges("missing", memgraph::auth::UserOrRoleType::USER, nullptr),
+               memgraph::query::QueryRuntimeException);
+  EXPECT_THROW(auth_handler.GetImpersonationPrivileges("missing", memgraph::auth::UserOrRoleType::ROLE, nullptr),
+               memgraph::query::QueryRuntimeException);
+}
+
+TEST_F(AuthQueryHandlerFixture, ImpersonationInventoryDistinguishesEmptyPoliciesAndSortsTargets) {
+  memgraph::auth::User user{"Application"};
+  user.GrantUserImp({});
+  auth.value()->SaveUser(user);
+  auto row = auth_handler.GetImpersonationPrivileges("APPLICATION", memgraph::auth::UserOrRoleType::USER, nullptr);
+  EXPECT_EQ(row[2].ValueString(), "application");
+  EXPECT_TRUE(row[4].ValueBool());
+  EXPECT_FALSE(row[5].ValueBool());
+  EXPECT_TRUE(row[6].ValueList().empty());
+  EXPECT_TRUE(row[7].ValueList().empty());
+
+  const memgraph::auth::User first{"Alpha"};
+  const memgraph::auth::User last{"zulu"};
+  user.GrantUserImp({last, first});
+  user.permissions().Deny(memgraph::auth::Permission::IMPERSONATE_USER);
+  auth.value()->SaveUser(user);
+  row = auth_handler.GetImpersonationPrivileges("application", memgraph::auth::UserOrRoleType::USER, nullptr);
+  EXPECT_EQ(row[3].ValueString(), "DENY");
+  ASSERT_EQ(row[6].ValueList().size(), 2);
+  EXPECT_EQ(row[6].ValueList()[0].ValueMap().at("name").ValueString(), "alpha");
+  EXPECT_EQ(row[6].ValueList()[1].ValueMap().at("name").ValueString(), "zulu");
+
+  user.GrantUserImp();
+  user.DenyUserImp({last, first});
+  auth.value()->SaveUser(user);
+  memgraph::auth::AuthTransaction read_tx;
+  row = auth_handler.GetImpersonationPrivileges("application", memgraph::auth::UserOrRoleType::USER, &read_tx);
+  EXPECT_FALSE(read_tx.HasWrites());
+  EXPECT_TRUE(row[5].ValueBool());
+  EXPECT_TRUE(row[6].ValueList().empty());
+  ASSERT_EQ(row[7].ValueList().size(), 2);
+  EXPECT_EQ(row[7].ValueList()[0].ValueMap().at("name").ValueString(), "alpha");
+  EXPECT_EQ(row[7].ValueList()[1].ValueMap().at("name").ValueString(), "zulu");
+}
+
+TEST_F(AuthQueryHandlerFixture, ImpersonationInventoryUsesOneTransactionalViewForTargetIdentities) {
+  memgraph::auth::User target{"viewer"};
+  memgraph::auth::Role role{"operator"};
+  role.GrantUserImp({target});
+  auth.value()->SaveUser(target);
+  auth.value()->SaveRole(role);
+  const auto original_uuid = static_cast<std::string>(target.uuid());
+  memgraph::auth::AuthTransaction tx;
+  memgraph::auth::AuthLayer layer{*auth};
+  const memgraph::auth::User replacement{"viewer"};
+  {
+    auto locked = layer.Lock(&tx);
+    locked->SaveUser(replacement);
+  }
+  const auto pending = auth_handler.GetImpersonationPrivileges("operator", memgraph::auth::UserOrRoleType::ROLE, &tx);
+  const auto committed =
+      auth_handler.GetImpersonationPrivileges("operator", memgraph::auth::UserOrRoleType::ROLE, nullptr);
+  const auto &pending_target = pending[6].ValueList()[0].ValueMap();
+  EXPECT_EQ(pending_target.at("uuid").ValueString(), original_uuid);
+  EXPECT_EQ(pending_target.at("current_uuid").ValueString(), static_cast<std::string>(replacement.uuid()));
+  EXPECT_EQ(committed[6].ValueList()[0].ValueMap().at("current_uuid").ValueString(), original_uuid);
+}
+
+TEST_F(AuthQueryHandlerFixture, ImpersonationInventoryPreservesStaleTargetsAndRetainedPolicy) {
+  memgraph::auth::User old_target{"viewer"};
+  const auto stored_uuid = static_cast<std::string>(old_target.uuid());
+  memgraph::auth::User deleted_target{"deleted"};
+  memgraph::auth::User user{"application"};
+  user.GrantUserImp({old_target});
+  user.DenyUserImp({deleted_target});
+  auth.value()->SaveUser(user);
+  memgraph::auth::User new_target{"viewer"};
+  auth.value()->SaveUser(new_target);
+
+  for (int attempt = 0; attempt < 2; ++attempt) {
+    const auto row =
+        auth_handler.GetImpersonationPrivileges("application", memgraph::auth::UserOrRoleType::USER, nullptr);
+    EXPECT_EQ(row[3].ValueString(), "NEUTRAL");
+    EXPECT_TRUE(row[4].ValueBool());
+    EXPECT_FALSE(row[5].ValueBool());
+    ASSERT_EQ(row[6].ValueList().size(), 1);
+    const auto &granted = row[6].ValueList()[0].ValueMap();
+    EXPECT_EQ(granted.at("name").ValueString(), "viewer");
+    EXPECT_EQ(granted.at("uuid").ValueString(), stored_uuid);
+    EXPECT_EQ(granted.at("current_uuid").ValueString(), static_cast<std::string>(new_target.uuid()));
+    ASSERT_EQ(row[7].ValueList().size(), 1);
+    const auto &denied = row[7].ValueList()[0].ValueMap();
+    EXPECT_EQ(denied.at("name").ValueString(), "deleted");
+    EXPECT_TRUE(denied.at("current_uuid").IsNull());
+  }
+  const auto stored_user = auth.value()->GetUser("application");
+  ASSERT_TRUE(stored_user);
+  EXPECT_EQ(std::get<std::set<memgraph::auth::UserImpersonation::UserId>>(stored_user->user_impersonation()->granted())
+                .size(),
+            1);
+  EXPECT_EQ(stored_user->user_impersonation()->denied().size(), 1);
+}
+#endif
+
 TEST_F(AuthQueryHandlerFixture, GivenUserWhenNoDeniesOrGrantsThenNothingIsReturned) {
   memgraph::auth::User user = memgraph::auth::User{user_name, std::nullopt, perms};
   auth.value()->SaveUser(user);
@@ -3821,9 +3954,13 @@ TEST_F(AuthQueryHandlerFixture, ReadPathsDoNotTakeExclusiveAuthLock) {
   auto impersonate_fut = std::async(std::launch::async, [&] {
     return impersonator_subject.CanImpersonate("target", &memgraph::query::up_to_date_policy);
   });
-  ASSERT_TRUE(CompleteWhileHeld(holder, authorized_fut, ok_fut, bad_fut, impersonate_fut))
+  auto inventory_fut = std::async(std::launch::async, [&] {
+    return auth_handler.GetImpersonationPrivileges("impersonator", memgraph::auth::UserOrRoleType::USER, nullptr);
+  });
+  ASSERT_TRUE(CompleteWhileHeld(holder, authorized_fut, ok_fut, bad_fut, impersonate_fut, inventory_fut))
       << "a read path blocked under the shared auth lock";
   EXPECT_TRUE(impersonate_fut.get());
+  EXPECT_TRUE(inventory_fut.get()[5].ValueBool());
 #else
   ASSERT_TRUE(CompleteWhileHeld(holder, authorized_fut, ok_fut, bad_fut))
       << "a read path blocked under the shared auth lock";
