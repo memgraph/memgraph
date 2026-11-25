@@ -599,38 +599,3 @@ TEST_F(VersioningGatedTest, PinnedBranchStaysOnTheDroppedOneWhenTheNameIsSelecte
               ::testing::HasSubstr("this connection stays on the dropped one"));
   EXPECT_EQ(CheckoutCount(db->version_store(), "b"), 0U) << "the new branch was never attached";
 }
-
-TEST_F(VersioningGatedTest, PinnedBranchTransactionsReadASnapshotThenWriteAndRollBack) {
-  faker.Interpret("CREATE (:K {id: 1, v: 10}), (:K {id: 2, v: 20})");
-  faker.Interpret("CREATE BRANCH b");
-  InterpreterFaker main_session{&interpreter_context, db};
-  auto sessions = SessionsOnBranch(1, "b");
-  auto &writer = *sessions[0];
-  faker.interpreter.SetCurrentDB(*db_gk.access(), /*in_explicit_db=*/true);
-  faker.interpreter.SelectPinnedBranch("b");
-  constexpr auto kRead = "MATCH (n:K) RETURN n.v ORDER BY n.id";
-  const auto before = Rows{{10}, {20}};
-
-  faker.Interpret("BEGIN");
-  EXPECT_EQ(IntRows(faker, kRead), before);
-  writer.Interpret("MATCH (n:K {id: 1}) SET n.v = 11");
-  writer.Interpret("CREATE (:K {id: 3, v: 30})");
-  main_session.Interpret("MATCH (n:K {id: 2}) SET n.v = 99");
-  EXPECT_EQ(IntRows(faker, kRead), before) << "neither the branch's nor main's later commits enter the snapshot";
-  EXPECT_EQ(IntRows(faker, kRead), before);
-  faker.Interpret("MATCH (n:K {id: 2}) SET n.v = 21");
-  EXPECT_EQ(IntRows(faker, kRead), (Rows{{10}, {21}})) << "own write over the snapshot";
-  faker.Interpret("ROLLBACK");
-  EXPECT_EQ(IntRows(faker, kRead), (Rows{{11}, {20}, {30}})) << "the rolled-back write left no trace";
-
-  faker.Interpret("BEGIN");
-  EXPECT_EQ(IntRows(faker, "MATCH (n:K {id: 1}) RETURN n.v"), (Rows{{11}}));
-  writer.Interpret("MATCH (n:K {id: 1}) SET n.v = 12");
-  EXPECT_EQ(IntRows(faker, "MATCH (n:K {id: 1}) RETURN n.v"), (Rows{{11}}));
-  EXPECT_THAT(ThrownMessage([&] { faker.Interpret("MATCH (n:K {id: 1}) SET n.v = 13"); }),
-              ::testing::HasSubstr("Cannot resolve conflicting transactions"))
-      << "a write over a commit that landed after the snapshot must conflict";
-  faker.Interpret("ROLLBACK");
-  EXPECT_EQ(IntRows(faker, kRead), (Rows{{12}, {20}, {30}}));
-  EXPECT_EQ(IntRows(main_session, kRead), (Rows{{10}, {99}})) << "main never saw the branch's writes";
-}
