@@ -9,7 +9,10 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <spdlog/spdlog.h>
+#include <algorithm>
 #include <functional>
+#include <stop_token>
 
 #include "storage/v2/async_indexer.hpp"
 #include "storage/v2/indices/property_path.hpp"
@@ -69,7 +72,16 @@ void AsyncIndexer::Start(std::stop_token stop_token, Storage *storage) {
           cv_.notify_all();
         }};
         auto const cancel_check = [&]() { return thread_stop_token.stop_requested() || stop_token.stop_requested(); };
+        auto backoff = std::chrono::milliseconds(100);
+        bool retry = false;
         while (!cancel_check()) {
+          // Back off only here, with no queue accessor alive: Clear() may run while mutex_ is released.
+          if (retry) {
+            retry = false;
+            cv_.wait_for(lock, backoff, cancel_check);
+            backoff = std::min(backoff * 3 / 2, std::chrono::milliseconds(10'000));
+            continue;
+          }
           cv_.wait(lock, [&, this] {
             auto empty = request_queue_.size() != 0;
             auto stopped = cancel_check();
@@ -81,7 +93,6 @@ void AsyncIndexer::Start(std::stop_token stop_token, Storage *storage) {
 
           auto access = request_queue_.access();
           auto it_end = access.end();
-          auto backoff = std::chrono::milliseconds(100);
 
           // Mark as processing when we have work to do
           is_processing_ = true;
@@ -126,8 +137,13 @@ void AsyncIndexer::Start(std::stop_token stop_token, Storage *storage) {
               // Need to commit to publish the new index
               // NOTE: only MAIN will enqueue async index creation, hence PrepareForCommitPhase will always be from MAIN
 
-              [[maybe_unused]] auto result =
-                  storage_acc->PrepareForCommitPhase(CommitArgs::make_main(std::move(protector)));
+              auto const result = storage_acc->PrepareForCommitPhase(CommitArgs::make_main(std::move(protector)));
+              if (!result && std::holds_alternative<PersistenceError>(result.error())) {
+                // The index was not published (e.g. the WAL file could not be created); keep the request and retry.
+                spdlog::warn("Async index creation could not be committed. Retrying in {} ms.", backoff.count());
+                retry = true;
+                break;
+              }
 
               auto const next_it = std::next(it);
               access.remove(*it);
@@ -136,8 +152,8 @@ void AsyncIndexer::Start(std::stop_token stop_token, Storage *storage) {
             } catch (ReadOnlyAccessTimeout &) {
               spdlog::info("Async index creation, was blocked by other transactions. Retrying in {} ms.",
                            backoff.count());
-              std::this_thread::sleep_for(backoff);
-              backoff = std::min(backoff * 3 / 2, std::chrono::milliseconds(10'000));  // 1.5x multiplier, max 10s
+              retry = true;
+              break;
             }
           }
         }
