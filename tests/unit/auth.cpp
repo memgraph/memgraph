@@ -864,6 +864,39 @@ TEST_F(AuthWithStorage, DatabaseSpecificAccess) {
   }
 }
 
+TEST(RolesImpersonate, RequiresImpersonateUserPermission) {
+  memgraph::license::global_license_checker.EnableTesting();
+
+  User const target{"target"};
+  auto const role = [&target](std::string const &name,
+                              bool const lists_target,
+                              std::optional<PermissionLevel> const level,
+                              bool const denies_db = false) {
+    Role role{name};
+    if (denies_db) {
+      role.db_access().Deny("db1");
+    } else {
+      role.db_access().Grant("db1");
+    }
+    if (lists_target) role.GrantUserImp({target});
+    if (level == PermissionLevel::GRANT) role.permissions().Grant(Permission::IMPERSONATE_USER);
+    if (level == PermissionLevel::DENY) role.permissions().Deny(Permission::IMPERSONATE_USER);
+    return role;
+  };
+  auto const can_impersonate = [&target](std::unordered_set<Role> roles) {
+    return Roles{std::move(roles)}.CanImpersonate(target, "db1");
+  };
+
+  EXPECT_TRUE(can_impersonate({role("role", true, PermissionLevel::GRANT)}));
+  EXPECT_FALSE(can_impersonate({role("role", true, std::nullopt)}));
+  EXPECT_FALSE(can_impersonate({role("role", true, PermissionLevel::DENY)}));
+  EXPECT_TRUE(can_impersonate({role("grants", false, PermissionLevel::GRANT), role("lists", true, std::nullopt)}));
+  EXPECT_FALSE(
+      can_impersonate({role("grants", true, PermissionLevel::GRANT), role("denies", false, PermissionLevel::DENY)}));
+  EXPECT_FALSE(can_impersonate(
+      {role("grants", true, PermissionLevel::GRANT), role("denies_db", true, PermissionLevel::GRANT, true)}));
+}
+
 TEST(RolesFga, PerDatabaseRoleAssignmentScopesFga) {
   memgraph::license::global_license_checker.EnableTesting();
 
