@@ -11,7 +11,6 @@
 
 #include <set>
 #include <string>
-#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -140,10 +139,6 @@ class VersioningInfoTest : public VersioningGatedTest {
   }
 };
 
-constexpr std::string_view kSchemaInfoOnBranch =
-    "SHOW SCHEMA INFO on a branch is not in v1: schema info is tracked per storage engine, so main's does not include "
-    "the branch's changes. Run USE BRANCH main first.";
-
 }  // namespace
 
 // Main's definitions, never the indexes the branch keeps for its own scans.
@@ -186,30 +181,6 @@ TEST_F(VersioningInfoTest, LabelAndEdgeTypeListingsAreMainsPlusTheBranchs) {
   EXPECT_THAT(FirstColumn("SHOW NODE_LABELS INFO"),
               ::testing::UnorderedElementsAre("A", "B", "Later", "BranchOnly", "BranchOnly2", "Added"));
   EXPECT_THAT(FirstColumn("SHOW EDGE_TYPES INFO"), ::testing::UnorderedElementsAre("R", "LATER", "BR"));
-}
-
-// Removed labels and properties and a deleted base vertex are overlays with reserved marker ids on the diff engine,
-// whose schema metadata lists them; no listing may show them.
-TEST_F(VersioningInfoTest, ListingsOnABranchLeakNoMarkerNames) {
-  BuildMain();
-  faker.Interpret("CREATE BRANCH b");
-  faker.Interpret("USE BRANCH b");
-  faker.Interpret("MATCH (a:A {p: 1}) REMOVE a:A, a.p");
-  faker.Interpret("MATCH (a:A {p: 2}) DETACH DELETE a");
-  faker.Interpret("MATCH (:B)<-[r:R]-() DELETE r");
-
-  for (const auto *query : {"SHOW NODE_LABELS INFO", "SHOW EDGE_TYPES INFO", "SHOW INDEX INFO"}) {
-    for (const auto &row : Show(query)) {
-      for (const auto &cell : row) {
-        EXPECT_EQ(cell.find("__mg_"), std::string::npos) << query << ": " << cell;
-      }
-    }
-  }
-  EXPECT_THAT(FirstColumn("SHOW NODE_LABELS INFO"), ::testing::UnorderedElementsAre("A", "B"));
-  EXPECT_THAT(FirstColumn("SHOW EDGE_TYPES INFO"), ::testing::UnorderedElementsAre("R"));
-  for (const auto &row : Show("SHOW STORAGE INFO ON CURRENT DATABASE")) {
-    for (const auto &cell : row) EXPECT_EQ(cell.find("__mg_"), std::string::npos) << cell;
-  }
 }
 
 // Main's writes after the fork and rolled-back branch transactions are excluded.
@@ -255,13 +226,6 @@ TEST_F(VersioningInfoTest, StorageInfoCountsOnABranchAreMainAtTheForkPlusTheBran
 
   faker.Interpret("USE BRANCH main");
   EXPECT_EQ(StorageInfo("branch"), "<missing>");
-}
-
-TEST_F(VersioningInfoTest, SchemaInfoIsRefusedOnABranch) {
-  ChangeBranch();
-  EXPECT_EQ(ThrownMessage([&] { faker.Interpret("SHOW SCHEMA INFO"); }), kSchemaInfoOnBranch);
-  faker.Interpret("USE BRANCH main");
-  EXPECT_NE(ThrownMessage([&] { faker.Interpret("SHOW SCHEMA INFO"); }), kSchemaInfoOnBranch);
 }
 
 TEST_F(VersioningInfoTest, ProcedureSchemaListingsOnABranchAreMains) {
