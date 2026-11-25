@@ -21,6 +21,7 @@
 #include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/durability/metadata.hpp"
 #include "storage/v2/durability/recovery_type.hpp"
+#include "storage/v2/durability/retention_floor.hpp"
 #include "storage/v2/durability/wal.hpp"
 #include "storage/v2/edge.hpp"
 #include "storage/v2/indices/indices.hpp"
@@ -116,9 +117,31 @@ std::optional<ParallelizedSchemaCreationInfo> GetParallelExecInfo(const Recovery
                                                                   const Config &config,
                                                                   memory::ArenaPool *db_arena_pool);
 
+#ifdef MG_ENTERPRISE
+/// Filled by Recovery::RecoverData when given a recovery bound: what was left out of the recovered state.
+struct RecoveryTail {
+  /// WAL files, in sequence order, with a delta above the bound. The first may straddle it; replay must skip deltas
+  /// already recovered.
+  std::vector<std::filesystem::path> wal_files;
+  /// Durable timestamp of the newest data recovered (at most the bound).
+  uint64_t reached_timestamp{0};
+};
+
+/// Per-start history limits for one storage, computed from the branch ledger rather than configured.
+struct HistoryBounds {
+  /// Keep main recoverable to this durable timestamp.
+  uint64_t floor{kNoRetentionFloor};
+  /// This start also stops recovery at `floor` and hands back the rest via InMemoryStorage::TakeRecoveryTail.
+  bool recover_only_to_floor{false};
+};
+#endif
+
 struct Recovery {
  public:
   /// Recovers data either from a snapshot and/or WAL files.
+  /// With `recovery_history_bound` (branch recovery), recovers the state as of that durable timestamp: the newest
+  /// snapshot not past it (else the WAL chain from sequence 0), replaying only transactions up to it. `tail` receives
+  /// the rest.
   /// @throw RecoveryFailure
   /// @throw std::bad_alloc
   std::optional<RecoveryInfo> RecoverData(
@@ -128,7 +151,12 @@ struct Recovery {
       memory::ArenaPool *db_arena_pool, uint64_t *wal_seq_num, EnumStore *enum_store, SharedSchemaTracking *schema_info,
       std::function<std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>>(Gid)> find_edge,
       std::string const &db_name, memgraph::storage::ttl::TTL *ttl,
+#ifdef MG_ENTERPRISE
+      memgraph::storage::DescriptionStore *description_store,
+      std::optional<uint64_t> recovery_history_bound = std::nullopt, RecoveryTail *tail = nullptr);
+#else
       memgraph::storage::DescriptionStore *description_store);
+#endif
 
   const std::filesystem::path snapshot_directory_;
   const std::filesystem::path wal_directory_;

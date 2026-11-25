@@ -12,6 +12,7 @@
 #pragma once
 
 #include <atomic>
+#include <limits>
 #include <mutex>
 #include <optional>
 #include <set>
@@ -28,6 +29,7 @@
 #include "storage/v2/config.hpp"
 #include "storage/v2/database_protector.hpp"
 #include "storage/v2/description_store.hpp"
+#include "storage/v2/durability/retention_floor.hpp"
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/edges_chunked_iterable.hpp"
 #include "storage/v2/edges_iterable.hpp"
@@ -298,6 +300,24 @@ class Storage {
   bool IsBroken() const noexcept { return broken_.load(std::memory_order_acquire); }
 
   void SetBroken(bool value) noexcept { broken_.store(value, std::memory_order_release); }
+
+#ifdef MG_ENTERPRISE
+  // Durable timestamp that must stay recoverable: retention keeps the newest snapshot at or below it plus its WAL.
+  // Lowered inside RegisterForkPin's engine_lock_ section; a snapshot's retention pass reads it after its transaction
+  // starts.
+  [[nodiscard]] uint64_t RetentionFloor() const { return retention_floor_.load(std::memory_order_acquire); }
+
+  // Callers must serialize with RegisterBranchForkPin (a value computed without a concurrent fork would overwrite its
+  // lowering); the version store does this under its registry lock.
+  void SetRetentionFloor(uint64_t floor) { retention_floor_.store(floor, std::memory_order_release); }
+
+  static constexpr uint64_t kNoRetentionFloor = durability::kNoRetentionFloor;
+
+ protected:
+  std::atomic<uint64_t> retention_floor_{kNoRetentionFloor};
+
+ public:
+#endif
 
   memory::ArenaPool *DbArenaPool() const noexcept { return db_arena_pool_; }
 
