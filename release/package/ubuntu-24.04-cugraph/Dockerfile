@@ -1,16 +1,29 @@
-ARG RAPIDS_VERSION=25.12
+ARG RAPIDS_VERSION=26.10
 ARG CUDA_VERSION=13
-ARG CUDA_VERSION_MINOR=13.1.0
+# >= 13.4: RAPIDS 26.10's libcuvs needs nvJitLink 13.4 (see the COPY below).
+ARG CUDA_VERSION_MINOR=13.4.1
 ARG PY_VERSION=3.12
 
 FROM nvcr.io/nvidia/rapidsai/base:${RAPIDS_VERSION}-cuda${CUDA_VERSION}-py${PY_VERSION} AS cugraph-dev
 
 FROM nvidia/cuda:${CUDA_VERSION_MINOR}-devel-ubuntu24.04 AS dev
 
-COPY --from=cugraph-dev /opt/conda/lib/libcugraph.so /opt/conda/lib/libcugraph.so
-COPY --from=cugraph-dev /opt/conda/lib/libcugraph_c.so /opt/conda/lib/libcugraph_c.so
-COPY --from=cugraph-dev /opt/conda/lib/librmm.so /opt/conda/lib/librmm.so
-COPY --from=cugraph-dev /opt/conda/lib/librapids_logger.so /opt/conda/lib/librapids_logger.so
+# The MAGE modules link libcugraph.so only; the rest is its runtime closure in
+# RAPIDS 26.10 (cugraph_common, cuvs, kvikio and nccl are new DT_NEEDED entries
+# since 25.12). libcugraph_c.so is not linked and would drag in the 300 MB
+# multi-GPU libcugraph_mg.so, so it is left out. The CUDA toolkit libraries
+# (cublas, cusparse, curand, cusolver, nvrtc, nvJitLink) come from the
+# nvidia/cuda base image, which must be >= 13.4: libcuvs needs nvJitLink 13.4.
+# libcurl4 and libgomp1 come from apt.
+COPY --from=cugraph-dev \
+  /opt/conda/lib/libcugraph.so \
+  /opt/conda/lib/libcugraph_common.so \
+  /opt/conda/lib/libcuvs.so \
+  /opt/conda/lib/libkvikio.so \
+  /opt/conda/lib/libnccl.so.2 \
+  /opt/conda/lib/librmm.so \
+  /opt/conda/lib/librapids_logger.so \
+  /opt/conda/lib/
 COPY --from=cugraph-dev /opt/conda/include /opt/conda/include
 
 ARG TOOLCHAIN_VERSION
@@ -19,7 +32,7 @@ ARG TOOLCHAIN_VERSION
 ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt update && apt install -y --no-install-recommends \
-    ca-certificates wget git
+    ca-certificates wget git libcurl4t64 libgomp1
 # Do NOT be smart here and clean the cache because the container is used in the
 # stateful context.
 

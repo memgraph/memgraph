@@ -8,7 +8,7 @@ set -euo pipefail
 # Inputs (env vars):
 #   ARCH         amd64 or arm64 (default amd64)
 #   CUDA         true|false (default false; CUDA only valid for amd64)
-#   CUDA_VERSION CUDA version for the S3 wheel path (default 13.0)
+#   CUDA_VERSION CUDA version for the S3 wheel path (default 13.2)
 #
 # Inputs (bind-mounted):
 #   /input/requirements.txt              — mage's requirements file
@@ -23,7 +23,7 @@ OUTPUT_DIR=${OUTPUT_DIR:-/output/wheels}
 INPUT_DIR=${INPUT_DIR:-/input}
 ARCH=${ARCH:-amd64}
 CUDA=${CUDA:-false}
-CUDA_VERSION=${CUDA_VERSION:-13.0}
+CUDA_VERSION=${CUDA_VERSION:-13.2}
 
 case "$ARCH" in
   amd64|arm64) ;;
@@ -56,23 +56,23 @@ if [[ -d "$INPUT_DIR/wheels-prebuilt" ]]; then
   shopt -u nullglob
 fi
 
-# S3 wheel paths and filename suffixes mirror release/package/mage/install_python_requirements.sh:
-#   arm64                 -> wheels/arm64/                   + linux_aarch64 tag
-#   amd64 + CUDA=false    -> wheels/amd64/                   + linux_x86_64 tag
-#   amd64 + CUDA=true     -> wheels/cuda-${CUDA_VERSION}/    + linux_x86_64 tag
-BASE_URL="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/wheels"
+# S3 wheel paths and filename suffixes mirror release/package/mage/install_python_requirements.sh.
+# The wheels are portable manylinux_2_34 builds under a dated prefix; keep
+# WHEELS_DATE in sync with that script:
+#   arm64                 -> wheels/<date>/arm64/                     + manylinux_2_34_aarch64 tag
+#   amd64 + CUDA=false    -> wheels/<date>/amd64/                     + manylinux_2_34_x86_64 tag
+#   amd64 + CUDA=true     -> wheels/<date>/cuda-${CUDA_VERSION}/amd64/ + manylinux_2_34_x86_64 tag
+WHEELS_DATE="2026-11-17"
+BASE_URL="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/wheels/${WHEELS_DATE}"
 if [[ "$ARCH" == "arm64" ]]; then
   BASE_URL="${BASE_URL}/arm64"
-  TORCH_TAG="linux_aarch64"
-  DGL_TAG="linux_aarch64"
+  PLAT="manylinux_2_34_aarch64"
 elif [[ "$CUDA" == "true" ]]; then
-  BASE_URL="${BASE_URL}/cuda-${CUDA_VERSION}"
-  TORCH_TAG="linux_x86_64"
-  DGL_TAG="linux_x86_64"
+  BASE_URL="${BASE_URL}/cuda-${CUDA_VERSION}/amd64"
+  PLAT="manylinux_2_34_x86_64"
 else
   BASE_URL="${BASE_URL}/amd64"
-  TORCH_TAG="linux_x86_64"
-  DGL_TAG="linux_x86_64"
+  PLAT="manylinux_2_34_x86_64"
 fi
 
 # Pinned PyG/DGL versions — shared between the S3 fetch and the `pip download`
@@ -86,21 +86,24 @@ fi
 # to fetch — there's no upstream registry to derive a single answer from. Any
 # version bump here must be mirrored there and vice versa.
 TORCH_CLUSTER_VERSION="1.6.3"
-TORCH_GEOMETRIC_VERSION="2.8.0"
+TORCH_GEOMETRIC_VERSION="2.9.0"
 TORCH_SCATTER_VERSION="2.1.2"
 TORCH_SPARSE_VERSION="0.6.18"
 TORCH_SPLINE_CONV_VERSION="1.2.2"
 DGL_VERSION="2.5"
+PYG_LIB_VERSION="0.10.0"
 
 # Pull S3 wheels down first so subsequent `pip download` passes can resolve
 # their transitive deps too (e.g. torch-geometric needs pyparsing).
 S3_WHEELS=(
-  "torch_cluster-${TORCH_CLUSTER_VERSION}-cp312-cp312-${TORCH_TAG}.whl"
+  "torch_cluster-${TORCH_CLUSTER_VERSION}-cp312-cp312-${PLAT}.whl"
   "torch_geometric-${TORCH_GEOMETRIC_VERSION}-py3-none-any.whl"
-  "torch_scatter-${TORCH_SCATTER_VERSION}-cp312-cp312-${TORCH_TAG}.whl"
-  "torch_sparse-${TORCH_SPARSE_VERSION}-cp312-cp312-${TORCH_TAG}.whl"
-  "torch_spline_conv-${TORCH_SPLINE_CONV_VERSION}-cp312-cp312-${TORCH_TAG}.whl"
-  "dgl-${DGL_VERSION}-cp312-cp312-${DGL_TAG}.whl"
+  "torch_scatter-${TORCH_SCATTER_VERSION}-cp312-cp312-${PLAT}.whl"
+  "torch_sparse-${TORCH_SPARSE_VERSION}-cp312-cp312-${PLAT}.whl"
+  "torch_spline_conv-${TORCH_SPLINE_CONV_VERSION}-cp312-cp312-${PLAT}.whl"
+  "dgl-${DGL_VERSION}-cp312-cp312-${PLAT}.whl"
+  # pyg_lib >= 0.10 ships a stable-ABI (cp311-abi3) wheel rather than a cp312 one.
+  "pyg_lib-${PYG_LIB_VERSION}-cp311-abi3-${PLAT}.whl"
 )
 for wheel in "${S3_WHEELS[@]}"; do
   echo "Fetching $BASE_URL/$wheel"
@@ -141,6 +144,7 @@ python3 -m pip download \
   "torch-scatter==${TORCH_SCATTER_VERSION}" \
   "torch-sparse==${TORCH_SPARSE_VERSION}" \
   "torch-spline-conv==${TORCH_SPLINE_CONV_VERSION}" \
-  "dgl==${DGL_VERSION}"
+  "dgl==${DGL_VERSION}" \
+  "pyg-lib==${PYG_LIB_VERSION}"
 
 echo "Downloaded $(ls "$OUTPUT_DIR" | wc -l) wheels to $OUTPUT_DIR"

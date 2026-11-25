@@ -262,7 +262,7 @@ print_help () {
   echo -e "  --wheels-dir PATH             Directory of pre-built host wheels to bundle (default: \"\$PROJECT_ROOT/release/package/mage/wheels\")"
   echo -e "  --malloc                      Variant flag — affects the output filename only"
   echo -e "  --cuda                        Bundle CUDA-flavoured Python wheels (requires --arch amd)"
-  echo -e "  --cuda-version X.Y            CUDA version for the S3 wheel path (default \"13.0\")"
+  echo -e "  --cuda-version X.Y            CUDA version for the S3 wheel path (default \"13.2\")"
   echo -e "                                Build-type and cugraph come from the global --build-type / --cugraph flags."
 
   echo -e "\nToolchain v4 supported OSs:"
@@ -2829,7 +2829,7 @@ package_mage_offline_installer() {
   local wheels_dir="$PROJECT_ROOT/release/package/mage/wheels"
   local malloc=false
   local cuda=false
-  local cuda_version="13.0"
+  local cuda_version="13.2"
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --memgraph-deb)
@@ -3664,8 +3664,9 @@ case $command in
       git_ref_flag="--build-arg GIT_REF=master"
       rust_version_flag="--build-arg RUST_VERSION=$DEFAULT_RUST_VERSION"
       node_version_flag="--build-arg NODE_VERSION=$DEFAULT_NODE_VERSION"
-      rapids_version_flag="--build-arg RAPIDS_VERSION=25.12"
-      cuda_version_minor="13.1.0"
+      rapids_version_flag="--build-arg RAPIDS_VERSION=26.10"
+      # >= 13.4: RAPIDS 26.10 needs nvJitLink 13.4 (see ubuntu-24.04-cugraph/Dockerfile).
+      cuda_version_minor="13.4.1"
       python_build_version_flag="--build-arg PY_VERSION=3.12"
       while [[ "$#" -gt 0 ]]; do
         case "$1" in

@@ -1,6 +1,7 @@
-ARG RAPIDS_VERSION=25.12
+ARG RAPIDS_VERSION=26.10
 ARG CUDA_VERSION=13
-ARG CUDA_VERSION_MINOR=13.1.0
+# >= 13.4: RAPIDS 26.10's libcuvs needs nvJitLink 13.4 (see the COPY below).
+ARG CUDA_VERSION_MINOR=13.4.1
 ARG PY_VERSION_DEFAULT=3.12
 ARG MG_VERSION=3.7.2
 # mgagent (Memgraph Agent) package, from Memgraph's download site. Bumping
@@ -93,10 +94,22 @@ RUN --mount=type=bind,source=./mirrors,target=/mirrors,ro \
     /mirrors/pin_mirrors.sh restore && \
     rm -rf /var/lib/apt/lists/*
 
-COPY --from=cugraph-dev /opt/conda/lib/libcugraph.so /opt/conda/lib/libcugraph.so
-COPY --from=cugraph-dev /opt/conda/lib/libcugraph_c.so /opt/conda/lib/libcugraph_c.so
-COPY --from=cugraph-dev /opt/conda/lib/librmm.so /opt/conda/lib/librmm.so
-COPY --from=cugraph-dev /opt/conda/lib/librapids_logger.so /opt/conda/lib/librapids_logger.so
+# The MAGE modules link libcugraph.so only; the rest is its runtime closure in
+# RAPIDS 26.10 (cugraph_common, cuvs, kvikio and nccl are new DT_NEEDED entries
+# since 25.12). libcugraph_c.so is not linked and would drag in the 300 MB
+# multi-GPU libcugraph_mg.so, so it is left out. The CUDA toolkit libraries
+# (cublas, cusparse, curand, cusolver, nvrtc, nvJitLink) come from the
+# nvidia/cuda base image, which must be >= 13.4: libcuvs needs nvJitLink 13.4.
+# libcurl4 and libgomp1 come from apt.
+COPY --from=cugraph-dev \
+  /opt/conda/lib/libcugraph.so \
+  /opt/conda/lib/libcugraph_common.so \
+  /opt/conda/lib/libcuvs.so \
+  /opt/conda/lib/libkvikio.so \
+  /opt/conda/lib/libnccl.so.2 \
+  /opt/conda/lib/librmm.so \
+  /opt/conda/lib/librapids_logger.so \
+  /opt/conda/lib/
 COPY --from=cugraph-dev /opt/conda/include /opt/conda/include
 
 # install custom openssl packages
