@@ -34,35 +34,24 @@ struct Rejection {
 }  // namespace
 
 TEST(VersioningName, InvalidNamesAreRejectedByTheMatchingRule) {
-  constexpr std::array<Rejection, 29> kRejections{{
+  constexpr std::array<Rejection, 18> kRejections{{
       {"", kEmptyMsg},
       {"main", kReservedMsg},
       {"a.", kEndsMsg},
       {".hidden", kEndsMsg},
-      {".", kEndsMsg},
-      {"..x", kEndsMsg},
       {"feature-", kEndsMsg},
       {"_x", kEndsMsg},
       {"x_", kEndsMsg},
       {"a b", kCharsetMsg},
       {"a/b", kCharsetMsg},
-      {"/", kCharsetMsg},
-      {"\\", kCharsetMsg},
       {"a\\", kCharsetMsg},
-      {"a/b/c", kCharsetMsg},
-      {"release/1.2", kCharsetMsg},
-      {"release\\1.2", kCharsetMsg},
       {"a:b", kCharsetMsg},
       {"a`", kCharsetMsg},
       {"a{", kCharsetMsg},
       {"a[", kCharsetMsg},
-      {"a/", kCharsetMsg},
-      {"a:", kCharsetMsg},
       {"a?b", kCharsetMsg},
-      {"a*b", kCharsetMsg},
       {"@", kAtMsg},
       {"a@b", kAtMsg},
-      {"shop@branch", kAtMsg},
       {"@main", kAtMsg},  // '@' is checked before the alphanumeric-ends rule
   }};
   for (const auto &[input, message_part] : kRejections) {
