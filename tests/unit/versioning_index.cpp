@@ -1406,6 +1406,7 @@ TEST_F(VersioningIndexTest, StreamedScansPullOnlyWhatALimitConsumes) {
 
   auto keyed = dba.Vertices(view, probe.label(), paths, ranges);
   EXPECT_EQ(probe.Ids(keyed, 3), (std::vector<int64_t>{250, 1, 2}));
+  EXPECT_GT(keyed.BranchSourceRows(), 0U) << "the counter is live, so the bound below is not vacuous";
   EXPECT_LE(keyed.BranchSourceRows(), 12U) << "an ordered merge pulls a few rows, not the 300";
 
   auto descending = dba.Vertices(view, probe.label(), paths, ranges, memgraph::storage::IndexOrder::DESC);
