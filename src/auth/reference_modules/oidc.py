@@ -147,6 +147,70 @@ def decode_tokens(scheme: str, config: dict, tokens: dict):
     return (validate_jwt_token(tokens["access_token"], scheme, config, "access"),)
 
 
+# ----------------------------------------------------
+# -- resolve_username (new coalesce implementation)
+# ----------------------------------------------------
+def resolve_username(config: dict, id_token: dict, access_token: dict) -> tuple[str | None, str | None]:
+    """
+    Resolve username from OIDC tokens based on config["username"].
+
+    Supported formats:
+      - Single:   id:preferred_username
+      - Multiple: id:preferred_username;id:email;access:username
+
+    Resolution:
+      - Iterate in order, pick the first field that exists in the specified token.
+      - token_type must be "id" or "access".
+      - If none match, return (None, error_message).
+    """
+    username_config_value = (config.get("username") or "").strip()
+    if not username_config_value:
+        return None, "Missing username configuration (config['username'] is empty)"
+
+    username_candidates = [c.strip() for c in username_config_value.split(";") if c.strip()]
+    if not username_candidates:
+        return None, (
+            f"Invalid username configuration format: {username_config_value}. "
+            "Expected 'token_type:field_name' or multiple separated by ';'."
+        )
+
+    last_error = None
+
+    for username_candidate in username_candidates:
+        if ":" not in username_candidate:
+            last_error = (
+                f"Invalid username configuration part: '{username_candidate}'. "
+                "Expected format 'token_type:field_name'."
+            )
+            continue
+
+        token_type, field = [p.strip() for p in username_candidate.split(":", 1)]
+
+        if token_type not in ("id", "access"):
+            last_error = f"Invalid token_type '{token_type}' in '{username_candidate}'. " "Allowed: 'id' or 'access'."
+            continue
+
+        token = id_token if token_type == "id" else access_token
+
+        if field not in token:
+            last_error = f"Field '{field}' missing in {token_type} token"
+            continue
+
+        value = token[field]
+
+        # Optional sanity check: reject empty usernames
+        if value is None or (isinstance(value, str) and not value.strip()):
+            last_error = f"Field '{field}' in {token_type} token is empty"
+            continue
+
+        return str(value), None
+
+    return None, (
+        "None of the configured username fields were found/usable. "
+        f"Config: {username_config_value}. Last error: {last_error}"
+    )
+
+
 def process_tokens(tokens: tuple, config: dict, scheme: str):
     access_token = tokens[0]
     id_token = tokens[1] if config["use_id_token"] else None
@@ -186,21 +250,18 @@ def process_tokens(tokens: tuple, config: dict, scheme: str):
             return {"authenticated": False, "errors": f"Cannot map role {idp_roles} to Memgraph role"}
         roles = config["role_mapping"][idp_roles]
 
-    try:
-        token_type, field = config["username"].split(":")
-    except ValueError:
-        return {
-            "authenticated": False,
-            "errors": f"Invalid username configuration format: {config['username']}. Expected format: 'token_type:field_name'",
-        }
-
-    if (token_type == "id" and field not in id_token) or (token_type == "access" and field not in access_token):
-        return {"authenticated": False, "errors": f"Field {field} missing in {token_type} token"}
+    # ----------------------------------------------------
+    # Resolve username using the new implementation of resolve_username,
+    # which supports multiple fields and better error handling
+    # ----------------------------------------------------
+    username, err = resolve_username(config, id_token, access_token)
+    if err:
+        return {"authenticated": False, "errors": err}
 
     return {
         "authenticated": True,
         "roles": roles,
-        "username": id_token[field] if token_type == "id" else access_token[field],
+        "username": username,
     }
 
 
