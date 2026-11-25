@@ -158,12 +158,13 @@ storage::Config DiffEngineConfig(const storage::Config &main_config, storage::St
 }
 
 std::expected<std::shared_ptr<BranchCore>, BranchCore::BuildError> BranchCore::Build(
-    storage::InMemoryStorage &main, const ForkPoint &fork, uint64_t fork_ts, std::optional<uint64_t> branch_id) {
+    storage::InMemoryStorage &main, const ForkPoint &fork, uint64_t fork_ts, std::optional<uint64_t> branch_id,
+    std::optional<std::chrono::milliseconds> timeout) {
   const memory::DbArenaScope db_arena_scope{main.DbArenaPool()};
 
   // Pinned first so an unpinned fork fails before the diff engine is built; the accessor's shared hold also keeps
   // CREATE ENUM (UNIQUE) out while the enum store is mirrored below.
-  auto hist_exp = main.HistoricalAccess(fork_ts);
+  auto hist_exp = main.HistoricalAccess(fork_ts, timeout);
   if (!hist_exp.has_value()) {
     return std::unexpected(
         BuildError{.message = HistoricalOpenFailure(hist_exp.error(), fork_ts, "Cannot open the branch")});
