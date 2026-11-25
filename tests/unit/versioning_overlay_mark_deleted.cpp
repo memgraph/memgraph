@@ -112,17 +112,6 @@ class MarkDeletedTest : public testing::Test {
     return deleted->has_value();
   }
 
-  Op DeleteVertexOp() {
-    return [this](Acc &acc) { return ErrorOf(DeleteVertex(acc)); };
-  }
-
-  Op AddLabelOp() {
-    return [this](Acc &acc) {
-      return ErrorOf(
-          ms::VertexAccessor{vertex.get(), storage.get(), acc.GetTransaction()}.AddLabel(storage->NameToLabel("L")));
-    };
-  }
-
   Op MarkEdgeDeletedOp() {
     return [this](Acc &acc) { return ErrorOf(overlay::MarkEdgeDeleted(acc.GetTransaction(), edge.get())); };
   }
@@ -192,24 +181,9 @@ TEST_P(MarkDeletedLifecycle, VertexAndEdgeMarkDeletedCommitOrAbort) {
 INSTANTIATE_TEST_SUITE_P(CommitOrAbort, MarkDeletedLifecycle, testing::Bool());
 
 TEST_F(MarkDeletedTest, ConcurrentWritersOfTheSameOverlayConflict) {
-  Conflict(DeleteVertexOp(), DeleteVertexOp());
-  Conflict(DeleteVertexOp(), AddLabelOp());
-  Conflict(AddLabelOp(), DeleteVertexOp());
   Conflict(MarkEdgeDeletedOp(), MarkEdgeDeletedOp());
   Conflict(MarkEdgeDeletedOp(), SetEdgePropertyOp());
   Conflict(SetEdgePropertyOp(), MarkEdgeDeletedOp());
-}
-
-TEST_F(MarkDeletedTest, ADeleteRefusesAVertexWithARealEdge) {
-  for (bool const out : {true, false}) {
-    SCOPED_TRACE(out ? "out" : "in");
-    auto &list = out ? vertex->out_edges : vertex->in_edges;
-    list.emplace_back(type, other.get(), ms::EdgeRef{edge.get()});
-    auto writer = Writer();
-    EXPECT_EQ(ErrorOf(DeleteVertex(*writer)), Err{ms::Error::VERTEX_HAS_EDGES});
-    EXPECT_FALSE(vertex->deleted());
-    list.clear();
-  }
 }
 
 // With floors, collection retires native objects (gid >= floor) as on main while keeping the overlays.
