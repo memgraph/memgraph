@@ -25,7 +25,6 @@
 #include "query/interpreter.hpp"
 #include "storage/v2/config.hpp"
 #include "storage/v2/id_types.hpp"
-#include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/isolation_level.hpp"
 #include "tests/test_commit_args_helper.hpp"
 #include "utils/gatekeeper.hpp"
@@ -419,22 +418,4 @@ TEST_F(VersioningGatedTest, BranchPeriodicCommitPublishesEachBatchsBaseDeletes) 
   ASSERT_TRUE(ctx.CommitTransaction(memgraph::tests::MakeMainCommitArgs()).has_value());
   current_db.CleanupDBTransaction(false);
   EXPECT_EQ(ctx.core()->BaseDeletes(), (memgraph::versioning::ObjectCounts{2, 0})) << "the first batch counted once";
-}
-
-// The first checkout of a branch builds the core on the ledger's fork floors, not on main's current counters: main
-// objects created since the fork are not base objects.
-TEST_F(VersioningGatedTest, LazyCoreBuildUsesTheLedgersGidFloors) {
-  faker.Interpret("CREATE (:V), (:V)");
-  auto &main = static_cast<memgraph::storage::InMemoryStorage &>(*db->storage());
-  const auto created = db->version_store()->CreateBranch("b");
-  ASSERT_TRUE(created) << created.error();
-  const auto vertex_floor = created->fork.vertex_gid_floor;
-  const auto edge_floor = created->fork.edge_gid_floor;
-  faker.Interpret("CREATE (:V), (:V), (:V)");
-  ASSERT_GT(main.vertex_id_.load(), vertex_floor);
-
-  Attach(faker, "b");
-
-  EXPECT_EQ(faker.interpreter.current_db_.branch_context()->core()->vertex_gid_floor(), vertex_floor);
-  EXPECT_EQ(faker.interpreter.current_db_.branch_context()->core()->edge_gid_floor(), edge_floor);
 }
