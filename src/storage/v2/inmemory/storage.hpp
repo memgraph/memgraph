@@ -177,6 +177,43 @@ class InMemoryStorage final : public Storage {
     EdgeTypeId edge_type;
   };
 
+#ifdef MG_ENTERPRISE
+  // Owns exactly one fork-pin registration; adopts an already-registered pin, never registers one itself.
+  class ForkPin {
+   public:
+    ForkPin() = default;
+
+    ForkPin(InMemoryStorage *storage, uint64_t fork_ts) : storage_(storage), fork_ts_(fork_ts) {}
+
+    ForkPin(ForkPin &&other) noexcept
+        : storage_(std::exchange(other.storage_, nullptr)), fork_ts_(std::exchange(other.fork_ts_, 0)) {}
+
+    ForkPin &operator=(ForkPin &&other) noexcept {
+      if (this != &other) {
+        Release();
+        storage_ = std::exchange(other.storage_, nullptr);
+        fork_ts_ = std::exchange(other.fork_ts_, 0);
+      }
+      return *this;
+    }
+
+    ForkPin(const ForkPin &) = delete;
+    ForkPin &operator=(const ForkPin &) = delete;
+
+    ~ForkPin() { Release(); }
+
+    // Idempotent: only the first call after construction or move-in releases.
+    void Release();
+
+    // The storage this pin was registered on; nullptr once released or moved-from.
+    InMemoryStorage *storage() const noexcept { return storage_; }
+
+   private:
+    InMemoryStorage *storage_{nullptr};
+    uint64_t fork_ts_{0};
+  };
+#endif
+
   class InMemoryAccessor : public Storage::Accessor {
    private:
     friend class InMemoryStorage;
@@ -184,6 +221,10 @@ class InMemoryStorage final : public Storage {
     /// Takes ownership of a hold the caller acquired; see Accessor's constructor.
     explicit InMemoryAccessor(InMemoryStorage *storage, std::optional<IsolationLevel> override_isolation_level,
                               utils::ResourceLockGuard guard);
+#ifdef MG_ENTERPRISE
+    explicit InMemoryAccessor(HistoricalAccess tag, std::function<Transaction()> build_transaction, ForkPin fork_pin,
+                              std::optional<std::chrono::milliseconds> timeout = std::nullopt);
+#endif
 
     std::expected<void, ConstraintViolation> ExistenceConstraintsViolation() const;
 
@@ -193,6 +234,11 @@ class InMemoryStorage final : public Storage {
 
     // Hands this transaction's noted arming to the next collection cycle; see the definition.
     void PublishIndexArming();
+
+#ifdef MG_ENTERPRISE
+    // HistoricalAccess self-pin; released on commit or Abort, otherwise on destruction.
+    ForkPin fork_pin_;
+#endif
 
     std::optional<EdgeAccessor> CreateEdgeInternal(Vertex *from_vertex, Vertex *to_vertex, EdgeTypeId edge_type,
                                                    DeltaChainState from_state, DeltaChainState to_state,
@@ -427,7 +473,13 @@ class InMemoryStorage final : public Storage {
                                          VertexAccessor *to_vertex) override;
 
     bool LabelIndexReady(LabelId label) const override {
+#ifdef MG_ENTERPRISE
+      return transaction_.is_historical_
+                 ? transaction_.active_indices_->label_->IndexVisibleAt(label, transaction_.start_timestamp)
+                 : transaction_.active_indices_->label_->IndexReady(label);
+#else
       return transaction_.active_indices_->label_->IndexReady(label);
+#endif
     }
 
     bool LabelPropertyIndexExists(LabelId label, std::span<PropertyPath const> properties) const override {
@@ -435,15 +487,35 @@ class InMemoryStorage final : public Storage {
     }
 
     bool LabelPropertyIndexReady(LabelId label, std::span<PropertyPath const> properties) const override {
+#ifdef MG_ENTERPRISE
+      return transaction_.is_historical_
+                 ? transaction_.active_indices_->label_properties_->IndexVisibleAt(
+                       label, properties, transaction_.start_timestamp)
+                 : transaction_.active_indices_->label_properties_->IndexReady(label, properties);
+#else
       return transaction_.active_indices_->label_properties_->IndexReady(label, properties);
+#endif
     }
 
     bool EdgeTypeIndexReady(EdgeTypeId edge_type) const override {
+#ifdef MG_ENTERPRISE
+      return transaction_.is_historical_
+                 ? transaction_.active_indices_->edge_type_->IndexVisibleAt(edge_type, transaction_.start_timestamp)
+                 : transaction_.active_indices_->edge_type_->IndexReady(edge_type);
+#else
       return transaction_.active_indices_->edge_type_->IndexReady(edge_type);
+#endif
     }
 
     bool EdgeTypePropertyIndexReady(EdgeTypeId edge_type, PropertyId property) const override {
+#ifdef MG_ENTERPRISE
+      return transaction_.is_historical_
+                 ? transaction_.active_indices_->edge_type_properties_->IndexVisibleAt(
+                       edge_type, property, transaction_.start_timestamp)
+                 : transaction_.active_indices_->edge_type_properties_->IndexReady(edge_type, property);
+#else
       return transaction_.active_indices_->edge_type_properties_->IndexReady(edge_type, property);
+#endif
     }
 
     bool EdgePropertyIndexExists(PropertyId property) const override {
@@ -451,7 +523,13 @@ class InMemoryStorage final : public Storage {
     }
 
     bool EdgePropertyIndexReady(PropertyId property) const override {
+#ifdef MG_ENTERPRISE
+      return transaction_.is_historical_
+                 ? transaction_.active_indices_->edge_property_->IndexVisibleAt(property, transaction_.start_timestamp)
+                 : transaction_.active_indices_->edge_property_->IndexReady(property);
+#else
       return transaction_.active_indices_->edge_property_->IndexReady(property);
+#endif
     }
 
     bool VertexPropertyIndexExists(PropertyId property) const override {
@@ -459,7 +537,13 @@ class InMemoryStorage final : public Storage {
     }
 
     bool VertexPropertyIndexReady(PropertyId property) const override {
+#ifdef MG_ENTERPRISE
+      return transaction_.is_historical_ ? transaction_.active_indices_->vertex_property_->IndexVisibleAt(
+                                               property, transaction_.start_timestamp)
+                                         : transaction_.active_indices_->vertex_property_->IndexReady(property);
+#else
       return transaction_.active_indices_->vertex_property_->IndexReady(property);
+#endif
     }
 
     bool PointIndexExists(LabelId label, PropertyId property) const override;
@@ -707,6 +791,7 @@ class InMemoryStorage final : public Storage {
 #ifdef MG_ENTERPRISE
     // TTL management methods
     void StartTtl(TTLReplicationArgs repl_args = {}) override {
+      ThrowIfHistorical();
       DMG_ASSERT(type() == UNIQUE, "TTL operations require unique access to the storage!");
       if (!storage_->ttl_.Config()) throw ttl::TtlException("TTL not configured!");
       // Only MAIN should be running the TTL worker, it does write operations which only MAIN should be doing
@@ -720,6 +805,7 @@ class InMemoryStorage final : public Storage {
     }
 
     void StopTtl() override {
+      ThrowIfHistorical();
       DMG_ASSERT(type() == UNIQUE, "TTL operations require unique access to the storage!");
       storage_->ttl_.Pause();
       transaction_.md_deltas.emplace_back(
@@ -727,6 +813,7 @@ class InMemoryStorage final : public Storage {
     }
 
     void ConfigureTtl(const storage::ttl::TtlInfo &ttl_info, TTLReplicationArgs repl_args = {}) override {
+      ThrowIfHistorical();
       DMG_ASSERT(type() == UNIQUE, "TTL operations require unique access to the storage!");
       auto ttl_label = NameToLabel("TTL");
       auto ttl_property = NameToProperty("ttl");
@@ -742,13 +829,13 @@ class InMemoryStorage final : public Storage {
             // Use non-blocking async indexer
             auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
             // Async index creation -> happens in separate transaction
-            mem_storage->async_indexer_.Enqueue(ttl_label, std::vector<storage::PropertyPath>{{ttl_property}});
+            mem_storage->async_indexer_.Enqueue(ttl_label, std::vector<storage::PropertyPath>{{ ttl_property }});
             if (ttl_info.should_run_edge_ttl) {
               mem_storage->async_indexer_.Enqueue(ttl_property);
             }
           } else {
             // Create index with unique access in same transaction
-            (void)CreateIndex(ttl_label, std::vector<storage::PropertyPath>{{ttl_property}});
+            (void)CreateIndex(ttl_label, std::vector<storage::PropertyPath>{{ ttl_property }});
             // Create edge index if needed based on TTL configuration
             if (ttl_info.should_run_edge_ttl) {
               (void)CreateGlobalEdgeIndex(ttl_property);
@@ -769,6 +856,7 @@ class InMemoryStorage final : public Storage {
     }
 
     void DisableTtl(TTLReplicationArgs repl_args = {}) override {
+      ThrowIfHistorical();
       DMG_ASSERT(type() == UNIQUE, "TTL operations require unique access to the storage!");
       auto ttl_label = NameToLabel("TTL");
       auto ttl_property = NameToProperty("ttl");
@@ -777,7 +865,7 @@ class InMemoryStorage final : public Storage {
         // Only if MAIN, do we proactivly drop indexes
         // REPLICA will recieve deltas from MAIN that will drop the indexes
         // Drop indices (silently fail if index already dropped )
-        (void)DropIndex(ttl_label, std::vector<storage::PropertyPath>{{ttl_property}});
+        (void)DropIndex(ttl_label, std::vector<storage::PropertyPath>{{ ttl_property }});
         // Check if edge TTL was enabled and drop edge index if needed (silently fail if index already dropped)
         if (ttl.Config().should_run_edge_ttl) {
           (void)DropGlobalEdgeIndex(ttl_property);
@@ -859,7 +947,9 @@ class InMemoryStorage final : public Storage {
   // Takes engine_lock_ (then version_fork_pin_lock_): never call with engine_lock_ held.
   uint64_t RegisterForkPin();
 
-  // Call exactly once per RegisterForkPin (unregistered fork_ts MG_ASSERTs); removes one equal pin, not all.
+  // Call exactly once per RegisterForkPin pin (a HistoricalAccess self-pin is owned by its accessor's ForkPin);
+  // an unregistered fork_ts MG_ASSERTs.
+  // Removes one instance of the multiset key, not all equal ones.
   void ReleaseForkPin(uint64_t fork_ts);
 
   // Min of version_fork_pins_ (kNoForkPin when empty); written under the lock so readers skip it.
@@ -867,6 +957,20 @@ class InMemoryStorage final : public Storage {
 
   // Oldest live fork pin, or kNoForkPin if none; the bound GC and fast-discard clamp to.
   uint64_t OldestForkPin() const;
+
+  enum class HistoricalAccessError : uint8_t {
+    // `fork_ts` is not a live pin: never registered, or already released.
+    ForkTimestampNotPinned,
+    // Only IN_MEMORY_TRANSACTIONAL keeps the MVCC history a past snapshot is rebuilt from.
+    StorageModeNotTransactional,
+  };
+
+  // Read-only accessor at `fork_ts` (must be a live pin, else ForkTimestampNotPinned); self-pins it until finalize.
+  // SNAPSHOT_ISOLATION only; writes throw WriteInHistoricalAccessorException. Label/edge/property indexes are used only
+  // if committed by fork_ts; point/text/vector indexes are not used.
+  // Waiting for the shared lock throws SharedAccessTimeout on expiry; no timeout blocks indefinitely.
+  std::expected<std::unique_ptr<Storage::Accessor>, HistoricalAccessError> HistoricalAccess(
+      uint64_t fork_ts, std::optional<std::chrono::milliseconds> timeout = std::nullopt);
 #endif
 
   utils::FileRetainer::FileLockerAccessor::ret_type IsPathLocked();
@@ -908,6 +1012,13 @@ class InMemoryStorage final : public Storage {
 
   Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode) override;
 
+#ifdef MG_ENTERPRISE
+ private:
+  // Only called via `build_transaction`, i.e. with the accessor's `guard_` already held.
+  Transaction CreateHistoricalTransaction(uint64_t fork_ts);
+
+ public:
+#endif
   void SetStorageMode(StorageMode storage_mode);
 
   const durability::Recovery &GetRecovery() const noexcept { return recovery_; }
@@ -1262,7 +1373,8 @@ class InMemoryStorage final : public Storage {
   // published watermark + 1.
   uint64_t MintForkTsLocked();
 
-  // Live branch fork points (multiset: pins may share a fork_ts); GC's horizon is clamped to the oldest.
+  // Live fork pins (branches, historical readers) as a multiset: they may share a fork_ts. GC clamps to the oldest.
+  // Lock order: engine_lock_ then version_fork_pin_lock_ (see RegisterForkPin).
   utils::SpinLock version_fork_pin_lock_;
   std::multiset<uint64_t> version_fork_pins_;
   std::atomic<uint64_t> oldest_fork_pin_{kNoForkPin};

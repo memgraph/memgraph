@@ -19,6 +19,9 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/bound.hpp"
+#ifdef MG_ENTERPRISE
+#include "utils/logging.hpp"
+#endif
 
 namespace memgraph::storage {
 
@@ -98,6 +101,12 @@ struct EdgeTypePropertyIndexActiveIndices {
                                         const std::optional<utils::Bound<PropertyValue>> &upper) const = 0;
 
   virtual bool IndexReady(EdgeTypeId edge_type, PropertyId property) const = 0;
+
+#ifdef MG_ENTERPRISE
+  virtual bool IndexVisibleAt(EdgeTypeId /*edge_type*/, PropertyId /*property*/, uint64_t /*timestamp*/) const {
+    LOG_FATAL("IndexVisibleAt is implemented only for in-memory indices");
+  }
+#endif
 
   /// Whether the entry is in the catalogue at all, ready or not, which is the question a drop
   /// asks: an index that is registered but not yet committed is still an index a drop evicts.
