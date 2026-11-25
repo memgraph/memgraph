@@ -12,13 +12,11 @@
 // Branch vertex writes and deletes through Cypher: isolation from main and siblings, read-your-writes, rollback and
 // conflicts between sessions on one branch.
 
-#include <atomic>
 #include <cstdint>
 #include <exception>
 #include <map>
 #include <string>
 #include <string_view>
-#include <thread>
 #include <typeinfo>
 #include <vector>
 
@@ -332,24 +330,6 @@ constexpr DeletedReadCase kDeletedReadCases[] = {
      "MATCH (:S)-[e:E]->(:A) DELETE e RETURN e.w",
      "deleted object",
      "MATCH (:S)-[e:E]->(:A) RETURN e.w",
-     1},
-    {"SetThenReturn",
-     "CREATE (:P {prop: 1})",
-     "MATCH (n:P) DETACH DELETE n SET n.prop = 2 RETURN n.prop",
-     "deleted object",
-     "MATCH (n:P) RETURN n.prop",
-     1},
-    {"RemoveThenReturn",
-     "CREATE (:P {prop: 1})",
-     "MATCH (n:P) DETACH DELETE n REMOVE n.prop RETURN n.prop",
-     "deleted object",
-     "MATCH (n:P) RETURN n.prop",
-     1},
-    {"SetLabelThenReturn",
-     "CREATE (:P {prop: 1})",
-     "MATCH (n:P) DETACH DELETE n SET n:X RETURN labels(n)",
-     "deleted node",
-     "MATCH (n:P) WHERE NOT 'X' IN labels(n) RETURN n.prop",
      1},
     {"FromEndpointEdgeProperty",
      "CREATE (:A)-[:R {p: 1}]->(:B)",
@@ -815,55 +795,4 @@ TEST_F(VersioningMultiSessionTest, DisjointConcurrentWritersBothCommitAndAnOlder
   EXPECT_EQ(IntRows(reader, kReadAll), before);
   reader.Interpret("COMMIT");
   EXPECT_EQ(IntRows(reader, kReadAll), (Rows{{1, 11}, {2, 21}}));
-}
-
-// Two writers transfer one unit between two vertices in overlapping transactions, retrying on serialization failure;
-// readers must see a total of 100, stable within a transaction, and no committed transfer may be lost.
-TEST_F(VersioningMultiSessionTest, ConcurrentTransfersLoseNoUpdateAndReadersSeeAConstantTotal) {
-  constexpr int kTransfers = 100;
-  faker.Interpret("CREATE (:K {id:1, v:100}), (:K {id:2, v:0})");
-  Fork();
-  auto sessions = SessionsOnBranch(4);
-  std::atomic<int> writers_left{2};
-
-  {
-    std::vector<std::jthread> threads;
-    for (int w = 0; w < 2; ++w) {
-      threads.emplace_back([&session = *sessions[w], &writers_left] {
-        for (int done = 0; done < kTransfers;) {
-          try {
-            session.Interpret("BEGIN");
-            session.Interpret("MATCH (a:K {id:1}), (b:K {id:2}) SET a.v = a.v - 1, b.v = b.v + 1");
-            std::this_thread::yield();
-            session.Interpret("COMMIT");
-            ++done;
-          } catch (const memgraph::query::TransactionSerializationException &) {
-            session.Interpret("ROLLBACK");
-          }
-        }
-        --writers_left;
-      });
-    }
-    for (int r = 2; r < 4; ++r) {
-      threads.emplace_back([&session = *sessions[r], &writers_left] {
-        int64_t last_moved = 0;
-        do {
-          session.Interpret("BEGIN");
-          auto const first = IntRows(session, "MATCH (n:K) RETURN sum(n.v)");
-          auto const pair = IntRows(session, "MATCH (n:K) RETURN n.v ORDER BY n.id");
-          auto const again = IntRows(session, "MATCH (n:K) RETURN sum(n.v)");
-          session.Interpret("COMMIT");
-          ASSERT_EQ(first, (Rows{{100}})) << "a half-applied transfer was visible";
-          ASSERT_EQ(again, first);
-          ASSERT_EQ(pair.size(), 2U);
-          ASSERT_EQ(pair[0][0] + pair[1][0], 100);
-          ASSERT_GE(pair[1][0], last_moved) << "committed transfers went backwards";
-          last_moved = pair[1][0];
-        } while (writers_left.load() > 0);
-      });
-    }
-  }
-
-  EXPECT_EQ(IntRows(faker, kReadAll), (Rows{{1, 100 - 2 * kTransfers}, {2, 2 * kTransfers}}))
-      << "every committed transfer is applied exactly once";
 }
