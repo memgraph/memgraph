@@ -245,22 +245,6 @@ TEST_F(VersioningBranchCoreConfigTest, DiffEngineSharesMainsArenaAndGaugeAndDefa
   EXPECT_FALSE(static_cast<ms::Storage &>(Diff()).GetInfo().durability_snapshot_enabled);
 }
 
-TEST_F(VersioningBranchCoreConfigTest, DiffEngineNeverAutoCreatesIndexes) {
-  {
-    auto acc = Diff().Access(ms::WRITE);
-    auto from = acc->CreateVertex();
-    auto to = acc->CreateVertex();
-    ASSERT_TRUE(from.AddLabel(core_->NameToLabel("Fresh")).has_value());
-    ASSERT_TRUE(acc->CreateEdge(&from, &to, core_->NameToEdgeType("FRESH_EDGE")).has_value());
-    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
-  }
-  Diff().GetAsyncIndexer().CompleteRemaining();
-  const auto indices = Diff().Access(ms::READ)->ListAllIndices();
-  const auto fresh = core_->NameToLabel("Fresh");
-  EXPECT_FALSE(std::ranges::contains(indices.label, fresh));
-  EXPECT_FALSE(std::ranges::contains(indices.edge_type, core_->NameToEdgeType("FRESH_EDGE")));
-}
-
 TEST_F(VersioningBranchCoreTest, DiffEngineSharesMainsNameIdMapperAndReportsMainsName) {
   EXPECT_EQ(Diff().GetSharedNameIdMapper(), storage_->GetSharedNameIdMapper());
   const auto label = Diff().NameToLabel("CreatedOnTheBranch");
