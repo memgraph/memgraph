@@ -13,8 +13,11 @@
 #include "storage/v2/delta.hpp"
 #include "storage/v2/edge.hpp"
 #include "storage/v2/mvcc.hpp"
+#include "storage/v2/vertex.hpp"
+#include "storage/v2/vertex_info_helpers.hpp"
 #include "storage/v2/view.hpp"
 
+#include <optional>
 #include <shared_mutex>
 
 namespace memgraph::storage {
@@ -50,6 +53,66 @@ inline bool IsEdgeVisible(Edge *edge, const Transaction *transaction, View view)
     }
   });
   return exists && !deleted;
+}
+
+namespace detail {
+template <typename IsEdge>
+std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>> ResolveVisibleOutEdge(
+    Vertex *from_vertex, IsEdge const &is_edge, bool properties_on_edges, const Transaction *transaction, View view) {
+  std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>> link;
+  std::shared_lock const guard{from_vertex->lock};
+  for (auto const &[edge_type, opposing_vertex, edge_ref] : from_vertex->out_edges) {
+    if (is_edge(edge_ref)) {
+      link.emplace(edge_ref, edge_type, from_vertex, opposing_vertex);
+      break;
+    }
+  }
+  if (transaction == nullptr) return link;
+  if (auto *delta = from_vertex->delta(); delta != nullptr) {
+    using enum DeltaAction;
+    ApplyDeltasForRead(transaction, delta, view, [&](const Delta &delta) {
+      DeltaDispatch(delta,
+                    utils::ChainedOverloaded{
+                        ActionMethod<ADD_OUT_EDGE>([&](Delta const &delta) {
+                          auto const &link_delta = delta.vertex_edge;
+                          if (is_edge(link_delta.edge)) {
+                            link.emplace(link_delta.edge, link_delta.edge_type, from_vertex, link_delta.vertex.Get());
+                          }
+                        }),
+                        ActionMethod<REMOVE_OUT_EDGE>([&](Delta const &delta) {
+                          if (is_edge(delta.vertex_edge.edge)) link.reset();
+                        }),
+                    });
+    });
+  }
+  // Still under the vertex lock (vertex before edge, as writers take them): an edge another transaction is
+  // creating stays in adjacency, and so allocated, until its writer takes this lock to unlink it.
+  if (link && properties_on_edges && !IsEdgeVisible(std::get<EdgeRef>(*link).ptr, transaction, view)) {
+    return std::nullopt;
+  }
+  return link;
+}
+}  // namespace detail
+
+/// Resolves a by-gid lookup from `from_vertex`'s out-edges as `OutEdges` sees them in `view`; with
+/// `transaction == nullptr` (replica replay, WAL recovery) it stays current-state and adjacency-only.
+/// Whether one link is in the replayed adjacency depends only on the deltas that mention it, so the link is looked up
+/// in place and only its own ADD/REMOVE_OUT_EDGE deltas are replayed, as `Edges_ActionMethod` would replay them.
+/// `edge_ptr` is the edge's object when the caller already has it (heavy edges), so links compare by pointer.
+inline std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>> ResolveVisibleOutEdge(
+    Vertex *from_vertex, Gid edge_gid, Edge const *edge_ptr, bool properties_on_edges, const Transaction *transaction,
+    View view) {
+  // One matcher per EdgeRef form, so the adjacency scan carries no per-link branch on it.
+  if (edge_ptr != nullptr) {
+    return detail::ResolveVisibleOutEdge(
+        from_vertex, [edge_ptr](EdgeRef ref) { return ref.ptr == edge_ptr; }, true, transaction, view);
+  }
+  if (properties_on_edges) {
+    return detail::ResolveVisibleOutEdge(
+        from_vertex, [edge_gid](EdgeRef ref) { return ref.ptr->gid == edge_gid; }, true, transaction, view);
+  }
+  return detail::ResolveVisibleOutEdge(
+      from_vertex, [edge_gid](EdgeRef ref) { return ref.gid == edge_gid; }, false, transaction, view);
 }
 
 /// Returns true if the edge was created in the transaction with the given commit timestamp

@@ -42,6 +42,7 @@
 #include "storage/v2/durability/paths.hpp"
 #include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/edge_direction.hpp"
+#include "storage/v2/edge_info_helpers.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/edge_property_index.hpp"
 #include "storage/v2/indices/edge_type_property_index.hpp"
@@ -404,7 +405,7 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
             &wal_seq_num_,
             &enum_store_,
             config_.salient.items.enable_schema_info ? &schema_info_.Get() : nullptr,
-            [this](Gid edge_gid) { return FindEdge(edge_gid); },
+            [this](Gid edge_gid) { return FindEdge(edge_gid, View::NEW, nullptr); },
             name(),
             &ttl_,
             &description_store_);
@@ -2989,21 +2990,23 @@ EdgesChunkedIterable InMemoryStorage::InMemoryAccessor::ChunkedEdges(PropertyId 
 }
 
 std::optional<EdgeAccessor> InMemoryStorage::InMemoryAccessor::FindEdge(Gid gid, View view) {
-  const auto maybe_edge_info = static_cast<InMemoryStorage *>(storage_)->FindEdge(gid);
+  const auto maybe_edge_info = static_cast<InMemoryStorage *>(storage_)->FindEdge(gid, view, &transaction_);
   if (!maybe_edge_info) {
     return std::nullopt;
   }
+  // The resolver already decided visibility for this view, including the Edge object's own when there is one.
   const auto &[edge_ref, edge_type, from, to] = *maybe_edge_info;
-  return EdgeAccessor::Create(edge_ref, edge_type, from, to, storage_, &transaction_, view);
+  return EdgeAccessor(edge_ref, edge_type, from, to, storage_, &transaction_);
 }
 
 std::optional<EdgeAccessor> InMemoryStorage::InMemoryAccessor::FindEdge(Gid edge_gid, Gid from_vertex_gid, View view) {
-  const auto maybe_edge_info = static_cast<InMemoryStorage *>(storage_)->FindEdge(edge_gid, from_vertex_gid);
+  const auto maybe_edge_info =
+      static_cast<InMemoryStorage *>(storage_)->FindEdge(edge_gid, from_vertex_gid, view, &transaction_);
   if (!maybe_edge_info) {
     return std::nullopt;
   }
   const auto &[edge_ref, edge_type, from, to] = *maybe_edge_info;
-  return EdgeAccessor::Create(edge_ref, edge_type, from, to, storage_, &transaction_, view);
+  return EdgeAccessor(edge_ref, edge_type, from, to, storage_, &transaction_);
 }
 
 Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode) {
@@ -5152,36 +5155,11 @@ void InMemoryStorage::CreateSnapshotHandler(
   });
 }
 
-EdgeInfo ExtractEdgeInfo(Vertex *from_vertex, const Edge *edge_ptr) {
-  std::shared_lock const guard{from_vertex->lock};
-  for (const auto &out_edge : from_vertex->out_edges) {
-    const auto [edge_type, other_vertex, edge_ref] = out_edge;
-    if (edge_ref.ptr == edge_ptr) {
-      return std::tuple(edge_ref, edge_type, from_vertex, other_vertex);
-    }
-  }
-  return std::nullopt;
-}
-
-// Scan from_vertex->out_edges for the light edge with the given GID.
-// Acquires from_vertex->lock (shared) for the scan, mirroring ExtractEdgeInfo.
 namespace {
-EdgeInfo ScanOutEdgesForGid(Vertex *from_vertex, Gid edge_gid) {
-  std::shared_lock const guard{from_vertex->lock};
-  for (const auto &[edge_type, to_vertex, edge_ref] : from_vertex->out_edges) {
-    if (edge_ref.ptr->gid == edge_gid) {
-      return std::tuple(edge_ref, edge_type, from_vertex, to_vertex);
-    }
-  }
-  return std::nullopt;
-}
-
-// Plural, either-direction form of ScanOutEdgesForGid: resolves a whole set of GIDs in one pass over one
-// vertex's adjacency rather than one pass each. An edge is linked from both of its endpoints, so a caller that
-// knows both can scan whichever list is shorter — see CheaperScanSide. Found GIDs are erased from `wanted`, so
-// whatever remains on return is the set this vertex does not have on this side. Kept separate from the singular
-// form rather than sharing an implementation with it: that one is called per vertex by the full-scan light-edge
-// path, which must not pay for a set allocation.
+// Plural form of the by-gid scan: resolves a whole set of GIDs in one pass over one vertex's adjacency rather
+// than one pass each. An edge is linked from both of its endpoints, so a caller that knows both can scan
+// whichever list is shorter — see CheaperScanSide. Found GIDs are erased from `wanted`, so whatever remains on
+// return is the set this vertex does not have on this side.
 std::vector<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>> ScanEdgesForGids(Vertex *vertex,
                                                                                   EdgeDirection direction,
                                                                                   std::unordered_set<Gid> &wanted) {
@@ -5201,6 +5179,18 @@ std::vector<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>> ScanEdgesForGid
   return found;
 }
 
+// The Edge object a heavy edge keeps in edges_, so adjacency can be matched by pointer; nullptr for light and props-off
+// edges, which have none. nullopt when a heavy edge is not there: it leaves edges_ only at GC, once no transaction can
+// see it, so the lookup can stop. The caller keeps `edges` alive while it compares against the pointer, so GC cannot
+// free the object and hand its address to another edge in the meantime.
+std::optional<Edge const *> HeavyEdgeObject(utils::SkipListDb<Edge>::Accessor &edges, Config const &config,
+                                            Gid edge_gid) {
+  if (!config.salient.items.properties_on_edges || config.salient.items.storage_light_edge) return nullptr;
+  auto it = edges.find(edge_gid);
+  if (it == edges.end()) return std::nullopt;
+  return &*it;
+}
+
 // Which endpoint's adjacency is cheaper to scan for an edge between these two vertices. Sizes are read one lock
 // at a time: only ever holding one means no lock-ordering rule is needed and a self-loop needs no special case,
 // unlike FindEdges which holds both at once.
@@ -5217,106 +5207,48 @@ EdgeDirection CheaperScanSide(Vertex *from_vertex, Vertex *to_vertex) {
 }
 }  // namespace
 
-EdgeInfo InMemoryStorage::FindHeavyEdge(Gid edge_gid) {
-  auto edge_acc = edges_.access();
-  auto edge_it = edge_acc.find(edge_gid);
-  if (edge_it == edge_acc.end()) {
-    return std::nullopt;
-  }
-
-  auto *edge_ptr = &(*edge_it);
-
-  // Pin vertices_ for the duration of the ExtractEdgeInfo scan. The Vertex*
-  // returned by the index points into this skip list; without the accessor,
-  // GC could reclaim the node mid-scan.
+EdgeInfo InMemoryStorage::FindEdge(Gid edge_gid, View view, const Transaction *transaction) {
+  auto edges_acc = edges_.access();
+  auto const edge_ptr = HeavyEdgeObject(edges_acc, config_, edge_gid);
+  if (!edge_ptr) return std::nullopt;
+  // Pin vertices_ before consulting the derived metadata index: the Vertex* it returns points into this skip
+  // list, so GC must not reclaim the node between the lookup and the adjacency scan.
   auto vertices_acc = vertices_.access();
+  bool const properties_on_edges = config_.salient.items.properties_on_edges;
   if (edges_metadata_index_) {
-    return ExtractEdgeInfo(edges_metadata_index_->FromVertexOf(edge_gid), edge_ptr);
+    // An edge's from-vertex never changes, so a hit settles the lookup; only a miss needs the full scan.
+    if (auto *from_vertex = edges_metadata_index_->TryFromVertexOf(edge_gid); from_vertex != nullptr) {
+      return ResolveVisibleOutEdge(from_vertex, edge_gid, *edge_ptr, properties_on_edges, transaction, view);
+    }
   }
-
   for (auto &from_vertex : vertices_acc) {
-    if (auto maybe_info = ExtractEdgeInfo(&from_vertex, edge_ptr)) {
-      return maybe_info;
+    if (auto info = ResolveVisibleOutEdge(&from_vertex, edge_gid, *edge_ptr, properties_on_edges, transaction, view)) {
+      return info;
     }
   }
   return std::nullopt;
 }
 
-EdgeInfo InMemoryStorage::FindLightEdgeFromMetadata(Gid edge_gid) {
-  // Light edges are not in edges_; resolve from_vertex via the metadata index
-  // (soft-miss: a deleted light edge has no entry) then rescan its out_edges.
-  if (!edges_metadata_index_) return std::nullopt;
-  // Pin vertices_ BEFORE calling TryFromVertexOf so that GC cannot reclaim the
-  // Vertex node between the index lookup and the point we lock/scan it. This
-  // mirrors FindHeavyEdge, which also pins before the index consultation.
+EdgeInfo InMemoryStorage::FindEdge(Gid edge_gid, Gid from_vertex_gid, View view, const Transaction *transaction) {
+  auto edges_acc = edges_.access();
+  auto const edge_ptr = HeavyEdgeObject(edges_acc, config_, edge_gid);
+  if (!edge_ptr) return std::nullopt;
   auto vertices_acc = vertices_.access();
-  auto *from_vertex = edges_metadata_index_->TryFromVertexOf(edge_gid);
-  if (from_vertex == nullptr) return std::nullopt;
-  return ScanOutEdgesForGid(from_vertex, edge_gid);
-}
-
-EdgeInfo InMemoryStorage::FindLightEdgeByScan(Gid edge_gid) {
-  // No metadata index: scan all vertices' out_edges for the gid.
-  auto vertices_acc = vertices_.access();
-  for (auto &from_vertex : vertices_acc) {
-    if (auto maybe_info = ScanOutEdgesForGid(&from_vertex, edge_gid)) {
-      return maybe_info;
-    }
-  }
-  return std::nullopt;
-}
-
-EdgeInfo InMemoryStorage::FindEdge(Gid edge_gid) {
-  if (config_.salient.items.storage_light_edge) {  // GATE
-    if (edges_metadata_index_) return FindLightEdgeFromMetadata(edge_gid);
-    return FindLightEdgeByScan(edge_gid);
-  }
-  return FindHeavyEdge(edge_gid);
-}
-
-EdgeInfo InMemoryStorage::FindEdge(Gid edge_gid, Gid from_vertex_gid) {
-  if (config_.salient.items.storage_light_edge) {  // GATE — light edges not in edges_
-    auto vertices_acc = vertices_.access();
-    auto vertex_it = vertices_acc.find(from_vertex_gid);
-    // Soft-miss on an absent from_vertex: the heavy arm (and the public
-    // optional-returning FindEdge wrapper) return nullopt for a not-found edge,
-    // and callers (e.g. the mgp C-API edge lookup) treat that as "no such edge"
-    // rather than an error. A stale/deleted from_vertex_gid means the edge is
-    // gone, so return nullopt instead of throwing across the query boundary.
-    if (vertex_it == vertices_acc.end()) {
-      return std::nullopt;
-    }
-    auto *from_vertex = &(*vertex_it);
-    return ScanOutEdgesForGid(from_vertex, edge_gid);
-  }
-  auto edge_acc = edges_.access();
-  auto edge_it = edge_acc.find(edge_gid);
-  if (edge_it == edge_acc.end()) {
-    return std::nullopt;
-  }
-
-  auto *edge_ptr = &(*edge_it);
-
-  // Pin vertices_ for ExtractEdgeInfo (see FindEdge(Gid) above).
-  auto vertices_acc = vertices_.access();
-  if (edges_metadata_index_) {
-    return ExtractEdgeInfo(edges_metadata_index_->FromVertexOf(edge_gid), edge_ptr);
-  }
-
   auto vertex_it = vertices_acc.find(from_vertex_gid);
-  if (vertex_it == vertices_acc.end()) {
-    throw utils::BasicException("Vertex with GID {} not found in the database", from_vertex_gid.AsUint());
-  }
-  return ExtractEdgeInfo(&(*vertex_it), edge_ptr);
+  // Soft-miss on an absent from_vertex: the caller treats nullopt as "no such edge" rather than an error, and a
+  // stale/deleted from_vertex_gid means the edge is gone from this view.
+  if (vertex_it == vertices_acc.end()) return std::nullopt;
+  return ResolveVisibleOutEdge(
+      &(*vertex_it), edge_gid, *edge_ptr, config_.salient.items.properties_on_edges, transaction, view);
 }
 
 Result<size_t> InMemoryStorage::InMemoryAccessor::DeleteEdgesEx(std::span<EdgeDeleteSpec const> edges) {
   if (edges.empty()) return size_t{0};
 
   // Deliberately not routed through InMemoryStorage::FindEdge: that has to recover the edge type and the
-  // to-vertex from adjacency (via ExtractEdgeInfo / ScanOutEdgesForGid) because its callers know only a GID,
-  // which costs an O(degree) scan per edge. Every spec here already names both, so the only open question is
-  // the EdgeRef — and only the light config needs to touch adjacency to answer it.
+  // to-vertex by replaying adjacency because its callers know only a GID, which costs an O(degree) scan per
+  // edge. Every spec here already names both, so the only open question is the EdgeRef — and only the light
+  // config needs to touch adjacency to answer it.
   std::vector<EdgeAccessor> accessors;
   accessors.reserve(edges.size());
 
