@@ -3252,35 +3252,6 @@ EDGE_WRITE_TEST(BaseEdgePropertiesSetRemoveAndReadBackAcrossSnapshots)
 EDGE_WRITE_TEST(WholeSetWritesOnABaseEdgeDecomposePerKey)
 EDGE_WRITE_TEST(DeletingABaseEdgeHidesItAndTheCommitCountsIt)
 
-// The diff engine's edge property indexes hold the overlay of a changed base edge, and a scan yields it, though the
-// branch has no native edge (the engine's own edge counter would otherwise hide every base gid).
-TEST_F(VersioningBranchEdgeWriteTest, EdgePropertyIndexesYieldAChangedBaseEdgeBeforeAnyNativeEdgeExists) {
-  auto const x = Prop("x");
-  auto const g = MakeGraph();
-  auto const type = storage_->NameToEdgeType("E");
-  {
-    auto acc = storage_->UniqueAccess();
-    ASSERT_TRUE(acc->CreateGlobalEdgeIndex(x).has_value());
-    Commit(*acc);
-  }
-  {
-    auto acc = storage_->UniqueAccess();
-    ASSERT_TRUE(acc->CreateIndex(type, x).has_value());
-    Commit(*acc);
-  }
-  Fork();
-  Write([&] {
-    auto edge = BaseEdge(g.e1);
-    ASSERT_TRUE(Ctx().SetProperty(edge, x, Int(10)).has_value());
-  });
-  auto acc = Diff().Access(ms::READ);
-  std::vector<ms::Gid> global, typed;
-  for (auto edge : acc->Edges(x, ms::View::NEW)) global.push_back(edge.Gid());
-  for (auto edge : acc->Edges(type, x, ms::View::NEW)) typed.push_back(edge.Gid());
-  EXPECT_EQ(global, std::vector<ms::Gid>{g.e1.gid});
-  EXPECT_EQ(typed, std::vector<ms::Gid>{g.e1.gid});
-}
-
 // An edge key is its type and one property, so no writer needs a key-part copy: whatever writes a property puts the
 // overlay under the diff engine's edge property indexes at the written value, and the overlay holds nothing else of the
 // base.

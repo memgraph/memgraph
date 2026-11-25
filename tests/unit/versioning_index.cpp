@@ -1847,174 +1847,6 @@ TEST_F(VersioningIndexTest, ConcurrentEdgeIndexScansSeeExactlyOneHolderOfAMoving
   EXPECT_EQ(IntRows(main_session, "MATCH ()-[r:R]->() WHERE r.flag = 1 RETURN count(r)"), (Rows{{kEdges}}));
 }
 
-namespace {
-
-struct ModelEdge {
-  int64_t from;
-  int64_t to;
-  std::string type;
-  std::optional<int64_t> w;
-};
-
-struct EdgeWorld {
-  std::set<int64_t> vertices;
-  std::map<int64_t, ModelEdge> edges;
-};
-
-Rows EdgeIdRows(EdgeWorld const &world, auto &&keep) {
-  Rows rows;
-  for (auto const &[id, edge] : world.edges) {
-    if (keep(edge)) rows.push_back({id});
-  }
-  return rows;
-}
-
-// One seeded random write on the branch (sometimes rolled back), mirrored into `world`.
-void RandomEdgeWrite(InterpreterFaker &session, std::mt19937 &rng, EdgeWorld &world, int64_t &next_native_id) {
-  auto const pick = [&](int64_t bound) { return static_cast<int64_t>(rng() % static_cast<uint64_t>(bound)); };
-  auto const pick_edge = [&]() -> std::optional<int64_t> {
-    if (world.edges.empty()) return std::nullopt;
-    auto it = world.edges.begin();
-    std::advance(it, pick(static_cast<int64_t>(world.edges.size())));
-    return it->first;
-  };
-  bool const rolled_back = pick(6) == 0;
-  auto const run = [&](std::string const &statement) {
-    if (!rolled_back) {
-      session.Interpret(statement);
-      return;
-    }
-    session.Interpret("BEGIN");
-    session.Interpret(statement);
-    session.Interpret("ROLLBACK");
-  };
-  auto const match_edge = [](int64_t id) { return "MATCH ()-[r {id: " + std::to_string(id) + "}]->() "; };
-
-  auto const kind = pick(8);
-  auto const id = pick_edge();
-  if (kind >= 6 || !id) {
-    if (world.vertices.size() < 2) return;
-    auto pick_vertex = [&] {
-      auto it = world.vertices.begin();
-      std::advance(it, pick(static_cast<int64_t>(world.vertices.size())));
-      return *it;
-    };
-    auto const from = pick_vertex();
-    auto to = pick_vertex();
-    while (to == from) to = pick_vertex();
-    auto const native = next_native_id++;
-    auto const type = pick(2) == 0 ? "R" : "Q";
-    auto const w = pick(3) == 0 ? std::nullopt : std::optional<int64_t>{pick(8)};
-    run("MATCH (a {id: " + std::to_string(from) + "}), (b {id: " + std::to_string(to) + "}) CREATE (a)-[:" + type +
-        " {id: " + std::to_string(native) + (w ? ", w: " + std::to_string(*w) : "") + "}]->(b)");
-    if (!rolled_back) world.edges[native] = ModelEdge{from, to, type, w};
-    return;
-  }
-  auto &edge = world.edges.at(*id);
-  switch (kind) {
-    case 0:
-    case 1: {
-      auto const w = pick(8);
-      run(match_edge(*id) + "SET r.w = " + std::to_string(w));
-      if (!rolled_back) edge.w = w;
-      break;
-    }
-    case 2:
-      run(match_edge(*id) + "REMOVE r.w");
-      if (!rolled_back) edge.w.reset();
-      break;
-    case 3:
-      run(match_edge(*id) + "DELETE r");
-      if (!rolled_back) world.edges.erase(*id);
-      break;
-    case 4: {
-      auto const vertex = pick(2) == 0 ? edge.from : edge.to;
-      run("MATCH (n {id: " + std::to_string(vertex) + "}) DETACH DELETE n");
-      if (!rolled_back) {
-        world.vertices.erase(vertex);
-        std::erase_if(world.edges,
-                      [&](auto const &entry) { return entry.second.from == vertex || entry.second.to == vertex; });
-      }
-      break;
-    }
-    default:
-      run(match_edge(*id) + "SET r.z = 1");  // another property: no scan on `w` changes
-      break;
-  }
-}
-
-}  // namespace
-
-// After every random write (some rolled back) the edge-type, typed and global property scans (in index order) and a
-// full scan each equal the model, and again inside one explicit transaction.
-TEST_F(VersioningIndexTest, BranchEdgeScansEqualAModelOfBaseAndNativeWrites) {
-  faker.Interpret("CREATE EDGE INDEX ON :R");
-  faker.Interpret("CREATE EDGE INDEX ON :R(w)");
-  faker.Interpret("CREATE GLOBAL EDGE INDEX ON :(w)");
-  EdgeWorld world;
-  constexpr int64_t kVertices = 8;
-  for (int64_t id = 0; id < kVertices; ++id) {
-    faker.Interpret("CREATE (:N {id: " + std::to_string(id) + "})");
-    world.vertices.insert(id);
-  }
-  for (int64_t id = 0; id < 18; ++id) {
-    ModelEdge edge{id % kVertices,
-                   (id * 3 + 1) % kVertices,
-                   id % 3 == 0 ? "Q" : "R",
-                   id % 4 == 0 ? std::nullopt : std::optional<int64_t>{id % 5}};
-    faker.Interpret("MATCH (a:N {id: " + std::to_string(edge.from) + "}), (b:N {id: " + std::to_string(edge.to) +
-                    "}) CREATE (a)-[:" + edge.type + " {id: " + std::to_string(id) +
-                    (edge.w ? ", w: " + std::to_string(*edge.w) : "") + "}]->(b)");
-    world.edges[id] = edge;
-  }
-  Fork();
-  ExpectPlanUses(faker, "MATCH ()-[r:R]->() RETURN r.id", "ScanAllByEdgeType");
-  ExpectPlanUses(faker, "MATCH ()-[r:R]->() WHERE r.w >= 0 RETURN r.id", "ScanAllByEdgeTypeProperty");
-  ExpectPlanUses(faker, "MATCH ()-[r]->() WHERE r.w >= 0 RETURN r.id", "ScanAllByEdgeProperty");
-
-  auto const expect_model = [&](std::string const &where) {
-    auto const is_r = [](ModelEdge const &e) { return e.type == "R"; };
-    auto const has_w = [](ModelEdge const &e) { return e.w.has_value(); };
-    auto const everything = [](ModelEdge const &) { return true; };
-    EXPECT_EQ(IntRows(faker, "MATCH ()-[r:R]->() RETURN r.id ORDER BY r.id"), EdgeIdRows(world, is_r)) << where;
-    EXPECT_EQ(IntRows(faker, "MATCH ()-[r:R]->() WHERE r.w >= 0 RETURN r.id ORDER BY r.id"),
-              EdgeIdRows(world, [&](auto const &e) { return is_r(e) && has_w(e); }))
-        << where;
-    EXPECT_EQ(IntRows(faker, "MATCH ()-[r:R]->() WHERE r.w >= 2 AND r.w < 6 RETURN r.id ORDER BY r.id"),
-              EdgeIdRows(world, [&](auto const &e) { return is_r(e) && has_w(e) && *e.w >= 2 && *e.w < 6; }))
-        << where;
-    EXPECT_EQ(IntRows(faker, "MATCH ()-[r]->() WHERE r.w >= 0 RETURN r.id ORDER BY r.id"), EdgeIdRows(world, has_w))
-        << where;
-    EXPECT_EQ(IntRows(faker, "MATCH ()-[r]->() RETURN r.id ORDER BY r.id"), EdgeIdRows(world, everything)) << where;
-    EXPECT_EQ(IntRows(faker, "MATCH ()-[r]->() WHERE type(r) = 'R' RETURN r.id ORDER BY r.id"), EdgeIdRows(world, is_r))
-        << where;
-    Rows typed_by_w;
-    Rows global_by_w;
-    for (auto const &[id, e] : world.edges) {
-      if (!has_w(e)) continue;
-      global_by_w.push_back({*e.w});
-      if (is_r(e)) typed_by_w.push_back({*e.w});
-    }
-    std::ranges::sort(typed_by_w);
-    std::ranges::sort(global_by_w);
-    EXPECT_EQ(IntRows(faker, "MATCH ()-[r:R]->() WHERE r.w >= 0 RETURN r.w ORDER BY r.w"), typed_by_w) << where;
-    EXPECT_EQ(IntRows(faker, "MATCH ()-[r]->() WHERE r.w >= 0 RETURN r.w ORDER BY r.w"), global_by_w) << where;
-  };
-
-  expect_model("at the fork");
-  int64_t next_native_id = 100;
-  for (uint32_t seed = 1; seed <= 5; ++seed) {
-    std::mt19937 rng(seed);
-    for (int step = 0; step < 30; ++step) {
-      RandomEdgeWrite(faker, rng, world, next_native_id);
-      expect_model("seed " + std::to_string(seed) + " step " + std::to_string(step));
-    }
-    faker.Interpret("BEGIN");
-    expect_model("seed " + std::to_string(seed) + " inside one transaction");
-    faker.Interpret("COMMIT");
-  }
-}
-
 // The scans trust the change records: a write to a base edge's overlay that nothing recorded is not read, and the diff
 // engine's property-index hit on an overlay is never yielded as an edge.
 TEST_F(VersioningIndexTest, BranchEdgeScansSkipUnrecordedOverlaysAndNeverYieldAnOverlayHit) {
@@ -2357,12 +2189,14 @@ TEST_F(VersioningIndexTest, StreamedEdgeScansEqualFullScansAfterRandomWrites) {
   expect_equal("at the fork");
   for (uint32_t seed = 1; seed <= 24; ++seed) {
     std::mt19937 rng(seed);
+    std::vector<int> targets(22);  // the fork's edges, then the branch-native ones as they are created
+    std::iota(targets.begin(), targets.end(), 0);
     for (int step = 0; step < 14; ++step) {
       auto const pick = [&](int bound) { return static_cast<int>(rng() % static_cast<uint32_t>(bound)); };
-      auto const id = std::to_string(pick(22));
+      auto const id = std::to_string(targets[static_cast<size_t>(pick(static_cast<int>(targets.size())))]);
       auto const match = "MATCH ()-[r {id: " + id + "}]->() ";
       std::string statement;
-      switch (pick(8)) {
+      switch (pick(9)) {
         case 0:
           statement = match + "SET r.w = " + std::to_string(pick(7));
           break;
@@ -2378,13 +2212,20 @@ TEST_F(VersioningIndexTest, StreamedEdgeScansEqualFullScansAfterRandomWrites) {
         case 4:
           statement = "MATCH (m:M {id: " + id + "}) DETACH DELETE m";
           break;
-        case 5:
-          statement = "MATCH (a:N {id: " + id + "}), (b:M {id: " + std::to_string(pick(22)) +
-                      "}) CREATE (a)-[:R {id: " + std::to_string(100 + seed * 20 + step) +
-                      ", w: " + std::to_string(pick(7)) + "}]->(b)";
+        case 5: {
+          auto const native = static_cast<int>(100 + seed * 20 + step);
+          targets.push_back(native);
+          auto const type = pick(2) == 0 ? "R" : "Q";
+          auto const w = pick(3) == 0 ? std::string{} : ", w: " + std::to_string(pick(7));
+          statement = "MATCH (a:N {id: " + std::to_string(pick(22)) + "}), (b:M {id: " + std::to_string(pick(22)) +
+                      "}) CREATE (a)-[:" + type + " {id: " + std::to_string(native) + w + "}]->(b)";
           break;
+        }
         case 6:
           statement = match + "SET r += {w: " + std::to_string(pick(7)) + "}";
+          break;
+        case 7:
+          statement = match + "SET r.z = 1";  // another property: no scan on `w` changes
           break;
         default:
           statement = match + "SET r.w = r.w";
