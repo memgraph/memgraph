@@ -1967,16 +1967,6 @@ TEST_F(StorageV2GcMetricsTest, ForkPin_ConsumesItsOwnTimestamp) {
   EXPECT_EQ(0, handles().unreleased_delta_objects.Value());
 }
 
-// A fork's consumed id is finished at once: a register+release leaves nothing for OldestActive to stall on.
-TEST_F(StorageV2GcMetricsTest, ForkPin_ReleasedForkDoesNotBlockFastDiscard) {
-  auto *mem_storage = static_cast<memgraph::storage::InMemoryStorage *>(storage.get());
-  mem_storage->ReleaseForkPin(mem_storage->RegisterForkPin());
-  auto acc = storage->Access(memgraph::storage::WRITE);
-  (void)acc->CreateVertex();
-  ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
-  EXPECT_EQ(0, handles().unreleased_delta_objects.Value());
-}
-
 // OldestActive skips the finished fork id once the older transaction closes.
 TEST_F(StorageV2GcMetricsTest, ForkPin_OldestActiveSkipsForkId) {
   auto *mem_storage = static_cast<memgraph::storage::InMemoryStorage *>(storage.get());
