@@ -38,6 +38,7 @@
 #include "query/plan/operator.hpp"
 #include "query/plan/preprocess.hpp"
 #include "query/plan/rewrite/balanced_union.hpp"
+#include "query/plan/rewrite/filter_fence.hpp"
 #include "query/plan/rewrite/general.hpp"
 #include "query/plan/rewrite/order_by_elimination.hpp"
 #include "storage/v2/id_types.hpp"
@@ -402,7 +403,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     if (expand.common_.existing_node) {
       return true;
     }
-    ScanAll dst_scan(expand.input(), expand.common_.node_symbol, storage::View::OLD);
+    ScanAll dst_scan(expand.input(), expand.common_.node_symbol, expand.view_);
 
     if (expand.type_ == EdgeAtom::Type::BREADTH_FIRST) {
       // When accumulated path is used, we cannot use ST shortest path algorithm.
@@ -445,6 +446,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(Merge &op) override {
     prev_ops_.push_back(&op);
+    fence_.Enter();
     op.input()->Accept(*this);
     RewriteBranch(&op.merge_match_);
     return false;
@@ -452,6 +454,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PostVisit(Merge &) override {
     prev_ops_.pop_back();
+    fence_.Exit();
     return true;
   }
 
@@ -543,21 +546,25 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(CreateNode &op) override {
     prev_ops_.push_back(&op);
+    fence_.Enter();
     return true;
   }
 
   bool PostVisit(CreateNode &) override {
     prev_ops_.pop_back();
+    fence_.Exit();
     return true;
   }
 
   bool PreVisit(CreateExpand &op) override {
     prev_ops_.push_back(&op);
+    fence_.Enter();
     return true;
   }
 
   bool PostVisit(CreateExpand &) override {
     prev_ops_.pop_back();
+    fence_.Exit();
     return true;
   }
 
@@ -634,61 +641,73 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(Delete &op) override {
     prev_ops_.push_back(&op);
+    fence_.Enter();
     return true;
   }
 
   bool PostVisit(Delete &) override {
     prev_ops_.pop_back();
+    fence_.Exit();
     return true;
   }
 
   bool PreVisit(SetProperty &op) override {
     prev_ops_.push_back(&op);
+    fence_.Enter();
     return true;
   }
 
   bool PostVisit(SetProperty &) override {
     prev_ops_.pop_back();
+    fence_.Exit();
     return true;
   }
 
   bool PreVisit(SetProperties &op) override {
     prev_ops_.push_back(&op);
+    fence_.Enter();
     return true;
   }
 
   bool PostVisit(SetProperties &) override {
     prev_ops_.pop_back();
+    fence_.Exit();
     return true;
   }
 
   bool PreVisit(SetLabels &op) override {
     prev_ops_.push_back(&op);
+    fence_.Enter();
     return true;
   }
 
   bool PostVisit(SetLabels &) override {
     prev_ops_.pop_back();
+    fence_.Exit();
     return true;
   }
 
   bool PreVisit(RemoveProperty &op) override {
     prev_ops_.push_back(&op);
+    fence_.Enter();
     return true;
   }
 
   bool PostVisit(RemoveProperty &) override {
     prev_ops_.pop_back();
+    fence_.Exit();
     return true;
   }
 
   bool PreVisit(RemoveLabels &op) override {
     prev_ops_.push_back(&op);
+    fence_.Enter();
     return true;
   }
 
   bool PostVisit(RemoveLabels &) override {
     prev_ops_.pop_back();
+    fence_.Exit();
     return true;
   }
 
@@ -704,11 +723,13 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(Accumulate &op) override {
     prev_ops_.push_back(&op);
+    fence_.Enter();
     return true;
   }
 
   bool PostVisit(Accumulate &) override {
     prev_ops_.pop_back();
+    fence_.Exit();
     return true;
   }
 
@@ -778,16 +799,19 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(CallProcedure &op) override {
     prev_ops_.push_back(&op);
+    fence_.Enter(op.graph_access_ == GraphAccess::Write);
     return true;
   }
 
   bool PostVisit(CallProcedure &) override {
     prev_ops_.pop_back();
+    fence_.Exit();
     return true;
   }
 
   bool PreVisit(Foreach &op) override {
     prev_ops_.push_back(&op);
+    fence_.Enter();
     op.input()->Accept(*this);
     RewriteBranch(&op.update_clauses_);
     return false;
@@ -795,6 +819,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PostVisit(Foreach &) override {
     prev_ops_.pop_back();
+    fence_.Exit();
     return true;
   }
 
@@ -906,21 +931,25 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(SetNestedProperty &op) override {
     prev_ops_.push_back(&op);
+    fence_.Enter();
     return true;
   }
 
   bool PostVisit(SetNestedProperty & /*op*/) override {
     prev_ops_.pop_back();
+    fence_.Exit();
     return true;
   }
 
   bool PreVisit(RemoveNestedProperty &op) override {
     prev_ops_.push_back(&op);
+    fence_.Enter();
     return true;
   }
 
   bool PostVisit(RemoveNestedProperty & /*op*/) override {
     prev_ops_.pop_back();
+    fence_.Exit();
     return true;
   }
 
@@ -933,6 +962,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   // Collected filters, pending for examination if they can be used for advanced
   // lookup operations (by index, node ID, ...).
   Filters filters_;
+  FilterFence fence_{filters_};
   // Expressions which no longer need a plain Filter operator.
   std::unordered_set<Expression *> filter_exprs_for_removal_;
   std::vector<LogicalOperator *> prev_ops_;
@@ -1763,7 +1793,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     }
     if (prop_filter.type_ == PropertyFilter::Type::IN) {
       auto *membership_list = utils::Downcast<ListLiteral>(prop_filter.value_);
-      auto unwound = UnwindMembershipList(*symbol_table_, ast_storage_, input, prop_filter.value_);
+      auto unwound = UnwindMembershipList(*symbol_table_, ast_storage_, input, prop_filter.value_, view);
       return ScanByIndexResult{
           std::make_shared<ScanAllByVertexProperty>(std::move(unwound.op),
                                                     node_symbol,
@@ -1847,7 +1877,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     // Unwind(toSet(coalesce(list_expr, []))) onto `input` and return the
     // anonymous identifier bound to each unwound element for the caller's scan.
     auto unwind_membership_list = [&](Expression *list_expr) -> Identifier * {
-      auto unwound = UnwindMembershipList(*symbol_table_, ast_storage_, input, list_expr);
+      auto unwound = UnwindMembershipList(*symbol_table_, ast_storage_, input, list_expr, view);
       input = std::move(unwound.op);
       return unwound.element;
     };

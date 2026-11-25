@@ -25,20 +25,20 @@
 
 namespace memgraph::query::plan {
 
-PlanPrinter::PlanPrinter(const DbAccessor *dba, std::ostream *out, Parameters const *parameters)
-    : dba_(dba), out_(out), parameters_(parameters) {}
+PlanPrinter::PlanPrinter(const DbAccessor *dba, std::ostream *out, Parameters const *parameters, bool print_views)
+    : dba_(dba), out_(out), parameters_(parameters), print_views_(print_views) {}
 
 // NOLINTBEGIN(bugprone-macro-parentheses,cppcoreguidelines-macro-usage)
-#define PRE_VISIT(TOp)                                                       \
-  bool PlanPrinter::PreVisit(TOp &) {                                        \
-    WithPrintLn([this](auto &out) { out << StartSymbol() << " " << #TOp; }); \
-    return true;                                                             \
+#define PRE_VISIT(TOp)                                                           \
+  bool PlanPrinter::PreVisit(TOp &op) {                                          \
+    WithPrintLn(op, [this](auto &out) { out << StartSymbol() << " " << #TOp; }); \
+    return true;                                                                 \
   }
 
-#define PRE_VISIT_TS(TOp)                                                                      \
-  bool PlanPrinter::PreVisit(TOp &op) {                                                        \
-    WithPrintLn([this, &op](auto &out) { out << StartSymbol() << " " << op.ToString(dba_); }); \
-    return true;                                                                               \
+#define PRE_VISIT_TS(TOp)                                                                          \
+  bool PlanPrinter::PreVisit(TOp &op) {                                                            \
+    WithPrintLn(op, [this, &op](auto &out) { out << StartSymbol() << " " << op.ToString(dba_); }); \
+    return true;                                                                                   \
   }
 
 #define PRE_VISIT_IGNORE(TOp) \
@@ -78,12 +78,12 @@ std::string ScanChunkToString(const auto &op, const DbAccessor *dba) {
 }  // namespace
 
 bool PlanPrinter::PreVisit(ScanChunk &op) {
-  WithPrintLn([this, &op](auto &out) { out << StartSymbol() << " " << ScanChunkToString(op, dba_); });
+  WithPrintLn(op, [this, &op](auto &out) { out << StartSymbol() << " " << ScanChunkToString(op, dba_); });
   return true;
 }
 
 bool PlanPrinter::PreVisit(ScanChunkByEdge &op) {
-  WithPrintLn([this, &op](auto &out) { out << StartSymbol() << " " << ScanChunkToString(op, dba_); });
+  WithPrintLn(op, [this, &op](auto &out) { out << StartSymbol() << " " << ScanChunkToString(op, dba_); });
   return true;
 }
 
@@ -121,7 +121,7 @@ PRE_VISIT_TS(Produce);
 PRE_VISIT_TS(CacheProperties);
 
 bool PlanPrinter::PreVisit(ExpandVariable &op) {
-  WithPrintLn([this, &op](auto &out) {
+  WithPrintLn(op, [this, &op](auto &out) {
     out << StartSymbol() << " " << (parameters_ ? op.ToStringWithParameters(dba_, *parameters_) : op.ToString(dba_));
   });
   return true;
@@ -135,7 +135,14 @@ PRE_VISIT(SetProperties);
 PRE_VISIT(SetLabels);
 PRE_VISIT(RemoveProperty);
 PRE_VISIT(RemoveLabels);
-PRE_VISIT(Accumulate);
+
+bool PlanPrinter::PreVisit(Accumulate &op) {
+  WithPrintLn(op, [this, &op](auto &out) {
+    out << StartSymbol() << " Accumulate" << (op.access_check_only_ ? " (access check only)" : "");
+  });
+  return true;
+}
+
 PRE_VISIT(EmptyResult);
 PRE_VISIT(EvaluatePatternFilter);
 
@@ -166,14 +173,14 @@ PRE_VISIT_TS(CardinalityScale);
 PRE_VISIT(Distinct);
 
 bool PlanPrinter::PreVisit(query::plan::Union &op) {
-  WithPrintLn([this, &op](auto &out) { out << StartSymbol() << " " << op.ToString(dba_); });
+  WithPrintLn(op, [this, &op](auto &out) { out << StartSymbol() << " " << op.ToString(dba_); });
   Branch(*op.right_op_);
   op.left_op_->Accept(*this);
   return false;
 }
 
 bool PlanPrinter::PreVisit(query::plan::RollUpApply &op) {
-  WithPrintLn([this, &op](auto &out) { out << StartSymbol() << " " << op.ToString(dba_); });
+  WithPrintLn(op, [this, &op](auto &out) { out << StartSymbol() << " " << op.ToString(dba_); });
   Branch(*op.list_collection_branch_);
   op.input_->Accept(*this);
   return false;
@@ -197,7 +204,7 @@ std::string_view PredicateFoldName(const LogicalOperator &fold) {
 }  // namespace
 
 bool PlanPrinter::PreVisit(query::plan::Conditional &op) {
-  WithPrintLn([this, &op](auto &out) { out << StartSymbol() << " " << op.ToString(dba_); });
+  WithPrintLn(op, [this, &op](auto &out) { out << StartSymbol() << " " << op.ToString(dba_); });
   for (size_t i = 0; i < op.branches_.size(); ++i) {
     const auto &branch = op.branches_[i];
     auto const name = branch.predicate ? fmt::format("WHEN {}", i) : std::string{"ELSE"};
@@ -219,7 +226,7 @@ PRE_VISIT_TS(LoadCsv);
 PRE_VISIT_TS(LoadParquet);
 
 bool PlanPrinter::PreVisit(query::plan::LoadJsonl &op) {
-  WithPrintLn([this, &op](auto &out) { out << "* " << op.ToString(dba_); });
+  WithPrintLn(op, [this, &op](auto &out) { out << "* " << op.ToString(dba_); });
   return true;
 }
 
@@ -229,7 +236,7 @@ bool PlanPrinter::Visit(query::plan::Once & /*op*/) {
 }
 
 bool PlanPrinter::PreVisit(query::plan::Cartesian &op) {
-  WithPrintLn([this, &op](auto &out) {
+  WithPrintLn(op, [this, &op](auto &out) {
     out << StartSymbol() << " Cartesian {";
     utils::PrintIterable(out, op.left_symbols_, ", ", [](auto &out, const auto &sym) { out << sym.name(); });
     out << " : ";
@@ -242,7 +249,7 @@ bool PlanPrinter::PreVisit(query::plan::Cartesian &op) {
 }
 
 bool PlanPrinter::PreVisit(query::plan::HashJoin &op) {
-  WithPrintLn([this, &op](auto &out) { out << StartSymbol() << " " << op.ToString(dba_); });
+  WithPrintLn(op, [this, &op](auto &out) { out << StartSymbol() << " " << op.ToString(dba_); });
   Branch(*op.right_op_);
   op.left_op_->Accept(*this);
   return false;
@@ -256,7 +263,7 @@ bool PlanPrinter::PreVisit(query::plan::Foreach &op) {
 }
 
 bool PlanPrinter::PreVisit(query::plan::Filter &op) {
-  WithPrintLn([this, &op](auto &out) { out << StartSymbol() << " " << op.ToString(dba_); });
+  WithPrintLn(op, [this, &op](auto &out) { out << StartSymbol() << " " << op.ToString(dba_); });
   for (const auto &pattern_filter : op.pattern_filters_) {
     Branch(*pattern_filter);
   }
@@ -267,14 +274,14 @@ bool PlanPrinter::PreVisit(query::plan::Filter &op) {
 PRE_VISIT_TS(EdgeUniquenessFilter);
 
 bool PlanPrinter::PreVisit(query::plan::Apply &op) {
-  WithPrintLn([this, &op](auto &out) { out << StartSymbol() << " " << op.ToString(dba_); });
+  WithPrintLn(op, [this, &op](auto &out) { out << StartSymbol() << " " << op.ToString(dba_); });
   Branch(*op.subquery_);
   op.input_->Accept(*this);
   return false;
 }
 
 bool PlanPrinter::PreVisit(query::plan::PeriodicSubquery &op) {
-  WithPrintLn([this, &op](auto &out) { out << StartSymbol() << " " << op.ToString(dba_); });
+  WithPrintLn(op, [this, &op](auto &out) { out << StartSymbol() << " " << op.ToString(dba_); });
   Branch(*op.subquery_);
   op.input_->Accept(*this);
   return false;
@@ -304,15 +311,15 @@ void PlanPrinter::Branch(query::plan::LogicalOperator &op, const std::string &br
 }
 
 void PrettyPrint(const DbAccessor &dba, const LogicalOperator *plan_root, std::ostream *out,
-                 Parameters const *parameters) {
-  PrettyPrint(&dba, plan_root, out, parameters);
+                 Parameters const *parameters, bool print_views) {
+  PrettyPrint(&dba, plan_root, out, parameters, print_views);
 }
 
 void PrettyPrint(const DbAccessor *dba, const LogicalOperator *plan_root, std::ostream *out,
-                 Parameters const *parameters) {
+                 Parameters const *parameters, bool print_views) {
   // dba may be null: ToString resolves it only to name a label, property or edge type, and a plan that
   // runs without an accessor contains no operator that names one.
-  PlanPrinter printer(dba, out, parameters);
+  PlanPrinter printer(dba, out, parameters, print_views);
   // FIXME(mtomic): We should make visitors that take const arguments.
   const_cast<LogicalOperator *>(plan_root)->Accept(printer);
 }

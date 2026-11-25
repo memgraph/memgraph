@@ -2011,6 +2011,10 @@ class Clause : public memgraph::query::Tree, public utils::Visitable<Hierarchica
 
   Clause *Clone(AstStorage *storage) const override = 0;
 
+  /// Every item but the first of one SET or REMOVE: the parser makes one clause per item, and the items still read
+  /// and write as one clause.
+  bool continues_previous_{false};
+
  private:
   friend class AstStorage;
 };
@@ -2919,6 +2923,7 @@ class SetProperty : public memgraph::query::Clause {
 
   SetProperty *Clone(AstStorage *storage) const override {
     SetProperty *object = storage->Create<SetProperty>();
+    object->continues_previous_ = continues_previous_;
     object->property_lookup_ = property_lookup_ ? property_lookup_->Clone(storage) : nullptr;
     object->expression_ = expression_ ? expression_->Clone(storage) : nullptr;
     return object;
@@ -2953,6 +2958,7 @@ class SetProperties : public memgraph::query::Clause {
 
   SetProperties *Clone(AstStorage *storage) const override {
     SetProperties *object = storage->Create<SetProperties>();
+    object->continues_previous_ = continues_previous_;
     object->identifier_ = identifier_ ? identifier_->Clone(storage) : nullptr;
     object->expression_ = expression_ ? expression_->Clone(storage) : nullptr;
     object->update_ = update_;
@@ -2987,6 +2993,7 @@ class SetLabels : public memgraph::query::Clause {
 
   SetLabels *Clone(AstStorage *storage) const override {
     SetLabels *object = storage->Create<SetLabels>();
+    object->continues_previous_ = continues_previous_;
     object->identifier_ = identifier_ ? identifier_->Clone(storage) : nullptr;
     object->labels_.resize(labels_.size());
     for (auto i = 0; i < object->labels_.size(); ++i) {
@@ -3026,6 +3033,7 @@ class RemoveProperty : public memgraph::query::Clause {
 
   RemoveProperty *Clone(AstStorage *storage) const override {
     RemoveProperty *object = storage->Create<RemoveProperty>();
+    object->continues_previous_ = continues_previous_;
     object->property_lookup_ = property_lookup_ ? property_lookup_->Clone(storage) : nullptr;
     return object;
   }
@@ -3057,6 +3065,7 @@ class RemoveLabels : public memgraph::query::Clause {
 
   RemoveLabels *Clone(AstStorage *storage) const override {
     RemoveLabels *object = storage->Create<RemoveLabels>();
+    object->continues_previous_ = continues_previous_;
     object->identifier_ = identifier_ ? identifier_->Clone(storage) : nullptr;
     object->labels_.resize(labels_.size());
     for (auto i = 0; i < object->labels_.size(); ++i) {

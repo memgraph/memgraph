@@ -33,6 +33,8 @@ class TestResults:
         return self.total
 
     def add_test(self, status):
+        if status == "skipped":
+            return
         if status == "passed":
             self.passed += 1
         self.total += 1
@@ -58,6 +60,8 @@ def before_all(context):
 def before_scenario(context, scenario):
     context.test_parameters = TestParameters()
     context.exception = None
+    if getattr(context.config, "parallel_execution", False) and "skip_parallel_execution" in scenario.effective_tags:
+        scenario.skip("not run under parallel execution")
 
 
 def after_step(context, step):

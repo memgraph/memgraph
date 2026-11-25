@@ -16,6 +16,8 @@
 #include <memory>
 #include <optional>
 #include <type_traits>
+#include <utility>
+#include <vector>
 
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/metadata.hpp"
@@ -36,6 +38,10 @@ class ArenaPool;
 namespace memgraph::metrics {
 struct DatabaseMetricHandles;
 }  // namespace memgraph::metrics
+
+namespace memgraph::query::plan {
+struct DeferredDeletes;
+}  // namespace memgraph::query::plan
 
 namespace memgraph::query {
 
@@ -112,6 +118,12 @@ struct StoppingContext {
   }
 };
 
+/// A drain that owns Deletes: its drain id, and the list its Deletes hand their deletes to.
+struct DeleteOwner {
+  uint64_t drain_id;
+  plan::DeferredDeletes *list;
+};
+
 struct ExecutionContext {
   DbAccessor *db_accessor{nullptr};
   SymbolTable symbol_table;
@@ -139,6 +151,8 @@ struct ExecutionContext {
   // allocations still attribute to the parent DB.
   memgraph::memory::ArenaPool *db_arena_pool{nullptr};
   metrics::DatabaseMetricHandles *metric_handles{nullptr};
+  // The drains now pulling their input that own the Deletes below them, innermost last.
+  std::vector<DeleteOwner> delete_owners;
 
   auto commit_args() -> storage::CommitArgs;
 };

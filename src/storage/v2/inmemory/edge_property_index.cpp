@@ -132,6 +132,7 @@ void AdvanceUntilValid_(auto &index_iterator, auto end, EdgeRef &current_edge, E
                         Storage *storage, Transaction *transaction, View view, PropertyId property,
                         const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                         const std::optional<utils::Bound<PropertyValue>> &upper_bound, Gid max_gid,
+                        memgraph::storage::ScanStart scan_start,
                         PropertyValueRange::ValuePredicateFn const *value_predicate) {
   for (; index_iterator != end; ++index_iterator) {
     if (index_iterator->edge == current_edge.ptr) {
@@ -158,7 +159,7 @@ void AdvanceUntilValid_(auto &index_iterator, auto end, EdgeRef &current_edge, E
       continue;
     }
 
-    if (!CanSeeEntityWithTimestamp(index_iterator->timestamp, transaction, view)) {
+    if (!CanSeeEntityWithTimestamp(index_iterator->timestamp, transaction, view, scan_start)) {
       continue;
     }
 
@@ -446,7 +447,8 @@ InMemoryEdgePropertyIndex::Iterable::Iterable(
       view_(view),
       storage_(storage),
       transaction_(transaction),
-      max_gid_(max_gid) {}
+      max_gid_(max_gid),
+      scan_start_(ScanStart::Of(*transaction, view)) {}
 
 InMemoryEdgePropertyIndex::Iterable::Iterator::Iterator(
     Iterable *self, utils::SkipListDb<InMemoryEdgePropertyIndex::Entry>::Iterator index_iterator)
@@ -475,6 +477,7 @@ void InMemoryEdgePropertyIndex::Iterable::Iterator::AdvanceUntilValid() {
                      self_->lower_bound_,
                      self_->upper_bound_,
                      self_->max_gid_,
+                     self_->scan_start_,
                      self_->value_predicate_.get());
 }
 
@@ -641,7 +644,8 @@ InMemoryEdgePropertyIndex::ChunkedIterable::ChunkedIterable(
       view_(view),
       storage_(storage),
       transaction_(transaction),
-      max_gid_(max_gid) {
+      max_gid_(max_gid),
+      scan_start_(ScanStart::Of(*transaction, view)) {
   if (!bounds_valid_) return;
 
   const auto lower_bound_pv = lower_bound_ ? std::optional<PropertyValue>{lower_bound_->value()} : std::nullopt;
@@ -667,6 +671,7 @@ void InMemoryEdgePropertyIndex::ChunkedIterable::Iterator::AdvanceUntilValid() {
                      self_->lower_bound_,
                      self_->upper_bound_,
                      self_->max_gid_,
+                     self_->scan_start_,
                      self_->value_predicate_.get());
 }
 
