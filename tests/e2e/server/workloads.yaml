@@ -40,6 +40,9 @@ template_cluster_ssl_reload: &template_cluster_ssl_reload
       ssl: true
 
 workloads:
+  - name: "Failed server startup cleanup"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["server/test_startup_cleanup.py"]
   - name: "Server connection"
     binary: "tests/e2e/server/memgraph__e2e__server_connection"
     args: ["--bolt-port", *bolt_port]

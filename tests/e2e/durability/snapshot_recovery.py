@@ -208,6 +208,12 @@ def mt_cursor(connection, database):
     return cursor
 
 
+@pytest.fixture(autouse=True)
+def cleanup_after_test():
+    yield
+    interactive_mg_runner.kill_all()
+
+
 @pytest.fixture
 def test_name(request):
     return request.node.name
