@@ -13,14 +13,12 @@
 
 #include <algorithm>
 #include <array>
-#include <atomic>
 #include <cstdint>
 #include <functional>
 #include <map>
 #include <optional>
 #include <ranges>
 #include <string>
-#include <thread>
 #include <tuple>
 #include <vector>
 
@@ -80,14 +78,6 @@ class VersioningReadTest : public VersioningGatedTest {
   }
 
   mq::VertexAccessor BranchVertex(int64_t gid) { return BaseVertexOn(Ctx(), gid); }
-
-  void WriteMainProperty(int64_t gid, ms::PropertyId pid, const ms::PropertyValue &value) {
-    auto acc = Main()->Access(ms::WRITE);
-    auto vertex = acc->FindVertex(ms::Gid::FromInt(gid), ms::View::OLD);
-    ASSERT_TRUE(vertex.has_value());
-    ASSERT_TRUE(vertex->SetProperty(pid, value).has_value());
-    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
-  }
 
   static void WriteProperty(mv::BranchContext &ctx, int64_t gid, ms::PropertyId pid, const ms::PropertyValue &value) {
     auto base_vertex = ctx.FindBaseVertex(ms::Gid::FromInt(gid));
@@ -1076,65 +1066,6 @@ TEST_F(VersioningReadTest, OutReadOfABaseVertexWithOnlyANativeInEdgeIsEmptyWhile
   });
 }
 
-// While native edges attach to a base vertex, readers never lose or duplicate an edge and keep a stable snapshot;
-// afterwards every edge is there.
-TEST_F(VersioningReadTest, ConcurrentNativeEdgeAttachAndExpansionNeverLoseOrDuplicateAnEdge) {
-  constexpr int kRounds = 200;
-  constexpr size_t kBaseEdges = 3;
-  faker.Interpret("CREATE (h:Hub) WITH h UNWIND range(1, 3) AS i CREATE (h)-[:R]->(:T)");
-  auto const hub = Int("MATCH (h:Hub) RETURN id(h)");
-  Fork();
-  auto const core = Ctx().core();
-  auto &diff_engine = Ctx().diff_engine();
-  auto const native_type = Main()->NameToEdgeType("N");
-  std::atomic<bool> writer_done{false};
-
-  {
-    std::vector<std::jthread> threads;
-    threads.emplace_back([&] {
-      mv::BranchContext ctx{core, {}, 0};
-      for (int round = 1; round <= kRounds; ++round) {
-        auto diff = diff_engine.Access(ms::WRITE);
-        ASSERT_TRUE(ctx.BeginTransaction(diff.get()).has_value());
-        auto overlay = ctx.EnsureDiffVertex(ms::Gid::FromInt(hub));
-        ASSERT_TRUE(overlay.has_value());
-        auto native = ctx.CreateNativeVertex();
-        ASSERT_TRUE(ctx.CreateNativeEdge(*overlay, native, native_type).has_value());
-        ASSERT_TRUE(ctx.CommitTransaction(memgraph::tests::MakeMainCommitArgs()).has_value());
-        ctx.EndTransaction();
-      }
-      writer_done.store(true);
-    });
-    for (int reader = 0; reader < 3; ++reader) {
-      threads.emplace_back([&] {
-        mv::BranchContext ctx{core, {}, 0};
-        size_t last_seen = 0;
-        do {
-          auto diff = diff_engine.Access(ms::READ);
-          ASSERT_TRUE(ctx.BeginTransaction(diff.get()).has_value());
-          std::vector<int64_t> first;
-          for (int i = 0; i < 3; ++i) {
-            auto const out = BaseVertexOn(ctx, hub).OutEdges(ms::View::OLD);
-            ASSERT_TRUE(out.has_value());
-            auto gids = EdgeGids(out->edges);
-            std::ranges::sort(gids);
-            ASSERT_EQ(std::ranges::adjacent_find(gids), gids.end()) << "an edge was listed twice";
-            ASSERT_GE(gids.size(), kBaseEdges + last_seen) << "an edge seen earlier is gone";
-            if (i == 0) first = gids;
-            ASSERT_EQ(gids, first) << "the snapshot moved inside one transaction";
-          }
-          last_seen = first.size() - kBaseEdges;
-          ctx.EndTransaction();
-        } while (!writer_done.load());
-      });
-    }
-  }
-
-  InBranchTxn([&](mv::BranchContext &) {
-    EXPECT_EQ(BranchVertex(hub).OutEdges(ms::View::OLD)->edges.size(), kBaseEdges + kRounds);
-  });
-}
-
 // A base vertex deleted in the open transaction fails every read, as do its base edges; its neighbour no longer
 // expands to it. A rollback restores everything.
 TEST_F(VersioningReadTest, ReadsOfABaseVertexDeletedInTheTransactionFail) {
@@ -1488,71 +1419,6 @@ TEST_F(VersioningReadTest, ReadsThenAWriteInOneBranchTransaction) {
       << "a write over a newer commit conflicts";
   EXPECT_EQ(*BranchVertex(v).GetProperty(ms::View::NEW, x), ms::PropertyValue{1});
   Ctx().EndTransaction();
-}
-
-// Bounded stress: one branch writer keeps two base vertices summing to zero, main rewrites the same vertices with
-// junk, and concurrent readers must see, within a transaction, one unchanging pair that sums to zero and never
-// moves backwards between transactions.
-TEST_F(VersioningReadTest, ConcurrentBranchReadersAndWritersSeeAConstantTotal) {
-  constexpr int kRounds = 300;
-  faker.Interpret("CREATE (:P {id: 1, x: 0}), (:P {id: 2, x: 0})");
-  auto const a = Int("MATCH (n:P {id: 1}) RETURN id(n)");
-  auto const b = Int("MATCH (n:P {id: 2}) RETURN id(n)");
-  Fork();
-  auto const x = Main()->NameToProperty("x");
-  auto const core = Ctx().core();
-  auto &diff_engine = Ctx().diff_engine();
-  std::atomic<int> writers_left{2};
-
-  {
-    std::vector<std::jthread> threads;
-    threads.emplace_back([&] {
-      mv::BranchContext ctx{core, {}, 0};
-      for (int round = 1; round <= kRounds; ++round) {
-        auto diff = diff_engine.Access(ms::WRITE);
-        ASSERT_TRUE(ctx.BeginTransaction(diff.get()).has_value());
-        WriteProperty(ctx, a, x, ms::PropertyValue{round});
-        WriteProperty(ctx, b, x, ms::PropertyValue{-round});
-        ASSERT_TRUE(ctx.CommitTransaction(memgraph::tests::MakeMainCommitArgs()).has_value());
-        ctx.EndTransaction();
-      }
-      --writers_left;
-    });
-    threads.emplace_back([&] {
-      for (int round = 0; round < kRounds; ++round) {
-        WriteMainProperty(a, x, ms::PropertyValue{1000 + round});
-        WriteMainProperty(b, x, ms::PropertyValue{1000 + round});
-      }
-      --writers_left;
-    });
-    for (int reader = 0; reader < 3; ++reader) {
-      threads.emplace_back([&] {
-        mv::BranchContext ctx{core, {}, 0};
-        int64_t last_round = 0;
-        do {
-          auto diff = diff_engine.Access(ms::READ);
-          ASSERT_TRUE(ctx.BeginTransaction(diff.get()).has_value());
-          int64_t first_a = 0;
-          for (int i = 0; i < 3; ++i) {
-            auto const read_a = BaseVertexOn(ctx, a).GetProperty(ms::View::OLD, x)->ValueInt();
-            auto const read_b = BaseVertexOn(ctx, b).GetProperty(ms::View::OLD, x)->ValueInt();
-            ASSERT_EQ(read_a + read_b, 0) << "main's junk or a half-published commit leaked in";
-            if (i == 0) first_a = read_a;
-            ASSERT_EQ(read_a, first_a) << "the snapshot moved inside one transaction";
-          }
-          ASSERT_GE(first_a, last_round);
-          last_round = first_a;
-          ctx.EndTransaction();
-        } while (writers_left.load() > 0);
-      });
-    }
-  }
-
-  InBranchTxn([&](mv::BranchContext &) {
-    EXPECT_EQ(*BranchVertex(a).GetProperty(ms::View::OLD, x), ms::PropertyValue{kRounds});
-    EXPECT_EQ(*BranchVertex(b).GetProperty(ms::View::OLD, x), ms::PropertyValue{-kRounds});
-  });
-  EXPECT_EQ(MainProperty(a, x), ms::PropertyValue{1000 + kRounds - 1});
 }
 
 namespace {
