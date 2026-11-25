@@ -26,3 +26,8 @@ add_subdirectory(e2e)
 
 # mgbench benchmark test binaries
 add_subdirectory(mgbench)
+
+option(MG_RUST_ORACLES "Build the Rust reference oracles and differential tests in tests/oracle (needs cargo)" OFF)
+if (MG_RUST_ORACLES)
+  add_subdirectory(oracle)
+endif()
