@@ -14,9 +14,12 @@
 #include <atomic>
 #include <cassert>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -63,6 +66,26 @@ struct TerminateSessionsResult {
   std::vector<std::string> to_close;          // uuids the CALLER must hand to the session registry
 };
 
+using PrivilegeChecker = std::function<bool(QueryUserOrRole *, std::string const &)>;
+using InterpreterSet = utils::Synchronized<std::unordered_set<Interpreter *>, utils::SpinLock>;
+
+// The check takes the auth lock, so call it only with `interpreters` released. Memoizes per db for one statement.
+class PrivilegeByDb {
+ public:
+  PrivilegeByDb(QueryUserOrRole *user_or_role, PrivilegeChecker const &checker)
+      : user_or_role_(user_or_role), checker_(checker) {}
+
+  bool operator()(std::string const &db_name) {
+    if (auto const it = cache_.find(db_name); it != cache_.end()) return it->second;
+    return cache_.emplace(db_name, checker_(user_or_role_, db_name)).first->second;
+  }
+
+ private:
+  QueryUserOrRole *user_or_role_;
+  PrivilegeChecker const &checker_;
+  std::unordered_map<std::string, bool> cache_;
+};
+
 /**
  * Holds data shared between multiple `Interpreter` instances (which might be
  * running concurrently).
@@ -94,7 +117,7 @@ struct InterpreterContext {
 
   // Used to check active transactions
   // TODO: Have a way to read the current database
-  utils::Synchronized<std::unordered_set<Interpreter *>, utils::SpinLock> interpreters;
+  InterpreterSet interpreters;
 
   struct {
     auto next() -> uint64_t { return transaction_id++; }
@@ -107,30 +130,35 @@ struct InterpreterContext {
   /// their ongoing execution.
   void Shutdown() { is_shutting_down.store(true, std::memory_order_release); }
 
-  std::vector<std::vector<TypedValue>> TerminateTransactions(
-      const std::unordered_set<Interpreter *> &interpreters, std::vector<uint64_t> maybe_kill_transaction_ids,
-      QueryUserOrRole *user_or_role, std::function<bool(QueryUserOrRole *, std::string const &)> privilege_checker);
+  // The Terminate* functions lock `interpreters` themselves and run the privilege checker with it released. A target
+  // whose identity/authorization changes in between reports killed=false, as does a transaction that leaves ACTIVE.
+  static std::vector<std::vector<TypedValue>> TerminateTransactions(InterpreterSet &interpreters,
+                                                                    std::vector<uint64_t> maybe_kill_transaction_ids,
+                                                                    QueryUserOrRole *user_or_role,
+                                                                    PrivilegeChecker const &privilege_checker);
 
   /// Terminates every transaction the caller is authorized to kill, across all databases.
   /// `self` is the issuing interpreter and is skipped: terminating it would make its own
   /// commit throw, so the caller would never see which transactions it killed. Returns one
   /// row per terminated transaction, ordered by ascending transaction id.
-  static std::vector<std::vector<TypedValue>> TerminateAllTransactions(
-      const std::unordered_set<Interpreter *> &interpreters, Interpreter const *self, QueryUserOrRole *user_or_role,
-      std::function<bool(QueryUserOrRole *, std::string const &)> privilege_checker);
+  static std::vector<std::vector<TypedValue>> TerminateAllTransactions(InterpreterSet &interpreters,
+                                                                       Interpreter const *self,
+                                                                       QueryUserOrRole *user_or_role,
+                                                                       PrivilegeChecker const &privilege_checker);
 
-  // Close is deferred: the destructor chain re-enters InterpreterContext::interpreters. Call this inside
-  // interpreters.WithLock(...) and close `to_close` only after that lock is released, or self-deadlock.
+  // Close is deferred: the destructor chain re-enters InterpreterContext::interpreters, so the caller must close
+  // `to_close` itself, with no `interpreters` lock held.
   //
   // Each session is authorized against its own current database (roles and privileges are DB-scoped);
   // a caller may always terminate its own other connections regardless of privilege.
   //
   // A dbless target falls back to dbms::kDefaultDB ("memgraph") for the privilege check — a "memgraph"-scoped
   // admin can therefore reach sessions that hold no database at all.
-  static TerminateSessionsResult TerminateSessions(
-      const std::unordered_set<Interpreter *> &interpreters, const std::vector<std::string> &session_ids,
-      QueryUserOrRole *user_or_role, std::function<bool(QueryUserOrRole *, std::string const &)> privilege_checker,
-      std::string_view caller_session_uuid);
+  static TerminateSessionsResult TerminateSessions(InterpreterSet &interpreters,
+                                                   const std::vector<std::string> &session_ids,
+                                                   QueryUserOrRole *user_or_role,
+                                                   PrivilegeChecker const &privilege_checker,
+                                                   std::string_view caller_session_uuid);
 
   static std::vector<uint64_t> ShowTransactionsUsingDBName(const std::unordered_set<Interpreter *> &interpreters,
                                                            std::string_view db_name);
