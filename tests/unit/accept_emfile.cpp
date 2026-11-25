@@ -38,6 +38,7 @@
 #include "communication/v2/server.hpp"
 #include "communication/websocket/auth.hpp"
 #include "communication/websocket/server.hpp"
+#include "utils/priority_thread_pool.hpp"
 
 using namespace std::chrono_literals;
 
@@ -205,6 +206,8 @@ class EchoSession {
 std::atomic<int> g_v2_sessions_created{0};
 
 struct V2Context {
+  memgraph::utils::PriorityThreadPool *worker_pool_{nullptr};
+
   template <class F, class P>
   void AddTask(F &&, P) {}
 };
@@ -219,7 +222,7 @@ struct V2Session {
 
   void HandleError() {}
 
-  int ApproximateQueryPriority() const { return 0; }
+  memgraph::utils::Priority ApproximateQueryPriority() const { return memgraph::utils::Priority::LOW; }
 };
 
 // v2::Server reports the requested endpoint, not the bound one, so pick a port up front. The returned socket holds the

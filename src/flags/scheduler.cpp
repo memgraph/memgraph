@@ -43,6 +43,11 @@ DEFINE_VALIDATED_HIDDEN_string(scheduler, kPriorityQueueWithSidecar, scheduler_h
   return memgraph::utils::IsValidEnumValueString(value, scheduler_type_mappings).has_value();
 });
 
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_HIDDEN_bool(bolt_integrated_poller, true,
+                   "With --scheduler=priority_queue, plain-TCP Bolt sessions are polled and run by idle pool workers "
+                   "instead of the asio io thread; SSL and WebSocket sessions are unaffected.");
+
 SchedulerType GetSchedulerType() {
   return memgraph::utils::StringToEnum<SchedulerType>(FLAGS_scheduler, scheduler_type_mappings).value();
 }

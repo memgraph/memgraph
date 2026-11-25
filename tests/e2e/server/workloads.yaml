@@ -62,3 +62,6 @@ workloads:
   - name: "Server accept EMFILE"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["server/test_accept_emfile.py"]
+  - name: "Server Bolt integrated poller"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["server/test_bolt_integrated_poller.py"]
