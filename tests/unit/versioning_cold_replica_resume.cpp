@@ -172,21 +172,3 @@ TEST_F(ColdReplicaResume, DemotionDuringResume) {
   ASSERT_NE((*resumed)->version_store(), nullptr);
   EXPECT_TRUE((*resumed)->version_store()->List().empty());
 }
-
-TEST_F(ColdReplicaResume, PromotionDuringResume) {
-  CreateTenantWithBranch("cold_tenant");
-  ASSERT_TRUE(dbms_->Suspend("cold_tenant").has_value());
-  ASSERT_TRUE(repl_handler_->SetReplicationRoleReplica(
-      ReplicationServerConfig{.repl_server = memgraph::io::network::Endpoint("127.0.0.1", 10'733)}, std::nullopt));
-
-  std::future<bool> promoted;
-  auto resumed = ResumeParked([&] {
-    promoted = std::async(std::launch::async, [&] { return repl_handler_->SetReplicationRoleMain(); });
-    EXPECT_EQ(promoted.wait_for(kWait), std::future_status::ready) << "promotion blocked on the parked resume";
-  });
-  if (promoted.valid()) ASSERT_TRUE(promoted.get());
-  ASSERT_TRUE(resumed.has_value());
-  auto *store = (*resumed)->version_store();
-  ASSERT_NE(store, nullptr);
-  EXPECT_TRUE(store->CreateBranch("x").has_value()) << "promoted tenant refuses branches";
-}

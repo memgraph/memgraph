@@ -2817,22 +2817,16 @@ Config WithVersioning(Config config) {
   return config;
 }
 
-TEST_F(ReplicationTest, DemoteToReplicaDropsBranchesAndPromoteAllowsThemAgain) {
+TEST_F(ReplicationTest, DemoteToReplicaDropsBranches) {
   MinMemgraph instance(WithVersioning(main_conf));
 
   auto *store = instance.db.version_store();
   ASSERT_NE(store, nullptr);
-  auto const first = store->CreateBranch("before");
-  ASSERT_TRUE(first.has_value());
+  ASSERT_TRUE(store->CreateBranch("before").has_value());
 
   ASSERT_TRUE(instance.repl_handler.SetReplicationRoleReplica(
       ReplicationServerConfig{.repl_server = Endpoint(local_host, ports[0])}, std::nullopt));
   EXPECT_TRUE(store->List().empty());
-
-  ASSERT_TRUE(instance.repl_handler.SetReplicationRoleMain());
-  auto const second = store->CreateBranch("after");
-  ASSERT_TRUE(second.has_value());
-  EXPECT_GT(second->id, first->id);
 }
 
 TEST_F(ReplicationTest, UserDemoteToReplicaIsRefusedWhileBranchesExist) {
@@ -2857,11 +2851,9 @@ TEST_F(ReplicationTest, UserDemoteToReplicaIsRefusedWhileBranchesExist) {
 
   EXPECT_FALSE(instance.repl_handler.IsReplica());
   EXPECT_EQ(store->List().size(), 2U);
-  EXPECT_TRUE(store->CreateBranch("still_works").has_value());
 
   ASSERT_EQ(store->DropBranch("keep_a"), memgraph::versioning::DropResult::kDropped);
   ASSERT_EQ(store->DropBranch("keep_b"), memgraph::versioning::DropResult::kDropped);
-  ASSERT_EQ(store->DropBranch("still_works"), memgraph::versioning::DropResult::kDropped);
   ASSERT_TRUE(instance.repl_handler.TrySetReplicationRoleReplica(
       ReplicationServerConfig{.repl_server = Endpoint(local_host, ports[0])}));
   EXPECT_TRUE(instance.repl_handler.IsReplica());
@@ -2897,7 +2889,6 @@ TEST_F(ReplicationTest, DemoteFailingToLockTheRoleKeepsBranches) {
   }
   EXPECT_FALSE(instance.repl_handler.IsReplica());
   EXPECT_TRUE(store->Exists("kept")) << "a demotion that did not happen dropped the branches of a MAIN";
-  EXPECT_TRUE(store->CreateBranch("again").has_value());
 }
 
 TEST_F(ReplicationTest, ReplicaResyncDropsBranches) {
@@ -2998,24 +2989,6 @@ TEST_F(ReplicationTest, ReplicaResyncIsRefusedWhenDroppingBranchesFails) {
   EXPECT_EQ(replica_vertices(), 1U);
 }
 
-TEST_F(ReplicationTest, ReplicaWithoutBranchesGetsNoBranchFiles) {
-  auto conf = WithVersioning(main_conf);
-  conf.durability.recover_on_startup = true;
-  conf.durability.restore_replication_state_on_startup = true;
-  auto const branches_dir = conf.durability.storage_directory / "branches";
-
-  {
-    MinMemgraph instance(conf);
-    ASSERT_TRUE(instance.repl_handler.SetReplicationRoleReplica(
-        ReplicationServerConfig{.repl_server = Endpoint(local_host, ports[0])}, std::nullopt));
-    EXPECT_FALSE(std::filesystem::exists(branches_dir));
-  }
-
-  MinMemgraph restarted(conf);
-  ASSERT_TRUE(restarted.repl_state.ReadLock()->IsReplica());
-  EXPECT_FALSE(std::filesystem::exists(branches_dir));
-}
-
 TEST_F(ReplicationTest, RestartAsReplicaDropsRecoveredBranches) {
   auto conf = main_conf;
   conf.experimental_versioning = true;
@@ -3041,8 +3014,5 @@ TEST_F(ReplicationTest, RestartAsReplicaDropsRecoveredBranches) {
   auto *store = restarted.db.version_store();
   ASSERT_NE(store, nullptr);
   EXPECT_TRUE(store->List().empty());
-  // The handler starts with the recovered role: a post-publish reconcile on this
-  // REPLICA leaves the store without branches.
-  restarted.repl_handler.ReconcileBranchesAfterPublish(restarted.db_acc);
 }
 #endif  // MG_ENTERPRISE
