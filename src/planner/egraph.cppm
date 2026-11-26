@@ -392,6 +392,9 @@ struct EGraph : private detail::EGraphBase {
    * @brief Merge two e-classes
    * @return MergeResult with canonical e-class ID and whether merge was performed
    *         If both IDs were already in the same e-class, returns {canonical, false}
+   * @note The two classes are joined in the union-find before their analyses
+   *       merge. If Analysis::merge throws, the e-graph is left inconsistent
+   *       and may only be destroyed.
    */
   auto merge(EClassId a, EClassId b) -> MergeResult;
 
@@ -592,6 +595,10 @@ struct EGraph : private detail::EGraphBase {
    * @note Invalidation: This operation may remove duplicate e-nodes (e-nodes with
    * identical canonical form). ENodeIds obtained before rebuild may refer to dead
    * storage after this call. Re-obtain ENodeIds from eclass.nodes() after rebuilding.
+   *
+   * @note Rebuild merges congruent classes through merge(), so an exception from
+   *       Analysis::merge here leaves the e-graph as merge() does: it may only be
+   *       destroyed.
    */
   void rebuild(ProcessingContext<Symbol> &ctx);
 
