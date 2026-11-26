@@ -187,7 +187,7 @@ class Replay {
     for (std::size_t k = 0; k < arity; ++k) {
       uint32_t t = 0;
       if (!(in >> t) || t >= terms_.size()) return "error bad child";
-      children.push_back(graph_.find(terms_[t]));
+      children.push_back(terms_[t]);
     }
     auto const sym = static_cast<Sym>(symbol);
     auto const seed = Seed(symbol, disambiguator);

@@ -109,6 +109,11 @@ impl<A> EClass<A> {
     pub fn analysis(&self) -> &A {
         &self.analysis
     }
+    /// The e-nodes with a child in this class. After a rebuild they are live
+    /// and each is listed once.
+    pub fn parents(&self) -> &[Id] {
+        &self.parents
+    }
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
@@ -273,14 +278,17 @@ impl<S: Hash + Eq + Clone, A: Analysis + Default> EGraph<S, A> {
         Id(self.union_find.find(id.0))
     }
 
-    /// Adds the e-node, or finds the identical one. Children must be canonical.
+    /// Adds the e-node, or finds the identical one. Children may be any ids;
+    /// they are canonicalised first.
     pub fn emplace(&mut self, symbol: S, children: &[Id], disambiguator: u64) -> EmplaceResult {
         self.emplace_with(symbol, children, disambiguator, A::default())
     }
 
     pub fn emplace_with(&mut self, symbol: S, children: &[Id], disambiguator: u64, seed: A) -> EmplaceResult {
-        debug_assert!(children.iter().all(|&c| self.find(c) == c), "e-node children must be canonical");
-        let node = ENode::new(symbol, disambiguator, Children::from_slice(children));
+        // Children are canonicalised here, as the C++ emplace does, so a caller
+        // may pass ids that merges since made stale.
+        let children: Children = children.iter().map(|&c| self.find(c)).collect();
+        let node = ENode::new(symbol, disambiguator, children);
         let nodes = &self.nodes;
         if let Some(existing) = self.hashcons.find(node.hash, |id| nodes[id.index()].same(&node)) {
             return EmplaceResult { eclass: self.find(existing), enode: existing, did_insert: false };

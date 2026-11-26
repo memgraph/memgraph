@@ -140,7 +140,7 @@ impl Subject for Port {
         *self = Port::default();
     }
     fn add(&mut self, symbol: u8, disambiguator: u64, children: &[usize]) -> (bool, u32) {
-        let children: Vec<Id> = children.iter().map(|&t| self.graph.find(self.terms[t])).collect();
+        let children: Vec<Id> = children.iter().map(|&t| self.terms[t]).collect();
         let result = self.graph.emplace_with(symbol, &children, disambiguator, Mask(seed(symbol, disambiguator)));
         self.terms.push(result.eclass);
         if result.did_insert {
