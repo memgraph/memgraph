@@ -39,6 +39,7 @@ use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 
 use egraph_oracle::Model;
 use egraph_oracle::analysis::{derives, least_facts, seed};
+use egraph_oracle::matching::{Pat, bound_twice, matches};
 use mg_planner_egraph::{Analysis, EGraph, Id, Scope};
 use proptest::prelude::*;
 use proptest::test_runner::TestCaseError;
@@ -78,6 +79,35 @@ pub trait Subject {
     fn refresh(&mut self, _everything: bool) -> usize {
         0
     }
+    /// Runs the rule made of `patterns` on a rebuilt graph. `None` if the
+    /// subject does not match; otherwise every match it produced, duplicates
+    /// included, each giving the e-class of every variable in ascending order.
+    fn match_patterns(&mut self, _patterns: &[Pat]) -> Option<Matched> {
+        None
+    }
+}
+
+fn to_port_pattern(pat: &Pat) -> mg_planner_egraph::matching::Pattern<u8> {
+    fn add(pat: &Pat, b: &mut mg_planner_egraph::matching::PatternBuilder<u8>) -> u32 {
+        match pat {
+            Pat::Var(v) => b.var(*v),
+            Pat::Wild => b.wild(),
+            Pat::Sym { symbol, children, bind } => {
+                let kids: Vec<u32> = children.iter().map(|c| add(c, b)).collect();
+                b.sym(*symbol, &kids, *bind)
+            }
+        }
+    }
+    let mut b = mg_planner_egraph::matching::PatternBuilder::new();
+    add(pat, &mut b);
+    b.build()
+}
+
+/// What one run of a matcher produced.
+#[derive(Debug)]
+pub struct Matched {
+    pub vars: Vec<u8>,
+    pub tuples: Vec<Vec<u32>>,
 }
 
 /// Facts as a 16-bit set; a join is the union.
@@ -153,6 +183,16 @@ impl Subject for Port {
     fn check_invariant(&mut self) -> Result<(), String> {
         self.graph.check_invariant().map_err(|v| v.to_string())
     }
+    fn match_patterns(&mut self, patterns: &[Pat]) -> Option<Matched> {
+        let patterns: Vec<_> = patterns.iter().map(to_port_pattern).collect();
+        let matcher = mg_planner_egraph::matching::Matcher::new(&patterns).expect("generated rules are valid");
+        let mut index = mg_planner_egraph::matching::SymbolIndex::default();
+        index.rebuild(&self.graph);
+        let mut out = mg_planner_egraph::matching::Matches::default();
+        matcher.run(&self.graph, &index, &mut out);
+        let tuples = out.iter().map(|t| t.iter().map(|id| id.raw()).collect()).collect();
+        Some(Matched { vars: matcher.vars().to_vec(), tuples })
+    }
     fn supports_analysis(&self) -> bool {
         true
     }
@@ -173,6 +213,9 @@ pub struct Cpp {
     stdin: ChildStdin,
     stdout: BufReader<ChildStdout>,
     line: String,
+    /// `MG_REPLAY_LOG`: a file holding the commands of the current case, so
+    /// that a case the driver hangs on can be replayed by hand.
+    log: Option<PathBuf>,
 }
 
 impl Cpp {
@@ -192,11 +235,22 @@ impl Cpp {
             .unwrap_or_else(|e| panic!("cannot start {}: {e}", binary.display()));
         let stdin = child.stdin.take().unwrap();
         let stdout = BufReader::new(child.stdout.take().unwrap());
-        Cpp { child, stdin, stdout, line: String::new() }
+        let log = std::env::var_os("MG_REPLAY_LOG").map(PathBuf::from);
+        Cpp { child, stdin, stdout, line: String::new(), log }
     }
 
     /// Sends one command and answers the fields after `ok`.
     fn ask(&mut self, command: &str) -> Vec<u64> {
+        if let Some(path) = &self.log {
+            let mut file = std::fs::OpenOptions::new()
+                .create(true)
+                .write(true)
+                .append(command != "reset")
+                .truncate(command == "reset")
+                .open(path)
+                .expect("cannot open MG_REPLAY_LOG");
+            writeln!(file, "{command}").expect("cannot write MG_REPLAY_LOG");
+        }
         writeln!(self.stdin, "{command}").expect("replay driver closed its input");
         self.line.clear();
         self.stdout.read_line(&mut self.line).expect("replay driver closed its output");
@@ -278,6 +332,19 @@ impl Subject for Cpp {
     fn refresh(&mut self, everything: bool) -> usize {
         self.ask(&format!("refresh {}", u8::from(everything)))[0] as usize
     }
+    fn match_patterns(&mut self, patterns: &[Pat]) -> Option<Matched> {
+        let mut command = format!("match {}", patterns.len());
+        for p in patterns {
+            p.encode(&mut command);
+        }
+        let f = self.ask(&command);
+        let (raw, width) = (f[0] as usize, f[1] as usize);
+        let vars: Vec<u8> = f[2..2 + width].iter().map(|&v| v as u8).collect();
+        let body = &f[2 + width..];
+        assert_eq!(body.len(), raw * width, "match answer has the wrong length");
+        let tuples = body.chunks(width.max(1)).take(raw).map(|t| t.iter().map(|&c| c as u32).collect()).collect();
+        Some(Matched { vars, tuples })
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -288,6 +355,35 @@ pub enum Op {
     ClearTouched,
     /// Refresh the analysis: of everything (true) or of what changed (false).
     Refresh(bool),
+    /// Rebuild, then run the rule made of these patterns.
+    Match(Vec<Pat>),
+}
+
+/// A pattern over the generated symbols, with at most three variables so
+/// that repeats and joins are common. It may name no variable.
+pub fn pattern() -> impl Strategy<Value = Pat> {
+    let leaf = prop_oneof![
+        3 => (0u8..3).prop_map(Pat::Var),
+        1 => Just(Pat::Wild),
+        1 => (0u8..4, prop::option::weighted(0.2, 0u8..3))
+            .prop_map(|(symbol, bind)| Pat::Sym { symbol, children: vec![], bind }),
+    ];
+    leaf.prop_recursive(3, 12, 3, |inner| {
+        (0u8..4, prop::collection::vec(inner, 1..4), prop::option::weighted(0.2, 0u8..3))
+            .prop_map(|(symbol, children, bind)| Pat::Sym { symbol, children, bind })
+    })
+}
+
+/// One to three patterns, each naming at least one variable, with no variable
+/// bound by two symbol nodes.
+pub fn rule() -> impl Strategy<Value = Vec<Pat>> {
+    let named = pattern().prop_filter("a pattern must name a variable", |p| {
+        let mut vars = std::collections::BTreeSet::new();
+        p.vars(&mut vars);
+        !vars.is_empty()
+    });
+    prop::collection::vec(named, 1..4)
+        .prop_filter("a variable bound by two symbol nodes", |ps| bound_twice(ps).is_none())
 }
 
 /// Few symbols and disambiguators, so adds collide with existing terms and
@@ -301,6 +397,7 @@ pub fn ops(max_len: usize) -> impl Strategy<Value = Vec<Op>> {
         1 => Just(Op::Rebuild),
         1 => Just(Op::ClearTouched),
         2 => any::<bool>().prop_map(Op::Refresh),
+        1 => rule().prop_map(Op::Match),
     ];
     prop::collection::vec(op, 0..max_len)
 }
@@ -351,6 +448,7 @@ impl<S: Subject> Harness<'_, S> {
                     self.refresh(*everything)?;
                 }
             }
+            Op::Match(patterns) => self.match_patterns(patterns)?,
         }
         self.just_cleared = matches!(op, Op::ClearTouched);
         if let Err(clause) = self.subject.check_invariant() {
@@ -397,6 +495,31 @@ impl<S: Subject> Harness<'_, S> {
         prop_assert_eq!(self.subject.refresh(true), 0, "a second refresh widened something");
         for t in 0..self.terms {
             prop_assert_eq!(self.subject.facts(t), after[t]);
+        }
+        Ok(())
+    }
+
+    /// M1: on a rebuilt graph the matches, as a set, are the model's.
+    /// M2: no match is reported twice. `MG_SKIP_M2` turns this off, to look
+    /// for other disagreements while a known duplicate is open.
+    fn match_patterns(&mut self, patterns: &[Pat]) -> Result<(), TestCaseError> {
+        self.rebuild()?;
+        let Some(matched) = self.subject.match_patterns(patterns) else {
+            return Ok(());
+        };
+        let labels: Vec<usize> = (0..self.terms).map(|t| self.subject.find(t) as usize).collect();
+        let expected = matches(self.model.terms(), &labels, patterns).expect("generated rules name variables");
+        let mut vars = std::collections::BTreeSet::new();
+        for p in patterns {
+            p.vars(&mut vars);
+        }
+        prop_assert_eq!(&matched.vars, &vars.into_iter().collect::<Vec<_>>(), "variables of {:?}", patterns);
+        let got: std::collections::BTreeSet<Vec<u32>> = matched.tuples.iter().cloned().collect();
+        let want: std::collections::BTreeSet<Vec<u32>> =
+            expected.iter().map(|s| s.values().map(|&c| c as u32).collect()).collect();
+        prop_assert_eq!(&got, &want, "matches of {:?}", patterns);
+        if std::env::var_os("MG_SKIP_M2").is_none() {
+            prop_assert_eq!(matched.tuples.len(), got.len(), "duplicate matches of {:?}", patterns);
         }
         Ok(())
     }

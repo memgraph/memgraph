@@ -18,6 +18,7 @@ use rustc_hash::FxHasher;
 use smallvec::SmallVec;
 
 mod hashcons;
+pub mod matching;
 pub use hashcons::{TableHashCons, VecHashCons};
 use hashcons::HashCons;
 

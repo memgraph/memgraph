@@ -28,6 +28,16 @@
 //   touched                        -> ok <k> <eclass>..
 //   refresh <0|1>                  -> ok <updates that widened a class>  (1: everything, 0: what changed)
 //   facts <t>                      -> ok <facts of t's class, as a 16-bit set>
+//   match <k> <pattern>..          -> ok <raw> <v> <var>.. then raw matches, each v e-classes
+//
+// `match` compiles k patterns into one matcher, runs it over a freshly built
+// symbol index, and reports every match the VM emitted, duplicates included:
+// for each, the canonical e-class bound to each variable, variables in
+// ascending id order. A pattern is written in prefix order:
+//
+//   v <id>                         a variable
+//   w                              a wildcard
+//   s <sym> <n> <bind|-1> <kid>..  a symbol with n children, optionally binding a variable
 //
 // Facts are the analysis the Rust model specifies (egraph_oracle::analysis):
 // a set of bits joined by union. Symbol 0 seeds bit <dis> % 16, symbol 2
@@ -35,8 +45,11 @@
 //
 // Anything malformed answers `error <reason>`.
 
+#include <algorithm>
 #include <cstdint>
+#include <exception>
 #include <iostream>
+#include <optional>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -47,6 +60,11 @@
 #include <boost/container/small_vector.hpp>
 #include <boost/unordered/unordered_flat_set.hpp>
 
+#include "planner/pattern/match.hpp"
+#include "planner/pattern/match_index.hpp"
+#include "planner/pattern/pattern.hpp"
+#include "planner/pattern/vm/compiler.hpp"
+#include "planner/pattern/vm/executor.hpp"
 #include "utils/small_vector.hpp"
 
 import memgraph.planner.core.egraph;
@@ -75,6 +93,9 @@ auto Seed(uint32_t symbol, uint64_t disambiguator) -> Mask {
 }
 
 using Graph = EGraph<Sym, Mask>;
+using Pattern = memgraph::planner::core::pattern::Pattern<Sym>;
+using memgraph::planner::core::pattern::PatternNodeId;
+using memgraph::planner::core::pattern::PatternVar;
 
 class Replay {
  public:
@@ -124,6 +145,7 @@ class Replay {
       if (!(in >> t) || t >= terms_.size()) return "error bad term";
       return "ok " + std::to_string(graph_.analysis_of(terms_[t]).bits);
     }
+    if (command == "match") return MatchCommand(in);
     if (command == "touched") {
       boost::unordered_flat_set<EClassId> touched;
       graph_.touched_eclasses_into(touched);
@@ -170,6 +192,68 @@ class Replay {
       for (auto child : enode.children()) out += " " + Id(graph_.find(child));
     }
     return out;
+  }
+
+  /// Reads one pattern node and its subtree, adding children before their
+  /// parent so that the node read first becomes the pattern's root.
+  static auto ReadNode(std::istringstream &in, Pattern::Builder &builder) -> std::optional<PatternNodeId> {
+    std::string kind;
+    if (!(in >> kind)) return std::nullopt;
+    if (kind == "w") return builder.wildcard();
+    if (kind == "v") {
+      uint32_t id = 0;
+      if (!(in >> id) || id > 255) return std::nullopt;
+      return builder.var(PatternVar{static_cast<uint8_t>(id)});
+    }
+    if (kind != "s") return std::nullopt;
+    uint32_t symbol = 0;
+    std::size_t arity = 0;
+    int bind = -1;
+    if (!(in >> symbol >> arity >> bind) || symbol > 255 || bind > 255) return std::nullopt;
+    memgraph::utils::small_vector<PatternNodeId> children;
+    for (std::size_t k = 0; k < arity; ++k) {
+      auto child = ReadNode(in, builder);
+      if (!child) return std::nullopt;
+      children.push_back(*child);
+    }
+    auto const binding = bind < 0 ? std::nullopt : std::optional{PatternVar{static_cast<uint8_t>(bind)}};
+    auto const sym = static_cast<Sym>(symbol);
+    return arity == 0 ? builder.sym(sym, binding) : builder.sym(sym, std::move(children), binding);
+  }
+
+  auto MatchCommand(std::istringstream &in) -> std::string {
+    std::size_t count = 0;
+    if (!(in >> count) || count == 0) return "error bad match";
+    std::vector<Pattern> patterns;
+    for (std::size_t p = 0; p < count; ++p) {
+      Pattern::Builder builder;
+      if (!ReadNode(in, builder)) return "error bad pattern";
+      patterns.push_back(std::move(builder).build());
+    }
+    try {
+      memgraph::planner::core::pattern::vm::PatternsCompiler<Sym> compiler;
+      auto const compiled = compiler.compile(std::span<Pattern const>(patterns));
+      memgraph::planner::core::pattern::MatcherIndex<Sym, Mask> index(graph_);
+      index.rebuild_index();
+      memgraph::planner::core::pattern::vm::VMExecutor<Sym, Mask> executor(graph_);
+      memgraph::planner::core::pattern::EMatchContext ctx;
+      std::vector<memgraph::planner::core::pattern::PatternMatch> matches;
+      executor.execute(compiled, index, ctx.arena(), matches);
+
+      std::vector<PatternVar> vars;
+      for (auto const &[var, slot] : compiled.var_slots()) vars.push_back(var);
+      std::ranges::sort(vars);
+      std::string out = "ok " + std::to_string(matches.size()) + " " + std::to_string(vars.size());
+      for (auto var : vars) out += " " + std::to_string(var.id);
+      memgraph::planner::core::pattern::MatchBindings bindings(compiled.var_slots(), ctx.arena());
+      for (auto const &pattern_match : matches) {
+        auto const match = bindings.match(pattern_match);
+        for (auto var : vars) out += " " + Id(graph_.find(match[var]));
+      }
+      return out;
+    } catch (std::exception const &e) {
+      return std::string("error ") + e.what();
+    }
   }
 
   template <Graph::AnalysisScope Scope>

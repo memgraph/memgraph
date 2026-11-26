@@ -15,6 +15,7 @@
 use std::collections::BTreeSet;
 
 pub mod analysis;
+pub mod matching;
 
 pub const NONE: u32 = u32::MAX;
 
