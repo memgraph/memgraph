@@ -16,7 +16,6 @@ module;
 #include <compare>
 #include <cstddef>
 #include <cstdint>
-#include <deque>
 #include <limits>
 #include <optional>
 #include <span>
@@ -61,7 +60,7 @@ struct UnionFindContext {
  * - **Union by rank**: Keeps trees balanced for optimal performance
  * - **Bulk operations**: Zero-allocation UnionSets()
  * - **8-bit rank storage**: Memory-optimized rank storage (1 byte vs 8 bytes)
- * - **Chunked deque storage**: Eliminates vector reallocation overhead
+ * - **Contiguous storage**: Find walks parent links through one array
  *
  * @par Thread Safety:
  * Not thread-safe. External synchronization required for concurrent access.
@@ -172,21 +171,13 @@ struct UnionFind {
   void Clear();
 
  private:
-  /**
-   * Uses std::deque to eliminate expensive vector reallocations and copying.
-   * Deque stores elements in contiguous chunks (typically 512 bytes) and never
-   * moves existing elements when growing, providing optimal performance for
-   * UnionFind's never-shrinking requirement.
-   **/
-  std::deque<id_t> parent_;
+  /// Parent link of each element. Nothing outside holds a reference into it,
+  /// so growth may move it, and Find's walk stays in one contiguous array.
+  std::vector<id_t> parent_;
 
-  /**
-   * Uses std::deque with 8-bit rank storage instead of the typical
-   * size_t or int. This provides significant memory savings (8 bytes → 1 byte
-   * per element) while supporting trees up to depth 255, which is more than
-   * sufficient for practical use cases.
-   */
-  std::deque<rank_t> rank_;
+  /// Rank of each element, in one byte: a root of rank r has at least 2^r
+  /// members and ids are 32-bit, so a rank never exceeds 31.
+  std::vector<rank_t> rank_;
 
   size_t num_of_sets_ = 0;
 };
