@@ -364,7 +364,10 @@ struct EGraph : private detail::EGraphBase {
   using analysis_type = Analysis;
 
   /**
-   * @brief Emplace an e-node directly with canonical children
+   * @brief Emplace an e-node, or find the identical one
+   *
+   * Children may be stale ids; each is canonicalised before the e-node is
+   * looked up.
    * @return EmplaceResult - (eclass_id, enode_id, did_insert)
    */
   auto emplace(Symbol symbol, utils::small_vector<EClassId> children, uint64_t disambiguator = 0,
