@@ -19,6 +19,14 @@ criterion = { version = "0.5", default-features = false, features = ["cargo_benc
 name = "rebuild"
 harness = false
 
+[[bench]]
+name = "analysis"
+harness = false
+
+[[bench]]
+name = "matching"
+harness = false
+
 [profile.release]
 debug = true
 codegen-units = 1
