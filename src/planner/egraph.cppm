@@ -756,6 +756,9 @@ void EGraph<Symbol, Analysis>::rebuild(ProcessingContext<Symbol> &ctx) {
     }
     // ensure we process remaining incomplete chunk
     chunk_processor();
+    // A class merged in this round comes back through rebuild_worklist_;
+    // keeping the chunk would repair every earlier class again each round.
+    canonicalized_chunk.clear();
   }
 }
 
