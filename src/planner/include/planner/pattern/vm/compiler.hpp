@@ -692,8 +692,6 @@ auto PatternsCompiler<Symbol>::emit_parent_walk_fragment(Pattern<Symbol> const &
       emit(Instruction::check_eclass_eq(*verify_child_reg, current_eclass_reg, loop_pos));
     }
 
-    auto children_backtrack_addr = emit_children(pattern, step_sym, parent_reg, loop_pos, child_idx);
-
     auto const binding = pattern.binding_for(step.node_id);
     auto const is_last_step = (step_idx + 1 == decision.path_to_root.size());
     auto const needs_eclass = binding.has_value() || !is_last_step;
@@ -704,18 +702,14 @@ auto PatternsCompiler<Symbol>::emit_parent_walk_fragment(Pattern<Symbol> const &
       current_eclass_reg = next_eclass_reg;
     }
 
+    // Bind before the siblings: their e-node loops open after this point, so
+    // a failed binding may return to this step's NextParent without skipping
+    // any of their alternatives.
     if (binding) {
       emit_var_binding(*binding, current_eclass_reg, loop_pos);
-      // MarkSeen trampoline: on exhaustion from the next level, pass through
-      // MarkSeen, then backtrack to this step's NextParent.
-      auto skip_addr = emit(Instruction::jmp(InstrAddr{0}));
-      auto mark_addr = emit(Instruction::mark_seen(get_slot(*binding)));
-      emit(Instruction::jmp(loop_pos));
-      patch_target(skip_addr, current_addr());
-      backtrack_addr = mark_addr;
-    } else {
-      backtrack_addr = children_backtrack_addr;
     }
+
+    backtrack_addr = emit_children(pattern, step_sym, parent_reg, loop_pos, child_idx);
   }
 
   // If no new bindings were added during parent traversal, the output tuple

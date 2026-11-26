@@ -1046,6 +1046,31 @@ TEST_F(PatternVM_Matching, MultiPattern_UnsharedVarAfterARejectedEntryCandidate)
   EXPECT_EQ(matches.size(), 2u);
 }
 
+TEST_F(PatternVM_Matching, ParentWalk_RootBindingCheckedAfterASiblingAlternativeFails) {
+  // A = {F(), A(), F(B), G(A,A), G(A,B)}, B = {F(A,A)}. ?y = F(F(?y), G(?x, ?y))
+  // enters at the inner F and walks up to the root, which binds ?y. A's first
+  // G e-node, G(A,A), gives ?y = A and fails the root's binding; the second,
+  // G(A,B), matches. The merge order puts G(A,A) first.
+  auto find = [&](EClassId id) { return egraph.find(id); };
+  auto f_leaf = leaf(Op::F);
+  auto a_leaf = leaf(Op::A);
+  auto b = node(Op::F, find(f_leaf), find(f_leaf));
+  merge(f_leaf, a_leaf);
+  auto f_of_b = node(Op::F, find(b));
+  merge(f_of_b, leaf(Op::A));
+  auto g_ab = node(Op::G, find(f_leaf), find(b));
+  auto g_aa = node(Op::G, find(f_leaf), find(f_of_b));
+  merge(g_ab, g_aa);
+  merge(g_ab, leaf(Op::A));
+  rebuild_egraph();
+  rebuild_index();
+
+  use_patterns(TestPattern::build(kVarY, Op::F, {Sym(Op::F, Var{kVarY}), Sym(Op::G, Var{kVarX}, Var{kVarY})}));
+  run_compiled();
+
+  verify({{{kVarX, find(f_leaf)}, {kVarY, find(b)}}});
+}
+
 TEST_F(PatternVM_Matching, Dedup_TupleReachedFromTwoRoots) {
   // Two Bind e-nodes in different e-classes give the same tuple, since the
   // root is not bound.
