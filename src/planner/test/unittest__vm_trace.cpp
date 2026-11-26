@@ -137,19 +137,18 @@ TEST_F(PatternVM_Trace, NoMatch_TracesCheckFailure) {
   EXPECT_EQ(yields().size(), 0u) << trace_dump();
 }
 
-TEST_F(PatternVM_Trace, Deduplication_TracesBindDuplicate) {
+TEST_F(PatternVM_Trace, Deduplication_YieldsARepeatedTupleOnce) {
   // Two F e-nodes in the same e-class whose children canonicalize to the
   // same value. We skip rebuild_egraph() so congruence closure doesn't
-  // merge the F e-nodes - this lets the VM encounter the duplicate path.
+  // merge the F e-nodes - this lets the VM reach the same tuple twice.
   //
   //   E-graph (no congruence closure):
   //     a = A(1), b = A(2), merge(a, b) → same canonical e-class
   //     f1 = F(a), f2 = F(b), merge(f1, f2) → same e-class, 2 e-nodes
   //
   //   Pattern:    F(?x)
-  //   Expected:   First F(a) yields ?x=canonical(a), marks seen.
-  //               Second F(b) loads child → canonical(b)=canonical(a) →
-  //               BindSlot ?x rejected as duplicate → backtrack.
+  //   Expected:   both F e-nodes reach Yield with ?x=canonical(a); only the
+  //               first is emitted.
   auto a = leaf(Op::A, 1);
   auto b = leaf(Op::A, 2);
   auto f1 = node(Op::F, a);
@@ -165,24 +164,6 @@ TEST_F(PatternVM_Trace, Deduplication_TracesBindDuplicate) {
 
   EXPECT_EQ(matches.size(), 1u) << trace_dump();
   EXPECT_EQ(stats().yields, 1u);
-
-  // The F e-class has 2 e-nodes. Both LoadChild → same canonical.
-  // First yields, second is rejected as duplicate.
-  auto fails = check_fails();
-  bool has_duplicate =
-      std::ranges::any_of(fails, [](auto const *e) { return e->details().find("duplicate") != std::string::npos; });
-  EXPECT_TRUE(has_duplicate) << "Expected duplicate binding rejection\n" << trace_dump();
-
-  // Verify the duplicate is followed by a backtrack
-  for (std::size_t idx = 0; idx + 1 < tracer.events.size(); ++idx) {
-    if (tracer.events[idx].type == EventType::CheckFail &&
-        tracer.events[idx].details().find("duplicate") != std::string::npos) {
-      EXPECT_EQ(tracer.events[idx + 1].type, EventType::Backtrack)
-          << "Expected Backtrack after duplicate binding at event[" << idx << "]\n"
-          << trace_dump();
-      break;
-    }
-  }
 }
 
 // ============================================================================
@@ -447,7 +428,6 @@ TEST_F(PatternVM_Trace, FullFeatureExercise_ThreePatternJoinWithMerge) {
 
   // --- Yield ---
   expect_instr(26, "Yield");
-  expect_event(EventType::MarkSeen, 26, std::format("slot=2 value={}", c.value_of()));
   expect_event(EventType::Yield, 26, std::format("slots=[{}, {}, {}]", a.value_of(), b.value_of(), c.value_of()));
 
   // --- Continue: backtrack through G parent loop ---

@@ -55,6 +55,9 @@ class MatchArena {
 
   void clear() { pool_.clear(); }
 
+  /// Removes the most recently interned match, `num_slots` wide.
+  void discard_last(std::size_t num_slots) { pool_.resize(pool_.size() - num_slots); }
+
   [[nodiscard]] auto size() const -> std::size_t { return pool_.size(); }
 
   /// Reserve capacity to avoid reallocations during matching

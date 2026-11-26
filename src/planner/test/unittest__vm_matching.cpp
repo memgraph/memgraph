@@ -1033,6 +1033,33 @@ TEST_F(PatternVM_Matching, MultiPattern_JoinOnAVarBoundBelowAnEarlierEntry) {
   EXPECT_EQ(matches.size(), 4u);
 }
 
+TEST_F(PatternVM_Matching, MultiPattern_UnsharedVarAfterARejectedEntryCandidate) {
+  // Both e-classes hold a Neg, but only Neg(a) has the arity the first
+  // pattern needs; ?x pairs with every e-class for that one match.
+  auto a = leaf(Op::Neg);
+  node(Op::Neg, a);
+  rebuild_index();
+
+  use_patterns(TestPattern::build(Op::Neg, {Var{kVarY}}), make_var_pattern(kVarX));
+  run_compiled();
+
+  EXPECT_EQ(matches.size(), 2u);
+}
+
+TEST_F(PatternVM_Matching, Dedup_TupleReachedFromTwoRoots) {
+  // Two Bind e-nodes in different e-classes give the same tuple, since the
+  // root is not bound.
+  auto x = leaf(Op::Const);
+  egraph.emplace(Op::Bind, {x, x, x}, 0);
+  egraph.emplace(Op::Bind, {x, x, x}, 1);
+  rebuild_index();
+
+  use_patterns(TestPattern::build(Op::Bind, {Var{kVarY}, Var{kVarX}, Var{kVarX}}));
+  run_compiled();
+
+  EXPECT_EQ(matches.size(), 1u);
+}
+
 TEST_F(PatternVM_Matching, Dedup_WideEClass) {
   auto a = leaf(Op::Const, 0);
 

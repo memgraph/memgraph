@@ -52,8 +52,6 @@ class CompiledMatcherBase {
 
   /// Inverse mapping: slot index -> order position.
   /// For binding_order [1, 2, 0], slot_to_order returns [2, 0, 1].
-  /// Used by deduplication: when slot s changes, clear seen sets for all slots
-  /// at positions > slot_to_order[s] in binding_order.
   [[nodiscard]] auto slot_to_order() const -> std::span<uint8_t const> { return slot_to_order_; }
 
   /// Get VMState configuration for this pattern
@@ -85,8 +83,8 @@ class CompiledMatcherBase {
 /// - num_eclass_regs(): E-class registers needed (≥1, reg 0 is input)
 /// - num_enode_regs(): E-node registers needed
 /// - symbols(): Symbol table for CheckSymbol/IterSymbolEClasses instructions
-/// - binding_order(): Order slots are bound (for deduplication)
-/// - slot_to_order(): Inverse mapping for efficient clearing
+/// - binding_order(): Order slots are bound
+/// - slot_to_order(): Inverse of binding_order()
 ///
 /// @tparam Symbol The symbol type (must match PatternsCompiler and VMExecutor)
 ///

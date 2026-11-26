@@ -144,7 +144,7 @@ class PatternsCompilerBase {
   /// Patch a jump target at the given address
   void patch_target(InstrAddr addr, InstrAddr target);
 
-  /// Emit variable binding (check if seen, else bind with dedup).
+  /// Emit CheckSlot if the var is already bound in this matcher, else BindSlot.
   auto emit_var_binding(PatternVar var, EClassReg eclass_reg, InstrAddr backtrack) -> InstrAddr;
 
   /// Returns slot for MarkSeen if var is not the last unbound slot (Yield handles the last).
@@ -706,8 +706,8 @@ auto PatternsCompiler<Symbol>::emit_parent_walk_fragment(Pattern<Symbol> const &
 
     if (binding) {
       emit_var_binding(*binding, current_eclass_reg, loop_pos);
-      // MarkSeen trampoline: on exhaustion from the next level, mark this slot
-      // then backtrack to this step's NextParent.
+      // MarkSeen trampoline: on exhaustion from the next level, pass through
+      // MarkSeen, then backtrack to this step's NextParent.
       auto skip_addr = emit(Instruction::jmp(InstrAddr{0}));
       auto mark_addr = emit(Instruction::mark_seen(get_slot(*binding)));
       emit(Instruction::jmp(loop_pos));
@@ -777,8 +777,8 @@ auto PatternsCompiler<Symbol>::emit_symbol_node(Pattern<Symbol> const &pattern, 
     -> InstrAddr {
   // Bind this node BEFORE iteration if it has a binding.
   // The e-class is the same for all e-nodes in the iteration, so we bind once.
-  // BindSlot backtracks directly to outer NextX (skip MarkSeen - value already seen).
-  // Inner exhaustion backtracks through MarkSeen (the original backtrack).
+  // BindSlot backtracks directly to outer NextX; inner exhaustion backtracks
+  // through the MarkSeen trampoline (the original backtrack).
   if (auto binding = pattern.binding_for(node_id)) {
     emit_var_binding(*binding, eclass_reg, bind_backtrack.value_or(backtrack));
   }

@@ -67,14 +67,9 @@ namespace memgraph::planner::core::pattern::vm {
 //
 // ## Deduplication Protocol
 //
-// Prevents duplicate match tuples via seen_per_slot sets:
-//
-//   1. BindSlot checks if value is in seen_per_slot[slot]
-//   2. If seen, backtrack (don't explore same value twice)
-//   3. Yield/MarkSeen adds value to seen_per_slot[slot]
-//   4. When slot i changes, clear seen_per_slot for slots bound after i in binding_order
-//
-// This ensures each unique binding tuple is yielded exactly once.
+// Yield emits a binding tuple only the first time it is reached in one
+// execution (VMState::yield_into), so each unique tuple is emitted exactly
+// once however many paths reach it.
 //
 // =============================================================================
 
@@ -642,16 +637,14 @@ auto VMExecutor<Symbol, Analysis, DevMode>::exec_check_eclass_eq(Instruction ins
 }
 
 template <typename Symbol, typename Analysis, bool DevMode>
-void VMExecutor<Symbol, Analysis, DevMode>::exec_yield(Instruction instr, MatchArena &arena,
+void VMExecutor<Symbol, Analysis, DevMode>::exec_yield(Instruction /*instr*/, MatchArena &arena,
                                                        std::vector<PatternMatch> &results) {
-  // Mark last slot as seen (Yield is a special MarkSeen + emit)
-  state_.mark_seen(instr.arg);
-
+  auto const match = state_.yield_into(arena);
+  if (!match) return;
   if constexpr (DevMode) {
-    collector_.on_mark_seen(state_.pc, instr.arg, state_.slots[instr.arg]);
     collector_.on_yield(state_.pc, state_.slots);
   }
-  results.push_back(arena.intern(state_.slots));
+  results.push_back(*match);
 }
 
 }  // namespace memgraph::planner::core::pattern::vm

@@ -67,7 +67,7 @@ namespace memgraph::planner::core::pattern::vm {
 //
 //   1. State Initialization:
 //      - pc = 0
-//      - slots, seen_per_slot cleared appropriately
+//      - slots and the set of yielded tuples cleared
 //
 //   2. Register Semantics:
 //      - eclass_regs[dst]: written by LoadChild, GetENodeEClass, IterAllEClasses
@@ -87,10 +87,8 @@ namespace memgraph::planner::core::pattern::vm {
 //      - Iterators are stored in VMState indexed by dst register
 //
 //   5. Deduplication:
-//      - BindSlot checks seen_per_slot[arg] before binding
-//      - If value already seen, jumps to target (backtrack)
-//      - MarkSeen/Yield add current slot value to seen set
-//      - When slot i changes, seen_per_slot cleared for slots later in binding_order
+//      - Yield emits the binding tuple only the first time it is reached in
+//        one execution; BindSlot always binds and MarkSeen does nothing
 //
 // ## Instruction Field Conventions
 //
@@ -164,15 +162,15 @@ enum class VMOp : uint8_t {
   CheckArity,
 
   // ===== Binding =====
-  /// Bind: slots[arg] = regs[src], check seen set, jump to target if duplicate
-  /// Used for all bindings to enable early backtracking on duplicates.
+  /// Bind: slots[arg] = regs[src]. Never fails; target is kept for the
+  /// bytecode's backtrack structure.
   BindSlot,
   /// Check consistency: if find(slots[arg]) != find(regs[src]), jump to target
   CheckSlot,
   /// Check two e-class registers are equal: if regs[dst] != regs[src], jump to target
   CheckEClassEq,
-  /// Mark slot as seen (exhausted) for deduplication: seen[arg].insert(slots[arg])
-  /// Used when an iteration exhausts to mark the controlling slot as fully explored.
+  /// No effect. Emitted on the exhaustion path of a loop that binds a slot,
+  /// where pruning on explored values used to happen; that pruning lost matches.
   MarkSeen,
 
   // ===== Control =====
@@ -294,7 +292,7 @@ struct Instruction {
 
   static constexpr auto jmp(InstrAddr target) -> Instruction { return {.op = Jump, .target = value_of(target)}; }
 
-  /// Yield is a special MarkSeen: marks the slot as seen, then emits the match
+  /// Emits the match unless this execution already emitted the same tuple
   static constexpr auto yield(SlotIdx last_slot) -> Instruction { return {.op = Yield, .arg = value_of(last_slot)}; }
 
   static constexpr auto halt() -> Instruction { return {.op = Halt}; }

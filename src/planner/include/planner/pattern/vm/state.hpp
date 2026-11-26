@@ -12,16 +12,19 @@
 #pragma once
 
 #include <algorithm>
+#include <optional>
 #include <span>
 #include <vector>
 
 #include <boost/container/small_vector.hpp>
+#include <boost/container_hash/hash.hpp>
 #include <boost/unordered/unordered_flat_set.hpp>
 
 import memgraph.planner.core.eids;
 
 #include <cassert>
 
+#include "planner/pattern/match_storage.hpp"
 #include "planner/pattern/vm/types.hpp"
 
 namespace memgraph::planner::core::pattern::vm {
@@ -92,6 +95,22 @@ struct VMStateConfig {
   std::span<uint8_t const> slot_to_order;  // size == num_slots
 };
 
+/// Hashes and compares interned matches by their bindings, which live in the
+/// arena: the set of yielded matches stores only offsets.
+struct InternedTuple {
+  MatchArena const *arena = nullptr;
+  std::size_t width = 0;
+
+  auto operator()(PatternMatch match) const -> std::size_t {
+    auto const tuple = arena->bindings(match, width);
+    return boost::hash_range(tuple.begin(), tuple.end());
+  }
+
+  auto operator()(PatternMatch a, PatternMatch b) const -> bool {
+    return std::ranges::equal(arena->bindings(a, width), arena->bindings(b, width));
+  }
+};
+
 /// VM execution state
 struct VMState {
   // E-class registers (result of navigation)
@@ -103,12 +122,10 @@ struct VMState {
   // Variable binding slots
   boost::container::small_vector<EClassId, 8> slots;
 
-  // Per-slot seen sets for deduplication.
-  // seen_per_slot[i] tracks which values we've seen at slot i for the CURRENT prefix.
-  // The prefix is defined by slots bound BEFORE slot i in binding order.
-  // When slot j is rebound to a different value, we clear seen_per_slot for slots
-  // that are bound AFTER j (not slots with higher indices).
-  std::vector<FastEClassSet> seen_per_slot;
+  /// The matches yielded so far in this execution. One tuple can be reached
+  /// along several paths (different e-nodes, different wildcard or root
+  /// choices), so a tuple is emitted only the first time it is reached.
+  boost::unordered_flat_set<PatternMatch, InternedTuple, InternedTuple> yielded;
 
   // Program counter
   std::size_t pc{0};
@@ -121,16 +138,6 @@ struct VMState {
   std::vector<ParentsIter> parents_iters;                 // Parent iterations (set-based)
   std::vector<AllEClassesIter> eclasses_iters;            // All e-classes iterations (span-based)
   std::vector<SymbolEClassesIter> symbol_eclasses_iters;  // Symbol-filtered e-class iterations (set-based)
-
-  // Binding order information (set during reset, from CompiledMatcher)
-  // binding_order_[i] = slot at position i in binding order
-  // slot_to_order_[slot] = position of slot in binding order
-  std::span<SlotIdx const> binding_order_;
-  std::span<uint8_t const> slot_to_order_;
-
-  // High watermark: highest position in binding_order that has seen data.
-  // -1 means no slots have been marked seen. Used to avoid clearing empty sets.
-  int seen_watermark_{-1};
 
   /// Initialize state for execution
   void reset(VMStateConfig const &cfg);
@@ -179,18 +186,30 @@ struct VMState {
     return symbol_eclasses_iters[reg];
   }
 
-  /// Try to bind a slot with deduplication check.
-  /// Returns false if this value has already been fully explored at this slot (backtrack).
-  /// Returns true if this is a value to explore.
-  ///
-  /// The seen set tracks values that have been marked as exhausted (via mark_seen).
-  /// A value is exhausted when we've finished exploring all paths with that binding
-  /// (either yielded or exhausted all downstream iterations).
-  [[nodiscard]] auto try_bind(std::size_t slot, EClassId eclass) -> bool;
+  /// Binds a slot. Always succeeds: whether a value was explored before
+  /// depends on every enclosing loop, not only on the slots bound so far, so
+  /// pruning on it loses matches.
+  [[nodiscard]] auto try_bind(std::size_t slot, EClassId eclass) -> bool {
+    slots[slot] = eclass;
+    return true;
+  }
 
-  /// Mark a slot's current value as seen (exhausted) for deduplication.
-  /// Called when an iteration exhausts (for earlier slots) or at yield time (for last slot).
-  void mark_seen(std::size_t slot);
+  /// Kept so that compiled MarkSeen instructions stay valid; does nothing.
+  void mark_seen(std::size_t /*slot*/) {}
+
+  /// Interns the current slots into `arena` and answers the match, unless
+  /// this execution already yielded the same tuple: then nothing is kept.
+  [[nodiscard]] auto yield_into(MatchArena &arena) -> std::optional<PatternMatch> {
+    auto const &key = yielded.hash_function();
+    if (key.arena != &arena || key.width != slots.size()) {
+      auto const fresh = InternedTuple{.arena = &arena, .width = slots.size()};
+      yielded = decltype(yielded)(0, fresh, fresh);
+    }
+    auto const match = arena.intern(slots);
+    if (yielded.insert(match).second) return match;
+    arena.discard_last(slots.size());
+    return std::nullopt;
+  }
 
   /// Get bound value
   [[nodiscard]] auto get(std::size_t slot) const -> EClassId { return slots[slot]; }
@@ -201,10 +220,6 @@ inline void VMState::reset(VMStateConfig const &cfg) {
   auto const num_slots = cfg.binding_order.size();
   slots.assign(num_slots, EClassId{});
   pc = 0;
-
-  // Store binding order information as spans (no allocation)
-  binding_order_ = cfg.binding_order;
-  slot_to_order_ = cfg.slot_to_order;
 
   // Resize register arrays if needed
   if (eclass_regs.size() < cfg.num_eclass_regs) {
@@ -218,38 +233,7 @@ inline void VMState::reset(VMStateConfig const &cfg) {
     parents_iters.resize(cfg.num_enode_regs);
   }
 
-  // Reset per-slot seen maps for deduplication.
-  for (auto &seen_set : seen_per_slot) {
-    seen_set.clear();
-  }
-  seen_watermark_ = -1;
-  seen_per_slot.resize(num_slots);
-}
-
-inline auto VMState::try_bind(std::size_t slot, EClassId eclass) -> bool {
-  // Check if we've already exhausted this value at this slot
-  if (seen_per_slot[slot].contains(eclass)) {
-    return false;  // Already exhausted - backtrack
-  }
-
-  // Clear seen sets for slots bound after this one, up to the watermark.
-  // Uses watermark to avoid clearing already-empty sets.
-  auto my_order = static_cast<int>(slot_to_order_[slot]);
-  while (seen_watermark_ > my_order) {
-    seen_per_slot[value_of(binding_order_[seen_watermark_])].clear();
-    --seen_watermark_;
-  }
-  slots[slot] = eclass;
-  return true;
-}
-
-inline void VMState::mark_seen(std::size_t slot) {
-  seen_per_slot[slot].insert(slots[slot]);
-  // Update watermark if this slot is later in binding order
-  auto order_pos = static_cast<int>(slot_to_order_[slot]);
-  if (order_pos > seen_watermark_) {
-    seen_watermark_ = order_pos;
-  }
+  yielded.clear();
 }
 
 }  // namespace memgraph::planner::core::pattern::vm
