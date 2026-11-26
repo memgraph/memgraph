@@ -148,15 +148,27 @@ void PatternsCompilerBase::schedule_fragments(EmitPlan &plan, std::span<Fragment
     eclass_available.insert(info[i].eclass_vars.begin(), info[i].eclass_vars.end());
   };
 
+  // Vars of entries whose every fragment is emitted. Kept apart from
+  // eclass_available so that the inner scan keeps its eclass-only order.
+  auto fully_bound = boost::unordered_flat_set<PatternVar>{};
   auto emit_enode_frag = [&](std::size_t i) {
     if (info[i].has_enode_verify) {
       plan.fragments.push_back({i, Fragment::EnodeVerify});
     }
     enode_done[i] = true;
+    fully_bound.insert(info[i].all_vars.begin(), info[i].all_vars.end());
   };
 
   for (std::size_t i = 0; i < n; ++i) {
     if (eclass_done[i]) continue;
+
+    // A join var an earlier entry binds below its entry node gets its register
+    // only in that entry's EnodeVerify, so emit pending ones until it is bound.
+    if (auto const *jv = std::get_if<JoinVar>(&plan.entries[i].entry.binding)) {
+      for (std::size_t k = 0; k < i && !eclass_available.contains(jv->var) && !fully_bound.contains(jv->var); ++k) {
+        if (eclass_done[k] && !enode_done[k]) emit_enode_frag(k);
+      }
+    }
 
     emit_eclass_frags(i);
 

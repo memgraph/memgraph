@@ -1016,6 +1016,23 @@ TEST_F(PatternVM_Matching, MultiPattern_MultipleJoinMatches) {
   EXPECT_EQ(matches.size(), idents_same ? 1u : 2u);
 }
 
+TEST_F(PatternVM_Matching, MultiPattern_JoinOnAVarBoundBelowAnEarlierEntry) {
+  // ?x is bound by the second pattern's child, not at its entry e-class, and
+  // the third pattern joins on it.
+  auto a = leaf(Op::A);
+  auto b = leaf(Op::B);
+  node(Op::Neg, a);
+  node(Op::Neg, b);
+  rebuild_index();
+
+  use_patterns(TestPattern::build(Op::Neg, {Var{kVarY}}),
+               TestPattern::build(Op::Neg, {Var{kVarX}}),
+               TestPattern::build(Op::Neg, {Var{kVarX}}));
+  run_compiled();
+
+  EXPECT_EQ(matches.size(), 4u);
+}
+
 TEST_F(PatternVM_Matching, Dedup_WideEClass) {
   auto a = leaf(Op::Const, 0);
 

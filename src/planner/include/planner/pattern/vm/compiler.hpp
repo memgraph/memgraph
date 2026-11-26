@@ -167,6 +167,7 @@ class PatternsCompilerBase {
   /// Per-entry metadata for fragment scheduling (Symbol-agnostic).
   struct FragmentInfo {
     boost::unordered_flat_set<PatternVar> eclass_vars;  // Vars bound at eclass level
+    boost::unordered_flat_set<PatternVar> all_vars;     // Vars bound once every fragment is emitted
     bool has_parent_walk;
     bool has_enode_verify;
   };
@@ -580,6 +581,7 @@ auto PatternsCompiler<Symbol>::compute_emit_plan(std::span<Pattern<Symbol> const
         fi.eclass_vars.insert(*binding);
       }
     }
+    fi.all_vars = pat_vars[pe.pattern_idx];
     fi.has_parent_walk = !pe.entry.path_to_root.empty();
     fi.has_enode_verify = std::holds_alternative<SymbolWithChildren<Symbol>>(pat[pe.entry.node]);
   }
@@ -627,7 +629,9 @@ auto PatternsCompiler<Symbol>::emit_eclass_iter_fragment(Pattern<Symbol> const &
   // JoinVar: reuse existing register, no new iteration loop.
   if (auto const *jv = std::get_if<JoinVar>(&decision.binding)) {
     auto it = var_to_reg_.find(jv->var);
-    assert(it != var_to_reg_.end());
+    if (it == var_to_reg_.end()) {
+      throw std::logic_error("pattern compiler: a join was scheduled before its variable was bound");
+    }
     ps = {.eclass_reg = it->second, .eclass_exhaust = backtrack};
     return backtrack;
   }
