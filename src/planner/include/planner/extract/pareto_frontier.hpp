@@ -271,23 +271,6 @@ struct ParetoFrontier {
     return alts_;
   }
 
-  /// In-place mutation that the caller promises preserves the Pareto invariant.
-  /// Calls fn(alt) on each surviving alt; no re-prune is performed.
-  ///
-  /// Contract: fn must not change the relative ordering of any pair under the
-  /// composed dominance relation, i.e., for every pair (A, B) in the frontier,
-  /// `dominance_compare<Dims...>(A, B)` must be unchanged by fn.  Adding a
-  /// uniform constant to a `cost` field, or rewriting a field that no dim
-  /// reads (e.g., enode_id), both satisfy this contract.  Mutations that
-  /// could flip dominance must go through flat_map / merge_in_place /
-  /// cartesian_product instead, which re-prune.
-  template <typename Fn>
-    requires std::invocable<Fn, Alt &>
-  void mutate_pruning_invariant_preserving(Fn &&fn) {
-    if (lazy_source_ != nullptr) materialise();
-    for (Alt &alt : alts_) fn(alt);
-  }
-
   /// Flat-map: for each alternative, produce zero or more new alternatives via
   /// a callback, collect into a new frontier, then prune.
   /// @param fn  (Alt const&, auto emit) -> void - calls emit(Alt&&) to produce

@@ -21,6 +21,7 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <compare>
 
 #include "query/plan_v2/egraph/egraph.hpp"
 #include "query/plan_v2/test_support/cost.hpp"
@@ -144,6 +145,34 @@ TEST(OutputDemand, IntroducesEachNamedOutputSym) {
   ASSERT_FALSE(alts.empty());
   EXPECT_TRUE(std::ranges::all_of(alts, [r_bit](Alternative const &a) { return a.introduces.test(r_bit); }))
       << "Output introduces every sym its NamedOutput children bind";
+}
+
+TEST(OutputDemand, FrontierStaysPrunedWhenOwnSymsJoinIntroduces) {
+  // The Bind offers an alive Alt introducing x and a cheaper dead one that
+  // does not, a trade-off. Output's NamedOutput binds x too, so once x joins
+  // every Alt's introduces the dead Alt is better on cost and no worse
+  // elsewhere: no two Alts left in the frontier may be comparable.
+  egraph eg;
+  auto once = eg.MakeOnce();
+  auto x = eg.MakeSymbol(0, "x");
+  eg.MakeIdentifier(x);
+  auto bind = eg.MakeBind(once, x, IntLit(eg, 1));
+  auto named = eg.MakeNamedOutput("x", x, IntLit(eg, 1));
+  auto out = eg.MakeOutput(bind, {named});
+
+  test::CostHarness h{eg, out};
+  auto const alts = h.alts(out);
+  ASSERT_FALSE(alts.empty());
+  for (std::size_t i = 0; i < alts.size(); ++i) {
+    for (std::size_t j = i + 1; j < alts.size(); ++j) {
+      EXPECT_EQ((planner::core::extract::dominance_compare<AlternativeDim_Cost,
+                                                           AlternativeDim_Cardinality,
+                                                           AlternativeDim_Required,
+                                                           AlternativeDim_Introduces>(alts[i], alts[j])),
+                std::partial_ordering::unordered)
+          << "Alts " << i << " and " << j << " are comparable: a dominated Alt survived";
+    }
+  }
 }
 
 // ===========================================================================

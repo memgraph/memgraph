@@ -279,12 +279,15 @@ auto FunctionCombine(std::span<CostFrontier const *const> args, double cardinali
   for (auto const *arg : args.empty() ? args : args.subspan(1)) {
     result = BinaryCombine(result, *arg, 0.0, enode_id);
   }
-  result.mutate_pruning_invariant_preserving([&](Alternative &alt) {
+  // Re-prune: giving every Alt one cardinality turns a cost-for-cardinality
+  // trade-off into plain dominance.
+  return CostFrontier::flat_map(result, [cardinality, enode_id](Alternative const &arg_alt, auto emit) {
+    Alternative alt = arg_alt;
     alt.cost += 1.0;
     alt.cardinality = cardinality;
     alt.enode_id = enode_id;
+    emit(std::move(alt));
   });
-  return result;
 }
 
 // ============================================================================
@@ -429,13 +432,15 @@ struct symbol_cost_traits<Output> {
     for (auto const *named_out : children.subspan(first_named)) {
       result = OutputCombine(result, *named_out, id);
     }
-    // Inject own_syms into every Alt's introduces.  Larger introduces is
-    // "better" on the Pareto dim, so this preserves the pruning invariant.
-    if (!own_syms.empty()) {
-      result.mutate_pruning_invariant_preserving(
-          [&own_syms](Alternative &alt) { alt.introduces = alt.introduces.set_union(own_syms); });
-    }
-    return result;
+    // Inject own_syms into every Alt's introduces, then re-prune: two Alts
+    // that differed only in introducing one of own_syms stop differing there,
+    // so one can come to dominate the other.
+    if (own_syms.empty()) return result;
+    return CostFrontier::flat_map(result, [&own_syms](Alternative const &pipe_alt, auto emit) {
+      Alternative alt = pipe_alt;
+      alt.introduces = alt.introduces.set_union(own_syms);
+      emit(std::move(alt));
+    });
   }
 };
 
