@@ -196,7 +196,6 @@ BENCHMARK_REGISTER_F(RealisticFixture, Saturate)
     ->Args({kMedium})
     ->Args({kLarge})
     ->Args({kXLarge})
-    ->Args({kHuge})
     ->ArgNames({"size"})
     ->Unit(benchmark::kMicrosecond);
 
