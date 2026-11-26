@@ -29,6 +29,17 @@ using namespace test;
 using namespace pattern;
 using namespace rewrite;
 
+// --- Rule construction ---
+
+TEST(RuleBuilder, RejectsAPatternThatBindsNoVariable) {
+  EXPECT_THROW((void)TestRewriteRule::Builder{"no_vars"}.pattern(make_wildcard_pattern()), std::invalid_argument);
+}
+
+TEST(RuleBuilder, RejectsARuleWithNoPattern) {
+  EXPECT_THROW((void)TestRewriteRule::Builder{"empty"}.apply([](TestRuleContext &, Match const &) {}),
+               std::invalid_argument);
+}
+
 // --- Arming index ---
 
 TEST(ArmingIndex, RuleExposesEveryPatternRootSymbol) {
@@ -858,13 +869,6 @@ TEST_F(Rewrite, NoMatches_Saturates) {
   expect_saturated();
   expect_iterations(1);
   expect_rewrites(0);
-}
-
-TEST_F(Rewrite, ZeroPatternRule_NeverFires) {
-  leaf(Op::Var, 1);
-  rebuild_index();
-  use_rules(TestRewriteRule::Builder{"empty"}.apply([](TestRuleContext &, Match const &) {}));
-  EXPECT_EQ(rewriter().iterate_once(), 0);
 }
 
 TEST_F(Rewrite, PerRuleStatistics_Tracked) {

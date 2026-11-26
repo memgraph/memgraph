@@ -80,16 +80,25 @@ class RewriteRule {
    public:
     explicit Builder(std::string name) : name_(std::move(name)) {}
 
+    /// @throws std::invalid_argument if the pattern binds no variable. Such a
+    /// pattern gives the rule nothing to act on, and the matcher ignores it,
+    /// so in a join it would not filter what the rule matches.
     auto pattern(Pattern<Symbol> p, std::string pattern_name = "") && -> Builder {
+      if (p.num_vars() == 0) {
+        throw std::invalid_argument("rewrite rule '" + name_ + "': pattern binds no variable");
+      }
       patterns_.push_back(std::move(p));
       pattern_names_.push_back(std::move(pattern_name));
       return std::move(*this);
     }
 
     /// Set apply function (RuleContext&, Match const&) and build the rule.
-    /// @pre At least one pattern must have been added
+    /// @throws std::invalid_argument if no pattern was added
     template <typename F>
     auto apply(F &&fn) && -> RewriteRule {
+      if (patterns_.empty()) {
+        throw std::invalid_argument("rewrite rule '" + name_ + "': no pattern");
+      }
       pattern::vm::PatternsCompiler<Symbol> compiler;
       auto compiled = compiler.compile(patterns_);
       return RewriteRule{std::move(patterns_),
