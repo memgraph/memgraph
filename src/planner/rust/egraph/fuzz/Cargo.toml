@@ -1,0 +1,23 @@
+[package]
+name = "mg_planner_egraph_fuzz"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+arbitrary = { version = "1", features = ["derive"] }
+mg_planner_egraph = { path = ".." }
+egraph_oracle = { path = "../../../../../tests/oracle/egraph" }
+
+[[bin]]
+name = "ops"
+path = "fuzz_targets/ops.rs"
+test = false
+doc = false
+bench = false
+
+[workspace]
