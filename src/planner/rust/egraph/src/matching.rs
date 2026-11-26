@@ -100,8 +100,86 @@ pub struct Matcher<S> {
     /// subtree only needs to occur once; which e-node it occurs as is not part
     /// of the match.
     ground: Vec<Vec<bool>>,
+    /// For each pattern, where the search enters it.
+    plans: Vec<Plan>,
     vars: Vec<u8>,
     slot_of: [u8; 256],
+}
+
+/// Where a pattern's search starts, and the steps from there up to its root:
+/// each step is a parent pattern node and which of its children the path came
+/// from. Entering below the root and climbing through e-class parents visits
+/// only the classes that contain the entry, which for a shared variable or a
+/// rare symbol is far fewer than every class holding the root's symbol.
+#[derive(Debug)]
+enum Entry {
+    /// Every class holding the root's symbol, or every class.
+    Root,
+    /// Every class holding this non-root symbol node's symbol.
+    Symbol(u32),
+    /// The class a variable bound by an earlier pattern holds, at this node.
+    Bound(u32, u8),
+}
+
+#[derive(Debug)]
+struct Plan {
+    entry: Entry,
+    path: Vec<(u32, usize)>,
+}
+
+/// The deepest node naming a variable some earlier pattern bound, else the
+/// deepest symbol node below the root, else the root: the choice the C++
+/// compiler makes. Ties go to the node found first, children left to right.
+fn plan<S>(pattern: &Pattern<S>, bound: &[bool; 256]) -> Plan {
+    struct Best {
+        depth: usize,
+        node: u32,
+        path: Vec<(u32, usize)>,
+    }
+    fn walk<S>(
+        p: &Pattern<S>,
+        node: u32,
+        path: &mut Vec<(u32, usize)>,
+        bound: &[bool; 256],
+        shared: &mut Option<(Best, u8)>,
+        symbol: &mut Option<Best>,
+    ) {
+        let depth = path.len();
+        let mut try_shared = |var: u8, path: &Vec<(u32, usize)>| {
+            if bound[var as usize] && shared.as_ref().is_none_or(|(b, _)| depth > b.depth) {
+                *shared = Some((Best { depth, node, path: path.clone() }, var));
+            }
+        };
+        match &p.nodes[node as usize] {
+            PatternNode::Var(v) => try_shared(*v, path),
+            PatternNode::Wild => {}
+            PatternNode::Sym { children, bind, .. } => {
+                if depth > 0 && symbol.as_ref().is_none_or(|b| depth > b.depth) {
+                    *symbol = Some(Best { depth, node, path: path.clone() });
+                }
+                if let Some(v) = bind {
+                    try_shared(*v, path);
+                }
+                for (i, &child) in children.iter().enumerate() {
+                    path.push((node, i));
+                    walk(p, child, path, bound, shared, symbol);
+                    path.pop();
+                }
+            }
+        }
+    }
+    let (mut shared, mut symbol) = (None, None);
+    walk(pattern, pattern.root(), &mut Vec::new(), bound, &mut shared, &mut symbol);
+    // The walk records each path root first; the climb runs it entry first.
+    let climb = |mut path: Vec<(u32, usize)>| {
+        path.reverse();
+        path
+    };
+    match (shared, symbol) {
+        (Some((b, var)), _) => Plan { entry: Entry::Bound(b.node, var), path: climb(b.path) },
+        (None, Some(b)) => Plan { entry: Entry::Symbol(b.node), path: climb(b.path) },
+        (None, None) => Plan { entry: Entry::Root, path: Vec::new() },
+    }
 }
 
 impl<S: Clone> Matcher<S> {
@@ -131,7 +209,18 @@ impl<S: Clone> Matcher<S> {
         }
         let ordered: Vec<Pattern<S>> = join_order(patterns).into_iter().map(|i| patterns[i].clone()).collect();
         let ground = ordered.iter().map(ground_nodes).collect();
-        Ok(Matcher { patterns: ordered, ground, vars, slot_of })
+        let mut known = [false; 256];
+        let plans = ordered
+            .iter()
+            .map(|p| {
+                let plan = plan(p, &known);
+                for v in p.vars() {
+                    known[v as usize] = true;
+                }
+                plan
+            })
+            .collect();
+        Ok(Matcher { patterns: ordered, ground, plans, vars, slot_of })
     }
 }
 
@@ -315,6 +404,25 @@ impl<S: Hash + Eq + Clone, A: Analysis + Default> Search<'_, S, A> {
         };
         let root = pattern.root();
         let graph = self.graph;
+        let matcher = self.matcher;
+        match matcher.plans[p].entry {
+            Entry::Symbol(node) => {
+                let PatternNode::Sym { symbol, .. } = &pattern.nodes[node as usize] else {
+                    unreachable!("a symbol entry is a symbol node");
+                };
+                let index = self.index;
+                for &id in index.of(symbol) {
+                    self.enter(p, node, graph.find(id), out);
+                }
+                return;
+            }
+            Entry::Bound(node, var) => {
+                let class = self.slots[self.slot(var)];
+                self.enter(p, node, class, out);
+                return;
+            }
+            Entry::Root => {}
+        }
         match &pattern.nodes[root as usize] {
             PatternNode::Var(v) if self.slots[self.slot(*v)] != UNBOUND => {
                 let class = self.slots[self.slot(*v)];
@@ -330,6 +438,54 @@ impl<S: Hash + Eq + Clone, A: Analysis + Default> Search<'_, S, A> {
                 for (id, _) in graph.canonical_classes() {
                     self.start(p, root, id, out);
                 }
+            }
+        }
+    }
+
+    /// Matches pattern `p` with its entry node at `class`: the entry becomes a
+    /// goal, and the climb finds the e-nodes above it.
+    fn enter(&mut self, p: usize, node: u32, class: Id, out: &mut Matches) {
+        debug_assert!(self.goals.is_empty());
+        self.goals.push((node, class));
+        self.climb(p, 0, class, out);
+        self.goals.clear();
+    }
+
+    /// Takes step `k` of the climb from `class`: each parent e-node with the
+    /// step's symbol and arity, holding `class` as the step's child, binds the
+    /// step's variable if any and leaves its other children as goals.
+    fn climb(&mut self, p: usize, k: usize, class: Id, out: &mut Matches) {
+        let matcher = self.matcher;
+        let Some(&(node, from)) = matcher.plans[p].path.get(k) else {
+            self.solve(p, out);
+            return;
+        };
+        let PatternNode::Sym { symbol, children, bind } = &matcher.patterns[p].nodes[node as usize] else {
+            unreachable!("a climb step is a symbol node");
+        };
+        let graph = self.graph;
+        let depth = self.goals.len();
+        for &n in graph.eclass(class).parents() {
+            let enode = graph.get_enode(n);
+            if enode.symbol() != symbol
+                || enode.children().len() != children.len()
+                || graph.find(enode.children()[from]) != class
+            {
+                continue;
+            }
+            let parent = graph.find(n);
+            let mut next = |s: &mut Self| {
+                for (i, (&child, &kid)) in children.iter().zip(enode.children()).enumerate() {
+                    if i != from {
+                        s.goals.push((child, graph.find(kid)));
+                    }
+                }
+                s.climb(p, k + 1, parent, out);
+                s.goals.truncate(depth);
+            };
+            match bind {
+                Some(v) => self.bind_then(*v, parent, next),
+                None => next(self),
             }
         }
     }
@@ -461,5 +617,71 @@ mod tests {
         b.wild();
         assert_eq!(Matcher::new(&[b.build()]).err(), Some(RuleError::NoVariable(0)));
         assert_eq!(Matcher::<u8>::new(&[]).err(), Some(RuleError::NoPattern));
+    }
+}
+
+/// Bounded proofs, checked with `cargo kani`. Rule validation, slot
+/// assignment and the deduplication of matches are not proved here: they
+/// sort and hash symbolic vectors, which Kani does not finish in reasonable
+/// time. The fuzz target and the differential tests check them against the
+/// reference model instead.
+#[cfg(kani)]
+mod proofs {
+    use super::*;
+
+    /// One of the five pattern shapes over variables 0..3 and symbols 0..2:
+    /// `?a`, `_`, `s(?a)`, `s(?a, ?b)` and `s(_)`, a symbol node optionally
+    /// binding a variable.
+    fn any_pattern() -> Pattern<u8> {
+        let kind: u8 = kani::any();
+        let (a, b, s): (u8, u8, u8) = (kani::any(), kani::any(), kani::any());
+        let bind: Option<u8> = kani::any();
+        kani::assume(kind < 5 && a < 3 && b < 3 && s < 2 && bind.map_or(true, |v| v < 3));
+        let mut p = PatternBuilder::new();
+        match kind {
+            0 => {
+                p.var(a);
+            }
+            1 => {
+                p.wild();
+            }
+            2 => {
+                let x = p.var(a);
+                p.sym(s, &[x], bind);
+            }
+            3 => {
+                let (x, y) = (p.var(a), p.var(b));
+                p.sym(s, &[x, y], bind);
+            }
+            _ => {
+                let w = p.wild();
+                p.sym(s, &[w], bind);
+            }
+        }
+        p.build()
+    }
+
+    /// The variables a pattern names, as a bit set over 0..3.
+    fn var_mask(p: &Pattern<u8>) -> u8 {
+        let mut mask = 0u8;
+        for n in &p.nodes {
+            match n {
+                PatternNode::Var(v) | PatternNode::Sym { bind: Some(v), .. } => mask |= 1 << v,
+                _ => {}
+            }
+        }
+        mask
+    }
+
+    /// A node is ground exactly when its subtree names no variable.
+    #[kani::proof]
+    #[kani::unwind(5)]
+    fn ground_marks_exactly_the_variable_free_subtrees() {
+        let p = any_pattern();
+        let ground = ground_nodes(&p);
+        let root = p.root() as usize;
+        assert_eq!(ground[root], var_mask(&p) == 0);
+        kani::cover!(ground[root], "a ground pattern is reachable");
+        kani::cover!(!ground[root], "a pattern naming a variable is reachable");
     }
 }
