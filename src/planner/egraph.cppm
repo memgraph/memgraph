@@ -39,7 +39,6 @@ module;
 #include <vector>
 
 #include <boost/container/flat_set.hpp>
-#include <boost/container/small_vector.hpp>
 #include <boost/unordered/unordered_flat_map.hpp>
 #include <boost/unordered/unordered_flat_set.hpp>
 #include <strong_type/strong_type.hpp>
@@ -259,19 +258,13 @@ struct ProcessingContext : BaseProcessingContext {
     return canonicalized_chunk;
   }
 
-  /// Parents grouped by canonical form. Open addressing with the id lists held
-  /// inline: almost every group has one or two e-nodes, and a node-based map
-  /// with a vector per entry allocates twice for each.
-  using ParentGroups =
-      boost::unordered_flat_map<ENode<Symbol>, boost::container::small_vector<ENodeId, 2>, std::hash<ENode<Symbol>>>;
-
-  auto rebuild_enode_to_parents_container() -> ParentGroups & {
+  auto rebuild_enode_to_parents_container() -> std::unordered_map<ENode<Symbol>, std::vector<ENodeId>> & {
     enode_to_parents.clear();
     return enode_to_parents;
   }
 
  private:
-  ParentGroups enode_to_parents;
+  std::unordered_map<ENode<Symbol>, std::vector<ENodeId>> enode_to_parents;
 };
 
 /**
@@ -893,21 +886,6 @@ auto EGraph<Symbol, Analysis>::repair_hashcons_enode(ENodeId enode_id, EClassId 
 
 template <typename Symbol, typename Analysis>
 void EGraph<Symbol, Analysis>::process_parents(EClass<Analysis> const &eclass, ProcessingContext<Symbol> &ctx) {
-  // A single parent forms a group of one, which the loop below resolves
-  // through the hashcons alone; take that path without building the groups.
-  if (eclass.parents().size() == 1) {
-    auto const parent_enode_id = *eclass.parents().begin();
-    auto const current_eclass = canonical_eclass(union_find_, parent_enode_id);
-    auto result = repair_hashcons_enode(parent_enode_id, current_eclass);
-    if (result.duplicate_enode) {
-      remove_duplicate_enode(get_enode(*result.duplicate_enode), *result.duplicate_enode, current_eclass);
-    }
-    if (result.merge_target) {
-      merge(current_eclass, *result.merge_target);
-    }
-    return;
-  }
-
   auto &canonical_to_parents = ctx.rebuild_enode_to_parents_container();
 
   // Step 1: Group by canonical
