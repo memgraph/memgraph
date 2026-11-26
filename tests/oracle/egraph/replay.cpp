@@ -29,11 +29,15 @@
 //   refresh <0|1>                  -> ok <updates that widened a class>  (1: everything, 0: what changed)
 //   facts <t>                      -> ok <facts of t's class, as a 16-bit set>
 //   match <k> <pattern>..          -> ok <raw> <v> <var>.. then raw matches, each v e-classes
+//   match_inc <k> <pattern>..      -> as match, over an index kept between calls
 //
 // `match` compiles k patterns into one matcher, runs it over a freshly built
 // symbol index, and reports every match the VM emitted, duplicates included:
 // for each, the canonical e-class bound to each variable, variables in
-// ascending id order. A pattern is written in prefix order:
+// ascending id order. `match_inc` keeps one index from its first call until
+// `reset`, and before each match adds to it the e-classes of every e-node
+// `add` inserted since the previous call, as the rewriter does between
+// passes. A pattern is written in prefix order:
 //
 //   v <id>                         a variable
 //   w                              a wildcard
@@ -96,6 +100,7 @@ using Graph = EGraph<Sym, Mask>;
 using Pattern = memgraph::planner::core::pattern::Pattern<Sym>;
 using memgraph::planner::core::pattern::PatternNodeId;
 using memgraph::planner::core::pattern::PatternVar;
+using Index = memgraph::planner::core::pattern::MatcherIndex<Sym, Mask>;
 
 class Replay {
  public:
@@ -106,6 +111,8 @@ class Replay {
     if (command == "reset") {
       graph_ = Graph{};
       terms_.clear();
+      index_.reset();
+      inserted_.clear();
       return "ok";
     }
     if (command == "add") return Add(in);
@@ -145,7 +152,19 @@ class Replay {
       if (!(in >> t) || t >= terms_.size()) return "error bad term";
       return "ok " + std::to_string(graph_.analysis_of(terms_[t]).bits);
     }
-    if (command == "match") return MatchCommand(in);
+    if (command == "match") {
+      Index index(graph_);
+      return MatchCommand(in, index);
+    }
+    if (command == "match_inc") {
+      if (!index_) {
+        index_.emplace(graph_);
+      } else {
+        index_->rebuild_index(std::span<EClassId const>(inserted_));
+      }
+      inserted_.clear();
+      return MatchCommand(in, *index_);
+    }
     if (command == "touched") {
       boost::unordered_flat_set<EClassId> touched;
       graph_.touched_eclasses_into(touched);
@@ -175,6 +194,7 @@ class Replay {
     auto const result = arity == 0 ? graph_.emplace(sym, disambiguator, seed)
                                    : graph_.emplace(sym, std::move(children), disambiguator, seed);
     terms_.push_back(result.eclass_id);
+    if (result.did_insert) inserted_.push_back(result.eclass_id);
     return "ok " + std::to_string(int{result.did_insert}) + " " + Id(result.eclass_id);
   }
 
@@ -221,7 +241,7 @@ class Replay {
     return arity == 0 ? builder.sym(sym, binding) : builder.sym(sym, std::move(children), binding);
   }
 
-  auto MatchCommand(std::istringstream &in) -> std::string {
+  auto MatchCommand(std::istringstream &in, Index &index) -> std::string {
     std::size_t count = 0;
     if (!(in >> count) || count == 0) return "error bad match";
     std::vector<Pattern> patterns;
@@ -233,8 +253,6 @@ class Replay {
     try {
       memgraph::planner::core::pattern::vm::PatternsCompiler<Sym> compiler;
       auto const compiled = compiler.compile(std::span<Pattern const>(patterns));
-      memgraph::planner::core::pattern::MatcherIndex<Sym, Mask> index(graph_);
-      index.rebuild_index();
       memgraph::planner::core::pattern::vm::VMExecutor<Sym, Mask> executor(graph_);
       memgraph::planner::core::pattern::EMatchContext ctx;
       std::vector<memgraph::planner::core::pattern::PatternMatch> matches;
@@ -271,6 +289,9 @@ class Replay {
   Graph graph_;
   ProcessingContext<Sym> ctx_;
   std::vector<EClassId> terms_;
+  /// The index `match_inc` keeps, and the e-classes inserted since it last saw them.
+  std::optional<Index> index_;
+  std::vector<EClassId> inserted_;
 };
 
 }  // namespace

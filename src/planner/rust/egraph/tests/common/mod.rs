@@ -84,7 +84,9 @@ pub trait Subject {
     /// Runs the rule made of `patterns` on a rebuilt graph. `None` if the
     /// subject does not match; otherwise every match it produced, duplicates
     /// included, each giving the e-class of every variable in ascending order.
-    fn match_patterns(&mut self, _patterns: &[Pat]) -> Option<Matched> {
+    /// `incremental`: match over an index kept between calls and updated
+    /// only with the e-classes inserted since, as the rewriter does.
+    fn match_patterns(&mut self, _patterns: &[Pat], _incremental: bool) -> Option<Matched> {
         None
     }
 }
@@ -127,6 +129,10 @@ impl Analysis for Mask {
 pub struct Port {
     graph: EGraph<u8, Mask>,
     terms: Vec<Id>,
+    /// The index incremental matches keep, and the e-classes inserted since
+    /// it last saw them.
+    index: Option<mg_planner_egraph::matching::SymbolIndex<u8>>,
+    inserted: Vec<Id>,
 }
 
 impl Subject for Port {
@@ -137,6 +143,9 @@ impl Subject for Port {
         let children: Vec<Id> = children.iter().map(|&t| self.graph.find(self.terms[t])).collect();
         let result = self.graph.emplace_with(symbol, &children, disambiguator, Mask(seed(symbol, disambiguator)));
         self.terms.push(result.eclass);
+        if result.did_insert {
+            self.inserted.push(result.eclass);
+        }
         (result.did_insert, result.eclass.raw())
     }
     fn merge(&mut self, a: usize, b: usize) -> (bool, u32) {
@@ -185,13 +194,26 @@ impl Subject for Port {
     fn check_invariant(&mut self) -> Result<(), String> {
         self.graph.check_invariant().map_err(|v| v.to_string())
     }
-    fn match_patterns(&mut self, patterns: &[Pat]) -> Option<Matched> {
+    fn match_patterns(&mut self, patterns: &[Pat], incremental: bool) -> Option<Matched> {
         let patterns: Vec<_> = patterns.iter().map(to_port_pattern).collect();
         let matcher = mg_planner_egraph::matching::Matcher::new(&patterns).expect("generated rules are valid");
-        let mut index = mg_planner_egraph::matching::SymbolIndex::default();
-        index.rebuild(&self.graph);
+        let mut fresh = mg_planner_egraph::matching::SymbolIndex::default();
+        let index = if incremental {
+            if let Some(index) = &mut self.index {
+                index.add(&self.graph, &self.inserted);
+            } else {
+                let mut index = mg_planner_egraph::matching::SymbolIndex::default();
+                index.rebuild(&self.graph);
+                self.index = Some(index);
+            }
+            self.inserted.clear();
+            self.index.as_ref().unwrap()
+        } else {
+            fresh.rebuild(&self.graph);
+            &fresh
+        };
         let mut out = mg_planner_egraph::matching::Matches::default();
-        matcher.run(&self.graph, &index, &mut out);
+        matcher.run(&self.graph, index, &mut out);
         let tuples = out.iter().map(|t| t.iter().map(|id| id.raw()).collect()).collect();
         Some(Matched { vars: matcher.vars().to_vec(), tuples })
     }
@@ -363,8 +385,8 @@ impl Subject for Cpp {
     fn refresh(&mut self, everything: bool) -> usize {
         self.ask(&format!("refresh {}", u8::from(everything)))[0] as usize
     }
-    fn match_patterns(&mut self, patterns: &[Pat]) -> Option<Matched> {
-        let mut command = format!("match {}", patterns.len());
+    fn match_patterns(&mut self, patterns: &[Pat], incremental: bool) -> Option<Matched> {
+        let mut command = format!("{} {}", if incremental { "match_inc" } else { "match" }, patterns.len());
         for p in patterns {
             p.encode(&mut command);
         }
@@ -386,8 +408,9 @@ pub enum Op {
     ClearTouched,
     /// Refresh the analysis: of everything (true) or of what changed (false).
     Refresh(bool),
-    /// Rebuild, then run the rule made of these patterns.
-    Match(Vec<Pat>),
+    /// Rebuild, then run the rule made of these patterns, over a fresh index
+    /// or (true) over the index kept between incremental matches.
+    Match(Vec<Pat>, bool),
 }
 
 /// A pattern over the generated symbols, with at most three variables so
@@ -428,7 +451,7 @@ pub fn ops(max_len: usize) -> impl Strategy<Value = Vec<Op>> {
         1 => Just(Op::Rebuild),
         1 => Just(Op::ClearTouched),
         2 => any::<bool>().prop_map(Op::Refresh),
-        1 => rule().prop_map(Op::Match),
+        1 => (rule(), any::<bool>()).prop_map(|(rule, incremental)| Op::Match(rule, incremental)),
     ];
     prop::collection::vec(op, 0..max_len)
 }
@@ -479,7 +502,7 @@ impl<S: Subject> Harness<'_, S> {
                     self.refresh(*everything)?;
                 }
             }
-            Op::Match(patterns) => self.match_patterns(patterns)?,
+            Op::Match(patterns, incremental) => self.match_patterns(patterns, *incremental)?,
         }
         self.just_cleared = matches!(op, Op::ClearTouched);
         if let Err(clause) = self.subject.check_invariant() {
@@ -530,12 +553,13 @@ impl<S: Subject> Harness<'_, S> {
         Ok(())
     }
 
-    /// M1: on a rebuilt graph the matches, as a set, are the model's.
+    /// M1: on a rebuilt graph the matches, as a set, are the model's, over a
+    /// fresh index or over one kept up to date only with inserted e-classes.
     /// M2: no match is reported twice. `MG_SKIP_M2` turns this off, to look
     /// for other disagreements while a known duplicate is open.
-    fn match_patterns(&mut self, patterns: &[Pat]) -> Result<(), TestCaseError> {
+    fn match_patterns(&mut self, patterns: &[Pat], incremental: bool) -> Result<(), TestCaseError> {
         self.rebuild()?;
-        let Some(matched) = self.subject.match_patterns(patterns) else {
+        let Some(matched) = self.subject.match_patterns(patterns, incremental) else {
             return Ok(());
         };
         let labels: Vec<usize> = (0..self.terms).map(|t| self.subject.find(t) as usize).collect();
