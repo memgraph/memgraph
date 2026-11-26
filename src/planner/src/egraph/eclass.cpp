@@ -21,10 +21,7 @@ module memgraph.planner.core.egraph;
 
 namespace memgraph::planner::core::detail {
 
-EClassBase::EClassBase(ENodeId initial_enode_id) {
-  parents_.reserve(16);
-  nodes_.push_back(initial_enode_id);
-}
+EClassBase::EClassBase(ENodeId initial_enode_id) { nodes_.push_back(initial_enode_id); }
 
 void EClassBase::remove_node(ENodeId enode_id) {
   auto it = std::ranges::find(nodes_, enode_id);
@@ -34,9 +31,12 @@ void EClassBase::remove_node(ENodeId enode_id) {
 }
 
 void EClassBase::merge_with(EClassBase &other) {
-  // Simple optimization: swap if other is significantly larger
+  // Fold the smaller container into the larger, each on its own size: a class
+  // with few e-nodes can still be read by many parents.
   if (other.nodes_.size() > nodes_.size()) {
     nodes_.swap(other.nodes_);
+  }
+  if (other.parents_.size() > parents_.size()) {
     parents_.swap(other.parents_);
   }
 
