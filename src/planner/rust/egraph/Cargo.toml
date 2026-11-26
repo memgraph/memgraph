@@ -28,3 +28,6 @@ lto = "thin"
 debug = true
 codegen-units = 1
 lto = "thin"
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)'] }

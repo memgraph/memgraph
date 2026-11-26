@@ -14,9 +14,12 @@
 use std::cell::Cell;
 use std::hash::{Hash, Hasher};
 
-use hashbrown::HashTable;
 use rustc_hash::FxHasher;
 use smallvec::SmallVec;
+
+mod hashcons;
+pub use hashcons::{TableHashCons, VecHashCons};
+use hashcons::HashCons;
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub struct Id(u32);
@@ -138,6 +141,18 @@ impl UnionFind {
         id
     }
 
+    /// The representative of `x`, without halving any path: for checks,
+    /// which must read a state without changing it.
+    fn root_of(&self, mut x: u32) -> u32 {
+        loop {
+            let parent = self.parent[x as usize].get();
+            if parent == x {
+                return x;
+            }
+            x = parent;
+        }
+    }
+
     fn find(&self, mut x: u32) -> u32 {
         loop {
             let parent = self.parent[x as usize].get();
@@ -171,13 +186,33 @@ impl UnionFind {
     }
 }
 
+/// The first clause of `EGraph::check_invariant` found broken, and the id it
+/// was found at.
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+pub struct Violation {
+    pub clause: u8,
+    pub at: usize,
+}
+
+impl Violation {
+    fn new(clause: u8, at: usize) -> Self {
+        Violation { clause, at }
+    }
+}
+
+impl std::fmt::Display for Violation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "invariant clause {} broken at id {}", self.clause, self.at)
+    }
+}
+
 pub struct EGraph<S, A = ()> {
     union_find: UnionFind,
     nodes: Vec<ENode<S>>,
     dead: Vec<bool>,
     /// Indexed by id; `Some` exactly for canonical e-classes.
     classes: Vec<Option<EClass<A>>>,
-    hashcons: HashTable<Id>,
+    hashcons: HashCons,
     worklist: Vec<Id>,
     touched: Vec<Id>,
     num_classes: usize,
@@ -195,7 +230,7 @@ impl<S, A> Default for EGraph<S, A> {
             nodes: Vec::new(),
             dead: Vec::new(),
             classes: Vec::new(),
-            hashcons: HashTable::new(),
+            hashcons: HashCons::default(),
             worklist: Vec::new(),
             touched: Vec::new(),
             num_classes: 0,
@@ -233,7 +268,7 @@ impl<S: Hash + Eq + Clone, A: Analysis + Default> EGraph<S, A> {
         debug_assert!(children.iter().all(|&c| self.find(c) == c), "e-node children must be canonical");
         let node = ENode::new(symbol, disambiguator, Children::from_slice(children));
         let nodes = &self.nodes;
-        if let Some(&existing) = self.hashcons.find(node.hash, |&id| nodes[id.index()].same(&node)) {
+        if let Some(existing) = self.hashcons.find(node.hash, |id| nodes[id.index()].same(&node)) {
             return EmplaceResult { eclass: self.find(existing), enode: existing, did_insert: false };
         }
 
@@ -248,7 +283,7 @@ impl<S: Hash + Eq + Clone, A: Analysis + Default> EGraph<S, A> {
         self.dead.push(false);
         self.classes.push(Some(EClass { nodes: vec![id], parents: Vec::new(), analysis: seed }));
         let nodes = &self.nodes;
-        self.hashcons.insert_unique(hash, id, |&other| nodes[other.index()].hash);
+        self.hashcons.insert(hash, id, |other| nodes[other.index()].hash);
         self.touched.push(id);
         self.num_classes += 1;
         EmplaceResult { eclass: id, enode: id, did_insert: true }
@@ -320,15 +355,13 @@ impl<S: Hash + Eq + Clone, A: Analysis + Default> EGraph<S, A> {
                 continue;
             }
             let old_hash = self.nodes[parent.index()].hash;
-            if let Ok(entry) = self.hashcons.find_entry(old_hash, |&id| id == parent) {
-                entry.remove();
-            }
+            self.hashcons.remove(old_hash, parent);
             self.canonicalize(parent);
 
             let nodes = &self.nodes;
             let node = &nodes[parent.index()];
-            match self.hashcons.find(node.hash, |&id| nodes[id.index()].same(node)) {
-                Some(&kept) => {
+            match self.hashcons.find(node.hash, |id| nodes[id.index()].same(node)) {
+                Some(kept) => {
                     let (kept_class, parent_class) = (self.find(kept), self.find(parent));
                     if kept_class != parent_class {
                         self.merge(kept_class, parent_class);
@@ -339,7 +372,7 @@ impl<S: Hash + Eq + Clone, A: Analysis + Default> EGraph<S, A> {
                 }
                 None => {
                     let hash = node.hash;
-                    self.hashcons.insert_unique(hash, parent, |&other| nodes[other.index()].hash);
+                    self.hashcons.insert(hash, parent, |other| nodes[other.index()].hash);
                     survivors.push(parent);
                 }
             }
@@ -429,6 +462,108 @@ impl<S: Hash + Eq + Clone, A: Analysis + Default> EGraph<S, A> {
         self.touched.clear();
     }
 
+    /// The representation invariant, which every public operation preserves.
+    /// It costs quadratic time, for tests and proofs; the error names the
+    /// first clause that fails.
+    ///
+    ///  1. One union-find element, e-node, dead flag and class slot per id.
+    ///  2. Each e-node's cached hash is the hash of its content, and its
+    ///     children are ids in range.
+    ///  3. A class slot is filled exactly when its id is canonical, and the
+    ///     class and dead-node counters match the flags they count.
+    ///  4. Every live e-node sits in exactly one class, its canonical one, and
+    ///     no class holds a dead e-node.
+    ///  5. The hashcons holds exactly the live e-nodes, each under its current
+    ///     hash, and no two of them have identical content.
+    ///  6. Every live e-node is a parent of the class of each of its children,
+    ///     so a rebuild that repairs a class reaches everything reading it.
+    ///  7. A live e-node with a non-canonical child has that child's class on
+    ///     the worklist, so a rebuild will repair it.
+    ///  8. With the worklist empty, every live e-node is canonical.
+    pub fn check_invariant(&self) -> Result<(), Violation> {
+        let n = self.union_find.len();
+        if self.nodes.len() != n || self.dead.len() != n || self.classes.len() != n {
+            return Err(Violation::new(1, 0));
+        }
+        for (i, node) in self.nodes.iter().enumerate() {
+            if node.hash != node.compute_hash() {
+                return Err(Violation::new(2, i));
+            }
+            if node.children.iter().any(|c| c.index() >= n) {
+                return Err(Violation::new(2, i));
+            }
+        }
+        let mut live_classes = 0;
+        for i in 0..n {
+            let canonical = self.union_find.root_of(i as u32) as usize == i;
+            if self.classes[i].is_some() != canonical {
+                return Err(Violation::new(3, i));
+            }
+            live_classes += usize::from(canonical);
+        }
+        if live_classes != self.num_classes {
+            return Err(Violation::new(3, 0));
+        }
+        if self.dead.iter().filter(|&&d| d).count() != self.num_dead {
+            return Err(Violation::new(3, 0));
+        }
+        let mut seen = vec![0u32; n];
+        for (c, class) in self.classes.iter().enumerate() {
+            for &member in class.iter().flat_map(|class| &class.nodes) {
+                if self.dead[member.index()] {
+                    return Err(Violation::new(4, c));
+                }
+                if Id(self.union_find.root_of(member.0)).index() != c {
+                    return Err(Violation::new(4, c));
+                }
+                seen[member.index()] += 1;
+            }
+        }
+        for i in 0..n {
+            let expected = u32::from(!self.dead[i]);
+            if seen[i] != expected {
+                return Err(Violation::new(4, i));
+            }
+        }
+        let live = n - self.num_dead;
+        if self.hashcons.len() != live {
+            return Err(Violation::new(5, 0));
+        }
+        for i in 0..n {
+            let id = Id(i as u32);
+            let registered = self.hashcons.find(self.nodes[i].hash, |other| other == id).is_some();
+            if registered == self.dead[i] {
+                return Err(Violation::new(5, i));
+            }
+        }
+        for i in 0..n {
+            for j in i + 1..n {
+                if !self.dead[i] && !self.dead[j] && self.nodes[i].same(&self.nodes[j]) {
+                    return Err(Violation::new(5, i));
+                }
+            }
+        }
+        let queued: Vec<Id> = self.worklist.iter().map(|&w| Id(self.union_find.root_of(w.0))).collect();
+        for i in (0..n).filter(|&i| !self.dead[i]) {
+            for &child in &self.nodes[i].children {
+                let class = Id(self.union_find.root_of(child.0));
+                let parents = &self.classes[class.index()].as_ref().expect("canonical").parents;
+                if !parents.contains(&Id(i as u32)) {
+                    return Err(Violation::new(6, i));
+                }
+                if class != child {
+                    if !queued.contains(&class) {
+                        return Err(Violation::new(7, i));
+                    }
+                    if self.worklist.is_empty() {
+                        return Err(Violation::new(8, i));
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
     pub fn clear(&mut self) {
         self.union_find.clear();
         self.nodes.clear();
@@ -442,3 +577,6 @@ impl<S: Hash + Eq + Clone, A: Analysis + Default> EGraph<S, A> {
         self.num_dead = 0;
     }
 }
+
+#[cfg(kani)]
+mod proofs;
