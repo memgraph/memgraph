@@ -16,6 +16,19 @@
 //! closure keeps them apart, and an emplace on a rebuilt graph reports
 //! did_insert exactly when no term has that canonical form. A subject that can
 //! check its own representation invariant does so after every operation.
+//!
+//! A subject that runs the analysis (a 16-bit set of facts, see
+//! `egraph_oracle::analysis`) is also held to these after every refresh:
+//!
+//!  - P1: every term's facts are the least fixpoint over the subject's current
+//!    partition, whichever scope the refresh used;
+//!  - P2: an immediate further refresh of everything changes nothing;
+//!  - P6: the touched set names every class a refresh widened, and, straight
+//!    after a clear, only those;
+//!  - P8: a refresh reports 0 exactly when no term's facts changed;
+//!
+//! and to these after every operation: facts only grow (P4), a new term's class
+//! holds its seed, and a merge leaves both sides with the union of their facts (P5).
 
 #![allow(dead_code)]
 
@@ -25,7 +38,8 @@ use std::path::PathBuf;
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 
 use egraph_oracle::Model;
-use mg_planner_egraph::{EGraph, Id};
+use egraph_oracle::analysis::{derives, least_facts, seed};
+use mg_planner_egraph::{Analysis, EGraph, Id, Scope};
 use proptest::prelude::*;
 use proptest::test_runner::TestCaseError;
 
@@ -52,12 +66,34 @@ pub trait Subject {
     fn check_invariant(&mut self) -> Result<(), String> {
         Ok(())
     }
+    /// Whether the subject runs the analysis; the three below matter only then.
+    fn supports_analysis(&self) -> bool {
+        false
+    }
+    fn facts(&mut self, _term: usize) -> u16 {
+        0
+    }
+    /// Refreshes the analysis, of everything or of what changed, and answers
+    /// how many updates widened a class.
+    fn refresh(&mut self, _everything: bool) -> usize {
+        0
+    }
+}
+
+/// Facts as a 16-bit set; a join is the union.
+#[derive(Default, Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Mask(pub u16);
+
+impl Analysis for Mask {
+    fn merge(&mut self, other: &Self) {
+        self.0 |= other.0;
+    }
 }
 
 /// The Rust port, in-process.
 #[derive(Default)]
 pub struct Port {
-    graph: EGraph<u8>,
+    graph: EGraph<u8, Mask>,
     terms: Vec<Id>,
 }
 
@@ -67,7 +103,7 @@ impl Subject for Port {
     }
     fn add(&mut self, symbol: u8, disambiguator: u64, children: &[usize]) -> (bool, u32) {
         let children: Vec<Id> = children.iter().map(|&t| self.graph.find(self.terms[t])).collect();
-        let result = self.graph.emplace(symbol, &children, disambiguator);
+        let result = self.graph.emplace_with(symbol, &children, disambiguator, Mask(seed(symbol, disambiguator)));
         self.terms.push(result.eclass);
         (result.did_insert, result.eclass.raw())
     }
@@ -116,6 +152,18 @@ impl Subject for Port {
     }
     fn check_invariant(&mut self) -> Result<(), String> {
         self.graph.check_invariant().map_err(|v| v.to_string())
+    }
+    fn supports_analysis(&self) -> bool {
+        true
+    }
+    fn facts(&mut self, term: usize) -> u16 {
+        self.graph.analysis_of(self.terms[term]).0
+    }
+    fn refresh(&mut self, everything: bool) -> usize {
+        let scope = if everything { Scope::Everything } else { Scope::Changed };
+        self.graph.refresh_analysis(scope, |node, facts_of| {
+            derives(*node.symbol()).then(|| Mask(node.children().iter().fold(0, |acc, &c| acc | facts_of(c).0)))
+        })
     }
 }
 
@@ -229,6 +277,8 @@ pub enum Op {
     Merge(u32, u32),
     Rebuild,
     ClearTouched,
+    /// Refresh the analysis: of everything (true) or of what changed (false).
+    Refresh(bool),
 }
 
 /// Few symbols and disambiguators, so adds collide with existing terms and
@@ -241,6 +291,7 @@ pub fn ops(max_len: usize) -> impl Strategy<Value = Vec<Op>> {
         3 => (any::<u32>(), any::<u32>()).prop_map(|(a, b)| Op::Merge(a, b)),
         1 => Just(Op::Rebuild),
         1 => Just(Op::ClearTouched),
+        2 => any::<bool>().prop_map(Op::Refresh),
     ];
     prop::collection::vec(op, 0..max_len)
 }
@@ -250,11 +301,22 @@ pub struct Harness<'s, S: Subject> {
     model: Model,
     terms: usize,
     changed_since_clear: Vec<usize>,
+    /// The facts last seen for each term, which may only grow.
+    facts_seen: Vec<u16>,
+    /// Nothing but a clear has happened to the touched set since it was cleared.
+    just_cleared: bool,
 }
 
 /// Runs one generated case against a subject that has just been reset.
 pub fn run_case<S: Subject>(subject: &mut S, ops: &[Op]) -> Result<(), TestCaseError> {
-    let mut harness = Harness { subject, model: Model::default(), terms: 0, changed_since_clear: Vec::new() };
+    let mut harness = Harness {
+        subject,
+        model: Model::default(),
+        terms: 0,
+        changed_since_clear: Vec::new(),
+        facts_seen: Vec::new(),
+        just_cleared: false,
+    };
     for op in ops {
         harness.apply(op)?;
     }
@@ -275,9 +337,57 @@ impl<S: Subject> Harness<'_, S> {
                 self.subject.clear_touched();
                 self.changed_since_clear.clear();
             }
+            Op::Refresh(everything) => {
+                if self.subject.supports_analysis() {
+                    self.refresh(*everything)?;
+                }
+            }
         }
+        self.just_cleared = matches!(op, Op::ClearTouched);
         if let Err(clause) = self.subject.check_invariant() {
             return Err(TestCaseError::fail(format!("after {op:?}: {clause}")));
+        }
+        if self.subject.supports_analysis() {
+            for t in 0..self.terms {
+                let now = self.subject.facts(t);
+                let before = self.facts_seen[t];
+                prop_assert_eq!(now & before, before, "facts of term {} shrank after {:?}", t, op);
+                self.facts_seen[t] = now;
+            }
+        }
+        Ok(())
+    }
+
+    /// P1, P2, P6 and P8 around one refresh.
+    fn refresh(&mut self, everything: bool) -> Result<(), TestCaseError> {
+        let was_cleared = self.just_cleared;
+        let before: Vec<u16> = (0..self.terms).map(|t| self.subject.facts(t)).collect();
+        let widened = self.subject.refresh(everything);
+        let after: Vec<u16> = (0..self.terms).map(|t| self.subject.facts(t)).collect();
+
+        let labels: Vec<usize> = (0..self.terms).map(|t| self.subject.find(t) as usize).collect();
+        let expected = least_facts(self.model.terms(), &labels);
+        for t in 0..self.terms {
+            prop_assert_eq!(after[t], expected[t], "term {} after refresh(everything={})", t, everything);
+        }
+        prop_assert_eq!(widened == 0, before == after, "refresh reported {} widenings", widened);
+
+        let changed: Vec<usize> = (0..self.terms).filter(|&t| before[t] != after[t]).collect();
+        let touched = self.subject.touched();
+        for &t in &changed {
+            prop_assert!(touched.binary_search(&(labels[t] as u32)).is_ok(), "touched set misses widened term {}", t);
+        }
+        if was_cleared {
+            let mut widened_classes: Vec<u32> = changed.iter().map(|&t| labels[t] as u32).collect();
+            widened_classes.sort_unstable();
+            widened_classes.dedup();
+            prop_assert_eq!(touched, widened_classes, "touched set after clear and refresh");
+        }
+        self.changed_since_clear.extend(changed);
+
+        prop_assert_eq!(self.subject.refresh(true), 0, "a second refresh widened something");
+        for t in 0..self.terms {
+            prop_assert_eq!(self.subject.facts(t), after[t]);
         }
         Ok(())
     }
@@ -302,6 +412,12 @@ impl<S: Subject> Harness<'_, S> {
         }
         let term = self.model.add(symbol, disambiguator, children);
         self.terms += 1;
+        if self.subject.supports_analysis() {
+            let facts = self.subject.facts(term);
+            let own = seed(symbol, disambiguator);
+            prop_assert_eq!(facts & own, own, "term {} lacks its seed", term);
+            self.facts_seen.push(facts);
+        }
         if did_insert {
             self.changed_since_clear.push(term);
         }
@@ -317,7 +433,16 @@ impl<S: Subject> Harness<'_, S> {
         self.model.close();
         let apart = !self.model.equivalent(a, b);
 
+        let joined = if self.subject.supports_analysis() {
+            self.subject.facts(a) | self.subject.facts(b)
+        } else {
+            0
+        };
         let (did_merge, _) = self.subject.merge(a, b);
+        if self.subject.supports_analysis() {
+            prop_assert_eq!(self.subject.facts(a), joined, "merge did not join facts");
+            prop_assert_eq!(self.subject.facts(b), joined, "merge did not join facts");
+        }
         if apart {
             prop_assert!(did_merge);
         }

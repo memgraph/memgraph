@@ -206,6 +206,14 @@ impl std::fmt::Display for Violation {
     }
 }
 
+/// Where a refresh starts. Both reach the same facts; `Changed` visits only
+/// what the classes created or merged since the last refresh can affect.
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+pub enum Scope {
+    Changed,
+    Everything,
+}
+
 pub struct EGraph<S, A = ()> {
     union_find: UnionFind,
     nodes: Vec<ENode<S>>,
@@ -215,6 +223,9 @@ pub struct EGraph<S, A = ()> {
     hashcons: HashCons,
     worklist: Vec<Id>,
     touched: Vec<Id>,
+    /// Classes created or merged since the last refresh, as raw ids.
+    analysis_dirty: Vec<Id>,
+    tracks_analysis: bool,
     num_classes: usize,
     num_dead: usize,
     // Scratch reused across rebuilds.
@@ -233,6 +244,8 @@ impl<S, A> Default for EGraph<S, A> {
             hashcons: HashCons::default(),
             worklist: Vec::new(),
             touched: Vec::new(),
+            analysis_dirty: Vec::new(),
+            tracks_analysis: true,
             num_classes: 0,
             num_dead: 0,
             pending: Vec::new(),
@@ -284,7 +297,7 @@ impl<S: Hash + Eq + Clone, A: Analysis + Default> EGraph<S, A> {
         self.classes.push(Some(EClass { nodes: vec![id], parents: Vec::new(), analysis: seed }));
         let nodes = &self.nodes;
         self.hashcons.insert(hash, id, |other| nodes[other.index()].hash);
-        self.touched.push(id);
+        self.mark_changed(id);
         self.num_classes += 1;
         EmplaceResult { eclass: id, enode: id, did_insert: true }
     }
@@ -309,7 +322,7 @@ impl<S: Hash + Eq + Clone, A: Analysis + Default> EGraph<S, A> {
         survivor.analysis.merge(&absorbed.analysis);
 
         self.worklist.push(Id(root));
-        self.touched.push(Id(root));
+        self.mark_changed(Id(root));
         self.num_classes -= 1;
         MergeResult { eclass: Id(root), did_merge: true }
     }
@@ -462,6 +475,83 @@ impl<S: Hash + Eq + Clone, A: Analysis + Default> EGraph<S, A> {
         self.touched.clear();
     }
 
+    /// A class that is new or newly merged: the touched set always records it,
+    /// and the next `Changed` refresh starts from it when analysis is tracked.
+    fn mark_changed(&mut self, id: Id) {
+        self.touched.push(id);
+        if self.tracks_analysis {
+            self.analysis_dirty.push(id);
+        }
+    }
+
+    /// Whether any symbol derives facts from its children. With tracking off,
+    /// only an `Everything` refresh sees changes; set it once, before use.
+    pub fn set_tracks_analysis(&mut self, tracks: bool) {
+        self.tracks_analysis = tracks;
+    }
+
+    /// The facts of `id`'s class.
+    pub fn analysis_of(&self, id: Id) -> &A {
+        &self.eclass(self.find(id)).analysis
+    }
+
+    /// Widens facts until every e-node's `update` adds nothing, and answers how
+    /// many updates widened a class. `update(enode, facts_of)` gives the facts
+    /// the e-node derives from its children's, or `None` for a symbol that
+    /// derives none; they are joined into the facts of the e-node's class.
+    /// `update` must be monotone and `Analysis::merge` a join, which makes the
+    /// result the least fixpoint whichever scope or order the walk takes.
+    pub fn refresh_analysis<F>(&mut self, scope: Scope, mut update: F) -> usize
+    where
+        A: Clone + PartialEq,
+        F: FnMut(&ENode<S>, &dyn Fn(Id) -> A) -> Option<A>,
+    {
+        let mut worklist: Vec<Id> = Vec::new();
+        match scope {
+            Scope::Changed => {
+                let mut dirty: Vec<Id> = self.analysis_dirty.iter().map(|&id| self.find(id)).collect();
+                dirty.sort_unstable();
+                dirty.dedup();
+                for class in dirty {
+                    if let Some(eclass) = self.classes[class.index()].as_ref() {
+                        worklist.extend_from_slice(&eclass.nodes);
+                        worklist.extend_from_slice(&eclass.parents);
+                    }
+                }
+            }
+            Scope::Everything => {
+                for eclass in self.classes.iter().flatten() {
+                    worklist.extend_from_slice(&eclass.nodes);
+                }
+            }
+        }
+        self.analysis_dirty.clear();
+
+        let mut widened = 0;
+        while let Some(enode) = worklist.pop() {
+            if self.dead[enode.index()] {
+                continue;
+            }
+            let derived = {
+                let graph = &*self;
+                let facts_of = |id: Id| graph.analysis_of(id).clone();
+                update(&graph.nodes[enode.index()], &facts_of)
+            };
+            let Some(derived) = derived else { continue };
+            let class = self.find(enode);
+            let eclass = self.classes[class.index()].as_mut().expect("canonical");
+            let mut joined = eclass.analysis.clone();
+            joined.merge(&derived);
+            if joined != eclass.analysis {
+                eclass.analysis = joined;
+                widened += 1;
+                worklist.extend_from_slice(&eclass.parents);
+                self.touched.push(class);
+            }
+        }
+        widened
+    }
+
     /// The representation invariant, which every public operation preserves.
     /// It costs quadratic time, for tests and proofs; the error names the
     /// first clause that fails.
@@ -572,6 +662,7 @@ impl<S: Hash + Eq + Clone, A: Analysis + Default> EGraph<S, A> {
         self.hashcons.clear();
         self.worklist.clear();
         self.touched.clear();
+        self.analysis_dirty.clear();
         self.with_dead.clear();
         self.num_classes = 0;
         self.num_dead = 0;

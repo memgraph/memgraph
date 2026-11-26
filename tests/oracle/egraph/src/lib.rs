@@ -14,6 +14,8 @@
 
 use std::collections::BTreeSet;
 
+pub mod analysis;
+
 pub const NONE: u32 = u32::MAX;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -49,6 +51,10 @@ impl Model {
         assert!(a < self.terms.len() && b < self.terms.len(), "merge of an unknown term");
         self.merges.push((a, b));
         self.blocks = None;
+    }
+
+    pub fn terms(&self) -> &[Term] {
+        &self.terms
     }
 
     pub fn num_terms(&self) -> usize {
