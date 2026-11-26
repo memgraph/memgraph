@@ -269,6 +269,15 @@ impl Subject for Cpp {
         ids.sort_unstable();
         ids
     }
+    fn supports_analysis(&self) -> bool {
+        true
+    }
+    fn facts(&mut self, term: usize) -> u16 {
+        self.ask(&format!("facts {term}"))[0] as u16
+    }
+    fn refresh(&mut self, everything: bool) -> usize {
+        self.ask(&format!("refresh {}", u8::from(everything)))[0] as usize
+    }
 }
 
 #[derive(Debug, Clone)]

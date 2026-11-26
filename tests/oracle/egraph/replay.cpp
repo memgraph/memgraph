@@ -26,6 +26,12 @@
 //   stats                          -> ok <num_classes> <num_live_nodes>
 //   class <eclass>                 -> ok <k> then k e-nodes, each <sym> <dis> <n> <child eclass>..
 //   touched                        -> ok <k> <eclass>..
+//   refresh <0|1>                  -> ok <updates that widened a class>  (1: everything, 0: what changed)
+//   facts <t>                      -> ok <facts of t's class, as a 16-bit set>
+//
+// Facts are the analysis the Rust model specifies (egraph_oracle::analysis):
+// a set of bits joined by union. Symbol 0 seeds bit <dis> % 16, symbol 2
+// derives the union of its children's facts, and other symbols do neither.
 //
 // Anything malformed answers `error <reason>`.
 
@@ -53,11 +59,22 @@ using memgraph::planner::core::ProcessingContext;
 
 enum class Sym : uint8_t {};
 
-struct NoFacts {
-  void merge(NoFacts const & /*other*/) {}
+struct Mask {
+  uint16_t bits = 0;
 
-  auto operator==(NoFacts const &) const -> bool = default;
+  void merge(Mask const &other) { bits |= other.bits; }
+
+  auto operator==(Mask const &) const -> bool = default;
 };
+
+constexpr uint8_t kLeaf = 0;
+constexpr uint8_t kPlus = 2;
+
+auto Seed(uint32_t symbol, uint64_t disambiguator) -> Mask {
+  return symbol == kLeaf ? Mask{static_cast<uint16_t>(1U << (disambiguator % 16))} : Mask{};
+}
+
+using Graph = EGraph<Sym, Mask>;
 
 class Replay {
  public:
@@ -66,7 +83,7 @@ class Replay {
     std::string command;
     in >> command;
     if (command == "reset") {
-      graph_ = EGraph<Sym, NoFacts>{};
+      graph_ = Graph{};
       terms_.clear();
       return "ok";
     }
@@ -96,6 +113,17 @@ class Replay {
       return "ok " + std::to_string(graph_.num_classes()) + " " + std::to_string(graph_.num_live_nodes());
     }
     if (command == "class") return Class(in);
+    if (command == "refresh") {
+      int everything = 0;
+      if (!(in >> everything)) return "error bad refresh";
+      return "ok " + std::to_string(everything != 0 ? Refresh<Graph::AnalysisScope::Everything>()
+                                                    : Refresh<Graph::AnalysisScope::Changed>());
+    }
+    if (command == "facts") {
+      uint32_t t = 0;
+      if (!(in >> t) || t >= terms_.size()) return "error bad term";
+      return "ok " + std::to_string(graph_.analysis_of(terms_[t]).bits);
+    }
     if (command == "touched") {
       boost::unordered_flat_set<EClassId> touched;
       graph_.touched_eclasses_into(touched);
@@ -121,8 +149,9 @@ class Replay {
       children.push_back(graph_.find(terms_[t]));
     }
     auto const sym = static_cast<Sym>(symbol);
-    auto const result =
-        arity == 0 ? graph_.emplace(sym, disambiguator) : graph_.emplace(sym, std::move(children), disambiguator);
+    auto const seed = Seed(symbol, disambiguator);
+    auto const result = arity == 0 ? graph_.emplace(sym, disambiguator, seed)
+                                   : graph_.emplace(sym, std::move(children), disambiguator, seed);
     terms_.push_back(result.eclass_id);
     return "ok " + std::to_string(int{result.did_insert}) + " " + Id(result.eclass_id);
   }
@@ -143,7 +172,19 @@ class Replay {
     return out;
   }
 
-  EGraph<Sym, NoFacts> graph_;
+  template <Graph::AnalysisScope Scope>
+  auto Refresh() -> std::size_t {
+    return graph_.template refresh_analysis<Scope>(ctx_, [this](auto const &enode, Mask &facts) {
+      if (static_cast<uint8_t>(enode.symbol()) != kPlus) return false;
+      uint16_t derived = 0;
+      for (auto child : enode.children()) derived |= graph_.analysis_of(child).bits;
+      auto const before = facts.bits;
+      facts.bits |= derived;
+      return facts.bits != before;
+    });
+  }
+
+  Graph graph_;
   ProcessingContext<Sym> ctx_;
   std::vector<EClassId> terms_;
 };
