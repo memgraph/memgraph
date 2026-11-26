@@ -22,6 +22,7 @@
 #include <map>
 #include <optional>
 #include <span>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -80,11 +81,19 @@ struct BadTraits {
 // both operands, so its fact depends on facts held by other e-classes.
 enum class FactOp : std::uint8_t { Leaf, Opaque, Sum };
 
+/// A value known or not: a flat lattice whose join is undefined on two
+/// different values. Merging two classes that know different values means
+/// something proved them equal wrongly, so it throws rather than keep
+/// whichever value the union-find happened to make the root.
 struct FactAnalysis {
   std::optional<int> known;
 
   void merge(FactAnalysis const &other) {
-    if (!known) known = other.known;
+    if (!other.known) return;
+    if (known && *known != *other.known) {
+      throw std::logic_error("FactAnalysis: merged e-classes know different values");
+    }
+    known = other.known;
   }
 
   auto operator==(FactAnalysis const &) const -> bool = default;
@@ -431,6 +440,29 @@ TEST(TypedEGraph, ClearDropsThePendingAnalysisWork) {
   EXPECT_EQ(eg.refresh_analysis(refresh_ctx), 1U);
   ASSERT_TRUE(eg.core().analysis_of(sum).known.has_value());
   EXPECT_EQ(*eg.core().analysis_of(sum).known, 5);
+}
+
+TEST(TypedEGraph, MergingClassesThatKnowDifferentValuesThrows) {
+  for (bool one_first : {true, false}) {
+    FactEGraph eg;
+    auto const one = eg.Make<FactOp::Leaf>(1).eclass_id;
+    auto const five = eg.Make<FactOp::Leaf>(5).eclass_id;
+    EXPECT_THROW(one_first ? eg.core().merge(one, five) : eg.core().merge(five, one), std::logic_error);
+  }
+}
+
+TEST(TypedEGraph, MergeKeepsAKnownValueWhicheverSideHoldsIt) {
+  for (bool known_first : {true, false}) {
+    FactEGraph eg;
+    auto const one = eg.Make<FactOp::Leaf>(1).eclass_id;
+    auto const opaque = eg.Make<FactOp::Opaque>().eclass_id;
+    auto const merged = known_first ? eg.core().merge(one, opaque).eclass_id : eg.core().merge(opaque, one).eclass_id;
+    ASSERT_TRUE(eg.core().analysis_of(merged).known.has_value());
+    EXPECT_EQ(*eg.core().analysis_of(merged).known, 1);
+  }
+  FactAnalysis same{.known = 3};
+  same.merge(FactAnalysis{.known = 3});
+  EXPECT_EQ(same.known, 3);
 }
 
 TEST(TypedEGraph, SaturationFiresARuleTheRefreshEnabled) {
