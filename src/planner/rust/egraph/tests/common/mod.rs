@@ -35,7 +35,9 @@
 use std::collections::BTreeMap;
 use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
-use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
+use std::process::{Child, ChildStdin, Command, Stdio};
+use std::sync::mpsc::{Receiver, RecvTimeoutError, channel};
+use std::time::Duration;
 
 use egraph_oracle::Model;
 use egraph_oracle::analysis::{derives, least_facts, seed};
@@ -211,11 +213,14 @@ impl Subject for Port {
 pub struct Cpp {
     child: Child,
     stdin: ChildStdin,
-    stdout: BufReader<ChildStdout>,
-    line: String,
-    /// `MG_REPLAY_LOG`: a file holding the commands of the current case, so
-    /// that a case the driver hangs on can be replayed by hand.
+    /// Lines the driver writes, read on a thread so that an answer can be
+    /// waited for with a deadline.
+    answers: Receiver<String>,
+    /// The commands of the current case, printed if the driver stops answering.
+    case: Vec<String>,
+    /// `MG_REPLAY_LOG`: a file kept holding the commands of the current case.
     log: Option<PathBuf>,
+    timeout: Duration,
 }
 
 impl Cpp {
@@ -227,6 +232,8 @@ impl Cpp {
         path.is_file().then_some(path)
     }
 
+    /// `MG_REPLAY_TIMEOUT` sets, in seconds, how long one command may take
+    /// (default 10).
     pub fn spawn(binary: &PathBuf) -> Cpp {
         let mut child = Command::new(binary)
             .stdin(Stdio::piped())
@@ -234,29 +241,55 @@ impl Cpp {
             .spawn()
             .unwrap_or_else(|e| panic!("cannot start {}: {e}", binary.display()));
         let stdin = child.stdin.take().unwrap();
-        let stdout = BufReader::new(child.stdout.take().unwrap());
+        let mut stdout = BufReader::new(child.stdout.take().unwrap());
+        let (tx, answers) = channel();
+        std::thread::spawn(move || {
+            let mut line = String::new();
+            while stdout.read_line(&mut line).is_ok_and(|n| n > 0) {
+                if tx.send(std::mem::take(&mut line)).is_err() {
+                    break;
+                }
+            }
+        });
         let log = std::env::var_os("MG_REPLAY_LOG").map(PathBuf::from);
-        Cpp { child, stdin, stdout, line: String::new(), log }
+        let seconds = std::env::var("MG_REPLAY_TIMEOUT").ok().and_then(|s| s.parse().ok()).unwrap_or(10);
+        Cpp { child, stdin, answers, case: Vec::new(), log, timeout: Duration::from_secs(seconds) }
+    }
+
+    /// Sends one command and answers the line the driver wrote. A driver that
+    /// does not answer in time ends the whole run, printing the case: it is
+    /// still busy, so no later answer could be trusted.
+    fn send(&mut self, command: &str) -> String {
+        if command == "reset" {
+            self.case.clear();
+        }
+        self.case.push(command.to_owned());
+        if let Some(path) = &self.log {
+            std::fs::write(path, self.case.join("\n") + "\n").expect("cannot write MG_REPLAY_LOG");
+        }
+        writeln!(self.stdin, "{command}").expect("replay driver closed its input");
+        let line = match self.answers.recv_timeout(self.timeout) {
+            Ok(line) => line,
+            Err(RecvTimeoutError::Timeout) => {
+                let _ = self.child.kill();
+                // Straight to the handle: the test harness's capture of
+                // eprintln! is lost on exit.
+                let mut err = std::io::stderr().lock();
+                let _ = writeln!(err, "replay driver gave no answer within {:?}; the case:", self.timeout);
+                let _ = writeln!(err, "{}", self.case.join("\n"));
+                std::process::exit(2);
+            }
+            Err(RecvTimeoutError::Disconnected) => panic!("replay driver closed its output after `{command}`"),
+        };
+        line
     }
 
     /// Sends one command and answers the fields after `ok`.
     fn ask(&mut self, command: &str) -> Vec<u64> {
-        if let Some(path) = &self.log {
-            let mut file = std::fs::OpenOptions::new()
-                .create(true)
-                .write(true)
-                .append(command != "reset")
-                .truncate(command == "reset")
-                .open(path)
-                .expect("cannot open MG_REPLAY_LOG");
-            writeln!(file, "{command}").expect("cannot write MG_REPLAY_LOG");
-        }
-        writeln!(self.stdin, "{command}").expect("replay driver closed its input");
-        self.line.clear();
-        self.stdout.read_line(&mut self.line).expect("replay driver closed its output");
-        let mut fields = self.line.split_whitespace();
+        let line = self.send(command);
+        let mut fields = line.split_whitespace();
         let status = fields.next().unwrap_or("");
-        assert_eq!(status, "ok", "replay driver answered `{}` to `{command}`", self.line.trim());
+        assert_eq!(status, "ok", "replay driver answered `{}` to `{command}`", line.trim());
         fields.map(|f| f.parse().expect("numeric field")).collect()
     }
 }
@@ -301,13 +334,11 @@ impl Subject for Cpp {
         (f[0] as usize, f[1] as usize)
     }
     fn class(&mut self, eclass: u32) -> Option<Vec<Reported>> {
-        writeln!(self.stdin, "class {eclass}").expect("replay driver closed its input");
-        self.line.clear();
-        self.stdout.read_line(&mut self.line).expect("replay driver closed its output");
-        if self.line.starts_with("error") {
+        let line = self.send(&format!("class {eclass}"));
+        if line.starts_with("error") {
             return None;
         }
-        let f: Vec<u64> = self.line.split_whitespace().skip(1).map(|x| x.parse().unwrap()).collect();
+        let f: Vec<u64> = line.split_whitespace().skip(1).map(|x| x.parse().unwrap()).collect();
         let (mut at, mut nodes) = (1, Vec::new());
         for _ in 0..f[0] {
             let (symbol, disambiguator, arity) = (f[at] as u8, f[at + 1], f[at + 2] as usize);
