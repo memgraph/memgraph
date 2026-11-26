@@ -268,6 +268,62 @@ struct ProcessingContext : BaseProcessingContext {
 };
 
 /**
+ * E-classes by id. Ids are dense, handed out one per e-node by the union-find,
+ * so a vector indexed by id finds a class without hashing. A slot is empty
+ * once its class has been merged into another. Classes are held by pointer so
+ * a reference to one stays valid while others are added.
+ */
+template <typename Analysis>
+class ClassTable {
+ public:
+  auto find(EClassId id) const -> EClass<Analysis> * {
+    auto const index = static_cast<std::size_t>(id.value_of());
+    return index < slots_.size() ? slots_[index].get() : nullptr;
+  }
+
+  [[nodiscard]] auto contains(EClassId id) const -> bool { return find(id) != nullptr; }
+
+  void emplace(EClassId id, std::unique_ptr<EClass<Analysis>> eclass) {
+    auto const index = static_cast<std::size_t>(id.value_of());
+    if (index >= slots_.size()) slots_.resize(index + 1);
+    assert(!slots_[index] && "e-class id already in use");
+    slots_[index] = std::move(eclass);
+    ++size_;
+  }
+
+  void erase(EClassId id) {
+    auto &slot = slots_[static_cast<std::size_t>(id.value_of())];
+    assert(slot && "erasing an absent e-class");
+    slot.reset();
+    --size_;
+  }
+
+  [[nodiscard]] auto size() const -> std::size_t { return size_; }
+
+  [[nodiscard]] auto empty() const -> bool { return size_ == 0; }
+
+  void reserve(std::size_t capacity) { slots_.reserve(capacity); }
+
+  void clear() {
+    slots_.clear();
+    size_ = 0;
+  }
+
+  /// The live classes in id order, as (id, class) pairs.
+  auto entries() const {
+    return std::views::iota(std::size_t{0}, slots_.size()) |
+           std::views::filter([this](std::size_t index) { return slots_[index] != nullptr; }) |
+           std::views::transform([this](std::size_t index) {
+             return std::make_pair(EClassId{static_cast<uint32_t>(index)}, std::cref(*slots_[index]));
+           });
+  }
+
+ private:
+  std::vector<std::unique_ptr<EClass<Analysis>>> slots_;
+  std::size_t size_ = 0;
+};
+
+/**
  * @brief e-graph with defered invariant maintenance
  *
  * @tparam Symbol The type used for operation symbols in expressions
@@ -337,7 +393,7 @@ struct EGraph : private detail::EGraphBase {
    */
   auto eclass(EClassId id) -> EClass<Analysis> & {
     assert(classes_.contains(id) && "id needs to be canonical");
-    return *classes_.find(id)->second;
+    return *classes_.find(id);
   }
 
   /**
@@ -345,7 +401,7 @@ struct EGraph : private detail::EGraphBase {
    */
   auto eclass(EClassId id) const -> EClass<Analysis> const & {
     assert(classes_.contains(id) && "id needs to be canonical");
-    return *classes_.find(id)->second;
+    return *classes_.find(id);
   }
 
   /**
@@ -406,9 +462,9 @@ struct EGraph : private detail::EGraphBase {
       canonical_ids.erase(duplicates_first, duplicates_last);
 
       for (auto const raw_id : canonical_ids) {
-        auto const it = classes_.find(EClassId{raw_id});
-        if (it == classes_.end()) continue;
-        auto const &eclass = *it->second;
+        auto const *found = classes_.find(EClassId{raw_id});
+        if (found == nullptr) continue;
+        auto const &eclass = *found;
         worklist.insert(worklist.end(), eclass.nodes().begin(), eclass.nodes().end());
         worklist.insert(worklist.end(), eclass.parents().begin(), eclass.parents().end());
       }
@@ -432,9 +488,9 @@ struct EGraph : private detail::EGraphBase {
       worklist.pop_back();
 
       auto const canonical = find(enode_id);
-      auto const it = classes_.find(canonical);
-      if (it == classes_.end()) continue;  // merged away since it was queued
-      auto &eclass = *it->second;
+      auto *found = classes_.find(canonical);
+      if (found == nullptr) continue;  // merged away since it was queued
+      auto &eclass = *found;
 
       if (!update_node(get_enode(enode_id), eclass.analysis_for_refresh())) continue;
 
@@ -488,10 +544,7 @@ struct EGraph : private detail::EGraphBase {
    *
    * Uses std::views instead of range-v3 so ADL works with C++20 modules.
    */
-  auto canonical_classes() const {
-    return std::views::transform(classes_,
-                                 [](auto const &pair) { return std::make_pair(pair.first, std::cref(*pair.second)); });
-  }
+  auto canonical_classes() const { return classes_.entries(); }
 
   /**
    * @brief Reserve capacity for expected number of e-classes
@@ -579,7 +632,7 @@ struct EGraph : private detail::EGraphBase {
 
   auto intern_enode(ENode<Symbol> enode) -> ENodeRef<Symbol>;
 
-  boost::unordered_flat_map<EClassId, std::unique_ptr<EClass<Analysis>>> classes_;
+  ClassTable<Analysis> classes_;
   boost::unordered_flat_map<ENodeRef<Symbol>, ENodeInfo> hashcons_;
   std::deque<ENode<Symbol>> enode_storage_;
   EClassSet canonical_eclasses_;
@@ -645,9 +698,9 @@ auto EGraph<Symbol, Analysis>::emplace(Symbol symbol, utils::small_vector<EClass
   // Update parent lists for children - ESSENTIAL for congruence closure
   for (EClassId child_id : enode_ref.value().children()) {
     assert(canonical_eclass(union_find_, child_id) == child_id);
-    auto child_it = classes_.find(child_id);
-    assert(child_it != classes_.end());
-    child_it->second->add_parent(new_enode_id);
+    auto *child = classes_.find(child_id);
+    assert(child != nullptr);
+    child->add_parent(new_enode_id);
   }
 
   canonical_eclasses_.add(new_eclass_id);
@@ -680,7 +733,7 @@ auto EGraph<Symbol, Analysis>::merge(EClassId a, EClassId b) -> MergeResult {
   // rebuild re-enter here, so this captures the full cascade.
   mark_changed(merged_id);
 
-  merge_eclasses(*classes_[merged_id], other_id);
+  merge_eclasses(*classes_.find(merged_id), other_id);
 
   return {.eclass_id = merged_id, .did_merge = true};
 }
@@ -723,22 +776,22 @@ void EGraph<Symbol, Analysis>::rebuild(ProcessingContext<Symbol> &ctx) {
 
   auto const chunk_processor = [&] {
     for (EClassId eclass_id : canonicalized_chunk) {
-      auto it = classes_.find(eclass_id);
-      if (it == classes_.end()) [[unlikely]] {
+      auto *found = classes_.find(eclass_id);
+      if (found == nullptr) [[unlikely]] {
         // This is possible if during process_parents we have merged
         // eclass_id with another eclass. In that case the merged eclass will exist
         // in the rebuild_worklist_ for the next iteration of todos
         continue;
       }
-      auto const &eclass = *it->second;
+      auto const &eclass = *found;
       auto canonical_after_repair = repair_hashcons_eclass(eclass, eclass_id, ctx);
 
       // Re-lookup the class since it might have been merged during repair
       if (canonical_after_repair != eclass_id) {
-        it = classes_.find(canonical_after_repair);
-        assert(it != classes_.end());
+        found = classes_.find(canonical_after_repair);
+        assert(found != nullptr);
       }
-      process_parents(*it->second, ctx);
+      process_parents(*found, ctx);
     }
   };
 
@@ -880,10 +933,10 @@ template <typename Symbol, typename Analysis>
 void EGraph<Symbol, Analysis>::merge_eclasses(EClass<Analysis> &destination, EClassId other_id) {
   assert(canonical_eclass(union_find_, other_id) != other_id &&
          "other_id must be non-canonical (already unioned away)");
-  auto it = classes_.find(other_id);
-  assert(it != classes_.end());
-  destination.merge_with(std::move(*it->second));
-  classes_.erase(it);
+  auto *other = classes_.find(other_id);
+  assert(other != nullptr);
+  destination.merge_with(std::move(*other));
+  classes_.erase(other_id);
   canonical_eclasses_.remove(other_id);
 }
 
@@ -900,9 +953,9 @@ auto EGraph<Symbol, Analysis>::merge_all(std::span<const uint32_t> canonical_ids
   rebuild_worklist_.insert(merged_root);
   mark_changed(merged_root);
 
-  auto merged_it = classes_.find(merged_root);
-  assert(merged_it != classes_.end());
-  auto &merged_eclass = *merged_it->second;
+  auto *merged = classes_.find(merged_root);
+  assert(merged != nullptr);
+  auto &merged_eclass = *merged;
   for (auto id : canonical_ids) {
     if (EClassId{id} != merged_root) {
       merge_eclasses(merged_eclass, EClassId{id});
@@ -922,16 +975,15 @@ void EGraph<Symbol, Analysis>::remove_duplicate_enode(ENode<Symbol> const &enode
   // Remove from each child's parent set
   for (auto child_id : enode.children()) {
     assert(child_id == canonical_eclass(union_find_, child_id) && "enode children must be canonical");
-    auto child_it = classes_.find(child_id);
-    if (child_it != classes_.end()) {
-      child_it->second->remove_parent(enode_id);
+    if (auto *child = classes_.find(child_id); child != nullptr) {
+      child->remove_parent(enode_id);
     }
   }
 
   // Remove from the e-class's nodes list
-  auto eclass_it = classes_.find(eclass_id);
-  assert(eclass_it != classes_.end());
-  eclass_it->second->remove_node(enode_id);
+  auto *eclass = classes_.find(eclass_id);
+  assert(eclass != nullptr);
+  eclass->remove_node(enode_id);
 
   ++num_dead_nodes_;
 }
