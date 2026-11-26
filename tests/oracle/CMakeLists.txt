@@ -49,3 +49,11 @@ endfunction()
 
 add_rust_oracle(egraph)
 target_link_libraries(memgraph__oracle__egraph mg::planner)
+
+# A command-line driver for the planner's EGraph, so the Rust model and port
+# tests can check the C++ e-graph without being rebuilt against it.
+add_executable(memgraph__oracle__egraph_replay egraph/replay.cpp)
+set_target_properties(memgraph__oracle__egraph_replay PROPERTIES OUTPUT_NAME egraph_replay)
+target_include_directories(memgraph__oracle__egraph_replay PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(memgraph__oracle__egraph_replay mg::planner)
+add_dependencies(memgraph__oracle memgraph__oracle__egraph_replay)
