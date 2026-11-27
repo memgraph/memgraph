@@ -285,6 +285,7 @@ def test_primary_region(test_name):
             cursors, register_instance_query(4, region="us", mode=mode), "replication mode is derived from"
         )
     assert_raises_on_all(cursors, "SET INSTANCE instance_2 TO MAIN", "A primary region is set")
+    assert_raises_on_all(cursors, "SET INSTANCE instance_typo TO MAIN", "No instance with such name!")
     assert_raises_on_all(cursors, "DROP REGION 'eu'", "Region 'eu' is the primary region.")
     assert_raises_on_all(cursors, "UPDATE CONFIG FOR INSTANCE instance_2 {'region': null}", "can't be removed")
 

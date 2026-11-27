@@ -633,15 +633,6 @@ auto CoordinatorInstance::SetReplicationInstanceToMain(std::string_view new_main
     return SetInstanceToMainCoordinatorStatus::NOT_LEADER;
   }
 
-  // In cross-region mode the reconciliation loop places the main in the primary region.
-  if (raft_state_->GetPrimaryRegion().has_value()) {
-    return SetInstanceToMainCoordinatorStatus::PRIMARY_REGION_SET;
-  }
-
-  if (raft_state_->MainExists()) {
-    return SetInstanceToMainCoordinatorStatus::MAIN_ALREADY_EXISTS;
-  }
-
   auto data_instances = raft_state_->GetDataInstancesContext();
   auto main_data_instance = std::ranges::find_if(data_instances, [new_main_name](auto const &data_instance) {
     return data_instance.config.instance_name == new_main_name;
@@ -650,6 +641,15 @@ auto CoordinatorInstance::SetReplicationInstanceToMain(std::string_view new_main
   if (main_data_instance == std::ranges::end(data_instances)) {
     spdlog::error("Instance {} not registered. Please register it using REGISTER INSTANCE query.", new_main_name);
     return SetInstanceToMainCoordinatorStatus::NO_INSTANCE_WITH_NAME;
+  }
+
+  // In cross-region mode the reconciliation loop places the main in the primary region.
+  if (raft_state_->GetPrimaryRegion().has_value()) {
+    return SetInstanceToMainCoordinatorStatus::PRIMARY_REGION_SET;
+  }
+
+  if (raft_state_->MainExists()) {
+    return SetInstanceToMainCoordinatorStatus::MAIN_ALREADY_EXISTS;
   }
 
   auto const is_new_main_connector = [new_main_name](auto const &instance) {
