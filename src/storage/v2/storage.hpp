@@ -19,6 +19,7 @@
 #include <unordered_map>
 #include <unordered_set>
 
+#include <boost/unordered/unordered_flat_map.hpp>
 #include <boost/unordered/unordered_flat_set.hpp>
 #include <nlohmann/json_fwd.hpp>
 
@@ -236,8 +237,8 @@ struct EdgeInfoForDeletion {
   boost::unordered_flat_set<EdgeRef> partial_src_edges{};
   boost::unordered_flat_set<EdgeRef> partial_dest_edges{};
   // How many of those edges each vertex holds in the matching direction, so its scan can stop once all are found.
-  std::unordered_map<Vertex *, size_t> partial_src_vertices{};
-  std::unordered_map<Vertex *, size_t> partial_dest_vertices{};
+  boost::unordered_flat_map<Vertex *, size_t> partial_src_vertices{};
+  boost::unordered_flat_map<Vertex *, size_t> partial_dest_vertices{};
 };
 
 struct TTLReplicationArgs {

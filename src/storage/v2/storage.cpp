@@ -385,8 +385,8 @@ Result<std::optional<std::unordered_set<Vertex *>>> Storage::Accessor::PrepareDe
 EdgeInfoForDeletion Storage::Accessor::PrepareDeletableEdges(const std::unordered_set<Vertex *> &vertices,
                                                              const std::vector<EdgeAccessor *> &edges,
                                                              bool detach) noexcept {
-  std::unordered_map<Vertex *, size_t> partial_src_vertices;
-  std::unordered_map<Vertex *, size_t> partial_dest_vertices;
+  boost::unordered_flat_map<Vertex *, size_t> partial_src_vertices;
+  boost::unordered_flat_map<Vertex *, size_t> partial_dest_vertices;
   boost::unordered_flat_set<EdgeRef> src_edges;
   boost::unordered_flat_set<EdgeRef> dest_edges;
 
