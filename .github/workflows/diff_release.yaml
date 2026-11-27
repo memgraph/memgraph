@@ -395,6 +395,12 @@ jobs:
             echo "BRANCH_NAME=$(echo ${GITHUB_REF#refs/heads/} | tr / -)" >> $GITHUB_ENV
           fi
 
+      - name: Run delete edges micro benchmark
+        # TEMPORARY: compare edge deletion between branches; revert before merge
+        run: |
+          docker exec -u mg "mgbuild_${TOOLCHAIN}_${OS}" bash -c \
+          "source /opt/toolchain-${TOOLCHAIN}/activate && cd /home/mg/memgraph/build && ulimit -s 262144 && ./tests/benchmark/storage_v2_delete_edges"
+
       - name: Run mgbench
         run: |
           ./release/package/mgbuild.sh \
