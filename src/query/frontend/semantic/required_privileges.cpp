@@ -210,6 +210,7 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
       case CoordinatorQuery::Action::UPDATE_CONFIG:
       case CoordinatorQuery::Action::ADD_REGION:
       case CoordinatorQuery::Action::DROP_REGION:
+      case CoordinatorQuery::Action::SET_PRIMARY_REGION:
         AddPrivilege(AuthQuery::Privilege::COORDINATOR_WRITE);
         break;
     }

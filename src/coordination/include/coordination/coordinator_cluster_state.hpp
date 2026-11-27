@@ -70,6 +70,8 @@ struct CoordinatorClusterStateDelta {
   std::optional<bool> global_read_only_;
   std::optional<std::vector<CoordinatorRole>> roles_;
   std::optional<std::set<std::string>> regions_;
+  // Only ever set: once a primary region exists, the cluster can't go back to having none.
+  std::optional<std::string> primary_region_;
 
   bool operator==(const CoordinatorClusterStateDelta &other) const = default;
 };
@@ -127,6 +129,8 @@ class CoordinatorClusterState {
 
   auto GetRegions() const -> std::set<std::string>;
 
+  auto GetPrimaryRegion() const -> std::optional<std::string>;
+
   auto TryGetCurrentMainName() const -> std::optional<std::string>;
 
   // Setter function used on parsing data from json
@@ -161,6 +165,9 @@ class CoordinatorClusterState {
   // Setter function used on parsing data from json
   void SetRegions(std::set<std::string> regions);
 
+  // Setter function used on parsing data from json
+  void SetPrimaryRegion(std::optional<std::string> primary_region);
+
   friend bool operator==(const CoordinatorClusterState &lhs, const CoordinatorClusterState &rhs) {
     if (&lhs == &rhs) {
       return true;
@@ -179,19 +186,21 @@ class CoordinatorClusterState {
                     lhs.instance_health_check_frequency_sec_,
                     lhs.global_read_only_,
                     lhs.roles_,
-                    lhs.regions_) == std::tie(rhs.data_instances_,
-                                              rhs.coordinator_instances_,
-                                              rhs.current_main_uuid_,
-                                              rhs.enabled_reads_on_main_,
-                                              rhs.sync_failover_only_,
-                                              rhs.max_failover_replica_lag_,
-                                              rhs.max_replica_read_lag_,
-                                              rhs.deltas_batch_progress_size_,
-                                              rhs.instance_down_timeout_sec_,
-                                              rhs.instance_health_check_frequency_sec_,
-                                              rhs.global_read_only_,
-                                              rhs.roles_,
-                                              rhs.regions_);
+                    lhs.regions_,
+                    lhs.primary_region_) == std::tie(rhs.data_instances_,
+                                                     rhs.coordinator_instances_,
+                                                     rhs.current_main_uuid_,
+                                                     rhs.enabled_reads_on_main_,
+                                                     rhs.sync_failover_only_,
+                                                     rhs.max_failover_replica_lag_,
+                                                     rhs.max_replica_read_lag_,
+                                                     rhs.deltas_batch_progress_size_,
+                                                     rhs.instance_down_timeout_sec_,
+                                                     rhs.instance_health_check_frequency_sec_,
+                                                     rhs.global_read_only_,
+                                                     rhs.roles_,
+                                                     rhs.regions_,
+                                                     rhs.primary_region_);
   }
 
  private:
@@ -224,6 +233,8 @@ class CoordinatorClusterState {
   std::vector<CoordinatorRole> roles_;
   // Names of the regions data instances can be placed in.
   std::set<std::string> regions_;
+  // The region that holds the main and the synchronous replicas. Setting it switches the cluster to cross-region mode.
+  std::optional<std::string> primary_region_;
   mutable utils::ResourceLock app_lock_;
 };
 

@@ -85,7 +85,8 @@ struct DowngradeableSingleArgMsg {
   ArgType arg_;
 };
 
-// A request whose argument gained fields in this version. The argument type upgrades itself from the prior argument.
+// A new version of a request. An argument that changed in this version upgrades itself from the prior argument; an
+// unchanged one is taken over as is.
 template <rpc::RpcMessage PriorVersionType, typename ArgType>
 struct UpgradeableSingleArgMsg {
   static constexpr utils::TypeInfo kType{PriorVersionType::kType};
@@ -99,7 +100,13 @@ struct UpgradeableSingleArgMsg {
     memgraph::slk::Load(&self->arg_, reader);
   }
 
-  static UpgradeableSingleArgMsg Upgrade(PriorVersionType const &prev) { return {ArgType::Upgrade(prev.arg_)}; }
+  static UpgradeableSingleArgMsg Upgrade(PriorVersionType const &prev) {
+    if constexpr (requires { ArgType::Upgrade(prev.arg_); }) {
+      return {ArgType::Upgrade(prev.arg_)};
+    } else {
+      return {prev.arg_};
+    }
+  }
 
   UpgradeableSingleArgMsg(ArgType arg) : arg_(std::move(arg)) {}
 
@@ -560,16 +567,22 @@ using RegisterInstanceResV1 = SingleArgMsg<utils::TypeId::COORD_REGISTER_INSTANC
 using RegisterInstanceRes = StatusResMsg<RegisterInstanceResV1, RegisterInstanceCoordinatorStatus>;
 using RegisterInstanceRpc = rpc::RequestResponse<RegisterInstanceReq, RegisterInstanceRes>;
 
-using UnregisterInstanceReq =
+// v2 answers with the leader's exact status.
+using UnregisterInstanceReqV1 =
     SingleArgMsg<utils::TypeId::COORD_UNREGISTER_INSTANCE_REQ, "UnregisterInstanceReq", 1, std::string>;
-using UnregisterInstanceRes =
+using UnregisterInstanceReq = UpgradeableSingleArgMsg<UnregisterInstanceReqV1, std::string>;
+using UnregisterInstanceResV1 =
     SingleArgMsg<utils::TypeId::COORD_UNREGISTER_INSTANCE_RES, "UnregisterInstanceRes", 1, bool>;
+using UnregisterInstanceRes = StatusResMsg<UnregisterInstanceResV1, UnregisterInstanceCoordinatorStatus>;
 using UnregisterInstanceRpc = rpc::RequestResponse<UnregisterInstanceReq, UnregisterInstanceRes>;
 
-using SetInstanceToMainReq =
+// v2 answers with the leader's exact status.
+using SetInstanceToMainReqV1 =
     SingleArgMsg<utils::TypeId::COORD_SET_INSTANCE_TO_MAIN_REQ, "SetInstanceToMainReq", 1, std::string>;
-using SetInstanceToMainRes =
+using SetInstanceToMainReq = UpgradeableSingleArgMsg<SetInstanceToMainReqV1, std::string>;
+using SetInstanceToMainResV1 =
     SingleArgMsg<utils::TypeId::COORD_SET_INSTANCE_TO_MAIN_RES, "SetInstanceToMainRes", 1, bool>;
+using SetInstanceToMainRes = StatusResMsg<SetInstanceToMainResV1, SetInstanceToMainCoordinatorStatus>;
 using SetInstanceToMainRpc = rpc::RequestResponse<SetInstanceToMainReq, SetInstanceToMainRes>;
 
 using DemoteInstanceReq = SingleArgMsg<utils::TypeId::COORD_DEMOTE_INSTANCE_REQ, "DemoteInstanceReq", 1, std::string>;
@@ -751,6 +764,12 @@ using ShowRegionInfoRes = SingleArgMsg<utils::TypeId::COORD_SHOW_REGION_INFO_RES
                                        std::optional<std::vector<RegionInfo>>>;
 using ShowRegionInfoRpc = rpc::RequestResponse<ShowRegionInfoReq, ShowRegionInfoRes>;
 
+using SetPrimaryRegionReq =
+    SingleArgMsg<utils::TypeId::COORD_SET_PRIMARY_REGION_REQ, "SetPrimaryRegionReq", 1, std::string>;
+using SetPrimaryRegionRes = SingleArgMsg<utils::TypeId::COORD_SET_PRIMARY_REGION_RES, "SetPrimaryRegionRes", 1,
+                                         std::optional<SetPrimaryRegionStatus>>;
+using SetPrimaryRegionRpc = rpc::RequestResponse<SetPrimaryRegionReq, SetPrimaryRegionRes>;
+
 }  // namespace memgraph::coordination
 
 // SLK serialization declarations
@@ -831,6 +850,7 @@ DECLARE_SLK_FREE_FUNCTIONS(coordination::SetCoordinatorSettingRpc)
 DECLARE_SLK_FREE_FUNCTIONS(coordination::AddRegionRpc)
 DECLARE_SLK_FREE_FUNCTIONS(coordination::DropRegionRpc)
 DECLARE_SLK_FREE_FUNCTIONS(coordination::ShowRegionInfoRpc)
+DECLARE_SLK_FREE_FUNCTIONS(coordination::SetPrimaryRegionRpc)
 
 DECLARE_SLK_SERIALIZATION_FUNCTIONS(coordination::UpdateDataInstanceConfigReqV1)
 DECLARE_SLK_SERIALIZATION_FUNCTIONS(coordination::UpdateDataInstanceConfigReq)
@@ -838,6 +858,10 @@ DECLARE_SLK_SERIALIZATION_FUNCTIONS(coordination::UpdateDataInstanceConfigResV1)
 DECLARE_SLK_SERIALIZATION_FUNCTIONS(coordination::UpdateDataInstanceConfigRes)
 
 DECLARE_SLK_SERIALIZATION_FUNCTIONS(coordination::RegisterInstanceReqV1)
+DECLARE_SLK_SERIALIZATION_FUNCTIONS(coordination::UnregisterInstanceReqV1)
+DECLARE_SLK_SERIALIZATION_FUNCTIONS(coordination::UnregisterInstanceResV1)
+DECLARE_SLK_SERIALIZATION_FUNCTIONS(coordination::SetInstanceToMainReqV1)
+DECLARE_SLK_SERIALIZATION_FUNCTIONS(coordination::SetInstanceToMainResV1)
 DECLARE_SLK_SERIALIZATION_FUNCTIONS(coordination::RegisterInstanceResV1)
 DECLARE_SLK_SERIALIZATION_FUNCTIONS(coordination::UpdateConfigReqV1)
 DECLARE_SLK_SERIALIZATION_FUNCTIONS(coordination::UpdateConfigResV1)

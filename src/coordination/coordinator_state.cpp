@@ -188,6 +188,12 @@ auto CoordinatorState::DropRegion(std::string_view const region_name) const -> D
   return std::get<CoordinatorInstance>(data_).DropRegion(region_name);
 }
 
+auto CoordinatorState::SetPrimaryRegion(std::string_view const region_name) const -> SetPrimaryRegionStatus {
+  MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
+            "Primary region cannot be set since variant holds wrong alternative");
+  return std::get<CoordinatorInstance>(data_).SetPrimaryRegion(region_name);
+}
+
 auto CoordinatorState::GetRoles() const -> std::optional<std::vector<CoordinatorRole>> {
   MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
             "Coordinator roles cannot be retrieved since variant holds wrong alternative");

@@ -128,6 +128,7 @@ class CoordinatorStateMachine final : public state_machine {
   auto GetGlobalReadOnly() const -> bool;
   auto GetRoles() const -> std::vector<CoordinatorRole>;
   auto GetRegions() const -> std::set<std::string>;
+  auto GetPrimaryRegion() const -> std::optional<std::string>;
 
  private:
   bool HandleMigration(LogStoreVersion stored_version);

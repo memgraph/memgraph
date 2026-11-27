@@ -245,6 +245,88 @@ def test_instance_regions(test_name):
     execute_and_fetch_all(leader_cursor, "DROP REGION 'eu'")
 
 
+def assert_raises_on_all(cursors, query, expected):
+    for cursor in cursors:
+        with pytest.raises(Exception) as e:
+            execute_and_fetch_all(cursor, query)
+        assert expected in str(e.value), query
+
+
+def test_primary_region(test_name):
+    setup_cluster(test_name)
+    leader_cursor = connect(host="localhost", port=LEADER_PORT).cursor()
+    follower_cursor = connect(host="localhost", port=FOLLOWER_PORTS[0]).cursor()
+    cursors = (leader_cursor, follower_cursor)
+
+    for region in ("eu", "us", "ap"):
+        execute_and_fetch_all(leader_cursor, f"ADD REGION '{region}'")
+    execute_and_fetch_all(leader_cursor, register_instance_query(1, region="eu"))
+    execute_and_fetch_all(leader_cursor, register_instance_query(2, region="us", mode="AS ASYNC"))
+    execute_and_fetch_all(leader_cursor, register_instance_query(3))
+    execute_and_fetch_all(leader_cursor, "SET INSTANCE instance_1 TO MAIN")
+
+    assert_raises_on_all(cursors, "SET 'xx' AS PRIMARY REGION", "Region 'xx' doesn't exist.")
+    assert_raises_on_all(cursors, "SET 'a p' AS PRIMARY REGION", "Invalid region name")
+    assert_raises_on_all(cursors, "SET 'eu' AS PRIMARY REGION", "Every instance must be in a region")
+
+    execute_and_fetch_all(follower_cursor, "UPDATE CONFIG FOR INSTANCE instance_3 {'region': 'eu'}")
+    assert_raises_on_all(cursors, "SET 'ap' AS PRIMARY REGION", "Region 'ap' has no instances")
+
+    # The switch to cross-region mode, issued on a follower; setting the same primary region again is a no-op.
+    execute_and_fetch_all(follower_cursor, "SET 'eu' AS PRIMARY REGION")
+    execute_and_fetch_all(leader_cursor, "SET 'eu' AS PRIMARY REGION")
+    assert_region_info_on_all_coordinators(
+        [("ap", [], False), ("eu", ["instance_1", "instance_3"], True), ("us", ["instance_2"], False)]
+    )
+
+    assert_raises_on_all(cursors, register_instance_query(4), "must be registered with a region")
+    for mode in ("AS ASYNC", "AS STRICT_SYNC"):
+        assert_raises_on_all(
+            cursors, register_instance_query(4, region="us", mode=mode), "replication mode is derived from"
+        )
+    assert_raises_on_all(cursors, "SET INSTANCE instance_2 TO MAIN", "A primary region is set")
+    assert_raises_on_all(cursors, "SET INSTANCE instance_typo TO MAIN", "No instance with such name!")
+    assert_raises_on_all(cursors, "DROP REGION 'eu'", "Region 'eu' is the primary region.")
+    assert_raises_on_all(cursors, "UPDATE CONFIG FOR INSTANCE instance_2 {'region': null}", "can't be removed")
+
+    # Later SETs only move the primary region. instance_2 is now the only instance in it.
+    execute_and_fetch_all(leader_cursor, "SET 'us' AS PRIMARY REGION")
+    assert_region_info_on_all_coordinators(
+        [("ap", [], False), ("eu", ["instance_1", "instance_3"], False), ("us", ["instance_2"], True)]
+    )
+    assert_raises_on_all(cursors, "UNREGISTER INSTANCE instance_2", "last instance in the primary region")
+    assert_raises_on_all(
+        cursors, "UPDATE CONFIG FOR INSTANCE instance_2 {'region': 'eu'}", "last instance in the primary region"
+    )
+    # Moving an instance into the primary region, and within the non-primary regions, is allowed.
+    execute_and_fetch_all(follower_cursor, "UPDATE CONFIG FOR INSTANCE instance_3 {'region': 'ap'}")
+    execute_and_fetch_all(follower_cursor, "UPDATE CONFIG FOR INSTANCE instance_3 {'region': 'us'}")
+    assert_region_info_on_all_coordinators(
+        [("ap", [], False), ("eu", ["instance_1"], False), ("us", ["instance_2", "instance_3"], True)]
+    )
+
+    # Shrink to a single region: set the region that stays as primary, unregister the rest, drop the other regions.
+    execute_and_fetch_all(leader_cursor, "UPDATE CONFIG FOR INSTANCE instance_3 {'region': 'eu'}")
+    execute_and_fetch_all(follower_cursor, "SET 'eu' AS PRIMARY REGION")
+    execute_and_fetch_all(follower_cursor, "UNREGISTER INSTANCE instance_2")
+    execute_and_fetch_all(leader_cursor, "DROP REGION 'us'")
+
+    # An instance registered in cross-region mode replicates in its region's mode: SYNC inside the primary region,
+    # ASYNC elsewhere.
+    main_cursor = connect(host="localhost", port=DATA_INSTANCE_PORT).cursor()
+
+    def replica_modes():
+        return sorted((row[0], row[2]) for row in execute_and_fetch_all(main_cursor, "SHOW REPLICAS"))
+
+    execute_and_fetch_all(follower_cursor, register_instance_query(2, region="ap"))
+    mg_sleep_and_assert([("instance_2", "async"), ("instance_3", "sync")], replica_modes)
+    execute_and_fetch_all(leader_cursor, "UNREGISTER INSTANCE instance_2")
+    execute_and_fetch_all(leader_cursor, "DROP REGION 'ap'")
+    execute_and_fetch_all(follower_cursor, register_instance_query(2, region="eu"))
+    mg_sleep_and_assert([("instance_2", "sync"), ("instance_3", "sync")], replica_modes)
+    assert_region_info_on_all_coordinators([("eu", ["instance_1", "instance_2", "instance_3"], True)])
+
+
 def test_region_queries_rejected_on_data_instance(test_name):
     setup_cluster(test_name)
     cursor = connect(host="localhost", port=DATA_INSTANCE_PORT).cursor()
@@ -253,6 +335,7 @@ def test_region_queries_rejected_on_data_instance(test_name):
         ("ADD REGION 'eu-west'", "Only coordinator can run ADD REGION query."),
         ("DROP REGION 'eu-west'", "Only coordinator can run DROP REGION query."),
         ("SHOW REGION INFO", "Only coordinator can run SHOW REGION INFO query."),
+        ("SET 'eu-west' AS PRIMARY REGION", "Only coordinator can run SET PRIMARY REGION query."),
     ):
         with pytest.raises(Exception) as e:
             execute_and_fetch_all(cursor, query)
@@ -265,7 +348,8 @@ def test_regions_survive_coordinator_restart(test_name):
     execute_and_fetch_all(leader_cursor, "ADD REGION 'us-east'")
     execute_and_fetch_all(leader_cursor, "ADD REGION 'eu-west'")
     execute_and_fetch_all(leader_cursor, register_instance_query(1, region="eu-west"))
-    expected = [("eu-west", ["instance_1"], False), ("us-east", [], False)]
+    execute_and_fetch_all(leader_cursor, "SET 'eu-west' AS PRIMARY REGION")
+    expected = [("eu-west", ["instance_1"], True), ("us-east", [], False)]
     assert_region_info_on_all_coordinators(expected)
 
     coordinators = ("coordinator_1", "coordinator_2", "coordinator_3")

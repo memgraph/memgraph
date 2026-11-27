@@ -102,6 +102,31 @@ auto RegionNameIsWellFormed(std::string_view const region_name) -> bool {
   return !region_name.empty() && region_name.size() <= kMaxRegionNameLength &&
          std::ranges::all_of(region_name, is_allowed);
 }
+
+// In cross-region mode a replica's mode follows from its region: SYNC inside the primary region, ASYNC elsewhere.
+auto ResolveReplicationMode(std::optional<std::string> const &region, std::string_view const primary_region)
+    -> replication_coordination_glue::ReplicationMode {
+  return region == primary_region ? replication_coordination_glue::ReplicationMode::SYNC
+                                  : replication_coordination_glue::ReplicationMode::ASYNC;
+}
+
+// Whether the instance is in the primary region and no other instance is, so removing it would leave that region empty.
+auto IsLastInstanceInPrimaryRegion(std::vector<DataInstanceContext> const &data_instances,
+                                   std::string_view const instance_name,
+                                   std::optional<std::string> const &primary_region) -> bool {
+  if (!primary_region.has_value()) {
+    return false;
+  }
+  auto const in_primary_region = [&primary_region](auto const &instance) {
+    return instance.config.region == primary_region;
+  };
+  auto const is_instance = [instance_name](auto const &instance) {
+    return instance.config.instance_name == instance_name;
+  };
+  auto const instance = std::ranges::find_if(data_instances, is_instance);
+  return instance != data_instances.end() && in_primary_region(*instance) &&
+         std::ranges::count_if(data_instances, in_primary_region) == 1;
+}
 }  // namespace
 
 using nuraft::ptr;
@@ -596,7 +621,7 @@ auto CoordinatorInstance::SetReplicationInstanceToMain(std::string_view new_main
   auto lock = std::lock_guard{coord_instance_lock_};
 
   if (auto const res =
-          ForwardToLeader<SetInstanceToMainRpc, SetInstanceToMainCoordinatorStatus>(std::string{new_main_name});
+          ForwardStatusToLeader<SetInstanceToMainRpc, SetInstanceToMainCoordinatorStatus>(std::string{new_main_name});
       res.has_value()) {
     return *res;
   }
@@ -608,10 +633,6 @@ auto CoordinatorInstance::SetReplicationInstanceToMain(std::string_view new_main
     return SetInstanceToMainCoordinatorStatus::NOT_LEADER;
   }
 
-  if (raft_state_->MainExists()) {
-    return SetInstanceToMainCoordinatorStatus::MAIN_ALREADY_EXISTS;
-  }
-
   auto data_instances = raft_state_->GetDataInstancesContext();
   auto main_data_instance = std::ranges::find_if(data_instances, [new_main_name](auto const &data_instance) {
     return data_instance.config.instance_name == new_main_name;
@@ -620,6 +641,15 @@ auto CoordinatorInstance::SetReplicationInstanceToMain(std::string_view new_main
   if (main_data_instance == std::ranges::end(data_instances)) {
     spdlog::error("Instance {} not registered. Please register it using REGISTER INSTANCE query.", new_main_name);
     return SetInstanceToMainCoordinatorStatus::NO_INSTANCE_WITH_NAME;
+  }
+
+  // In cross-region mode the reconciliation loop places the main in the primary region.
+  if (raft_state_->GetPrimaryRegion().has_value()) {
+    return SetInstanceToMainCoordinatorStatus::PRIMARY_REGION_SET;
+  }
+
+  if (raft_state_->MainExists()) {
+    return SetInstanceToMainCoordinatorStatus::MAIN_ALREADY_EXISTS;
   }
 
   auto const is_new_main_connector = [new_main_name](auto const &instance) {
@@ -737,8 +767,7 @@ auto CoordinatorInstance::DemoteInstanceToReplica(std::string_view instance_name
   return DemoteInstanceCoordinatorStatus::SUCCESS;
 }
 
-auto CoordinatorInstance::RegisterReplicationInstance(DataInstanceConfig const &config)
-    -> RegisterInstanceCoordinatorStatus {
+auto CoordinatorInstance::RegisterReplicationInstance(DataInstanceConfig config) -> RegisterInstanceCoordinatorStatus {
   if (config.region.has_value() && !RegionNameIsWellFormed(*config.region)) {
     return RegisterInstanceCoordinatorStatus::INVALID_REGION_NAME;
   }
@@ -757,6 +786,19 @@ auto CoordinatorInstance::RegisterReplicationInstance(DataInstanceConfig const &
 
   if (config.region.has_value() && !raft_state_->GetRegions().contains(*config.region)) {
     return RegisterInstanceCoordinatorStatus::NO_SUCH_REGION;
+  }
+
+  // In cross-region mode the coordinator resolves the replication mode from the region.
+  if (auto const primary_region = raft_state_->GetPrimaryRegion(); primary_region.has_value()) {
+    if (!config.region.has_value()) {
+      return RegisterInstanceCoordinatorStatus::REGION_REQUIRED;
+    }
+    // The query can only name ASYNC or STRICT_SYNC; it sends SYNC when no mode is named.
+    auto &replication_mode = config.replication_client_info.replication_mode;
+    if (replication_mode != replication_coordination_glue::ReplicationMode::SYNC) {
+      return RegisterInstanceCoordinatorStatus::REPLICATION_MODE_FORBIDDEN;
+    }
+    replication_mode = ResolveReplicationMode(config.region, *primary_region);
   }
 
   auto data_instances = raft_state_->GetDataInstancesContext();
@@ -851,7 +893,7 @@ auto CoordinatorInstance::UnregisterReplicationInstance(std::string_view instanc
     -> UnregisterInstanceCoordinatorStatus {
   metrics::Metrics().global.unregister_repl_instance->Increment();
   if (auto const res =
-          ForwardToLeader<UnregisterInstanceRpc, UnregisterInstanceCoordinatorStatus>(std::string{instance_name});
+          ForwardStatusToLeader<UnregisterInstanceRpc, UnregisterInstanceCoordinatorStatus>(std::string{instance_name});
       res.has_value()) {
     return *res;
   }
@@ -879,6 +921,10 @@ auto CoordinatorInstance::UnregisterReplicationInstance(std::string_view instanc
   }
 
   auto new_data_instances = raft_state_->GetDataInstancesContext();
+  if (IsLastInstanceInPrimaryRegion(new_data_instances, instance_name, raft_state_->GetPrimaryRegion())) {
+    return UnregisterInstanceCoordinatorStatus::LAST_INSTANCE_IN_PRIMARY_REGION;
+  }
+
   auto const [first, last] = std::ranges::remove_if(new_data_instances, [instance_name](auto const &data_instance) {
     return data_instance.config.instance_name == instance_name;
   });
@@ -1315,6 +1361,9 @@ auto CoordinatorInstance::DropRegion(std::string_view const region_name) const -
   if (it == regions.end()) {
     return DropRegionStatus::NO_SUCH_REGION;
   }
+  if (raft_state_->GetPrimaryRegion() == region_name) {
+    return DropRegionStatus::IS_PRIMARY_REGION;
+  }
   if (std::ranges::any_of(raft_state_->GetDataInstancesContext(),
                           [region_name](auto const &instance) { return instance.config.region == region_name; })) {
     return DropRegionStatus::REGION_HAS_INSTANCES;
@@ -1329,6 +1378,58 @@ auto CoordinatorInstance::DropRegion(std::string_view const region_name) const -
   }
 
   return DropRegionStatus::SUCCESS;
+}
+
+auto CoordinatorInstance::SetPrimaryRegion(std::string_view const region_name) const -> SetPrimaryRegionStatus {
+  if (!RegionNameIsWellFormed(region_name)) {
+    return SetPrimaryRegionStatus::INVALID_REGION_NAME;
+  }
+
+  if (auto const res = ForwardStatusToLeader<SetPrimaryRegionRpc, SetPrimaryRegionStatus>(std::string{region_name});
+      res.has_value()) {
+    return *res;
+  }
+
+  if (status.load(std::memory_order_acquire) != CoordinatorStatus::LEADER_READY) {
+    return SetPrimaryRegionStatus::NOT_LEADER;
+  }
+
+  auto lock = std::scoped_lock{coord_instance_lock_};
+  if (!raft_state_->GetRegions().contains(std::string{region_name})) {
+    return SetPrimaryRegionStatus::NO_SUCH_REGION;
+  }
+
+  auto const current_primary_region = raft_state_->GetPrimaryRegion();
+  if (current_primary_region == region_name) {
+    return SetPrimaryRegionStatus::SUCCESS;
+  }
+
+  auto data_instances = raft_state_->GetDataInstancesContext();
+  if (std::ranges::any_of(data_instances, [](auto const &instance) { return !instance.config.region.has_value(); })) {
+    return SetPrimaryRegionStatus::INSTANCES_WITHOUT_REGION_EXIST;
+  }
+
+  if (std::ranges::none_of(data_instances,
+                           [region_name](auto const &instance) { return instance.config.region == region_name; })) {
+    return SetPrimaryRegionStatus::REGION_HAS_NO_INSTANCES;
+  }
+
+  // Every replica's mode follows from the new primary region, so it is rewritten in the same entry.
+  for (auto &instance : data_instances) {
+    instance.config.replication_client_info.replication_mode =
+        ResolveReplicationMode(instance.config.region, region_name);
+  }
+  // NOLINTNEXTLINE
+  CoordinatorClusterStateDelta const delta_state{.data_instances_ = std::move(data_instances),
+                                                 .primary_region_ = std::string{region_name}};
+
+  if (!raft_state_->AppendLogAndWaitForCommit(delta_state)) {
+    spdlog::error("Aborting setting region {} as the primary region. Writing to Raft failed.", region_name);
+    return SetPrimaryRegionStatus::RAFT_LOG_ERROR;
+  }
+
+  spdlog::info("Region {} set as the primary region.", region_name);
+  return SetPrimaryRegionStatus::SUCCESS;
 }
 
 auto CoordinatorInstance::GetRoles() const -> std::optional<std::vector<CoordinatorRole>> {
@@ -1942,11 +2043,13 @@ auto CoordinatorInstance::ShowRegionInfoAsLeader() const -> std::optional<std::v
     }
   }
 
+  auto const primary_region = raft_state_->GetPrimaryRegion();
   std::vector<RegionInfo> result;
   result.reserve(instances_by_region.size());
   for (auto &[region, instances] : instances_by_region) {
     std::ranges::sort(instances);
-    result.emplace_back(RegionInfo{.name = region, .instances = std::move(instances), .is_primary_region = false});
+    result.emplace_back(
+        RegionInfo{.name = region, .instances = std::move(instances), .is_primary_region = primary_region == region});
   }
   return result;
 }
@@ -2105,11 +2208,26 @@ auto CoordinatorInstance::UpdateConfig(UpdateInstanceConfig const &config) -> Up
       return UpdateConfigStatus::NO_SUCH_REGION;
     }
 
+    auto const primary_region = raft_state_->GetPrimaryRegion();
+    if (primary_region.has_value() && config.region.has_value()) {
+      if (!config.region->has_value()) {
+        return UpdateConfigStatus::REGION_REMOVAL_FORBIDDEN;
+      }
+      if (*config.region != primary_region &&
+          IsLastInstanceInPrimaryRegion(data_instances_context, instance_name, primary_region)) {
+        return UpdateConfigStatus::LAST_INSTANCE_IN_PRIMARY_REGION;
+      }
+    }
+
     if (config.bolt_endpoint.has_value()) {
       repl_instance_it->config.bolt_server = *config.bolt_endpoint;
     }
     if (config.region.has_value()) {
       repl_instance_it->config.region = *config.region;
+      if (primary_region.has_value()) {
+        repl_instance_it->config.replication_client_info.replication_mode =
+            ResolveReplicationMode(repl_instance_it->config.region, *primary_region);
+      }
     }
 
     // NOLINTNEXTLINE

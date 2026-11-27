@@ -187,6 +187,15 @@ TEST_F(RaftLogSerialization, SerializeUpdateClusterStateWithEmptyRegions) {
   ASSERT_TRUE(decoded_log_state.regions_->empty());
 }
 
+TEST_F(RaftLogSerialization, SerializeUpdateClusterStateWithPrimaryRegion) {
+  // NOLINTNEXTLINE
+  CoordinatorClusterStateDelta const delta_state{.primary_region_ = "eu-west"};
+  auto const buffer = CoordinatorStateMachine::SerializeUpdateClusterState(delta_state);
+  auto const decoded_log_state = CoordinatorStateMachine::DecodeLog(*buffer);
+  ASSERT_EQ(delta_state, decoded_log_state);
+  ASSERT_EQ(decoded_log_state.primary_region_, "eu-west");
+}
+
 TEST_F(RaftLogSerialization, SerializeUpdateClusterStateWithoutRegions) {
   // An older log entry without regions decodes with regions_ unset, so DoAction leaves the region set untouched.
   // NOLINTNEXTLINE
@@ -195,4 +204,5 @@ TEST_F(RaftLogSerialization, SerializeUpdateClusterStateWithoutRegions) {
   auto const decoded_log_state = CoordinatorStateMachine::DecodeLog(*buffer);
   ASSERT_EQ(delta_state, decoded_log_state);
   ASSERT_FALSE(decoded_log_state.regions_.has_value());
+  ASSERT_FALSE(decoded_log_state.primary_region_.has_value());
 }

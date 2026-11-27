@@ -3373,7 +3373,8 @@ class CoordinatorQuery : public memgraph::query::Query {
     SHOW_ROUTING_TABLE,
     ADD_REGION,
     DROP_REGION,
-    SHOW_REGION_INFO
+    SHOW_REGION_INFO,
+    SET_PRIMARY_REGION
   };
 
   enum class SyncMode : uint8_t { SYNC, ASYNC, STRICT_SYNC };

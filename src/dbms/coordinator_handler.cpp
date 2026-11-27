@@ -75,6 +75,11 @@ auto CoordinatorHandler::DropRegion(std::string_view const region_name) const ->
   return coordinator_state_.DropRegion(region_name);
 }
 
+auto CoordinatorHandler::SetPrimaryRegion(std::string_view const region_name) const
+    -> coordination::SetPrimaryRegionStatus {
+  return coordinator_state_.SetPrimaryRegion(region_name);
+}
+
 auto CoordinatorHandler::ShowRegionInfo() const -> std::optional<std::vector<coordination::RegionInfo>> {
   return coordinator_state_.ShowRegionInfo();
 }
