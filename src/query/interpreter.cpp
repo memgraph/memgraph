@@ -542,6 +542,10 @@ class ReplQueryHandler {
 };
 
 #ifdef MG_ENTERPRISE
+// Doesn't echo the rejected name: it may be invalid UTF-8, which the client could not decode.
+constexpr std::string_view kInvalidRegionNameMessage{
+    "Invalid region name. It must be 1 to 128 characters long and contain only letters, digits, '-', '_' and '.'."};
+
 class CoordQueryHandler final : public query::CoordinatorQueryHandler {
  public:
   explicit CoordQueryHandler(coordination::CoordinatorState &coordinator_state)
@@ -557,6 +561,11 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
       case IS_MAIN:
         throw QueryRuntimeException(
             "Alive main instance can't be unregistered! Shut it down to trigger failover and then unregister it!");
+      case LAST_INSTANCE_IN_PRIMARY_REGION:
+        throw QueryRuntimeException(
+            "Instance {} is the last instance in the primary region and can't be unregistered. Set another primary "
+            "region first.",
+            instance_name);
       case NOT_COORDINATOR:
         throw QueryRuntimeException("UNREGISTER INSTANCE query can only be run on a coordinator!");
       case NOT_LEADER: {
@@ -699,6 +708,79 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
     return coordinator_handler_.ShowCoordinatorSettings();
   }
 
+  void AddRegion(std::string_view const region_name) override {
+    switch (coordinator_handler_.AddRegion(region_name)) {
+      case coordination::AddRegionStatus::SUCCESS:
+        break;
+      case coordination::AddRegionStatus::REGION_EXISTS:
+        throw QueryRuntimeException("Region '{}' already exists.", region_name);
+      case coordination::AddRegionStatus::NOT_LEADER:
+        throw QueryRuntimeException(GetNotLeaderForwardedQueryMessage());
+      case coordination::AddRegionStatus::LEADER_NOT_FOUND:
+        throw QueryRuntimeException(GetLeaderNotFoundForwardedQueryMessage());
+      case coordination::AddRegionStatus::LEADER_FAILED:
+        throw QueryRuntimeException(GetLeaderFailedForwardedQueryMessage());
+      case coordination::AddRegionStatus::RAFT_LOG_ERROR:
+        throw QueryRuntimeException("Writing to Raft log failed. Please retry the operation.");
+      case coordination::AddRegionStatus::INVALID_REGION_NAME:
+        throw QueryRuntimeException(kInvalidRegionNameMessage);
+    }
+  }
+
+  void DropRegion(std::string_view const region_name) override {
+    switch (coordinator_handler_.DropRegion(region_name)) {
+      case coordination::DropRegionStatus::SUCCESS:
+        break;
+      case coordination::DropRegionStatus::NO_SUCH_REGION:
+        throw QueryRuntimeException("Region '{}' doesn't exist.", region_name);
+      case coordination::DropRegionStatus::NOT_LEADER:
+        throw QueryRuntimeException(GetNotLeaderForwardedQueryMessage());
+      case coordination::DropRegionStatus::LEADER_NOT_FOUND:
+        throw QueryRuntimeException(GetLeaderNotFoundForwardedQueryMessage());
+      case coordination::DropRegionStatus::LEADER_FAILED:
+        throw QueryRuntimeException(GetLeaderFailedForwardedQueryMessage());
+      case coordination::DropRegionStatus::RAFT_LOG_ERROR:
+        throw QueryRuntimeException("Writing to Raft log failed. Please retry the operation.");
+      case coordination::DropRegionStatus::INVALID_REGION_NAME:
+        throw QueryRuntimeException(kInvalidRegionNameMessage);
+      case coordination::DropRegionStatus::REGION_HAS_INSTANCES:
+        throw QueryRuntimeException(
+            "Region '{}' still has instances. Move or unregister them before dropping the region.", region_name);
+      case coordination::DropRegionStatus::IS_PRIMARY_REGION:
+        throw QueryRuntimeException("Region '{}' is the primary region. Set another primary region before dropping it.",
+                                    region_name);
+    }
+  }
+
+  void SetPrimaryRegion(std::string_view const region_name) override {
+    switch (coordinator_handler_.SetPrimaryRegion(region_name)) {
+      case coordination::SetPrimaryRegionStatus::SUCCESS:
+        break;
+      case coordination::SetPrimaryRegionStatus::NO_SUCH_REGION:
+        throw QueryRuntimeException("Region '{}' doesn't exist.", region_name);
+      case coordination::SetPrimaryRegionStatus::REGION_HAS_NO_INSTANCES:
+        throw QueryRuntimeException("Region '{}' has no instances, so it can't be the primary region.", region_name);
+      case coordination::SetPrimaryRegionStatus::INSTANCES_WITHOUT_REGION_EXIST:
+        throw QueryRuntimeException(
+            "Every instance must be in a region before a primary region is set. Assign the missing regions with "
+            "UPDATE CONFIG.");
+      case coordination::SetPrimaryRegionStatus::NOT_LEADER:
+        throw QueryRuntimeException(GetNotLeaderForwardedQueryMessage());
+      case coordination::SetPrimaryRegionStatus::LEADER_NOT_FOUND:
+        throw QueryRuntimeException(GetLeaderNotFoundForwardedQueryMessage());
+      case coordination::SetPrimaryRegionStatus::LEADER_FAILED:
+        throw QueryRuntimeException(GetLeaderFailedForwardedQueryMessage());
+      case coordination::SetPrimaryRegionStatus::RAFT_LOG_ERROR:
+        throw QueryRuntimeException("Writing to Raft log failed. Please retry the operation.");
+      case coordination::SetPrimaryRegionStatus::INVALID_REGION_NAME:
+        throw QueryRuntimeException(kInvalidRegionNameMessage);
+    }
+  }
+
+  std::optional<std::vector<coordination::RegionInfo>> ShowRegionInfo() override {
+    return coordinator_handler_.ShowRegionInfo();
+  }
+
   void CreateRole(std::string_view const role_name, bool const if_not_exists) override {
     if (auth::IsInternalSystemUsername(role_name)) {
       throw QueryRuntimeException("The name '{}' is reserved for the internal system user.", role_name);
@@ -810,7 +892,7 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
 
   void RegisterReplicationInstance(std::string_view bolt_server, std::string_view management_server,
                                    std::string_view replication_server, std::string_view instance_name,
-                                   CoordinatorQuery::SyncMode sync_mode) override {
+                                   CoordinatorQuery::SyncMode sync_mode, std::optional<std::string> region) override {
     auto const maybe_bolt_server = io::network::Endpoint::ParseAndCreateSocketOrAddress(bolt_server);
     if (!maybe_bolt_server) {
       throw QueryRuntimeException("Invalid bolt socket address. {}", kSocketErrorExplanation);
@@ -831,13 +913,25 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
                                             .replication_mode = convertFromCoordinatorToReplicationMode(sync_mode),
                                             .replication_server = *maybe_replication_server};
 
-    auto coordinator_client_config = coordination::DataInstanceConfig{.instance_name = std::string(instance_name),
-                                                                      .mgt_server = *maybe_management_server,
-                                                                      .bolt_server = *maybe_bolt_server,
-                                                                      .replication_client_info = repl_config};
+    auto const coordinator_client_config = coordination::DataInstanceConfig{.instance_name = std::string(instance_name),
+                                                                            .mgt_server = *maybe_management_server,
+                                                                            .bolt_server = *maybe_bolt_server,
+                                                                            .replication_client_info = repl_config,
+                                                                            .region = region};
 
     switch (coordinator_handler_.RegisterReplicationInstance(coordinator_client_config)) {
       using enum coordination::RegisterInstanceCoordinatorStatus;
+      case NO_SUCH_REGION:
+        throw QueryRuntimeException("Region '{}' doesn't exist.", *region);
+      case INVALID_REGION_NAME:
+        throw QueryRuntimeException(kInvalidRegionNameMessage);
+      case REGION_REQUIRED:
+        throw QueryRuntimeException(
+            "A primary region is set, so the instance must be registered with a {} in its config.", kRegion);
+      case REPLICATION_MODE_FORBIDDEN:
+        throw QueryRuntimeException(
+            "A primary region is set, so the replication mode is derived from the instance's region. Register the "
+            "instance without AS ASYNC or AS STRICT_SYNC.");
       case STRICT_SYNC_AND_SYNC_FORBIDDEN:
         throw QueryRuntimeException(
             "Cluster cannot consists of both STRICT_SYNC and SYNC replicas. The valid cluster consists of either "
@@ -880,17 +974,30 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
     }
   }
 
-  void UpdateConfig(std::variant<int32_t, std::string> instance, io::network::Endpoint bolt_endpoint) override {
-    coordination::UpdateInstanceConfig const config{.data = std::move(instance),
-                                                    .bolt_endpoint = std::move(bolt_endpoint)};
+  void UpdateConfig(coordination::UpdateInstanceConfig const &config) override {
     switch (coordinator_handler_.UpdateConfig(config)) {
       using enum memgraph::coordination::UpdateConfigStatus;
       case NO_SUCH_COORD:
         throw QueryRuntimeException("Couldn't update config for the coordinator {} because it doesn't exist!",
-                                    std::get<int32_t>(instance));
+                                    std::get<int32_t>(config.data));
       case NO_SUCH_REPL_INSTANCE:
         throw QueryRuntimeException("Couldn't update config for the repl instance {} because it doesn't exist!",
-                                    std::get<std::string>(instance));
+                                    std::get<std::string>(config.data));
+      case NO_SUCH_REGION:
+        throw QueryRuntimeException("Region '{}' doesn't exist.", **config.region);
+      case INVALID_REGION_NAME:
+        throw QueryRuntimeException(kInvalidRegionNameMessage);
+      case REGION_FOR_COORDINATOR:
+        throw QueryRuntimeException("Coordinators don't belong to a region, so {} can't be set for them.", kRegion);
+      case NO_CONFIG_CHANGE:
+        throw QueryRuntimeException("Config map must contain at least one of {} and {}.", kBoltServer, kRegion);
+      case LAST_INSTANCE_IN_PRIMARY_REGION:
+        throw QueryRuntimeException(
+            "Instance {} is the last instance in the primary region and can't be moved out of it. Set another primary "
+            "region first.",
+            std::get<std::string>(config.data));
+      case REGION_REMOVAL_FORBIDDEN:
+        throw QueryRuntimeException("A primary region is set, so an instance's {} can't be removed.", kRegion);
       case RAFT_FAILURE:
         throw QueryRuntimeException("Couldn't update config because appending to Raft log failed.");
       case NOT_LEADER:
@@ -1083,6 +1190,10 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
         throw QueryRuntimeException("No instance with such name!");
       case MAIN_ALREADY_EXISTS:
         throw QueryRuntimeException("Couldn't set instance to main since there is already a main instance in cluster!");
+      case PRIMARY_REGION_SET:
+        throw QueryRuntimeException(
+            "A primary region is set, so the coordinator chooses the main from the primary region. Use SET '<region>' "
+            "AS PRIMARY REGION to move the main to another region.");
       case NOT_COORDINATOR:
         throw QueryRuntimeException("SET INSTANCE TO MAIN query can only be run on a coordinator!");
       case NOT_LEADER: {
@@ -1345,6 +1456,7 @@ auth::Permission RequiredCoordinatorPermission(Query *query) {
       case CoordinatorQuery::Action::SHOW_COORDINATOR_SETTINGS:
       case CoordinatorQuery::Action::SHOW_REPLICATION_LAG:
       case CoordinatorQuery::Action::SHOW_ROUTING_TABLE:
+      case CoordinatorQuery::Action::SHOW_REGION_INFO:
         return auth::Permission::COORDINATOR_READ;
       default:
         return auth::Permission::COORDINATOR_WRITE;
@@ -2641,19 +2753,40 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
       // the argument to Callback.
       EvaluationContext const evaluation_context{.timestamp = QueryTimestamp(), .parameters = parameters};
       auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
-      auto config_map = ParseConfigMap(coordinator_query->configs_, evaluator);
+      auto const is_coordinator = coordinator_query->instance_name_.empty();
 
-      if (!config_map) {
-        throw QueryRuntimeException("Failed to parse config map!");
+      // Values are strings, except that a region can be null to remove it.
+      std::optional<std::string> bolt_server;
+      std::optional<std::optional<std::string>> region;
+      for (auto const &[key_expr, value_expr] : coordinator_query->configs_) {
+        auto const key = key_expr->Accept(evaluator);
+        auto const value = value_expr->Accept(evaluator);
+        if (!key.IsString()) {
+          throw QueryRuntimeException("Config map keys must be strings!");
+        }
+        if (key.ValueString() == kBoltServer && value.IsString()) {
+          bolt_server.emplace(std::string{value.ValueString()});
+        } else if (key.ValueString() == kRegion && !is_coordinator && value.IsString()) {
+          region.emplace(std::string{value.ValueString()});
+        } else if (key.ValueString() == kRegion && !is_coordinator && value.IsNull()) {
+          region.emplace(std::nullopt);
+        } else if (key.ValueString() == kRegion && is_coordinator) {
+          throw QueryRuntimeException("Coordinators don't belong to a region, so {} can't be set for them.", kRegion);
+        } else if (is_coordinator) {
+          throw QueryRuntimeException("Config map for a coordinator must contain exactly 1 entry: {}!", kBoltServer);
+        } else {
+          throw QueryRuntimeException(
+              "Config map for an instance may contain only {} (a string) and {} (a string or null)!",
+              kBoltServer,
+              kRegion);
+        }
       }
 
-      if (config_map->size() != 1) {
-        throw QueryRuntimeException("Config map must contain exactly 1 entry: {}!", kBoltServer);
-      }
-
-      auto const &bolt_server_it = config_map->find(kBoltServer);
-      if (bolt_server_it == config_map->end()) {
-        throw QueryRuntimeException("Config map must contain {} entry!", kBoltServer);
+      if (!bolt_server.has_value() && !region.has_value()) {
+        if (is_coordinator) {
+          throw QueryRuntimeException("Config map must contain {} entry!", kBoltServer);
+        }
+        throw QueryRuntimeException("Config map must contain at least one of {} and {}!", kBoltServer, kRegion);
       }
 
       auto data = std::invoke([coordinator_query, &evaluator]() -> std::variant<int32_t, std::string> {
@@ -2663,28 +2796,35 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
         return EvaluateCoordinatorId(evaluator, coordinator_query->coordinator_id_);
       });
 
-      callback.fn =
-          [handler = CoordQueryHandler{*coordinator_state}, bolt_server = bolt_server_it->second, data]() mutable {
-            auto const maybe_bolt_server = io::network::Endpoint::ParseAndCreateSocketOrAddress(bolt_server);
-            if (!maybe_bolt_server) {
-              throw QueryRuntimeException("Invalid bolt socket address. {}", kSocketErrorExplanation);
-            }
-            handler.UpdateConfig(data, *maybe_bolt_server);
-
-            return std::vector<std::vector<TypedValue>>();
-          };
-
-      auto const notification_str = std::invoke([coordinator_query, &evaluator]() {
-        if (!coordinator_query->instance_name_.empty()) {
-          return fmt::format("for instance {}", coordinator_query->instance_name_);
-        }
-        const auto coord_server_id = EvaluateCoordinatorId(evaluator, coordinator_query->coordinator_id_);
-        return fmt::format("for coordinator {}", coord_server_id);
-      });
+      auto const target = is_coordinator ? fmt::format("coordinator {}", std::get<int32_t>(data))
+                                         : fmt::format("instance {}", std::get<std::string>(data));
+      std::vector<std::string> changes;
+      if (bolt_server.has_value()) {
+        changes.emplace_back(fmt::format("bolt server to {}", *bolt_server));
+      }
+      if (region.has_value()) {
+        changes.emplace_back(region->has_value() ? fmt::format("region to {}", **region) : "removed region");
+      }
       notifications->emplace_back(
           SeverityLevel::INFO,
           NotificationCode::UPDATE_CONFIG,
-          fmt::format("Coordinator has updated bolt server to {} {}.", bolt_server_it->second, notification_str));
+          fmt::format("Coordinator has updated config for {}: {}.", target, utils::Join(changes, ", ")));
+
+      callback.fn = [handler = CoordQueryHandler{*coordinator_state},
+                     bolt_server = std::move(bolt_server),
+                     region = std::move(region),
+                     data = std::move(data)]() mutable {
+        std::optional<io::network::Endpoint> bolt_endpoint;
+        if (bolt_server.has_value()) {
+          bolt_endpoint = io::network::Endpoint::ParseAndCreateSocketOrAddress(*bolt_server);
+          if (!bolt_endpoint) {
+            throw QueryRuntimeException("Invalid bolt socket address. {}", kSocketErrorExplanation);
+          }
+        }
+        handler.UpdateConfig(coordination::UpdateInstanceConfig{
+            .data = std::move(data), .bolt_endpoint = std::move(bolt_endpoint), .region = std::move(region)});
+        return std::vector<std::vector<TypedValue>>();
+      };
       return callback;
     }
     case CoordinatorQuery::Action::REGISTER_INSTANCE: {
@@ -2701,12 +2841,16 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
         throw QueryRuntimeException("Failed to parse config map!");
       }
 
-      if (config_map->size() != 3) {
-        throw QueryRuntimeException("Config map must contain exactly 3 entries: {}, {} and {}!",
+      auto const region_it = config_map->find(kRegion);
+      auto const has_region = region_it != config_map->end();
+      if (config_map->size() != (has_region ? 4 : 3)) {
+        throw QueryRuntimeException("Config map must contain exactly 3 entries: {}, {} and {}, and optionally {}!",
                                     kBoltServer,
                                     kManagementServer,
-                                    kReplicationServer);
+                                    kReplicationServer,
+                                    kRegion);
       }
+      auto region = has_region ? std::optional{region_it->second} : std::nullopt;
 
       auto const &replication_server_it = config_map->find(kReplicationServer);
       if (replication_server_it == config_map->end()) {
@@ -2728,9 +2872,10 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
                      management_server = management_server_it->second,
                      replication_server = replication_server_it->second,
                      instance_name = coordinator_query->instance_name_,
-                     sync_mode = coordinator_query->sync_mode_]() mutable {
+                     sync_mode = coordinator_query->sync_mode_,
+                     region = std::move(region)]() mutable {
         handler.RegisterReplicationInstance(
-            bolt_server, management_server, replication_server, instance_name, sync_mode);
+            bolt_server, management_server, replication_server, instance_name, sync_mode, region);
         return std::vector<std::vector<TypedValue>>();
       };
 
@@ -2997,6 +3142,74 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
           return {TypedValue{role}, TypedValue{std::move(servers_tv)}};
         };
         return utils::fmap(routing_table, converter);
+      };
+      return callback;
+    }
+    case CoordinatorQuery::Action::ADD_REGION:
+    case CoordinatorQuery::Action::DROP_REGION:
+    case CoordinatorQuery::Action::SET_PRIMARY_REGION: {
+      auto const action = coordinator_query->action_;
+      if (!coordinator_state->IsCoordinator()) {
+        constexpr auto query_name = [](CoordinatorQuery::Action const action) -> std::string_view {
+          switch (action) {
+            case CoordinatorQuery::Action::ADD_REGION:
+              return "ADD REGION";
+            case CoordinatorQuery::Action::DROP_REGION:
+              return "DROP REGION";
+            default:
+              return "SET PRIMARY REGION";
+          }
+        };
+        throw QueryRuntimeException("Only coordinator can run {} query.", query_name(action));
+      }
+      EvaluationContext const evaluation_context{.timestamp = QueryTimestamp(), .parameters = parameters};
+      auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
+      auto const region_name = EvaluateOptionalExpression(coordinator_query->region_name_, evaluator);
+      if (!region_name.IsString()) {
+        throw QueryRuntimeException("Region name should be a string literal.");
+      }
+
+      callback.fn = [handler = CoordQueryHandler{*coordinator_state},
+                     region_name = std::string{region_name.ValueString()},
+                     action]() mutable {
+        if (action == CoordinatorQuery::Action::ADD_REGION) {
+          handler.AddRegion(region_name);
+        } else if (action == CoordinatorQuery::Action::DROP_REGION) {
+          handler.DropRegion(region_name);
+        } else {
+          handler.SetPrimaryRegion(region_name);
+        }
+        return std::vector<std::vector<TypedValue>>();
+      };
+      return callback;
+    }
+    case CoordinatorQuery::Action::SHOW_REGION_INFO: {
+      if (!coordinator_state->IsCoordinator()) {
+        throw QueryRuntimeException("Only coordinator can run SHOW REGION INFO query.");
+      }
+      callback.header = {"region", "instances", "is_primary_region"};
+      callback.fn = [handler = CoordQueryHandler{*coordinator_state}, notifications]() mutable {
+        auto const regions = handler.ShowRegionInfo();
+        if (!regions.has_value()) {
+          notifications->emplace_back(SeverityLevel::WARNING,
+                                      NotificationCode::LEADER_NOT_REACHABLE,
+                                      "Couldn't reach the leader coordinator, so the region info is unknown. "
+                                      "Please retry the query.");
+          return std::vector<std::vector<TypedValue>>{};
+        }
+
+        std::vector<std::vector<TypedValue>> results;
+        results.reserve(regions->size());
+        for (auto const &region : *regions) {
+          std::vector<TypedValue> instances;
+          instances.reserve(region.instances.size());
+          for (auto const &instance : region.instances) {
+            instances.emplace_back(instance);
+          }
+          results.push_back(
+              {TypedValue{region.name}, TypedValue{std::move(instances)}, TypedValue{region.is_primary_region}});
+        }
+        return results;
       };
       return callback;
     }

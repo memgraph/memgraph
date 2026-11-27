@@ -308,6 +308,237 @@ TEST(RpcVersioning, UpdateDataInstanceConfigRpc) {
   }
 }
 
+namespace memgraph::coordination {
+using RegisterInstanceRpcV1 = rpc::RequestResponse<RegisterInstanceReqV1, RegisterInstanceResV1>;
+using UpdateConfigRpcV1 = rpc::RequestResponse<UpdateConfigReqV1, UpdateConfigResV1>;
+using UnregisterInstanceRpcV1 = rpc::RequestResponse<UnregisterInstanceReqV1, UnregisterInstanceResV1>;
+using SetInstanceToMainRpcV1 = rpc::RequestResponse<SetInstanceToMainReqV1, SetInstanceToMainResV1>;
+}  // namespace memgraph::coordination
+
+namespace {
+auto MakeDataInstanceConfigV1() -> memgraph::coordination::DataInstanceConfigV1 {
+  return {
+      .instance_name = "instance_1",
+      .mgt_server = Endpoint{"localhost", 10011},
+      .bolt_server = Endpoint{"localhost", 7687},
+      .replication_client_info = {.instance_name = "instance_1",
+                                  .replication_mode = memgraph::replication_coordination_glue::ReplicationMode::SYNC,
+                                  .replication_server = Endpoint{"localhost", 10001}}};
+}
+}  // namespace
+
+// RegisterInstanceReq v2 carries the instance's region inside DataInstanceConfig and RegisterInstanceRes v2 the
+// leader's exact status. A v1 request upgrades to no region, and the v2 status downgrades to the v1 success flag.
+TEST(RpcVersioning, RegisterInstanceRpc) {
+  using memgraph::coordination::DataInstanceConfig;
+  using memgraph::coordination::RegisterInstanceCoordinatorStatus;
+  Endpoint const endpoint{"localhost", port};
+
+  ServerContext server_context;
+  Server rpc_server{endpoint, &server_context, /* workers */ 1};
+  auto const on_exit = memgraph::utils::OnScopeExit{[&rpc_server] {
+    ASSERT_TRUE(rpc_server.Shutdown());
+    rpc_server.AwaitShutdown();
+  }};
+
+  std::optional<DataInstanceConfig> received;
+  auto status = RegisterInstanceCoordinatorStatus::SUCCESS;
+
+  rpc_server.Register<memgraph::coordination::RegisterInstanceRpc>(
+      [&received, &status](std::optional<memgraph::rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+                           uint64_t const request_version,
+                           auto *req_reader,
+                           auto *res_builder) {
+        memgraph::coordination::RegisterInstanceReq req;
+        memgraph::rpc::LoadWithUpgrade(req, request_version, req_reader);
+        received = req.arg_;
+        memgraph::rpc::SendFinalResponse(
+            memgraph::coordination::RegisterInstanceRes{status}, request_version, res_builder);
+      });
+
+  ASSERT_TRUE(rpc_server.Start());
+  std::this_thread::sleep_for(100ms);
+
+  ClientContext client_context;
+  Client client{endpoint, &client_context};
+  auto const config_v1 = MakeDataInstanceConfigV1();
+  auto config = DataInstanceConfig::Upgrade(config_v1);
+  config.region = "eu-west";
+  {
+    status = RegisterInstanceCoordinatorStatus::NO_SUCH_REGION;
+    auto stream = client.Stream<memgraph::coordination::RegisterInstanceRpc>(config);
+    auto reply = stream.SendAndWait();
+    EXPECT_EQ(reply.arg_, RegisterInstanceCoordinatorStatus::NO_SUCH_REGION);
+    ASSERT_TRUE(received.has_value());
+    EXPECT_EQ(*received, config);
+  }
+  {
+    status = RegisterInstanceCoordinatorStatus::SUCCESS;
+    auto stream = client.Stream<memgraph::coordination::RegisterInstanceRpcV1>(config_v1);
+    auto reply = stream.SendAndWait();
+    EXPECT_TRUE(reply.arg_);
+    EXPECT_EQ(received->instance_name, config_v1.instance_name);
+    EXPECT_EQ(received->mgt_server, config_v1.mgt_server);
+    EXPECT_EQ(received->bolt_server, config_v1.bolt_server);
+    EXPECT_EQ(received->replication_client_info, config_v1.replication_client_info);
+    EXPECT_FALSE(received->region.has_value());
+  }
+  {
+    status = RegisterInstanceCoordinatorStatus::NAME_EXISTS;
+    auto stream = client.Stream<memgraph::coordination::RegisterInstanceRpcV1>(config_v1);
+    auto reply = stream.SendAndWait();
+    EXPECT_FALSE(reply.arg_);
+  }
+}
+
+// UpdateConfigReq v2 makes the bolt endpoint optional and carries a region change (set or remove); UpdateConfigRes v2
+// carries the leader's exact status. A v1 request upgrades to a bolt-only change.
+TEST(RpcVersioning, UpdateConfigRpc) {
+  using memgraph::coordination::UpdateConfigStatus;
+  using memgraph::coordination::UpdateInstanceConfig;
+  Endpoint const endpoint{"localhost", port};
+
+  ServerContext server_context;
+  Server rpc_server{endpoint, &server_context, /* workers */ 1};
+  auto const on_exit = memgraph::utils::OnScopeExit{[&rpc_server] {
+    ASSERT_TRUE(rpc_server.Shutdown());
+    rpc_server.AwaitShutdown();
+  }};
+
+  std::optional<UpdateInstanceConfig> received;
+  auto status = UpdateConfigStatus::SUCCESS;
+
+  rpc_server.Register<memgraph::coordination::UpdateConfigRpc>(
+      [&received, &status](std::optional<memgraph::rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+                           uint64_t const request_version,
+                           auto *req_reader,
+                           auto *res_builder) {
+        memgraph::coordination::UpdateConfigReq req;
+        memgraph::rpc::LoadWithUpgrade(req, request_version, req_reader);
+        received = req.arg_;
+        memgraph::rpc::SendFinalResponse(memgraph::coordination::UpdateConfigRes{status}, request_version, res_builder);
+      });
+
+  ASSERT_TRUE(rpc_server.Start());
+  std::this_thread::sleep_for(100ms);
+
+  ClientContext client_context;
+  Client client{endpoint, &client_context};
+  {
+    // Region removal without a bolt change.
+    status = UpdateConfigStatus::SUCCESS;
+    auto stream = client.Stream<memgraph::coordination::UpdateConfigRpc>(UpdateInstanceConfig{
+        .data = std::string{"instance_1"}, .bolt_endpoint = std::nullopt, .region = std::optional<std::string>{}});
+    auto reply = stream.SendAndWait();
+    EXPECT_EQ(reply.arg_, UpdateConfigStatus::SUCCESS);
+    ASSERT_TRUE(received.has_value());
+    EXPECT_EQ(std::get<std::string>(received->data), "instance_1");
+    EXPECT_FALSE(received->bolt_endpoint.has_value());
+    ASSERT_TRUE(received->region.has_value());
+    EXPECT_FALSE(received->region->has_value());
+  }
+  {
+    status = UpdateConfigStatus::NO_SUCH_REGION;
+    auto stream = client.Stream<memgraph::coordination::UpdateConfigRpc>(
+        UpdateInstanceConfig{.data = std::string{"instance_1"},
+                             .bolt_endpoint = Endpoint{"localhost", 7688},
+                             .region = std::optional<std::string>{"us-east"}});
+    auto reply = stream.SendAndWait();
+    EXPECT_EQ(reply.arg_, UpdateConfigStatus::NO_SUCH_REGION);
+    EXPECT_EQ(received->bolt_endpoint, (Endpoint{"localhost", 7688}));
+    EXPECT_EQ(received->region, std::optional<std::string>{"us-east"});
+  }
+  {
+    status = UpdateConfigStatus::SUCCESS;
+    auto stream =
+        client.Stream<memgraph::coordination::UpdateConfigRpcV1>(memgraph::coordination::UpdateInstanceConfigV1{
+            .data = int32_t{2}, .bolt_endpoint = Endpoint{"localhost", 7690}});
+    auto reply = stream.SendAndWait();
+    EXPECT_TRUE(reply.arg_);
+    EXPECT_EQ(std::get<int32_t>(received->data), 2);
+    EXPECT_EQ(received->bolt_endpoint, (Endpoint{"localhost", 7690}));
+    EXPECT_FALSE(received->region.has_value());
+  }
+  {
+    status = UpdateConfigStatus::NO_SUCH_COORD;
+    auto stream =
+        client.Stream<memgraph::coordination::UpdateConfigRpcV1>(memgraph::coordination::UpdateInstanceConfigV1{
+            .data = int32_t{9}, .bolt_endpoint = Endpoint{"localhost", 7690}});
+    auto reply = stream.SendAndWait();
+    EXPECT_FALSE(reply.arg_);
+  }
+}
+
+namespace {
+// The v2 request carries the same instance name as v1; the v2 response carries the leader's exact status, which
+// downgrades to the v1 success flag.
+template <typename Rpc, typename RpcV1, typename StatusEnum>
+void TestInstanceNameStatusRpc(StatusEnum const failure) {
+  Endpoint const endpoint{"localhost", port};
+
+  ServerContext server_context;
+  Server rpc_server{endpoint, &server_context, /* workers */ 1};
+  auto const on_exit = memgraph::utils::OnScopeExit{[&rpc_server] {
+    ASSERT_TRUE(rpc_server.Shutdown());
+    rpc_server.AwaitShutdown();
+  }};
+
+  std::string received;
+  auto status = StatusEnum::SUCCESS;
+
+  rpc_server.Register<Rpc>(
+      [&received, &status](std::optional<memgraph::rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+                           uint64_t const request_version,
+                           auto *req_reader,
+                           auto *res_builder) {
+        typename Rpc::Request req;
+        memgraph::rpc::LoadWithUpgrade(req, request_version, req_reader);
+        received = req.arg_;
+        memgraph::rpc::SendFinalResponse(typename Rpc::Response{status}, request_version, res_builder);
+      });
+
+  ASSERT_TRUE(rpc_server.Start());
+  std::this_thread::sleep_for(100ms);
+
+  ClientContext client_context;
+  Client client{endpoint, &client_context};
+  {
+    status = failure;
+    auto stream = client.Stream<Rpc>(std::string{"instance_1"});
+    auto reply = stream.SendAndWait();
+    EXPECT_EQ(reply.arg_, failure);
+    EXPECT_EQ(received, "instance_1");
+  }
+  {
+    status = StatusEnum::SUCCESS;
+    auto stream = client.Stream<RpcV1>(std::string{"instance_2"});
+    auto reply = stream.SendAndWait();
+    EXPECT_TRUE(reply.arg_);
+    EXPECT_EQ(received, "instance_2");
+  }
+  {
+    status = failure;
+    auto stream = client.Stream<RpcV1>(std::string{"instance_3"});
+    auto reply = stream.SendAndWait();
+    EXPECT_FALSE(reply.arg_);
+  }
+}
+}  // namespace
+
+TEST(RpcVersioning, UnregisterInstanceRpc) {
+  using memgraph::coordination::UnregisterInstanceCoordinatorStatus;
+  TestInstanceNameStatusRpc<memgraph::coordination::UnregisterInstanceRpc,
+                            memgraph::coordination::UnregisterInstanceRpcV1>(
+      UnregisterInstanceCoordinatorStatus::LAST_INSTANCE_IN_PRIMARY_REGION);
+}
+
+TEST(RpcVersioning, SetInstanceToMainRpc) {
+  using memgraph::coordination::SetInstanceToMainCoordinatorStatus;
+  TestInstanceNameStatusRpc<memgraph::coordination::SetInstanceToMainRpc,
+                            memgraph::coordination::SetInstanceToMainRpcV1>(
+      SetInstanceToMainCoordinatorStatus::PRIMARY_REGION_SET);
+}
+
 // PromoteToMainReq gained a `writing_enabled` flag in v2 (the projection of global_read_only) alongside the existing
 // uuid and replicas. Verify Upgrade/Downgrade bridge v1<->v2 correctly.
 TEST(RpcVersioning, PromoteToMainPayload) {

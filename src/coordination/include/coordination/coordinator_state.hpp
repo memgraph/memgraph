@@ -67,6 +67,12 @@ class CoordinatorState {
 
   auto DropRole(std::string_view role_name) const -> DropRoleStatus;
 
+  auto AddRegion(std::string_view region_name) const -> AddRegionStatus;
+
+  auto DropRegion(std::string_view region_name) const -> DropRegionStatus;
+
+  auto SetPrimaryRegion(std::string_view region_name) const -> SetPrimaryRegionStatus;
+
   // Strong read served by the leader: nullopt when the leader is unreachable, never local replicated state, so
   // consumers (SSO authentication, privilege checks, SHOW ROLES) fail closed instead of acting on stale roles.
   auto GetRoles() const -> std::optional<std::vector<CoordinatorRole>>;
@@ -86,6 +92,8 @@ class CoordinatorState {
   auto ShowCoordinatorSettings() const -> std::optional<std::vector<std::pair<std::string, std::string>>>;
 
   auto ShowReplicationLag() const -> std::optional<ReplicationLagResult>;
+
+  auto ShowRegionInfo() const -> std::optional<std::vector<RegionInfo>>;
 
   [[nodiscard]] auto GetLeaderCoordinatorData() const -> std::optional<LeaderCoordinatorData>;
 

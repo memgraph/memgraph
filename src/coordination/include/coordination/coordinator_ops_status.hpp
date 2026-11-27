@@ -67,6 +67,38 @@ enum class RevokePrivilegeStatus : uint8_t {
   LEADER_FAILED
 };
 
+enum class AddRegionStatus : uint8_t {
+  SUCCESS = 0,
+  REGION_EXISTS,
+  NOT_LEADER,
+  RAFT_LOG_ERROR,
+  LEADER_NOT_FOUND,
+  LEADER_FAILED,
+  INVALID_REGION_NAME
+};
+enum class DropRegionStatus : uint8_t {
+  SUCCESS = 0,
+  NO_SUCH_REGION,
+  NOT_LEADER,
+  RAFT_LOG_ERROR,
+  LEADER_NOT_FOUND,
+  LEADER_FAILED,
+  INVALID_REGION_NAME,
+  REGION_HAS_INSTANCES,
+  IS_PRIMARY_REGION
+};
+enum class SetPrimaryRegionStatus : uint8_t {
+  SUCCESS = 0,
+  NO_SUCH_REGION,
+  NOT_LEADER,
+  RAFT_LOG_ERROR,
+  LEADER_NOT_FOUND,
+  LEADER_FAILED,
+  INVALID_REGION_NAME,
+  REGION_HAS_NO_INSTANCES,
+  INSTANCES_WITHOUT_REGION_EXIST
+};
+
 enum class RegisterInstanceCoordinatorStatus : uint8_t {
   NAME_EXISTS = 0,
   MGMT_ENDPOINT_EXISTS,
@@ -78,6 +110,10 @@ enum class RegisterInstanceCoordinatorStatus : uint8_t {
   STRICT_SYNC_AND_SYNC_FORBIDDEN,
   LEADER_NOT_FOUND,
   LEADER_FAILED,
+  NO_SUCH_REGION,
+  INVALID_REGION_NAME,
+  REGION_REQUIRED,
+  REPLICATION_MODE_FORBIDDEN,
 };
 
 enum class UnregisterInstanceCoordinatorStatus : uint8_t {
@@ -89,6 +125,7 @@ enum class UnregisterInstanceCoordinatorStatus : uint8_t {
   LEADER_NOT_FOUND,
   LEADER_FAILED,
   SUCCESS,
+  LAST_INSTANCE_IN_PRIMARY_REGION,
 };
 
 enum class SetInstanceToMainCoordinatorStatus : uint8_t {
@@ -100,6 +137,7 @@ enum class SetInstanceToMainCoordinatorStatus : uint8_t {
   SUCCESS,
   LEADER_NOT_FOUND,
   LEADER_FAILED,
+  PRIMARY_REGION_SET,
 };
 
 enum class AddCoordinatorInstanceStatus : uint8_t {
@@ -158,6 +196,12 @@ enum class UpdateConfigStatus : uint8_t {
   NOT_LEADER,
   LEADER_FAILED,
   LEADER_NOT_FOUND,
+  NO_SUCH_REGION,
+  INVALID_REGION_NAME,
+  REGION_FOR_COORDINATOR,
+  NO_CONFIG_CHANGE,
+  LAST_INSTANCE_IN_PRIMARY_REGION,
+  REGION_REMOVAL_FORBIDDEN,
 };
 
 enum class DemoteInstanceCoordinatorStatus : uint8_t {

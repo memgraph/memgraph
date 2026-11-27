@@ -161,6 +161,7 @@ memgraphCypherKeyword : cypherKeyword
                       | PERMISSIONS
                       | POINT
                       | PORT
+                      | PRIMARY
                       | PRIVILEGES
                       | PROPERTY
                       | PROFILE_RESTRICTION
@@ -171,6 +172,7 @@ memgraphCypherKeyword : cypherKeyword
                       | READ
                       | READ_FILE
                       | RECOVER
+                      | REGION
                       | REGISTER
                       | RELOAD
                       | RELOAD_TLS
@@ -375,6 +377,10 @@ coordinatorQuery : registerInstanceOnCoordinator
                  | showReplicationLag
                  | showRoutingTable
                  | updateConfig
+                 | addRegion
+                 | dropRegion
+                 | showRegionInfo
+                 | setPrimaryRegion
                  ;
 
 triggerQuery : createTrigger
@@ -694,6 +700,14 @@ setCoordinatorSetting: SET COORDINATOR SETTING settingName TO settingValue ;
 showCoordinatorSettings: SHOW COORDINATOR SETTINGS ;
 
 showReplicationLag: SHOW REPLICATION LAG ;
+
+addRegion : ADD REGION regionName=literal ;
+
+dropRegion : DROP REGION regionName=literal ;
+
+showRegionInfo : SHOW REGION INFO ;
+
+setPrimaryRegion : SET regionName=literal AS PRIMARY REGION ;
 
 showRoutingTable: SHOW ROUTING TABLE ;
 

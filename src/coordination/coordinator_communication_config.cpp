@@ -55,6 +55,9 @@ void to_json(nlohmann::json &j, DataInstanceConfig const &config) {
                      {kMgtServer, config.mgt_server},
                      {kBoltServer, config.bolt_server},
                      {kReplicationClientInfo, config.replication_client_info}};
+  if (config.region.has_value()) {
+    j[kRegion.data()] = *config.region;
+  }
 }
 
 void from_json(nlohmann::json const &j, DataInstanceConfig &config) {
@@ -62,6 +65,11 @@ void from_json(nlohmann::json const &j, DataInstanceConfig &config) {
   config.mgt_server = j.at(kMgtServer).get<io::network::Endpoint>();
   config.bolt_server = j.at(kBoltServer).get<io::network::Endpoint>();
   config.replication_client_info = j.at(kReplicationClientInfo).get<ReplicationClientInfo>();
+  if (auto const it = j.find(kRegion.data()); it != j.end()) {
+    config.region = it->get<std::string>();
+  } else {
+    config.region.reset();
+  }
 }
 
 void from_json(nlohmann::json const &j, InstanceUUIDUpdate &instance_uuid_update) {

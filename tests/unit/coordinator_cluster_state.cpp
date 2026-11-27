@@ -353,6 +353,180 @@ TEST_F(CoordinatorClusterStateTest, RolesBackwardCompat) {
   ASSERT_EQ(feature_state.GetRoles(), (std::vector<CoordinatorRole>{{.name = "admin", .permissions = 3}}));
 }
 
+TEST_F(CoordinatorClusterStateTest, RegionsAddDrop) {
+  CoordinatorClusterState cluster_state{};
+  ASSERT_TRUE(cluster_state.GetRegions().empty());
+
+  // NOLINTNEXTLINE
+  CoordinatorClusterStateDelta const add_delta{.regions_ = std::set<std::string>{"us-east", "eu-west"}};
+  cluster_state.DoAction(add_delta);
+  ASSERT_EQ(cluster_state.GetRegions(), (std::set<std::string>{"eu-west", "us-east"}));
+
+  // NOLINTNEXTLINE
+  CoordinatorClusterStateDelta const unrelated_delta{.enabled_reads_on_main_ = true};
+  cluster_state.DoAction(unrelated_delta);
+  ASSERT_EQ(cluster_state.GetRegions(), (std::set<std::string>{"eu-west", "us-east"}));
+
+  // NOLINTNEXTLINE
+  CoordinatorClusterStateDelta const drop_delta{.regions_ = std::set<std::string>{"eu-west"}};
+  cluster_state.DoAction(drop_delta);
+  ASSERT_EQ(cluster_state.GetRegions(), (std::set<std::string>{"eu-west"}));
+
+  // NOLINTNEXTLINE
+  CoordinatorClusterStateDelta const clear_delta{.regions_ = std::set<std::string>{}};
+  cluster_state.DoAction(clear_delta);
+  ASSERT_TRUE(cluster_state.GetRegions().empty());
+}
+
+TEST_F(CoordinatorClusterStateTest, RegionsCopyAndMove) {
+  auto const expected = std::set<std::string>{"eu-west", "us-east"};
+  CoordinatorClusterState cluster_state{};
+  // NOLINTNEXTLINE
+  CoordinatorClusterStateDelta const delta_state{.regions_ = expected};
+  cluster_state.DoAction(delta_state);
+
+  CoordinatorClusterState copied{cluster_state};
+  ASSERT_EQ(copied.GetRegions(), expected);
+
+  CoordinatorClusterState copy_assigned{};
+  copy_assigned = cluster_state;
+  ASSERT_EQ(copy_assigned.GetRegions(), expected);
+
+  CoordinatorClusterState moved{std::move(copied)};
+  ASSERT_EQ(moved.GetRegions(), expected);
+
+  CoordinatorClusterState move_assigned{};
+  move_assigned = std::move(copy_assigned);
+  ASSERT_EQ(move_assigned.GetRegions(), expected);
+}
+
+TEST_F(CoordinatorClusterStateTest, RegionsMarshalling) {
+  CoordinatorClusterState cluster_state{};
+  // NOLINTNEXTLINE
+  CoordinatorClusterStateDelta const delta_state{.regions_ = std::set<std::string>{"eu-west", "EU-west", "us-east"}};
+  cluster_state.DoAction(delta_state);
+
+  ptr<buffer> data;
+  cluster_state.Serialize(data);
+
+  auto deserialized_cluster_state = CoordinatorClusterState::Deserialize(*data);
+  ASSERT_EQ(cluster_state, deserialized_cluster_state);
+  ASSERT_EQ(deserialized_cluster_state.GetRegions(), (std::set<std::string>{"EU-west", "eu-west", "us-east"}));
+}
+
+TEST_F(CoordinatorClusterStateTest, RegionsBackwardCompat) {
+  auto const uuid = UUID{};
+
+  // A snapshot serialized before regions existed has no "regions" key and loads with an empty region set.
+  auto json =
+      nlohmann::json{{memgraph::coordination::kDataInstances.data(), std::vector<DataInstanceContext>{}},
+                     {memgraph::coordination::kMainUUID.data(), uuid},
+                     {memgraph::coordination::kCoordinatorInstances.data(), std::vector<CoordinatorInstanceContext>{}}};
+  CoordinatorClusterState legacy_state;
+  nlohmann::from_json(json, legacy_state);
+  ASSERT_TRUE(legacy_state.GetRegions().empty());
+
+  json[memgraph::coordination::kRegions.data()] = std::set<std::string>{"eu-west"};
+  CoordinatorClusterState feature_state;
+  nlohmann::from_json(json, feature_state);
+  ASSERT_EQ(feature_state.GetRegions(), (std::set<std::string>{"eu-west"}));
+}
+
+TEST_F(CoordinatorClusterStateTest, PrimaryRegionDoAction) {
+  CoordinatorClusterState cluster_state{};
+  ASSERT_FALSE(cluster_state.GetPrimaryRegion().has_value());
+
+  // NOLINTNEXTLINE
+  cluster_state.DoAction(CoordinatorClusterStateDelta{.primary_region_ = "eu"});
+  ASSERT_EQ(cluster_state.GetPrimaryRegion(), "eu");
+
+  // A delta without a primary region leaves it untouched.
+  // NOLINTNEXTLINE
+  cluster_state.DoAction(CoordinatorClusterStateDelta{.regions_ = std::set<std::string>{"eu", "us"}});
+  ASSERT_EQ(cluster_state.GetPrimaryRegion(), "eu");
+
+  // NOLINTNEXTLINE
+  cluster_state.DoAction(CoordinatorClusterStateDelta{.primary_region_ = "us"});
+  ASSERT_EQ(cluster_state.GetPrimaryRegion(), "us");
+
+  auto const copied = cluster_state;
+  ASSERT_EQ(copied.GetPrimaryRegion(), "us");
+  auto moved = CoordinatorClusterState{cluster_state};
+  auto const move_constructed = std::move(moved);
+  ASSERT_EQ(move_constructed.GetPrimaryRegion(), "us");
+}
+
+TEST_F(CoordinatorClusterStateTest, PrimaryRegionMarshalling) {
+  CoordinatorClusterState cluster_state{};
+  // NOLINTNEXTLINE
+  cluster_state.DoAction(
+      CoordinatorClusterStateDelta{.regions_ = std::set<std::string>{"eu", "us"}, .primary_region_ = "eu"});
+
+  ptr<buffer> data;
+  cluster_state.Serialize(data);
+  auto const deserialized_cluster_state = CoordinatorClusterState::Deserialize(*data);
+  ASSERT_EQ(cluster_state, deserialized_cluster_state);
+  ASSERT_EQ(deserialized_cluster_state.GetPrimaryRegion(), "eu");
+
+  // Unset, the key isn't written, and the cluster differs from one with a primary region.
+  CoordinatorClusterState const no_primary_state{};
+  nlohmann::json const no_primary_json = no_primary_state;
+  ASSERT_FALSE(no_primary_json.contains(memgraph::coordination::kPrimaryRegion.data()));
+  ASSERT_NE(no_primary_state, deserialized_cluster_state);
+}
+
+TEST_F(CoordinatorClusterStateTest, PrimaryRegionBackwardCompat) {
+  // A snapshot serialized before cross-region HA has no primary region key and loads without a primary region.
+  auto json =
+      nlohmann::json{{memgraph::coordination::kDataInstances.data(), std::vector<DataInstanceContext>{}},
+                     {memgraph::coordination::kMainUUID.data(), UUID{}},
+                     {memgraph::coordination::kCoordinatorInstances.data(), std::vector<CoordinatorInstanceContext>{}}};
+  CoordinatorClusterState legacy_state;
+  nlohmann::from_json(json, legacy_state);
+  ASSERT_FALSE(legacy_state.GetPrimaryRegion().has_value());
+
+  json[memgraph::coordination::kPrimaryRegion.data()] = "eu";
+  CoordinatorClusterState feature_state;
+  nlohmann::from_json(json, feature_state);
+  ASSERT_EQ(feature_state.GetPrimaryRegion(), "eu");
+}
+
+TEST_F(CoordinatorClusterStateTest, DataInstanceRegionMarshalling) {
+  auto const config =
+      DataInstanceConfig{.instance_name = "instance1",
+                         .mgt_server = Endpoint{"127.0.0.1", 10'111},
+                         .bolt_server = Endpoint{"127.0.0.1", 7687},
+                         .replication_client_info = {.instance_name = "instance1",
+                                                     .replication_mode = ReplicationMode::SYNC,
+                                                     .replication_server = Endpoint{"127.0.0.1", 10'001}}};
+  auto config_with_region = config;
+  config_with_region.region = "eu";
+  auto const uuid = UUID{};
+  std::vector<DataInstanceContext> data_instances{
+      DataInstanceContext{.config = config_with_region, .status = ReplicationRole::REPLICA, .instance_uuid = uuid},
+      DataInstanceContext{.config = config, .status = ReplicationRole::MAIN, .instance_uuid = uuid}};
+
+  // The region is written only when set, so configs from logs written before regions existed load without one.
+  nlohmann::json const with_region = config_with_region;
+  nlohmann::json const without_region = config;
+  ASSERT_EQ(with_region.at(memgraph::coordination::kRegion.data()), "eu");
+  ASSERT_FALSE(without_region.contains(memgraph::coordination::kRegion.data()));
+  ASSERT_EQ(with_region.get<DataInstanceConfig>(), config_with_region);
+  ASSERT_EQ(without_region.get<DataInstanceConfig>(), config);
+
+  CoordinatorClusterState cluster_state{};
+  // NOLINTNEXTLINE
+  CoordinatorClusterStateDelta const delta_state{.data_instances_ = data_instances,
+                                                 .regions_ = std::set<std::string>{"eu"}};
+  cluster_state.DoAction(delta_state);
+
+  ptr<buffer> data;
+  cluster_state.Serialize(data);
+  auto const deserialized_cluster_state = CoordinatorClusterState::Deserialize(*data);
+  ASSERT_EQ(cluster_state, deserialized_cluster_state);
+  ASSERT_EQ(deserialized_cluster_state.GetDataInstancesContext(), data_instances);
+}
+
 TEST_F(CoordinatorClusterStateTest, RoutingPoliciesSwitch) {
   CoordinatorClusterState cluster_state{};
   std::vector<DataInstanceContext> data_instances;

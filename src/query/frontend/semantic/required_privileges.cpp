@@ -195,6 +195,7 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
       case CoordinatorQuery::Action::SHOW_COORDINATOR_SETTINGS:
       case CoordinatorQuery::Action::SHOW_REPLICATION_LAG:
       case CoordinatorQuery::Action::SHOW_ROUTING_TABLE:
+      case CoordinatorQuery::Action::SHOW_REGION_INFO:
         AddPrivilege(AuthQuery::Privilege::COORDINATOR_READ);
         break;
       case CoordinatorQuery::Action::REGISTER_INSTANCE:
@@ -207,6 +208,9 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
       case CoordinatorQuery::Action::YIELD_LEADERSHIP:
       case CoordinatorQuery::Action::SET_COORDINATOR_SETTING:
       case CoordinatorQuery::Action::UPDATE_CONFIG:
+      case CoordinatorQuery::Action::ADD_REGION:
+      case CoordinatorQuery::Action::DROP_REGION:
+      case CoordinatorQuery::Action::SET_PRIMARY_REGION:
         AddPrivilege(AuthQuery::Privilege::COORDINATOR_WRITE);
         break;
     }

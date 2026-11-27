@@ -176,6 +176,24 @@ auto CoordinatorState::DropRole(std::string_view const role_name) const -> DropR
   return std::get<CoordinatorInstance>(data_).DropRole(role_name);
 }
 
+auto CoordinatorState::AddRegion(std::string_view const region_name) const -> AddRegionStatus {
+  MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
+            "Region cannot be added since variant holds wrong alternative");
+  return std::get<CoordinatorInstance>(data_).AddRegion(region_name);
+}
+
+auto CoordinatorState::DropRegion(std::string_view const region_name) const -> DropRegionStatus {
+  MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
+            "Region cannot be dropped since variant holds wrong alternative");
+  return std::get<CoordinatorInstance>(data_).DropRegion(region_name);
+}
+
+auto CoordinatorState::SetPrimaryRegion(std::string_view const region_name) const -> SetPrimaryRegionStatus {
+  MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
+            "Primary region cannot be set since variant holds wrong alternative");
+  return std::get<CoordinatorInstance>(data_).SetPrimaryRegion(region_name);
+}
+
 auto CoordinatorState::GetRoles() const -> std::optional<std::vector<CoordinatorRole>> {
   MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
             "Coordinator roles cannot be retrieved since variant holds wrong alternative");
@@ -218,6 +236,12 @@ auto CoordinatorState::ShowCoordinatorSettings() const
 
 auto CoordinatorState::ShowReplicationLag() const -> std::optional<ReplicationLagResult> {
   return std::get<CoordinatorInstance>(data_).ShowReplicationLag();
+}
+
+auto CoordinatorState::ShowRegionInfo() const -> std::optional<std::vector<RegionInfo>> {
+  MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
+            "Region info cannot be retrieved since variant holds wrong alternative");
+  return std::get<CoordinatorInstance>(data_).ShowRegionInfo();
 }
 
 auto CoordinatorState::GetRoutingTable(std::string_view db_name) const -> RoutingTable {

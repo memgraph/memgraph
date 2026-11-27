@@ -25,6 +25,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <set>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -126,6 +127,8 @@ class CoordinatorStateMachine final : public state_machine {
   auto GetInstanceHealthCheckFrequencySec() const -> std::chrono::seconds;
   auto GetGlobalReadOnly() const -> bool;
   auto GetRoles() const -> std::vector<CoordinatorRole>;
+  auto GetRegions() const -> std::set<std::string>;
+  auto GetPrimaryRegion() const -> std::optional<std::string>;
 
  private:
   bool HandleMigration(LogStoreVersion stored_version);
