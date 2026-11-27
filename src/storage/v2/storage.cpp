@@ -9,10 +9,16 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <algorithm>
 #include <mutex>
 #include <shared_mutex>
+#include <span>
 #include <tuple>
+#include <utility>
+#include <vector>
 
+#include <boost/unordered/unordered_flat_map.hpp>
+#include <boost/unordered/unordered_flat_set.hpp>
 #include <nlohmann/json.hpp>
 
 #include "flags/general.hpp"
@@ -59,6 +65,45 @@ namespace {
       // Present so the switch stays exhaustive and every path out of this [[noreturn]] diverges.
       LOG_FATAL("NO_ACCESS names the absence of a hold; there is nothing to time out acquiring");
   }
+}
+
+using VertexEdgePairs = std::vector<std::pair<Vertex *, EdgeRef>>;
+
+// Counting sort by vertex: one pass counts each vertex's edges, the offsets follow from the counts, and a second pass
+// places every edge in its vertex's range. An edge can reach a vertex twice (through a detached vertex and as an
+// explicit edge), so each range is deduplicated to keep its count exact for the early exit of the scan.
+EdgeInfoForDeletion::Direction GroupByVertex(VertexEdgePairs const &pairs) {
+  EdgeInfoForDeletion::Direction grouped;
+  boost::unordered_flat_map<Vertex *, size_t> slot_of;
+  std::vector<size_t> slots;
+  slots.reserve(pairs.size());
+  for (auto const &[vertex, edge] : pairs) {
+    auto const [it, inserted] = slot_of.try_emplace(vertex, grouped.vertices.size());
+    if (inserted) grouped.vertices.push_back({.vertex = vertex, .offset = 0, .count = 0});
+    ++grouped.vertices[it->second].count;
+    slots.push_back(it->second);
+  }
+
+  size_t offset = 0;
+  for (auto &group : grouped.vertices) {
+    group.offset = std::exchange(offset, offset + group.count);
+    group.count = 0;
+  }
+
+  grouped.edges.resize(pairs.size(), EdgeRef{kInvalidGid});
+  for (size_t i = 0; i < pairs.size(); ++i) {
+    auto &group = grouped.vertices[slots[i]];
+    grouped.edges[group.offset + group.count++] = pairs[i].second;
+  }
+
+  for (auto &group : grouped.vertices) {
+    if (group.count < 2) continue;
+    auto const begin = grouped.edges.begin() + static_cast<std::ptrdiff_t>(group.offset);
+    auto const end = begin + static_cast<std::ptrdiff_t>(group.count);
+    std::ranges::sort(begin, end);
+    group.count = static_cast<size_t>(std::ranges::unique(begin, end).begin() - begin);
+  }
+  return grouped;
 }
 
 }  // namespace
@@ -385,27 +430,8 @@ Result<std::optional<std::unordered_set<Vertex *>>> Storage::Accessor::PrepareDe
 EdgeInfoForDeletion Storage::Accessor::PrepareDeletableEdges(const std::unordered_set<Vertex *> &vertices,
                                                              const std::vector<EdgeAccessor *> &edges,
                                                              bool detach) noexcept {
-  std::unordered_map<Vertex *, size_t> partial_src_vertices;
-  std::unordered_map<Vertex *, size_t> partial_dest_vertices;
-  boost::unordered_flat_set<EdgeRef> src_edges;
-  boost::unordered_flat_set<EdgeRef> dest_edges;
-
-  // Counting only edges seen for the first time keeps each vertex's count exact: an edge has one vertex per
-  // direction, so it is counted once for each end even when it reaches here twice.
-  auto add_partial_delete = [](auto &partial_delete_vertices, auto &edges, Vertex *vertex, EdgeRef edge) {
-    if (edges.insert(edge).second) ++partial_delete_vertices[vertex];
-  };
-
-  auto try_adding_partial_delete_vertices = [&vertices, &add_partial_delete](
-                                                auto &partial_delete_vertices, auto &edges, auto &item) {
-    // For the nodes on the other end of the edge, they might not get deleted in the system but only cut out
-    // of the edge. Therefore, information is gathered in this step to account for every vertices' in and out
-    // edges and what must be deleted
-    const auto &[edge_type, opposing_vertex, edge] = item;
-    if (!vertices.contains(opposing_vertex)) {
-      add_partial_delete(partial_delete_vertices, edges, opposing_vertex, edge);
-    }
-  };
+  VertexEdgePairs src_pairs;
+  VertexEdgePairs dest_pairs;
 
   // add nodes which need to be detached on the other end of the edge
   if (detach) {
@@ -422,11 +448,14 @@ EdgeInfoForDeletion Storage::Accessor::PrepareDeletableEdges(const std::unordere
         out_edges = vertex_ptr->out_edges;
       }
 
-      for (auto const &item : in_edges) {
-        try_adding_partial_delete_vertices(partial_src_vertices, src_edges, item);
+      // For the nodes on the other end of the edge, they might not get deleted in the system but only cut out
+      // of the edge. Therefore, information is gathered in this step to account for every vertices' in and out
+      // edges and what must be deleted
+      for (auto const &[edge_type, opposing_vertex, edge] : in_edges) {
+        if (!vertices.contains(opposing_vertex)) src_pairs.emplace_back(opposing_vertex, edge);
       }
-      for (auto const &item : out_edges) {
-        try_adding_partial_delete_vertices(partial_dest_vertices, dest_edges, item);
+      for (auto const &[edge_type, opposing_vertex, edge] : out_edges) {
+        if (!vertices.contains(opposing_vertex)) dest_pairs.emplace_back(opposing_vertex, edge);
       }
     }
   }
@@ -446,14 +475,11 @@ EdgeInfoForDeletion Storage::Accessor::PrepareDeletableEdges(const std::unordere
     if (is_deleted(edge_accessor->from_vertex_) || is_deleted(edge_accessor->to_vertex_)) {
       continue;
     }
-    add_partial_delete(partial_src_vertices, src_edges, edge_accessor->from_vertex_, edge_accessor->edge_);
-    add_partial_delete(partial_dest_vertices, dest_edges, edge_accessor->to_vertex_, edge_accessor->edge_);
+    src_pairs.emplace_back(edge_accessor->from_vertex_, edge_accessor->edge_);
+    dest_pairs.emplace_back(edge_accessor->to_vertex_, edge_accessor->edge_);
   }
 
-  return EdgeInfoForDeletion{.partial_src_edges = std::move(src_edges),
-                             .partial_dest_edges = std::move(dest_edges),
-                             .partial_src_vertices = std::move(partial_src_vertices),
-                             .partial_dest_vertices = std::move(partial_dest_vertices)};
+  return EdgeInfoForDeletion{.src = GroupByVertex(src_pairs), .dest = GroupByVertex(dest_pairs)};
 }
 
 Result<std::optional<std::vector<EdgeAccessor>>> Storage::Accessor::ClearEdgesOnVertices(
@@ -556,11 +582,21 @@ Result<std::optional<std::vector<EdgeAccessor>>> Storage::Accessor::DetachRemain
 
   auto clear_edges_on_other_direction = [this, &deleted_edges, &partially_detached_edge_ids, &schema_acc](
                                             auto *vertex_ptr,
-                                            size_t const edges_to_erase,
+                                            auto edges_to_erase,
                                             auto *edges_attached_to_vertex,
-                                            auto const &set_for_erasure,
                                             auto deletion_delta,
                                             auto reverse_vertex_order) -> Result<std::optional<ReturnType>> {
+    // A short list is searched linearly. A long one, many edges erased from one dense vertex, gets a hash set so
+    // every adjacency entry scanned stays a single lookup; only a vertex losing that many edges pays for the set.
+    constexpr size_t kLinearSearchLimit = 16;
+    bool const use_set = edges_to_erase.size() > kLinearSearchLimit;
+    boost::unordered_flat_set<EdgeRef> erase_set;
+    if (use_set) erase_set.insert(edges_to_erase.begin(), edges_to_erase.end());
+    auto const should_erase = [&](EdgeRef const &edge_ref) {
+      return use_set ? erase_set.contains(edge_ref)
+                     : std::ranges::find(edges_to_erase, edge_ref) != edges_to_erase.end();
+    };
+
     auto vertex_lock = std::unique_lock{vertex_ptr->lock};
 
     if (!PrepareForWrite(&transaction_, vertex_ptr)) return std::unexpected{Error::SERIALIZATION_ERROR};
@@ -571,10 +607,10 @@ Result<std::optional<std::vector<EdgeAccessor>>> Storage::Accessor::DetachRemain
     // vertex is found without walking the rest of its adjacency. Entries between the scan position and the erase
     // block are kept, so swapping a match into the block keeps that invariant.
     auto erase_begin = edges_attached_to_vertex->size();
-    auto remaining = edges_to_erase;
+    auto remaining = edges_to_erase.size();
     for (auto i = edges_attached_to_vertex->size(); remaining > 0 && i-- > 0;) {
       auto const &[edge_type, opposing_vertex, edge_ref] = (*edges_attached_to_vertex)[i];
-      if (!set_for_erasure.contains(edge_ref)) continue;
+      if (!should_erase(edge_ref)) continue;
       --erase_begin;
       std::swap((*edges_attached_to_vertex)[i], (*edges_attached_to_vertex)[erase_begin]);
       --remaining;
@@ -630,16 +666,22 @@ Result<std::optional<std::vector<EdgeAccessor>>> Storage::Accessor::DetachRemain
   };
 
   // remove edges from vertex collections which we aggregated for just detaching
-  for (auto const &[vertex_ptr, edges_to_erase] : info.partial_src_vertices) {
-    auto maybe_error = clear_edges_on_other_direction(
-        vertex_ptr, edges_to_erase, &vertex_ptr->out_edges, info.partial_src_edges, Delta::AddOutEdgeTag(), false);
+  for (auto const &[vertex_ptr, offset, count] : info.src.vertices) {
+    auto maybe_error = clear_edges_on_other_direction(vertex_ptr,
+                                                      std::span{info.src.edges}.subspan(offset, count),
+                                                      &vertex_ptr->out_edges,
+                                                      Delta::AddOutEdgeTag(),
+                                                      false);
     if (!maybe_error) {
       return maybe_error;
     }
   }
-  for (auto const &[vertex_ptr, edges_to_erase] : info.partial_dest_vertices) {
-    auto maybe_error = clear_edges_on_other_direction(
-        vertex_ptr, edges_to_erase, &vertex_ptr->in_edges, info.partial_dest_edges, Delta::AddInEdgeTag(), true);
+  for (auto const &[vertex_ptr, offset, count] : info.dest.vertices) {
+    auto maybe_error = clear_edges_on_other_direction(vertex_ptr,
+                                                      std::span{info.dest.edges}.subspan(offset, count),
+                                                      &vertex_ptr->in_edges,
+                                                      Delta::AddInEdgeTag(),
+                                                      true);
     if (!maybe_error) {
       return maybe_error;
     }

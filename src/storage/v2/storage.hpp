@@ -18,8 +18,8 @@
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
+#include <vector>
 
-#include <boost/unordered/unordered_flat_set.hpp>
 #include <nlohmann/json_fwd.hpp>
 
 #include "common_function_signatures.hpp"
@@ -231,13 +231,23 @@ struct ColdTenantRecovery {
 nlohmann::json ToJson(const StorageInfo &info);
 
 struct EdgeInfoForDeletion {
-  // Edges are identified by the EdgeRef an adjacency entry already holds, so matching an entry never reads the
-  // Edge object; on a dense vertex that read would be a cache miss for every entry scanned.
-  boost::unordered_flat_set<EdgeRef> partial_src_edges{};
-  boost::unordered_flat_set<EdgeRef> partial_dest_edges{};
-  // How many of those edges each vertex holds in the matching direction, so its scan can stop once all are found.
-  std::unordered_map<Vertex *, size_t> partial_src_vertices{};
-  std::unordered_map<Vertex *, size_t> partial_dest_vertices{};
+  // The edges one surviving vertex loses in one direction: edges[offset, offset + count) of its Direction.
+  struct VertexEdges {
+    Vertex *vertex;
+    size_t offset;
+    size_t count;
+  };
+
+  // Every vertex's edges are contiguous in one array, so building this allocates per direction rather than per
+  // vertex, and each vertex's scan matches against its own short list. Edges are identified by the EdgeRef an
+  // adjacency entry already holds, so matching an entry never reads the Edge object.
+  struct Direction {
+    std::vector<EdgeRef> edges;
+    std::vector<VertexEdges> vertices;
+  };
+
+  Direction src{};   // entries to erase from out_edges
+  Direction dest{};  // entries to erase from in_edges
 };
 
 struct TTLReplicationArgs {
