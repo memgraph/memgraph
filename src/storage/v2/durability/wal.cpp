@@ -1327,6 +1327,19 @@ void EncodeDelta(BaseEncoder *encoder, Storage *storage, const Delta &delta, Edg
   }
 }
 
+#ifdef MG_ENTERPRISE
+void EncodeBaseEdgeDelete(BaseEncoder *encoder, Storage *storage, Gid edge_gid, Gid from_gid, Gid to_gid,
+                          EdgeTypeId edge_type_id, uint64_t timestamp) {
+  encoder->WriteMarker(Marker::SECTION_DELTA);
+  encoder->WriteUint(timestamp);
+  encoder->WriteMarker(Marker::DELTA_EDGE_DELETE);
+  encoder->WriteUint(edge_gid.AsUint());
+  encoder->WriteString(storage->name_id_mapper_->IdToName(edge_type_id.AsUint()));
+  encoder->WriteUint(from_gid.AsUint());
+  encoder->WriteUint(to_gid.AsUint());
+}
+#endif
+
 namespace {
 auto convert_to_transaction_access_type(StorageAccessType access_type) -> TransactionAccessType {
   switch (access_type) {
