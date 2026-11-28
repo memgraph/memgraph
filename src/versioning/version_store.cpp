@@ -210,14 +210,17 @@ std::expected<BranchInfo, std::string> VersionStore::CreateBranch(std::string na
   return info;
 }
 
-std::expected<DropResult, std::string> VersionStore::DropBranch(std::string_view name, bool force) {
+std::expected<DropResult, std::string> VersionStore::DropBranch(std::string_view name, bool force, size_t own_checkouts,
+                                                                std::optional<uint64_t> expected_id) {
   // Declared before the lock: unless parked, destroyed after unlock, removing the directory.
   BranchNode doomed;
   const std::unique_lock guard{mutex_};
   const auto it = branches_.find(name);
-  if (it == branches_.end()) return DropResult::kNotFound;
-  const bool parked = it->second.sessions_.load(std::memory_order_relaxed) > 0;
-  if (parked && !force) return DropResult::kInUse;
+  if (it == branches_.end() || (expected_id && it->second.info().id != *expected_id)) return DropResult::kNotFound;
+  // Our own checkouts are released by the caller after the drop, so they still park the branch.
+  const size_t held = it->second.sessions_.load(std::memory_order_relaxed);
+  const bool parked = held > 0;
+  if (held > own_checkouts && !force) return DropResult::kInUse;
   // Reserved before the ledger write: an OOM afterwards must not destroy a branch that has live sessions.
   if (parked) dropped_.reserve(dropped_.size() + 1);
 

@@ -155,6 +155,8 @@ std::string PermissionToString(Permission permission) {
       return "COORDINATOR_WRITE";
     case Permission::BRANCH_USE:
       return "BRANCH_USE";
+    case Permission::BRANCH_EDIT:
+      return "BRANCH_EDIT";
   }
 }
 
