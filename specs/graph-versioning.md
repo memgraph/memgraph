@@ -76,14 +76,24 @@ queries do.
 | `SHOW BRANCH [<b>]` | One row: the session's current branch, or `<b>`. Same columns. | `BRANCH_USE` | `Branch '<b>' does not exist.`; session on a dropped branch: dead-branch error (§5.3) |
 | Bolt `db="<database>@<b>"` | Runs the transaction on `<b>` of `<database>` (§4.3). `db="<database>"` means `main`. | `BRANCH_USE` when `<b>` is not `main` | `Branch '<b>' does not exist.` on BEGIN/RUN |
 
-**`SHOW BRANCHES` / `SHOW BRANCH` columns** (10): `name` (string; `main` first), `created_at`
+**`SHOW BRANCHES` / `SHOW BRANCH` columns** (11): `name` (string; `main` first), `created_at`
 (creation time as in `SHOW SNAPSHOTS`: ISO 8601 with microseconds and UTC offset; null for
 `main`), `sessions` (number of sessions currently on the branch), `current` (true for the
-calling session's branch), `fork_timestamp` (null for `main`), `age_seconds` (null for `main`),
-`holds_back_main_gc` (true on the branch with the oldest fork pin), `main_unreleased_deltas`
-(main's un-GC'd delta count, the same on every row), `status` (`available` / `unavailable`),
-`status_reason` (null unless unavailable). After a restart `fork_timestamp` is the pin on the
-rebuilt history and may differ numerically from before.
+calling session's branch), `fork_timestamp` (null for `main`), `age_seconds` (null for `main`;
+counts from `CREATE BRANCH` and keeps counting across restarts), `holds_back_main_gc` (null for
+`main`; true on the branch, or branches, with the oldest fork pin among this database's
+branches: that fork bounds how far main's GC can reclaim, §7. It compares branches only: a main
+transaction older than every fork can be the real GC horizon while the oldest branch still shows
+true, and two branches with the same `fork_timestamp` both show true), `main_unreleased_deltas`
+(main's own count of delta objects not yet freed by GC, the same on every row; equal to
+`unreleased_delta_objects` in `SHOW STORAGE INFO` on `main` and to the
+`memgraph_unreleased_delta_objects` metric; branch deltas are not included), `unreleased_deltas`
+(the branch's own count of delta objects not yet freed by its GC; null for `main`; 0 while the
+branch's in-memory structures are not built, §5.1, or the branch is unavailable), `status`
+(`available` / `unavailable`), `status_reason` (null unless unavailable). After a restart
+`fork_timestamp` is the pin on the rebuilt history and may differ numerically from before; the
+pin, and the history it retains on main, restart from startup, while `age_seconds` still counts
+from creation, so it then overstates how long the pin has been held.
 
 **Name rules** (`CREATE`): 1–63 characters; letters, digits, `.`, `_`, `-`; start and end with a
 letter or digit; `main` is reserved. Errors: `Branch name must not be empty.`,
@@ -230,7 +240,7 @@ yet (§12 says what each needs). Only triggers, TTL and streams are main-only by
 | `SHOW CONSTRAINT INFO` | Empty: a branch has no constraints |
 | `SHOW SCHEMA INFO` | Not in v1. Refused: `SHOW SCHEMA INFO on a branch is not in v1: schema info is tracked per storage engine, so main's does not include the branch's changes. Run USE BRANCH main first.` |
 | Label / edge-type listings | Main's ∪ the branch's |
-| `SHOW STORAGE INFO` | Vertex/edge counts are the branch's: main's approximate counts at the fork, plus objects the branch created, minus base objects deleted by committed branch transactions; independent of main's later writes. Average degree is derived from them as on main; a `branch` row names the branch |
+| `SHOW STORAGE INFO` | Vertex/edge counts are the branch's: main's approximate counts at the fork, plus objects the branch created, minus base objects deleted by committed branch transactions; independent of main's later writes. Average degree is derived from them as on main; `unreleased_delta_objects` is the branch's own count (as `unreleased_deltas` in `SHOW BRANCHES`); a `branch` row names the branch |
 
 Vertex and edge ids (`id(n)`) of branch-created objects come from main's counters, so ids are
 unique across `main` and all branches of the database.
@@ -267,7 +277,7 @@ first-attach builds, each for at most `--storage-access-timeout-sec` (§5.1).
 
 | What | Grows with | Freed when |
 |---|---|---|
-| Memory: main's old versions newer than the **oldest** fork point (GC cannot reclaim them) | Main's write churn since that fork | The oldest branch is dropped; with overlapping branches most is freed only after the newest overlapping one is dropped |
+| Memory: main's old versions newer than the **oldest** fork point (GC cannot reclaim them), plus the undo buffers of main transactions that abort after it | Main's write churn since that fork, not branch count or size. Per retained property write ~113 B real (tracked as ~355 B: allocator page padding, as on master with any long-running reader, and the memory limit uses the tracked figure); several KB per `DETACH DELETE`d vertex. Measured: ~620k main writes with one empty branch alive held +58 MB RSS / +157 MB tracked | The next GC after the oldest branch is dropped (within one to two `--storage-gc-cycle-sec` periods, or at once with `FREE MEMORY`). Versions newer than the next-oldest fork stay until that branch is dropped too; dropping a branch that is not the oldest frees nothing on main. A branch dropped with `FORCE` while sessions are on it, and a branch transaction still running, keep the pin until they end |
 | Disk: at most one snapshot beyond `--storage-snapshot-retention-count` (the newest at or below the oldest fork point) plus the WAL after it; with no such snapshot, WAL from the first file | Main's write volume since that fork | The oldest branch is dropped |
 | UNIQUE-access statements on `main` wait for open branch transactions (above; idle branch sessions block nothing) | n/a | Transaction ends |
 
@@ -389,9 +399,12 @@ branch set aside as unavailable at startup, every branch directory without a led
 branch directory that cannot be removed is logged as a warning naming `Graph Versioning`; a failed
 automatic drop is an error starting with `Failed to drop the branches of database <db>`.
 
-Not exposed in v1: per-branch memory and disk (branch memory shares the database's allocator). How
-much of main's history branches retain is exposed only coarsely, by `SHOW BRANCHES`
-(`holds_back_main_gc`, `main_unreleased_deltas`).
+Not exposed in v1: per-branch memory and disk (branch memory shares the database's allocator), and
+how much of main's retained history each fork pin holds. `SHOW BRANCHES` shows which branch holds
+the oldest pin (`holds_back_main_gc`), main's unreleased delta count (`main_unreleased_deltas`,
+which also includes ordinary not-yet-collected garbage) and each branch's own
+(`unreleased_deltas`); branch deltas are in no metric. There is no cap on, or warning about, the
+retained history in v1.
 
 ## 12. Not in v1
 
@@ -441,7 +454,7 @@ USE BRANCH main;
 SHOW BRANCHES;
 //   name: "main",          created_at: null,                               sessions: 1, current: true,  …
 //   name: "supplier_fail", created_at: "2026-10-29T09:15:02.418305+0000", sessions: 0, current: false, …
-// (… = fork_timestamp, age_seconds, holds_back_main_gc, main_unreleased_deltas, status, status_reason; §4.1)
+// (… = fork_timestamp, age_seconds, holds_back_main_gc, main_unreleased_deltas, unreleased_deltas, status, status_reason; §4.1)
 
 DROP BRANCH supplier_fail;
 ```
