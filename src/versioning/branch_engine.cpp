@@ -133,7 +133,7 @@ std::expected<std::shared_ptr<BranchCore>, BranchCore::BuildError> BranchCore::B
   storage::Config config = DiffEngineConfig(main.config_, main.GetStorageMode());
   bool const durable =
       branch_id.has_value() && main.config_.durability.snapshot_wal_mode ==
-                                       storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL;
+                                   storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL;
   // A durable branch's directory holds its own WAL, which the replay reads after a restart: never moved aside.
   config.durability.keep_existing_files = durable;
   // A durable branch keeps its WAL in its own directory; DiffEngineConfig's snapshot interval stays empty because no
@@ -198,12 +198,13 @@ std::expected<std::unique_ptr<BranchContext>, BranchContext::BuildError> BranchC
                        .edge_gid_floor = main.edge_id_.load(std::memory_order_acquire)};
   auto core = BranchCore::Build(main, fork, fork_ts, branch_id);
   if (!core) return std::unexpected(std::move(core.error()));
-  return std::make_unique<BranchContext>(std::move(*core));
+  return std::make_unique<BranchContext>(std::move(*core), std::string{}, branch_id.value_or(0));
 }
 
-std::expected<BranchContext::HistoricalAccessor, BranchContext::BuildError> BranchContext::OpenHistorical() {
+std::expected<BranchContext::HistoricalAccessor, BranchContext::BuildError> BranchContext::OpenHistorical(
+    std::optional<std::chrono::milliseconds> timeout) {
   EndTransaction();
-  auto historical = main().HistoricalAccess(fork_ts());
+  auto historical = main().HistoricalAccess(fork_ts(), timeout);
   if (!historical) {
     return std::unexpected(BuildError{
         .message = HistoricalOpenFailure(historical.error(), fork_ts(), "The branch is no longer available")});
