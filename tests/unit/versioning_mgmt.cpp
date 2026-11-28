@@ -41,6 +41,7 @@
 using memgraph::tests::versioning_fixture::CheckoutCount;
 using memgraph::tests::versioning_fixture::GateMessage;
 using memgraph::tests::versioning_fixture::IntRows;
+using memgraph::tests::versioning_fixture::LackingPrivilegesUser;
 using memgraph::tests::versioning_fixture::Rows;
 using memgraph::tests::versioning_fixture::ThrownMessage;
 using memgraph::versioning::GateError;
@@ -96,30 +97,6 @@ struct ScopedDatabaseUser final : memgraph::query::QueryUserOrRole {
 
   std::set<std::string, std::less<>> dbs_;
   std::shared_ptr<Asked> asked_ = std::make_shared<Asked>();
-};
-
-struct LackingPrivilegesUser final : memgraph::query::QueryUserOrRole {
-  explicit LackingPrivilegesUser(std::set<memgraph::query::AuthQuery::Privilege> lacking)
-      : memgraph::query::QueryUserOrRole{"lacking", {}}, lacking_{std::move(lacking)} {}
-
-  bool IsAuthorized(const std::vector<memgraph::query::AuthQuery::Privilege> &privileges,
-                    std::optional<std::string_view> /*db_name*/,
-                    memgraph::query::UserPolicy * /*policy*/) const override {
-    return std::ranges::none_of(privileges, [&](auto privilege) { return lacking_.contains(privilege); });
-  }
-
-  std::shared_ptr<QueryUserOrRole> clone() const override { return std::make_shared<LackingPrivilegesUser>(*this); }
-
-  std::vector<std::string> GetRolenames(std::optional<std::string> /*db_name*/) const override { return {}; }
-
-  bool CanImpersonate(const std::string & /*target*/, memgraph::query::UserPolicy * /*policy*/,
-                      std::optional<std::string_view> /*db_name*/) const override {
-    return false;
-  }
-
-  std::string GetDefaultDB() const override { return "memgraph"; }
-
-  std::set<memgraph::query::AuthQuery::Privilege> lacking_;
 };
 
 // A database with the WAL off.
@@ -382,7 +359,8 @@ TEST_F(VersioningGatedTest, BranchStatementsWithoutACurrentDatabaseAreRefused) {
                             "SHOW BRANCHES FOR DATABASE memgraph",
                             "CREATE BRANCH x",
                             "DROP BRANCH x",
-                            "DROP BRANCH x FORCE"}) {
+                            "DROP BRANCH x FORCE",
+                            "USE BRANCH x"}) {
     EXPECT_EQ(ThrownMessage([&] { faker.Interpret(query); }), "Database required for query execution.") << query;
   }
 }
