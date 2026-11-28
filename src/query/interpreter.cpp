@@ -8198,6 +8198,30 @@ PreparedQuery PrepareVersionQuery(ParsedQuery parsed_query, bool in_explicit_tra
                        .priority = utils::Priority::HIGH};
 }
 
+#ifdef MG_ENTERPRISE
+using InfoHandler = std::function<std::pair<std::vector<std::vector<TypedValue>>, QueryHandlerResult>()>;
+
+// On a branch the label and edge-type listings are main's plus the diff engine's (branch-created objects and labels
+// written on base vertices). Metadata sets only, no graph scan.
+InfoHandler WithBranchNames(InfoHandler main_names, std::shared_ptr<versioning::BranchCore> core,
+                            storage::Storage *main, bool labels) {
+  return [main_names = std::move(main_names), core = std::move(core), main, labels] {
+    auto [rows, result] = main_names();
+    std::set<std::string, std::less<>> seen;
+    for (auto const &row : rows) seen.emplace(row[0].ValueString());
+    auto const add = [&](std::string name) {
+      if (seen.insert(name).second) rows.push_back({TypedValue(name)});
+    };
+    if (labels) {
+      for (auto const label : core->diff_engine().ListAllPossiblyPresentVertexLabels()) add(main->LabelToName(label));
+    } else {
+      for (auto const type : core->diff_engine().ListAllPossiblyPresentEdgeTypes()) add(main->EdgeTypeToName(type));
+    }
+    return std::pair{std::move(rows), result};
+  };
+}
+
+#endif
 PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explicit_transaction, CurrentDB &current_db,
                                        InterpreterContext * /*interpreter_context*/) {
   if (in_explicit_transaction) {
@@ -8542,6 +8566,17 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
       break;
     }
   }
+#ifdef MG_ENTERPRISE
+  if (auto *branch = current_db.branch_context(); branch != nullptr) [[unlikely]] {
+    if (info_query->info_type_ == DatabaseInfoQuery::InfoType::NODE_LABELS ||
+        info_query->info_type_ == DatabaseInfoQuery::InfoType::EDGE_TYPES) {
+      handler = WithBranchNames(std::move(handler),
+                                branch->core(),
+                                database->storage(),
+                                info_query->info_type_ == DatabaseInfoQuery::InfoType::NODE_LABELS);
+    }
+  }
+#endif
 
   return PreparedQuery{
       .header = std::move(header),
@@ -8564,6 +8599,29 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
       .rw_type = RWType::NONE};
 }
 
+#ifdef MG_ENTERPRISE
+// The counts, average degree and unreleased deltas are the branch's; a `branch` row names the branch. Memory, disk and
+// isolation figures stay the database's.
+std::vector<std::vector<TypedValue>> BranchStorageInfo(std::vector<std::vector<TypedValue>> rows,
+                                                       const versioning::BranchCore &core, const std::string &branch) {
+  const auto counts = core.ApproximateCounts();
+  for (auto &row : rows) {
+    if (auto const &key = row[0].ValueString(); key == "vertex_count") {
+      row[1] = TypedValue(static_cast<int64_t>(counts.vertices));
+    } else if (key == "edge_count") {
+      row[1] = TypedValue(static_cast<int64_t>(counts.edges));
+    } else if (key == "unreleased_delta_objects") {
+      row[1] = TypedValue(static_cast<int64_t>(core.UnreleasedDeltas()));
+    } else if (key == "average_degree") {
+      row[1] = TypedValue(
+          counts.vertices == 0 ? 0.0 : 2.0 * static_cast<double>(counts.edges) / static_cast<double>(counts.vertices));
+    }
+  }
+  rows.push_back({TypedValue("branch"), TypedValue(branch)});
+  return rows;
+}
+
+#endif
 PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_transaction, CurrentDB &current_db,
                                      std::optional<storage::IsolationLevel> interpreter_isolation_level,
                                      std::optional<storage::IsolationLevel> next_transaction_isolation_level,
@@ -8659,6 +8717,16 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
       auto database = resolve_database();
 
       if (database) {
+#ifdef MG_ENTERPRISE
+        // The session's branch applies when the database is the one the session is on.
+        std::shared_ptr<versioning::BranchCore> branch_core;
+        std::string branch;
+        if (auto const *ctx = current_db.branch_context();
+            ctx != nullptr && current_db.db_acc_ && database->get() == current_db.db_acc_->get()) [[unlikely]] {
+          branch_core = ctx->core();
+          branch = ctx->name();
+        }
+#endif
         handler = [db_acc = std::move(
                        *database)] mutable -> std::pair<std::vector<std::vector<TypedValue>>, QueryHandlerResult> {
           auto *db = db_acc.get();
@@ -8696,6 +8764,14 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
           };
           return std::pair{results, QueryHandlerResult::NOTHING};
         };
+#ifdef MG_ENTERPRISE
+        if (branch_core) [[unlikely]] {
+          handler = [main_info = std::move(handler), core = std::move(branch_core), branch = std::move(branch)] {
+            auto [rows, result] = main_info();
+            return std::pair{BranchStorageInfo(std::move(rows), *core, branch), result};
+          };
+        }
+#endif
       } else {
         handler = [interpreter_isolation_level, next_transaction_isolation_level] {
           metrics::Metrics().global.show_storage_info->Increment();
