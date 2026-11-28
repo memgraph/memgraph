@@ -15,6 +15,7 @@
 #error "versioning/overlay_state.hpp is enterprise-only"
 #endif
 
+#include <algorithm>
 #include <cstdint>
 #include <expected>
 #include <mutex>
@@ -66,6 +67,15 @@ inline void CopyBaseLabels(storage::Vertex *overlay, std::span<const storage::La
 
 inline bool IsDeleted(const storage::Transaction *transaction, const storage::Vertex *overlay, storage::View view) {
   return !storage::VertexAccessor::IsVisible(overlay, transaction, view);
+}
+
+// Stock VertexAccessor::HasLabel for an overlay with no delta chain, where no view or transaction can change the
+// answer; nullopt when a chain exists, and the caller does the MVCC read.
+inline std::optional<storage::Result<bool>> HasLabelChainFree(const storage::Vertex &overlay, storage::LabelId label) {
+  auto const guard = std::shared_lock{overlay.lock};
+  if (overlay.delta() != nullptr) return std::nullopt;
+  if (overlay.deleted()) return std::unexpected{storage::Error::DELETED_OBJECT};
+  return std::ranges::contains(overlay.labels, label);
 }
 
 inline bool IsDeleted(const storage::Transaction *transaction, const storage::Edge *overlay, storage::View view) {
