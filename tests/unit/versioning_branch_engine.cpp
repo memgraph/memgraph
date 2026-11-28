@@ -584,7 +584,7 @@ class VersioningBranchEngineTest : public testing::Test {
       ASSERT_TRUE(deleted.has_value());
       ASSERT_TRUE(*deleted);
     }
-    Commit(*acc);
+    ASSERT_TRUE(branch_context_->CommitTransaction(memgraph::tests::MakeMainCommitArgs()).has_value());
     branch_context_->EndTransaction();
   }
 
@@ -2583,6 +2583,521 @@ TEST_F(VersioningBranchWriteTest, NonDetachDeleteOfAnOverlayWithANativeInEdgeRef
     ASSERT_TRUE(anchor.has_value());
     ASSERT_TRUE(Ctx().current_diff_txn()->CreateEdge(&native, &*anchor, Core().NameToEdgeType("N")).has_value());
     EXPECT_EQ(Ctx().DeleteBaseVertex(a, false).error(), ms::Error::VERTEX_HAS_EDGES);
+  });
+}
+
+// ---- Edge writes: a base edge is written through its overlay (an Edge in the EdgeOverlayIndex, with the overlays of
+// its endpoints); a native edge is a stock edge in the diff engine with its gid from main's counter.
+
+// The error of `result`, or nullopt when it holds a value (error() on a value is undefined).
+template <typename Result>
+std::optional<ms::Error> ErrorOf(const Result &result) {
+  return result.has_value() ? std::nullopt : std::optional{result.error()};
+}
+
+class VersioningBranchEdgeWriteTest : public VersioningBranchWriteTest {
+ protected:
+  struct Graph {
+    ms::Gid a, b, c;
+    MainEdge e1, e2, loop;
+  };
+
+  // On main: a -e1{x=1,y=2}-> b, a -e2{x=5}-> b and c -loop{x=7}-> c.
+  Graph MakeGraph() {
+    auto const x = Prop("x"), y = Prop("y");
+    Graph g{};
+    g.a = CreateMainVertex({}, {});
+    g.b = CreateMainVertex({}, {});
+    g.c = CreateMainVertex({}, {});
+    g.e1 = CreateMainEdge(g.a, g.b, "E", {{x, Int(1)}, {y, Int(2)}});
+    g.e2 = CreateMainEdge(g.a, g.b, "E", {{x, Int(5)}});
+    g.loop = CreateMainEdge(g.c, g.c, "E", {{x, Int(7)}});
+    return g;
+  }
+
+  ms::EdgeAccessor BaseEdge(const MainEdge &edge, mv::BranchContext *ctx = nullptr) {
+    auto found = (ctx != nullptr ? *ctx : Ctx()).FindBaseEdge(edge.gid, edge.from);
+    EXPECT_TRUE(found.has_value());
+    return *found;
+  }
+
+  // A second session on the same branch, its write transaction aborted at the end of the scope.
+  struct Session {
+    explicit Session(VersioningBranchEdgeWriteTest &test) : acc(test.Writer()), ctx(test.Ctx().core()) {
+      EXPECT_TRUE(ctx.BeginTransaction(acc.get()).has_value());
+    }
+
+    ~Session() {
+      ctx.EndTransaction();
+      acc->Abort();
+    }
+
+    std::unique_ptr<ms::Storage::Accessor> acc;
+    mv::BranchContext ctx;
+  };
+
+  // Runs `body` in a write transaction committed through CommitTransaction, which publishes the base deletes.
+  template <typename Body>
+  void WriteCounted(Body &&body) {
+    auto acc = Writer();
+    Begin(acc.get());
+    body();
+    ASSERT_TRUE(Ctx().CommitTransaction(memgraph::tests::MakeMainCommitArgs()).has_value());
+    Ctx().EndTransaction();
+  }
+
+  bool EdgeOverlayDeleted(const MainEdge &edge) {
+    auto *overlay = Core().edge_overlay_index().Find(edge.gid);
+    EXPECT_NE(overlay, nullptr);
+    auto acc = Diff().Access(ms::READ, kSnapshotIsolation, std::nullopt);
+    return overlay != nullptr && mv::overlay::IsDeleted(acc->GetTransaction(), overlay, ms::View::NEW);
+  }
+
+  uint64_t DiffEdgeCount() { return Diff().Access(ms::READ)->ApproximateEdgeCount(); }
+
+  std::set<uint64_t> Edges(ms::Gid vertex, ms::EdgeDirection direction, mv::BranchContext *ctx = nullptr) {
+    std::set<uint64_t> gids;
+    for (auto const &e : (ctx != nullptr ? *ctx : Ctx()).ResolveEdges(vertex, direction, ms::View::NEW)) {
+      gids.insert(e.Gid().AsUint());
+    }
+    return gids;
+  }
+
+  void BaseEdgePropertiesSetRemoveAndReadBackAcrossSnapshots() {
+    auto const x = Prop("x"), y = Prop("y"), z = Prop("z");
+    auto const g = MakeGraph();
+    Fork();
+    ASSERT_FALSE(HasOverlay(g.a));
+    ASSERT_FALSE(HasOverlay(g.b));
+    auto const before = OpenSnapshotReader(Ctx());
+    Write([&] {
+      auto e1 = BaseEdge(g.e1);
+      EXPECT_FALSE(e1.MaybeBranchedHint());
+      EXPECT_EQ(*Ctx().SetProperty(e1, x, Int(10)), Int(1)) << "the old value is the base's";
+      EXPECT_TRUE(e1.MaybeBranchedHint()) << "main's Edge is marked before the overlay is written";
+      EXPECT_EQ(*Ctx().SetProperty(e1, y, ms::PropertyValue{}), Int(2)) << "a null removes";
+      EXPECT_TRUE(Ctx().SetProperty(e1, z, Int(3))->IsNull());
+      EXPECT_EQ(*Ctx().Properties(e1, ms::View::NEW), (Props{{x, Int(10)}, {z, Int(3)}}));
+    });
+    EXPECT_TRUE(HasOverlay(g.a) && HasOverlay(g.b)) << "the overlay's deltas name its endpoints' overlays";
+    auto const middle = OpenSnapshotReader(Ctx());
+    Write([&] {
+      auto e1 = BaseEdge(g.e1);
+      EXPECT_TRUE(Ctx().SetProperty(e1, y, Int(4))->IsNull()) << "the old value is the explicit null, not the base's 2";
+    });
+    Read([&] {
+      auto e1 = BaseEdge(g.e1);
+      EXPECT_EQ(*Ctx().Properties(e1, ms::View::NEW), (Props{{x, Int(10)}, {y, Int(4)}, {z, Int(3)}}));
+      EXPECT_TRUE(Core().MayHaveBaseEdgePropertyFieldChange(g.e1.gid, x));
+      EXPECT_EQ(*e1.GetProperty(x, ms::View::OLD), Int(1)) << "main's base edge is untouched";
+    });
+    auto const old_edge = BaseEdge(g.e1, before.ctx.get());
+    EXPECT_EQ(*before.ctx->Properties(old_edge, ms::View::NEW), (Props{{x, Int(1)}, {y, Int(2)}}));
+    auto const mid_edge = BaseEdge(g.e1, middle.ctx.get());
+    EXPECT_EQ(*middle.ctx->Properties(mid_edge, ms::View::NEW), (Props{{x, Int(10)}, {z, Int(3)}}))
+        << "an older snapshot reads the overlay's explicit null as removed, not as the base's value";
+    EXPECT_TRUE(middle.ctx->GetProperty(mid_edge, y, ms::View::NEW)->IsNull());
+
+    WriteAndAbort([&] {
+      auto e1 = BaseEdge(g.e1);
+      ASSERT_TRUE(Ctx().SetProperty(e1, y, ms::PropertyValue{}).has_value());
+      ASSERT_TRUE(Ctx().SetProperty(e1, x, Int(99)).has_value());
+    });
+    Read([&] {
+      EXPECT_EQ(*Ctx().Properties(BaseEdge(g.e1), ms::View::NEW), (Props{{x, Int(10)}, {y, Int(4)}, {z, Int(3)}}))
+          << "an aborted removal restores the value it removed";
+    });
+    Write([&] {
+      auto e1 = BaseEdge(g.e1);
+      ASSERT_TRUE(Ctx().SetProperty(e1, y, ms::PropertyValue{}).has_value());
+    });
+    WriteAndAbort([&] {
+      auto e1 = BaseEdge(g.e1);
+      ASSERT_TRUE(Ctx().SetProperty(e1, y, Int(9)).has_value());
+    });
+    Read([&] {
+      EXPECT_TRUE(Ctx().GetProperty(BaseEdge(g.e1), y, ms::View::NEW)->IsNull())
+          << "aborting a write over an explicit null restores the null";
+    });
+    EXPECT_EQ(DiffEdgeCount(), 0U) << "base edges are no edges of the diff engine";
+  }
+
+  void WholeSetWritesOnABaseEdgeDecomposePerKey() {
+    auto const x = Prop("x"), y = Prop("y"), w = Prop("w");
+    auto const g = MakeGraph();
+    auto const bare = CreateMainEdge(g.a, g.c, "E");
+    Fork();
+    Write([&] {
+      auto bare_edge = BaseEdge(bare);
+      Props init{{w, Int(1)}};
+      EXPECT_TRUE(*Ctx().InitProperties(bare_edge, init));
+      Props again{{x, Int(2)}};
+      EXPECT_FALSE(*Ctx().InitProperties(bare_edge, again)) << "Init only fills an empty property set";
+
+      auto e1 = BaseEdge(g.e1);
+      Props update{{x, Int(20)}, {w, Int(4)}};
+      auto const changes = Ctx().UpdateProperties(e1, update);
+      ASSERT_TRUE(changes.has_value());
+      EXPECT_EQ(*changes,
+                (std::vector<std::tuple<ms::PropertyId, ms::PropertyValue, ms::PropertyValue>>{
+                    {x, Int(1), Int(20)}, {w, ms::PropertyValue{}, Int(4)}}));
+      EXPECT_EQ(update, (Props{{x, Int(20)}, {y, Int(2)}, {w, Int(4)}})) << "untouched properties come back merged";
+      EXPECT_EQ(*Ctx().ClearProperties(e1), (Props{{x, Int(20)}, {y, Int(2)}, {w, Int(4)}}));
+      EXPECT_TRUE(Ctx().Properties(e1, ms::View::NEW)->empty());
+    });
+    Read([&] {
+      EXPECT_TRUE(Ctx().Properties(BaseEdge(g.e1), ms::View::NEW)->empty()) << "the base's x and y stay removed";
+      EXPECT_EQ(*Ctx().Properties(BaseEdge(bare), ms::View::NEW), (Props{{w, Int(1)}}));
+      EXPECT_EQ(*Ctx().Properties(BaseEdge(g.e2), ms::View::NEW), (Props{{x, Int(5)}}));
+    });
+  }
+
+  void DeletingABaseEdgeHidesItAndTheCommitCountsIt() {
+    auto const x = Prop("x");
+    auto const g = MakeGraph();
+    Fork();
+    WriteAndAbort([&] {
+      ASSERT_TRUE(*Ctx().DeleteBaseEdge(BaseEdge(g.e1)));
+      EXPECT_EQ(Edges(g.a, ms::EdgeDirection::OUT), (std::set<uint64_t>{g.e2.gid.AsUint()}));
+    });
+    EXPECT_EQ(DiffEdgeCount(), 0U) << "the abort's decrements are compensated";
+    EXPECT_EQ(Core().BaseDeletes(), (mv::ObjectCounts{0, 0}));
+    Read([&] { EXPECT_EQ(Edges(g.a, ms::EdgeDirection::OUT).size(), 2U) << "aborted"; });
+
+    auto const before = OpenSnapshotReader(Ctx());
+    WriteCounted([&] {
+      auto e1 = BaseEdge(g.e1);
+      auto deleted = Ctx().DeleteBaseEdge(e1);
+      ASSERT_TRUE(deleted.has_value());
+      EXPECT_TRUE(*deleted);
+      EXPECT_FALSE(*Ctx().DeleteBaseEdge(e1)) << "a repeated delete is a no-op";
+      EXPECT_TRUE(Ctx().IsBaseEdgeHidden(e1, ms::View::NEW));
+      EXPECT_FALSE(Ctx().IsBaseEdgeHidden(e1, ms::View::OLD)) << "the command's own delete is invisible at OLD";
+      EXPECT_EQ(Ctx().Properties(e1, ms::View::NEW).error(), ms::Error::DELETED_OBJECT);
+      EXPECT_EQ(Ctx().SetProperty(e1, x, Int(5)).error(), ms::Error::DELETED_OBJECT);
+      EXPECT_FALSE(Ctx().ResolveEdge(g.e1.gid, g.a, ms::View::NEW).has_value());
+      ASSERT_TRUE(*Ctx().DeleteBaseEdge(BaseEdge(g.loop)));
+    });
+    EXPECT_TRUE(EdgeOverlayDeleted(g.e1));
+    for (auto const direction : {ms::EdgeDirection::OUT, ms::EdgeDirection::IN}) {
+      auto const listed = Candidates(g.c, direction);
+      EXPECT_EQ(listed.size(), 1U) << "a deleted self-loop is listed once in each direction";
+      EXPECT_EQ(listed[0], Core().edge_overlay_index().Find(g.loop.gid));
+    }
+    EXPECT_FALSE(HasOverlay(g.c)) << "a plain edge delete creates no endpoint overlay";
+    EXPECT_EQ(Core().BaseDeletes(), (mv::ObjectCounts{0, 2}));
+    EXPECT_EQ(DiffEdgeCount(), 0U) << "a base edge's delete mark changes no edge count";
+    Read([&] {
+      for (auto const view : {ms::View::NEW, ms::View::OLD}) {
+        EXPECT_TRUE(Ctx().IsBaseEdgeHidden(BaseEdge(g.e1), view));
+        EXPECT_FALSE(Ctx().IsBaseEdgeHidden(BaseEdge(g.e2), view));
+      }
+      EXPECT_EQ(Edges(g.a, ms::EdgeDirection::OUT), (std::set<uint64_t>{g.e2.gid.AsUint()}));
+      EXPECT_EQ(Edges(g.b, ms::EdgeDirection::IN), (std::set<uint64_t>{g.e2.gid.AsUint()}));
+      EXPECT_TRUE(Edges(g.c, ms::EdgeDirection::OUT).empty()) << "a self-loop hides from both lists";
+      EXPECT_TRUE(Edges(g.c, ms::EdgeDirection::IN).empty());
+    });
+    EXPECT_EQ(Edges(g.a, ms::EdgeDirection::OUT, before.ctx.get()).size(), 2U) << "a snapshot older than the delete";
+
+    // The vertex delete hides the one edge left and finds the deleted one already hidden.
+    WriteCounted([&] { ASSERT_TRUE(*Ctx().DeleteBaseVertex(g.a, true)); });
+    EXPECT_EQ(Core().BaseDeletes(), (mv::ObjectCounts{1, 3}));
+    EXPECT_TRUE(EdgeOverlayDeleted(g.e2));
+  }
+
+  // Every base edge at a deleted vertex is itself deleted, so no read consults the endpoints: a self-loop, an edge
+  // between two deleted vertices and one to a survivor all read hidden, a survivor's own self-loop does not.
+  void VertexDeleteHidesEveryIncidentEdgeWithoutAnEndpointCheck() {
+    auto const a = CreateMainVertex({}, {});
+    auto const b = CreateMainVertex({}, {});
+    auto const c = CreateMainVertex({}, {});
+    auto const d = CreateMainVertex({}, {});
+    std::vector<MainEdge> const gone{CreateMainEdge(a, b, "E"),
+                                     CreateMainEdge(b, a, "E"),
+                                     CreateMainEdge(c, c, "E"),
+                                     CreateMainEdge(a, d, "E"),
+                                     CreateMainEdge(d, c, "E")};
+    auto const kept = CreateMainEdge(d, d, "E");
+    Fork();
+    WriteCounted([&] {
+      for (auto const gid : {a, b, c}) ASSERT_TRUE(*Ctx().DeleteBaseVertex(gid, true));
+    });
+    Read([&] {
+      for (auto const view : {ms::View::OLD, ms::View::NEW}) {
+        for (auto const &edge : gone) {
+          SCOPED_TRACE(edge.gid.AsUint());
+          EXPECT_TRUE(EdgeOverlayDeleted(edge));
+          EXPECT_TRUE(Ctx().IsBaseEdgeHidden(BaseEdge(edge), view));
+          EXPECT_FALSE(Ctx().ResolveEdge(edge.gid, edge.from, view).has_value());
+          if (PropertiesOnEdges()) {
+            EXPECT_EQ(Ctx().Properties(BaseEdge(edge), view).error(), ms::Error::DELETED_OBJECT);
+          }
+        }
+        EXPECT_FALSE(Ctx().IsBaseEdgeHidden(BaseEdge(kept), view));
+        EXPECT_TRUE(Ctx().ResolveEdge(kept.gid, kept.from, view).has_value());
+      }
+      EXPECT_EQ(Edges(d, ms::EdgeDirection::OUT), (std::set<uint64_t>{kept.gid.AsUint()}));
+      EXPECT_EQ(Edges(d, ms::EdgeDirection::IN), (std::set<uint64_t>{kept.gid.AsUint()}));
+    });
+  }
+
+  // A vertex whose only edge was deleted earlier has none left to hide: a plain delete succeeds and the edge stays
+  // hidden.
+  void PlainDeleteOfAVertexWhoseEdgeWasDeletedEarlierKeepsTheEdgeHidden() {
+    auto const a = CreateMainVertex({}, {});
+    auto const b = CreateMainVertex({}, {});
+    auto const e = CreateMainEdge(a, b, "E");
+    Fork();
+    WriteCounted([&] { ASSERT_TRUE(*Ctx().DeleteBaseEdge(BaseEdge(e))); });
+    WriteCounted([&] { ASSERT_TRUE(*Ctx().DeleteBaseVertex(a, false)); });
+    Read([&] {
+      for (auto const view : {ms::View::OLD, ms::View::NEW}) {
+        EXPECT_TRUE(Ctx().IsBaseEdgeHidden(BaseEdge(e), view));
+        EXPECT_FALSE(Ctx().ResolveEdge(e.gid, a, view).has_value());
+      }
+      EXPECT_FALSE(Ctx().ResolveVertex(a, ms::View::NEW).has_value());
+      EXPECT_TRUE(Ctx().ResolveVertex(b, ms::View::NEW).has_value());
+      EXPECT_TRUE(Edges(b, ms::EdgeDirection::IN).empty());
+    });
+  }
+};
+
+class VersioningBranchEdgeWriteLightEdgeTest : public VersioningBranchEdgeWriteTest {
+ protected:
+  bool LightEdge() const override { return true; }
+};
+
+class VersioningBranchEdgeWriteNoEdgePropertiesTest : public VersioningBranchEdgeWriteTest {
+ protected:
+  bool PropertiesOnEdges() const override { return false; }
+};
+
+#define EDGE_WRITE_TEST(Name)                             \
+  TEST_F(VersioningBranchEdgeWriteTest, Name) { Name(); } \
+  TEST_F(VersioningBranchEdgeWriteLightEdgeTest, Name) { Name(); }
+
+EDGE_WRITE_TEST(BaseEdgePropertiesSetRemoveAndReadBackAcrossSnapshots)
+EDGE_WRITE_TEST(WholeSetWritesOnABaseEdgeDecomposePerKey)
+EDGE_WRITE_TEST(DeletingABaseEdgeHidesItAndTheCommitCountsIt)
+EDGE_WRITE_TEST(VertexDeleteHidesEveryIncidentEdgeWithoutAnEndpointCheck)
+EDGE_WRITE_TEST(PlainDeleteOfAVertexWhoseEdgeWasDeletedEarlierKeepsTheEdgeHidden)
+
+TEST_F(VersioningBranchEdgeWriteNoEdgePropertiesTest, VertexDeleteHidesEveryIncidentEdgeWithoutAnEndpointCheck) {
+  VertexDeleteHidesEveryIncidentEdgeWithoutAnEndpointCheck();
+}
+
+TEST_F(VersioningBranchEdgeWriteNoEdgePropertiesTest,
+       PlainDeleteOfAVertexWhoseEdgeWasDeletedEarlierKeepsTheEdgeHidden) {
+  PlainDeleteOfAVertexWhoseEdgeWasDeletedEarlierKeepsTheEdgeHidden();
+}
+
+TEST_F(VersioningBranchEdgeWriteNoEdgePropertiesTest, ADeleteWorksAndAPropertyWriteIsRefused) {
+  auto const x = Prop("x");
+  auto const g = MakeGraph();
+  Fork();
+  Write([&] {
+    auto e1 = BaseEdge(g.e1);
+    EXPECT_EQ(Ctx().SetProperty(e1, x, Int(1)).error(), ms::Error::PROPERTIES_DISABLED);
+    Props props{{x, Int(1)}};
+    EXPECT_EQ(Ctx().InitProperties(e1, props).error(), ms::Error::PROPERTIES_DISABLED);
+    auto from = Ctx().CreateNativeVertex();
+    auto to = Ctx().CreateNativeVertex();
+    auto native = Ctx().CreateNativeEdge(from, to, Core().NameToEdgeType("N"));
+    ASSERT_TRUE(native.has_value());
+    EXPECT_EQ(Ctx().SetProperty(*native, x, Int(1)).error(), ms::Error::PROPERTIES_DISABLED) << "the diff engine could";
+    ASSERT_TRUE(*Ctx().DeleteBaseEdge(e1));
+  });
+  Read([&] {
+    EXPECT_TRUE(Ctx().IsBaseEdgeHidden(BaseEdge(g.e1), ms::View::NEW));
+    EXPECT_EQ(Edges(g.a, ms::EdgeDirection::OUT), (std::set<uint64_t>{g.e2.gid.AsUint()}));
+  });
+}
+
+TEST_F(VersioningBranchEdgeWriteTest, ANativeEdgeTakesItsGidFromMainsCounterAndTheStockMutators) {
+  auto const x = Prop("x");
+  auto const g = MakeGraph();
+  Fork();
+  auto const after_fork = CreateMainEdge(g.a, g.b, "E").gid;
+  ms::Gid native_gid;
+  Write([&] {
+    auto from = Ctx().CreateNativeVertex();
+    auto anchor = Ctx().EnsureDiffVertex(g.a);
+    ASSERT_TRUE(anchor.has_value());
+    auto edge = Ctx().CreateNativeEdge(from, *anchor, Core().NameToEdgeType("N"));
+    ASSERT_TRUE(edge.has_value());
+    native_gid = edge->Gid();
+    EXPECT_EQ(edge->storage_, &Diff());
+    EXPECT_TRUE(Ctx().SetProperty(*edge, x, Int(1))->IsNull());
+    Props update{{x, Int(3)}};
+    EXPECT_TRUE(Ctx().UpdateProperties(*edge, update).has_value());
+    EXPECT_EQ(*Ctx().GetProperty(*edge, x, ms::View::NEW), Int(3));
+    EXPECT_TRUE(Core().MayHaveEdgeChange(g.a, ms::EdgeDirection::IN)) << "the anchor is the edge's to-vertex";
+  });
+  EXPECT_GT(native_gid.AsUint(), after_fork.AsUint()) << "main's counter is shared, no range of its own";
+  EXPECT_EQ(storage_->edge_id_.load(), native_gid.AsUint() + 1) << "a plain fetch_add, nothing reserved";
+  EXPECT_GE(Diff().edge_id_.load(), native_gid.AsUint() + 1);
+  EXPECT_FALSE(Ctx().IsBaseCandidateEdge(native_gid));
+  EXPECT_GT(CreateMainEdge(g.a, g.b, "E").gid.AsUint(), native_gid.AsUint());
+  Read([&] {
+    EXPECT_EQ(Edges(g.a, ms::EdgeDirection::IN), (std::set<uint64_t>{native_gid.AsUint()}));
+    auto out = Edges(g.a, ms::EdgeDirection::OUT);
+    EXPECT_EQ(out, (std::set<uint64_t>{g.e1.gid.AsUint(), g.e2.gid.AsUint()})) << "the native edge is an in-edge";
+  });
+  EXPECT_EQ(DiffEdgeCount(), 1U);
+}
+
+// A base edge's delete writes only the edge overlay, so it conflicts in either order with a write of that edge, and
+// with the delete of an endpoint (which marks the edge deleted too). It does not conflict with an edge created on an
+// endpoint or with the delete of another edge at the same endpoints.
+TEST_F(VersioningBranchEdgeWriteTest, ABaseEdgeDeleteConflictsOnlyOnTheEdgeOverlayInEitherOrder) {
+  auto const x = Prop("x");
+  auto const g = MakeGraph();
+  Fork();
+  auto const delete_first = [&](auto &&other_write) {
+    auto first = Writer();
+    Begin(first.get());
+    ASSERT_TRUE(*Ctx().DeleteBaseEdge(BaseEdge(g.e1)));
+    Session second{*this};
+    other_write(second.ctx);
+    Ctx().EndTransaction();
+    first->Abort();
+  };
+  auto const write_first = [&](auto &&first_write, auto &&other_delete) {
+    auto first = Writer();
+    Begin(first.get());
+    first_write(Ctx());
+    Session second{*this};
+    other_delete(second.ctx);
+    Ctx().EndTransaction();
+    first->Abort();
+  };
+  auto const set_property = [&](mv::BranchContext &ctx) {
+    auto edge = BaseEdge(g.e1, &ctx);
+    return ErrorOf(ctx.SetProperty(edge, x, Int(7)));
+  };
+  auto const delete_edge = [&](mv::BranchContext &ctx) { return ErrorOf(ctx.DeleteBaseEdge(BaseEdge(g.e1, &ctx))); };
+  auto const delete_other_edge = [&](mv::BranchContext &ctx) {
+    return ErrorOf(ctx.DeleteBaseEdge(BaseEdge(g.e2, &ctx)));
+  };
+  auto const create_edge_on_a = [&](mv::BranchContext &ctx) {
+    auto native = ctx.CreateNativeVertex();
+    auto anchor = ctx.EnsureDiffVertex(g.a);
+    EXPECT_TRUE(anchor.has_value());
+    return anchor ? ErrorOf(ctx.CreateNativeEdge(native, *anchor, Core().NameToEdgeType("N"))) : std::nullopt;
+  };
+  auto const delete_endpoint = [&](mv::BranchContext &ctx) { return ErrorOf(ctx.DeleteBaseVertex(g.b, true)); };
+  constexpr auto kConflict = ms::Error::SERIALIZATION_ERROR;
+
+  delete_first([&](auto &ctx) { EXPECT_EQ(set_property(ctx), kConflict); });
+  delete_first([&](auto &ctx) { EXPECT_EQ(delete_edge(ctx), kConflict); });
+  delete_first([&](auto &ctx) { EXPECT_EQ(create_edge_on_a(ctx), std::nullopt) << "no endpoint is written"; });
+  delete_first([&](auto &ctx) { EXPECT_EQ(delete_other_edge(ctx), std::nullopt) << "another edge, same endpoints"; });
+  delete_first([&](auto &ctx) { EXPECT_EQ(delete_endpoint(ctx), kConflict) << "the endpoint delete hides the edge"; });
+
+  write_first([&](auto &ctx) { EXPECT_EQ(set_property(ctx), std::nullopt); },
+              [&](auto &ctx) { EXPECT_EQ(delete_edge(ctx), kConflict); });
+  write_first([&](auto &ctx) { EXPECT_EQ(create_edge_on_a(ctx), std::nullopt); },
+              [&](auto &ctx) { EXPECT_EQ(delete_edge(ctx), std::nullopt) << "an edge created on an endpoint"; });
+  write_first([&](auto &ctx) { EXPECT_EQ(delete_endpoint(ctx), std::nullopt); },
+              [&](auto &ctx) { EXPECT_EQ(set_property(ctx), kConflict) << "a DETACH writes every edge it hides"; });
+}
+
+TEST_F(VersioningBranchEdgeWriteTest, AMarkedDeletedBaseObjectsSurviveGcAndStayHidden) {
+  auto const g = MakeGraph();
+  Fork();
+  WriteCounted([&] {
+    ASSERT_TRUE(*Ctx().DeleteBaseEdge(BaseEdge(g.e1)));
+    ASSERT_TRUE(*Ctx().DeleteBaseVertex(g.c, true));
+  });
+  Diff().FreeMemory({}, false);
+  Diff().FreeMemory({}, false);
+  EXPECT_TRUE(EdgeOverlayDeleted(g.e1)) << "the delete mark outlives the collection of its deltas";
+  EXPECT_TRUE(EdgeOverlayDeleted(g.loop));
+  Read([&] {
+    EXPECT_TRUE(Ctx().IsBaseEdgeHidden(BaseEdge(g.e1), ms::View::NEW));
+    EXPECT_EQ(Edges(g.a, ms::EdgeDirection::OUT), (std::set<uint64_t>{g.e2.gid.AsUint()}));
+    EXPECT_FALSE(Ctx().ResolveVertex(g.c, ms::View::NEW).has_value());
+  });
+  EXPECT_EQ(Core().BaseDeletes(), (mv::ObjectCounts{1, 2}));
+}
+
+TEST_F(VersioningBranchEdgeWriteTest, PeriodicCommitPublishesEachBatchsBaseDeletesOnce) {
+  auto const g = MakeGraph();
+  Fork();
+  auto acc = Writer();
+  Begin(acc.get());
+  ASSERT_TRUE(*Ctx().DeleteBaseEdge(BaseEdge(g.e1)));
+  ASSERT_TRUE(Ctx().PeriodicCommitTransaction(memgraph::tests::MakeMainCommitArgs()).has_value());
+  EXPECT_EQ(Core().BaseDeletes(), (mv::ObjectCounts{0, 1}));
+  ASSERT_TRUE(*Ctx().DeleteBaseEdge(BaseEdge(g.e2)));
+  ASSERT_TRUE(Ctx().PeriodicCommitTransaction(memgraph::tests::MakeMainCommitArgs()).has_value());
+  EXPECT_EQ(Core().BaseDeletes(), (mv::ObjectCounts{0, 2})) << "the first batch is not published again";
+  ASSERT_TRUE(*Ctx().DeleteBaseVertex(g.c, true));
+  ASSERT_TRUE(Ctx().CommitTransaction(memgraph::tests::MakeMainCommitArgs()).has_value());
+  EXPECT_EQ(Core().BaseDeletes(), (mv::ObjectCounts{1, 3}));
+  Ctx().EndTransaction();
+
+  WriteAndAbort([&] { ASSERT_TRUE(*Ctx().DeleteBaseVertex(g.b, true)); });
+  EXPECT_EQ(Core().BaseDeletes(), (mv::ObjectCounts{1, 3})) << "an aborted transaction publishes nothing";
+}
+
+// An aborted DETACH lists only the far side; a later plain delete of the edge lists the deleted vertex's side too.
+TEST_F(VersioningBranchEdgeWriteTest, APlainBaseEdgeDeleteAfterAnAbortedDetachListsTheVertexsOwnSide) {
+  auto const g = MakeGraph();
+  Fork();
+  WriteAndAbort([&] { ASSERT_TRUE(*Ctx().DeleteBaseVertex(g.a, true)); });
+  EXPECT_TRUE(Candidates(g.a, ms::EdgeDirection::OUT).empty());
+  Write([&] { ASSERT_TRUE(*Ctx().DeleteBaseEdge(BaseEdge(g.e1))); });
+  EXPECT_EQ(Candidates(g.a, ms::EdgeDirection::OUT).size(), 1U);
+  EXPECT_EQ(Candidates(g.b, ms::EdgeDirection::IN).size(), 2U) << "e2 stays listed from the aborted detach";
+}
+
+// A native edge created at an endpoint that holds only a deletes entry gives it a full overlay; the entry stays.
+TEST_F(VersioningBranchEdgeWriteTest, ANativeEdgeAtADeletesOnlyEndpointKeepsTheDeletedBaseEdgeHidden) {
+  auto const g = MakeGraph();
+  Fork();
+  Write([&] { ASSERT_TRUE(*Ctx().DeleteBaseEdge(BaseEdge(g.e1))); });
+  ASSERT_FALSE(HasOverlay(g.b));
+  uint64_t native_gid = 0;
+  Write([&] {
+    auto from = Ctx().CreateNativeVertex();
+    auto anchor = Ctx().EnsureDiffVertex(g.b);
+    ASSERT_TRUE(anchor.has_value());
+    auto native = Ctx().CreateNativeEdge(from, *anchor, Core().NameToEdgeType("N"));
+    ASSERT_TRUE(native.has_value());
+    native_gid = native->Gid().AsUint();
+  });
+  EXPECT_TRUE(HasOverlay(g.b));
+  EXPECT_EQ(Candidates(g.b, ms::EdgeDirection::IN).size(), 1U) << "the deletes entry survives";
+  Read([&] {
+    EXPECT_EQ(Edges(g.b, ms::EdgeDirection::IN), (std::set<uint64_t>{g.e2.gid.AsUint(), native_gid}))
+        << "the deleted base edge stays hidden and the native one is visible";
+  });
+}
+
+// An edge property write at an endpoint that holds only a deletes entry creates both endpoints' overlays; the other
+// deleted edge stays hidden from both.
+TEST_F(VersioningBranchEdgeWriteTest, AnEdgePropertyWriteAtDeletesOnlyEndpointsCreatesTheirOverlays) {
+  auto const x = Prop("x");
+  auto const g = MakeGraph();
+  Fork();
+  Write([&] { ASSERT_TRUE(*Ctx().DeleteBaseEdge(BaseEdge(g.e2))); });
+  for (auto const gid : {g.a, g.b}) {
+    ASSERT_TRUE(HasEntry(gid));
+    ASSERT_FALSE(HasOverlay(gid));
+  }
+  Write([&] {
+    auto e1 = BaseEdge(g.e1);
+    ASSERT_TRUE(Ctx().SetProperty(e1, x, Int(10)).has_value());
+  });
+  EXPECT_TRUE(HasOverlay(g.a) && HasOverlay(g.b));
+  EXPECT_TRUE(HasEntry(g.a) && HasEntry(g.b)) << "the deletes entries survive the overlays";
+  EXPECT_EQ(Candidates(g.a, ms::EdgeDirection::OUT).size(), 1U);
+  EXPECT_EQ(Candidates(g.b, ms::EdgeDirection::IN).size(), 1U);
+  Read([&] {
+    EXPECT_EQ(Edges(g.a, ms::EdgeDirection::OUT), (std::set<uint64_t>{g.e1.gid.AsUint()}));
+    EXPECT_EQ(Edges(g.b, ms::EdgeDirection::IN), (std::set<uint64_t>{g.e1.gid.AsUint()}));
+    EXPECT_TRUE(Ctx().IsBaseEdgeHidden(BaseEdge(g.e2), ms::View::NEW));
   });
 }
 
