@@ -86,7 +86,8 @@ enum class Permission : uint64_t {
   // part of kPermissionsAll, so GRANT ALL PRIVILEGES on a data instance does not grant them. WRITE is a superset of
   // READ. Bit 25 (the removed COORDINATOR privilege) is intentionally not reused.
   COORDINATOR_READ       = 1ULL << 32ULL,
-  COORDINATOR_WRITE      = 1ULL << 33ULL
+  COORDINATOR_WRITE      = 1ULL << 33ULL,
+  BRANCH_USE             = 1ULL << 34ULL
 };
 // clang-format on
 
@@ -122,7 +123,8 @@ inline constexpr std::array kPermissionsAll = {
     Permission::PARALLEL_EXECUTION,
     Permission::SERVER_SIDE_PARAMETERS,
     Permission::SERVER_SIDE_DESCRIPTIONS,
-    Permission::RELOAD_TLS
+    Permission::RELOAD_TLS,
+    Permission::BRANCH_USE
 };
 // clang-format on
 
