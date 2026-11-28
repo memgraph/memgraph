@@ -70,6 +70,7 @@ inline memgraph::tests::LedgerKv ledger_kv{kKvDirectory};
 struct Options {
   bool properties_on_edges{true};
   bool auto_index{false};
+  bool light_edges{false};  // forces properties_on_edges
 };
 
 inline ms::Config MakeConfig(bool recover_on_startup, Options options = {},
@@ -82,7 +83,8 @@ inline ms::Config MakeConfig(bool recover_on_startup, Options options = {},
                      .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::hours(24)}},
       .experimental_versioning = true,
   };
-  config.salient.items.properties_on_edges = options.properties_on_edges;
+  config.salient.items.properties_on_edges = options.properties_on_edges || options.light_edges;
+  config.salient.items.storage_light_edge = options.light_edges;
   config.salient.items.enable_label_index_auto_creation = options.auto_index;
   config.salient.items.enable_edge_type_index_auto_creation = options.auto_index;
   config.salient.uuid = directory == kOtherStorageDirectory ? kOtherDbUuid : kDbUuid;
@@ -302,28 +304,11 @@ inline std::unique_ptr<mv::BranchContext> Checkout(memgraph::dbms::Database &db,
   return std::make_unique<mv::BranchContext>(*core);
 }
 
-// Builds and registers `name`'s core from its recorded fork with its WAL replayed, so a later Checkout attaches to it.
-// `floor_shift` moves the recorded gid floors, to feed the replay a misread log.
-inline std::expected<mv::NativeGidEnds, std::string> Recover(memgraph::dbms::Database &db, std::string_view name,
-                                                             int64_t floor_shift = 0) {
-  auto branch = db.version_store()->Checkout(name);
-  if (!branch) return std::unexpected(branch.error());
-  const auto &info = (*branch)->info();
-  const auto fork_ts = (*branch)->fork_ts();
-  mv::NativeGidEnds ends;
-  auto core = (*branch)->GetOrBuildCore([&]() -> std::expected<std::shared_ptr<mv::BranchCore>, std::string> {
-    auto fork = info.fork;
-    fork.vertex_gid_floor += floor_shift;
-    fork.edge_gid_floor += floor_shift;
-    auto built = mv::BranchCore::Build(*Mem(db), fork, fork_ts, info.id);
-    if (!built) return std::unexpected(built.error().message);
-    auto replayed = mv::ReplayBranchWal(*built, BranchWalDir(info.id));
-    if (!replayed) return std::unexpected(replayed.error());
-    ends = *replayed;
-    return std::move(*built);
-  });
-  if (!core) return std::unexpected(core.error());
-  return ends;
+// Why Database startup set `name` aside, nullopt when it recovered.
+inline std::optional<std::string> UnavailableReason(memgraph::dbms::Database &db, std::string_view name) {
+  const auto listing = db.version_store()->Get(name);
+  EXPECT_TRUE(listing.has_value());
+  return listing ? listing->unavailable_reason : std::nullopt;
 }
 
 struct Env {
@@ -407,9 +392,7 @@ inline RoundTrip RunRoundTrip(const std::function<void(Env &)> &workload, Option
   }
   TestDatabase db{MakeConfig(/*recover_on_startup=*/true, options)};
   const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
-  const auto recovered = Recover(db, "b");
-  EXPECT_TRUE(recovered.has_value()) << recovered.error();
-  if (!recovered) return out;
+  EXPECT_EQ(UnavailableReason(db, "b"), std::nullopt);
   bool built = false;
   auto ctx = Checkout(db, "b", &built);
   EXPECT_NE(ctx, nullptr);
