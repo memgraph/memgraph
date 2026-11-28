@@ -19,6 +19,7 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -262,7 +263,7 @@ class BranchContext {
   storage::Result<uint64_t> GetPropertySize(const storage::VertexAccessor &vertex, storage::PropertyId key,
                                             storage::View view);
 
-  // A base edge hidden on the branch (deleted, or an endpoint deleted) is DELETED_OBJECT.
+  // A base edge deleted on the branch is DELETED_OBJECT.
   storage::Result<std::map<storage::PropertyId, storage::PropertyValue>> Properties(const storage::EdgeAccessor &edge,
                                                                                     storage::View view);
   storage::Result<storage::PropertyValue> GetProperty(const storage::EdgeAccessor &edge, storage::PropertyId key,
@@ -273,11 +274,49 @@ class BranchContext {
   // Skips the overlay probe unless the vertex is branched and the filter says the branch may have deleted it.
   bool IsBaseVertexDeleted(const storage::VertexAccessor &base_vertex, storage::View view);
 
-  // Deleted on the branch, or either endpoint deleted. False for a native edge. `overlay_out` receives the edge overlay
-  // if the lookup found one.
+  // Deleted on the branch (a vertex delete deletes its edges first). False for a native edge. `overlay_out` receives
+  // the edge overlay if the lookup found one.
   bool IsBaseEdgeHidden(const storage::EdgeAccessor &base_edge, storage::View view,
                         std::optional<storage::EdgeAccessor> *overlay_out = nullptr);
 
+  // ---- Writes of a vertex accessor
+  //
+  // A native vertex takes the stock mutator; a base vertex is written through its overlay (created on first touch,
+  // holding the base's labels), DELETED_OBJECT if deleted on the branch. Labels are stock calls on the overlay; a
+  // property write is overlay::WriteProperty (a removal stores an explicit null), so the whole-set ops decompose per
+  // key. A multi-key failure poisons the diff transaction: abort it.
+  storage::Result<bool> AddLabel(storage::VertexAccessor &vertex, storage::LabelId label);
+  storage::Result<bool> RemoveLabel(storage::VertexAccessor &vertex, storage::LabelId label);
+  storage::Result<storage::PropertyValue> SetProperty(storage::VertexAccessor &vertex, storage::PropertyId key,
+                                                      const storage::PropertyValue &value);
+  storage::Result<bool> InitProperties(storage::VertexAccessor &vertex,
+                                       std::map<storage::PropertyId, storage::PropertyValue> &properties);
+  // As storage's: the changes are (key, old, new), and the untouched old properties are merged into `properties`.
+  storage::Result<std::vector<std::tuple<storage::PropertyId, storage::PropertyValue, storage::PropertyValue>>>
+  UpdateProperties(storage::VertexAccessor &vertex, std::map<storage::PropertyId, storage::PropertyValue> &properties);
+  storage::Result<std::map<storage::PropertyId, storage::PropertyValue>> ClearProperties(
+      storage::VertexAccessor &vertex);
+
+  // Marks base vertex `gid` deleted on the branch: false if already, NONEXISTENT_OBJECT if the base state has no such
+  // vertex. Without `detach`, as stock DeleteVertex: VERTEX_HAS_EDGES, before anything is written, if a visible base
+  // edge or a native edge is attached. With `detach`, each visible base edge is deleted first (DeleteBaseEdgeOnBranch),
+  // then the native edges, as stock DetachDeleteVertex. SERIALIZATION_ERROR (poisoning the transaction) if the vertex
+  // or an edge is held by a transaction this one cannot write over.
+  storage::Result<bool> DeleteBaseVertex(storage::Gid gid, bool detach);
+
+  // A refusal to write that the user is told about.
+  struct BranchWriteError {
+    std::string message;
+  };
+
+  // The diff engine's object for `gid`: a native vertex, or the overlay of a base vertex (created on first touch,
+  // branched bit set) to attach a native edge to. Hand an overlay only to branch writers. BranchWriteError if the
+  // vertex was deleted on the branch or is not there at all.
+  std::expected<storage::VertexAccessor, BranchWriteError> EnsureDiffVertex(storage::Gid gid);
+
+  // Creates a branch-native vertex in the diff engine at a gid taken from main's counter; the diff engine's own counter
+  // is raised past it.
+  storage::VertexAccessor CreateNativeVertex();
   // A base gid resolves to the base accessor unless the branch deleted it, a native gid to the diff engine's vertex.
   std::optional<storage::VertexAccessor> ResolveVertex(storage::Gid gid, storage::View view);
 
@@ -394,6 +433,8 @@ class BranchContext {
     return edge.storage_ == &diff_engine() && IsBaseCandidateEdge(edge.Gid());
   }
 
+  bool IsNative(const storage::VertexAccessor &vertex) const { return vertex.storage_ == &diff_engine(); }
+
   // Main's base vertex `gid` at View::OLD, looked up in the historical accessor.
   std::optional<storage::VertexAccessor> BaseAccessorByGid(storage::Gid gid);
 
@@ -402,6 +443,58 @@ class BranchContext {
 
   // Not probed for visibility: an overlay is never created or deleted by a delta.
   storage::VertexAccessor OverlayAccessor(storage::Vertex *overlay);
+
+  // Marks main's base vertex branched and returns its overlay as a diff-transaction accessor, creating it on first
+  // touch with the base's labels at fork_ts (read through the historical accessor, never from main's live vertex). The
+  // caller has checked the vertex is not deleted on the branch. @throw OutOfMemoryException with the overlay already
+  // published (a retry finds it).
+  storage::Result<storage::VertexAccessor> MaterializeOverlay(const storage::VertexAccessor &base_vertex);
+
+  // MaterializeOverlay for a writer: DELETED_OBJECT if the branch deleted the vertex.
+  storage::Result<storage::VertexAccessor> OverlayForWrite(const storage::VertexAccessor &base_vertex);
+
+  // Marks the base edge's overlay deleted (ListBaseEdgeDelete first), creating the edge overlay and its endpoints'
+  // candidate-list entries on first touch. No endpoint overlay is created or written and no labels are read. Filters
+  // and branched bits are set before the writes. `sides` are the endpoint lists to add the edge to; a caller that omits
+  // one must cover it itself (DeleteBaseVertex, for its own side). SERIALIZATION_ERROR (poisoning the transaction) if
+  // the edge is held by a transaction this one cannot write over, which includes one that already deleted this edge
+  // since this transaction began.
+  storage::Result<void> DeleteBaseEdgeOnBranch(const storage::EdgeAccessor &base_edge, ListSide sides = kBothSides);
+
+  // The base edges of `base_vertex` the branch still shows at NEW: its base-state edges minus those whose edge overlay
+  // is marked deleted, a self-loop once.
+  std::vector<storage::EdgeAccessor> VisibleBaseEdges(const storage::VertexAccessor &base_vertex);
+
+  // PrepareForWrite on the overlay under its shared lock; false (poisoning the transaction) on a conflict.
+  bool PrepareOverlayForWrite(const storage::VertexAccessor &overlay);
+
+  // Writes one base vertex property through its overlay (overlay::WriteProperty). Returns the old merged value: the
+  // overlay's entry, else the base's.
+  storage::Result<storage::PropertyValue> WriteOverlayProperty(const storage::VertexAccessor &base_vertex,
+                                                               storage::VertexAccessor &overlay,
+                                                               storage::PropertyId key,
+                                                               const storage::PropertyValue &value);
+
+  // What a write of `key` feeds the change filters, recorded before the overlay is written. `RecordPropertiesWrite`
+  // is the object-wide part, recorded once per primitive.
+  void RecordPropertyWrite(const storage::VertexAccessor &vertex, storage::PropertyId key) {
+    core_->RecordPropertyFieldChange(vertex.Gid(), key);
+  }
+
+  void RecordPropertiesWrite(const storage::VertexAccessor &vertex) { core_->RecordPropertyChange(vertex.Gid()); }
+
+  // Property writes behind the public overloads; `Object` is a base or native accessor.
+  template <typename Object>
+  storage::Result<storage::PropertyValue> SetPropertyAt(Object &object, storage::PropertyId key,
+                                                        const storage::PropertyValue &value);
+  template <typename Object>
+  storage::Result<bool> InitPropertiesAt(Object &object,
+                                         std::map<storage::PropertyId, storage::PropertyValue> &properties);
+  template <typename Object>
+  storage::Result<std::vector<std::tuple<storage::PropertyId, storage::PropertyValue, storage::PropertyValue>>>
+  UpdatePropertiesAt(Object &object, std::map<storage::PropertyId, storage::PropertyValue> &properties);
+  template <typename Object>
+  storage::Result<std::map<storage::PropertyId, storage::PropertyValue>> ClearPropertiesAt(Object &object);
 
   std::optional<storage::VertexAccessor> ReadOverlay(storage::Gid gid);
 
