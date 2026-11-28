@@ -11,14 +11,20 @@
 
 # -*- coding: utf-8 -*-
 
+import itertools
 import json
 import logging
+import os
 import sys
 
 from neo4j import GraphDatabase, basic_auth
+from steps import database
 from steps.test_parameters import TestParameters
 
 # Helper class and functions
+
+# behave scopes attribute writes to the current layer, so a counter kept on the context would restart every scenario.
+vbranch_counter = itertools.count(1)
 
 
 class TestResults:
@@ -54,10 +60,25 @@ def before_all(context):
     # test results
     context.test_results = TestResults()
 
+    if getattr(context.config, "versioned_branch", False):
+        if context.config.expected_failures:
+            with open(context.config.expected_failures) as f:
+                context.expected_failures = json.load(f)
+        else:
+            context.expected_failures = {}
+
 
 def before_scenario(context, scenario):
     context.test_parameters = TestParameters()
     context.exception = None
+
+    if getattr(context.config, "versioned_branch", False):
+        # Defensive: a session reopened by cleanups (they run after after_scenario) dies with its scenario layer
+        # and is never visible here.
+        database.close_vbranch_session(context)
+        context.vbranch_refused = False
+        # Unique per scenario: a failed best-effort DROP BRANCH must not collide with the next CREATE BRANCH.
+        context.vbranch_name = f"gqlb_{next(vbranch_counter)}"
 
 
 def after_step(context, step):
@@ -77,7 +98,35 @@ def after_step(context, step):
 
 
 def after_scenario(context, scenario):
-    context.test_results.add_test(scenario.status)
+    status = scenario.status
+    versioned = getattr(context.config, "versioned_branch", False)
+    if versioned:
+        entry = context.expected_failures.get(os.path.basename(scenario.filename), {}).get(scenario.name)
+        # A scenario that failed before the fork (setup) says nothing about the branch.
+        failed_on_branch = getattr(context, "vbranch_forked", False) and (
+            scenario.status == "failed" or context.vbranch_refused
+        )
+        if entry is not None:
+            # error is the expected query error text; null means a wrong result with no query error. Anything else
+            # (another error, a dropped connection) is a real regression.
+            error = "" if context.exception is None else str(context.exception)
+            matches = failed_on_branch and (entry["error"] in error if entry["error"] is not None else not error)
+            status = "passed" if matches else "failed"
+            if matches:
+                print(f"\nExpected failure on a branch ({entry['reason']}): {scenario.name}")
+            else:
+                print(
+                    f"\nListed in expected_failures but did not fail as expected on a branch "
+                    f"(want error {entry['error']!r}, got {error!r}): {scenario.name}"
+                )
+        elif context.vbranch_refused:
+            status = "failed"
+            print(f"\nRefused on a branch but not listed in expected_failures: {scenario.name}")
+    context.test_results.add_test(status)
+
+    if versioned:
+        database.close_vbranch_session(context)
+
     if context.config.single_scenario or (context.config.single_fail and scenario.status == "failed"):
         print("Press enter to continue")
         sys.stdin.readline()
