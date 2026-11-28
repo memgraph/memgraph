@@ -23,7 +23,12 @@ inline std::unique_ptr<storage::Storage> CreateInMemoryStorage(
     storage::PlanInvalidatorPtr invalidator = std::make_unique<storage::PlanInvalidatorDefault>(),
     metrics::DatabaseMetricHandles metric_handles = {},
     std::function<storage::DatabaseProtectorPtr()> database_protector_factory = nullptr,
-    memgraph::memory::ArenaPool *db_arena = nullptr, utils::MemoryTracker *db_embedding_memory_tracker = nullptr) {
+    memgraph::memory::ArenaPool *db_arena = nullptr, utils::MemoryTracker *db_embedding_memory_tracker = nullptr
+#ifdef MG_ENTERPRISE
+    ,
+    storage::durability::HistoryBounds history_bounds = {}
+#endif
+) {
   // Use default safe factory from Storage constructor for basic usage
   auto storage = std::make_unique<storage::InMemoryStorage>(std::move(config),
                                                             std::nullopt,
@@ -31,7 +36,13 @@ inline std::unique_ptr<storage::Storage> CreateInMemoryStorage(
                                                             std::move(metric_handles),
                                                             std::move(database_protector_factory),
                                                             db_arena,
-                                                            db_embedding_memory_tracker);
+                                                            db_embedding_memory_tracker,
+                                                            nullptr  // shared_name_id_mapper
+#ifdef MG_ENTERPRISE
+                                                            ,
+                                                            history_bounds
+#endif
+  );
 
   storage->CreateSnapshotHandler([storage = storage.get()](std::string_view trigger)
                                      -> std::expected<void, storage::InMemoryStorage::CreateSnapshotError> {

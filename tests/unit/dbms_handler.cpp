@@ -37,6 +37,7 @@
 #include "query/interpreter.hpp"
 #include "system/system.hpp"
 #include "utils/uuid.hpp"
+#include "versioning/branch_ledger.hpp"
 
 namespace {
 std::set<std::string> GetDirs(auto path) {
@@ -743,6 +744,92 @@ TEST(DBMS_Handler, DropSucceedsDurablyWhenAttachedProfileJsonIsCorrupt) {
       << "boot reconciliation (PruneDatabases) must collect the leftover mapping on the very next boot, "
          "even though the profile it names never parses";
 
+  fs::remove_all(sr.root);
+}
+
+// The ledger of a database's branches is keyed by its uuid in the same durability store.
+void SeedBranchLedger(memgraph::kvstore::KVStore &kv, const memgraph::utils::UUID &uuid) {
+  ASSERT_TRUE(memgraph::versioning::BranchLedger(kv, uuid).Write(memgraph::versioning::LedgerContents{}).has_value());
+}
+
+bool HasBranchLedger(memgraph::kvstore::KVStore &kv, const memgraph::utils::UUID &uuid) {
+  return kv.Get(std::string{memgraph::versioning::kBranchLedgerKeyPrefix} + std::string{uuid}).has_value();
+}
+
+// DROP DATABASE retires the branch ledger with the database's key, for a HOT and for a COLD tenant.
+TEST(DBMS_Handler, DropRetiresTheBranchLedger) {
+  namespace fs = std::filesystem;
+  using memgraph::dbms::DbmsHandler;
+
+  auto sr = MakeSeededRoot("drop_branch_ledger");
+  memgraph::utils::UUID hot_uuid, cold_uuid, kept_uuid;
+  {
+    memgraph::kvstore::KVStore seed_kv{sr.durability_dir};
+    ASSERT_TRUE(seed_kv.Put("version", "V2"));
+    hot_uuid = SeedHotEntry(seed_kv, "hot").uuid;
+    kept_uuid = SeedHotEntry(seed_kv, "kept").uuid;
+    cold_uuid = SeedColdEntry(seed_kv, "cold");
+    for (const auto &uuid : {hot_uuid, cold_uuid, kept_uuid}) SeedBranchLedger(seed_kv, uuid);
+  }
+
+  auto conf = MakeSeededConfig(sr.root);
+  auto handler = std::make_unique<DbmsHandler>(conf);
+  ASSERT_TRUE(handler->TryDelete("hot").has_value());
+  ASSERT_TRUE(handler->TryDelete("cold").has_value());
+  handler.reset();
+
+  memgraph::kvstore::KVStore verify_kv{sr.durability_dir};
+  EXPECT_FALSE(HasBranchLedger(verify_kv, hot_uuid));
+  EXPECT_FALSE(HasBranchLedger(verify_kv, cold_uuid));
+  EXPECT_TRUE(HasBranchLedger(verify_kv, kept_uuid)) << "another database's ledger is left alone";
+  fs::remove_all(sr.root);
+}
+
+// A ledger no database owns is removed on boot; those of HOT and COLD tenants stay.
+TEST(DBMS_Handler, OrphanBranchLedgersArePrunedOnStartup) {
+  namespace fs = std::filesystem;
+  using memgraph::dbms::DbmsHandler;
+
+  auto sr = MakeSeededRoot("orphan_branch_ledger");
+  const memgraph::utils::UUID orphan_uuid;
+  memgraph::utils::UUID hot_uuid, cold_uuid;
+  {
+    memgraph::kvstore::KVStore seed_kv{sr.durability_dir};
+    ASSERT_TRUE(seed_kv.Put("version", "V2"));
+    hot_uuid = SeedHotEntry(seed_kv, "hot").uuid;
+    cold_uuid = SeedColdEntry(seed_kv, "cold");
+    for (const auto &uuid : {hot_uuid, cold_uuid, orphan_uuid}) SeedBranchLedger(seed_kv, uuid);
+  }
+
+  auto conf = MakeSeededConfig(sr.root);
+  std::make_unique<DbmsHandler>(conf).reset();
+
+  memgraph::kvstore::KVStore verify_kv{sr.durability_dir};
+  EXPECT_FALSE(HasBranchLedger(verify_kv, orphan_uuid));
+  EXPECT_TRUE(HasBranchLedger(verify_kv, hot_uuid));
+  EXPECT_TRUE(HasBranchLedger(verify_kv, cold_uuid));
+  fs::remove_all(sr.root);
+}
+
+// An unreadable database entry may own any ledger, so none is pruned that boot.
+TEST(DBMS_Handler, BranchLedgersAreKeptWhenADurableEntryIsUnreadable) {
+  namespace fs = std::filesystem;
+  using memgraph::dbms::DbmsHandler;
+
+  auto sr = MakeSeededRoot("orphan_branch_ledger_incomplete");
+  const memgraph::utils::UUID unowned_uuid;
+  {
+    memgraph::kvstore::KVStore seed_kv{sr.durability_dir};
+    ASSERT_TRUE(seed_kv.Put("version", "V2"));
+    ASSERT_TRUE(seed_kv.Put(std::string{kDBPrefixLiteral} + "broken", "{not json"));
+    SeedBranchLedger(seed_kv, unowned_uuid);
+  }
+
+  auto conf = MakeSeededConfig(sr.root);
+  std::make_unique<DbmsHandler>(conf).reset();
+
+  memgraph::kvstore::KVStore verify_kv{sr.durability_dir};
+  EXPECT_TRUE(HasBranchLedger(verify_kv, unowned_uuid));
   fs::remove_all(sr.root);
 }
 

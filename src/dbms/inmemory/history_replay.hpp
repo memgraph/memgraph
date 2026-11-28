@@ -17,12 +17,14 @@
 #include <expected>
 #include <filesystem>
 #include <functional>
+#include <optional>
 #include <span>
 #include <string>
 #include <vector>
 
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/inmemory/storagefwd.hpp"
+#include "versioning/branch_ledger.hpp"
 
 namespace memgraph::storage::durability {
 struct WalInfo;
@@ -35,6 +37,10 @@ namespace memgraph::dbms {
 // read or replay consumes a delta count other than `wal_info.num_deltas`; throws on a decode failure.
 bool ReplayWalFile(storage::InMemoryStorage &storage, std::filesystem::path const &wal_path,
                    storage::durability::WalInfo const &wal_info, std::function<void(uint64_t)> on_txn_begin);
+
+// Durable ts up to which main must be recovered to rebuild every branch's base state: the earliest branch's recorded
+// fork_ts - 1 (clamped at 0), since a fork sees commits with ts < fork_ts. nullopt when the ledger has no branch.
+std::optional<uint64_t> BranchRecoveryBound(const versioning::LedgerContents &ledger);
 
 // Replays `tail` into the freshly recovered `storage` as MVCC txns committed without a WAL append, registering a fork
 // pin per `fork_ts` right before the first txn with durable ts >= it (after all if none), then bumps the clock past the

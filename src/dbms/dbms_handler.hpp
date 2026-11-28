@@ -1000,9 +1000,9 @@ class DbmsHandler {
   // Caller must hold lock_ (write).
   std::expected<utils::UUID, DeleteError> DeleteCold_(std::string_view name);
 
-  // Retire the tenant's own durability key together with its profile detach in one atomic kvstore batch
-  // when a profile is attached; otherwise delete the key on its own. Safe (no-op on the key) when the
-  // database has no attached profile. Caller must hold lock_.
+  // Retire the tenant's own durability key and its branch ledger together with its profile detach in one atomic
+  // kvstore batch when a profile is attached; otherwise delete the keys on their own. Safe (no-op on the keys) when
+  // the database has no attached profile. Caller must hold lock_.
   void DetachProfileAndRetireDurabilityKey_(std::string_view db_name);
 
   // Cold-tenant fast path shared by every Delete/TryDelete overload: if `name` is currently in
@@ -1169,6 +1169,10 @@ class DbmsHandler {
   mutable LockT lock_{utils::RWLock::Priority::READ};  //!< protective lock
   storage::Config default_config_;                     //!< Storage configuration used when creating new databases
 
+  // Declared before db_handler_: the databases hold branch ledgers in it, so it must outlive them.
+  // TODO: move to be common
+  std::unique_ptr<kvstore::KVStore> durability_;  //!< list of active dbs (pointer so we can postpone its creation)
+
   DatabaseHandler db_handler_;  //!< multi-tenancy storage handler
   // COLD tenant rebuild metadata; guarded by lock_. The transparent std::less<> comparator is LOAD-BEARING
   // for the Resume_ publish block's noexcept guarantee: that block does suspended_.find(name) (string_view,
@@ -1176,8 +1180,6 @@ class DbmsHandler {
   // throw. Do NOT change this to std::less<std::string> — find(string_view) would then construct a
   // std::string key and could throw bad_alloc inside the noexcept window.
   std::map<std::string, SuspendedEntry, std::less<>> suspended_;
-  // TODO: move to be common
-  std::unique_ptr<kvstore::KVStore> durability_;     //!< list of active dbs (pointer so we can postpone its creation)
   std::unique_ptr<TenantProfiles> tenant_profiles_;  //!< per-DB resource profiles (created after durability_)
   std::function<void(DatabaseAccess)> on_resume_;    //!< pre-publish resume arm (triggers/streams); empty default
   std::function<void(DatabaseAccess)> on_suspend_;   //!< pre-teardown suspend arm (stop streams); empty default
