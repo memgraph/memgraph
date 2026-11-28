@@ -416,9 +416,11 @@ foreach :  FOREACH '(' variable IN expression '|' updateClause+  ')' ;
 
 preQueryDirectives: USING preQueryDirective ( ',' preQueryDirective )* ;
 
-preQueryDirective: hopsLimit | indexHints  | periodicCommit  | parallelExecution ;
+preQueryDirective: hopsLimit | indexHints  | periodicCommit  | parallelExecution | branchDirective ;
 
 hopsLimit: HOPS LIMIT literal ;
+
+branchDirective : BRANCH branchName ;
 
 indexHints: INDEX indexHint ( ',' indexHint )* ;
 
