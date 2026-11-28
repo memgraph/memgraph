@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <memory>
 #include <mutex>
 #include <span>
 
@@ -28,6 +29,7 @@
 #include "storage/v2/indices/label_index_stats.hpp"
 #include "storage/v2/inmemory/indices_mvcc.hpp"
 #include "storage/v2/vertex.hpp"
+#include "storage/v2/vertex_row_filter.hpp"
 #include "utils/rw_lock.hpp"
 #include "utils/synchronized.hpp"
 
@@ -78,15 +80,32 @@ class InMemoryLabelIndex : public LabelIndex {
   uint64_t RemoveObsoleteEntries(Storage *storage, uint64_t oldest_active_start_timestamp, std::stop_token token,
                                  IndexArming const &arming);
 
-  class Iterable {
+  // `Filtered` is the branch scan's instance (enterprise only): the same iterator whose skip loop also drops a branched
+  // row its filter hides. Main's is `Iterable`, which has no filter member and compiles to the loop it always was.
+  template <bool Filtered>
+  class IterableT {
    public:
-    Iterable(utils::SkipListDb<Entry>::Accessor index_accessor,
-             utils::SkipListDb<Vertex>::ConstAccessor vertices_accessor, LabelId label, View view, Storage *storage,
-             Transaction *transaction, Gid max_gid);
+    IterableT(utils::SkipListDb<Entry>::Accessor index_accessor,
+              utils::SkipListDb<Vertex>::ConstAccessor vertices_accessor, LabelId label, View view, Storage *storage,
+              Transaction *transaction, Gid max_gid);
+
+#ifdef MG_ENTERPRISE
+    /// `other` with `filter` set; both are fixed when the iterable is built.
+    IterableT(IterableT<false> &&other, std::shared_ptr<VertexRowFilter const> filter)
+      requires Filtered
+        : pin_accessor_(std::move(other.pin_accessor_)),
+          index_accessor_(std::move(other.index_accessor_)),
+          label_(other.label_),
+          view_(other.view_),
+          storage_(other.storage_),
+          transaction_(other.transaction_),
+          max_gid_(other.max_gid_),
+          filter_(std::move(filter)) {}
+#endif
 
     class Iterator {
      public:
-      Iterator(Iterable *self, utils::SkipListDb<Entry>::Iterator index_iterator);
+      Iterator(IterableT *self, utils::SkipListDb<Entry>::Iterator index_iterator);
 
       VertexAccessor const &operator*() const { return current_vertex_accessor_; }
 
@@ -99,7 +118,7 @@ class InMemoryLabelIndex : public LabelIndex {
      private:
       void AdvanceUntilValid();
 
-      Iterable *self_;
+      IterableT *self_;
       utils::SkipListDb<Entry>::Iterator index_iterator_;
       VertexAccessor current_vertex_accessor_;
       Vertex *current_vertex_;
@@ -110,6 +129,16 @@ class InMemoryLabelIndex : public LabelIndex {
     Iterator end() { return {this, index_accessor_.end()}; }
 
    private:
+    template <bool>
+    friend class IterableT;
+
+    struct NoFilter {};
+#ifdef MG_ENTERPRISE
+    using FilterSlot = std::conditional_t<Filtered, std::shared_ptr<VertexRowFilter const>, NoFilter>;
+#else
+    using FilterSlot = NoFilter;
+#endif
+
     utils::SkipListDb<Vertex>::ConstAccessor pin_accessor_;
     utils::SkipListDb<Entry>::Accessor index_accessor_;
     LabelId label_;
@@ -117,7 +146,13 @@ class InMemoryLabelIndex : public LabelIndex {
     Storage *storage_;
     Transaction *transaction_;
     Gid max_gid_;
+    [[no_unique_address]] FilterSlot filter_;
   };
+
+  using Iterable = IterableT<false>;
+#ifdef MG_ENTERPRISE
+  using FilteredIterable = IterableT<true>;
+#endif
 
   class ChunkedIterable {
    public:

@@ -32,7 +32,9 @@
 #include "storage/v2/indices/label_property_index.hpp"
 #include "storage/v2/indices/label_property_index_stats.hpp"
 #include "storage/v2/inmemory/indices_mvcc.hpp"
+#include "storage/v2/key_bloom.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/vertex_row_filter.hpp"
 #include "utils/rw_lock.hpp"
 #include "utils/synchronized.hpp"
 
@@ -89,6 +91,12 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
 
   explicit InMemoryLabelPropertyIndex(metrics::GaugeHandle gauge = {}) : gauge_{gauge} {}
 
+#ifdef MG_ENTERPRISE
+  /// Makes every index of this (empty, branch-diff) index set hash the keys it receives into `bloom`. Call before any
+  /// entry is inserted; the bloom must outlive the indexes.
+  void SetKeyBloom(KeyBloom *bloom);
+#endif
+
   template <typename EntryT = Entry<>>
   struct IndividualIndex {
     using EntryType = EntryT;
@@ -103,6 +111,10 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
     utils::SkipListDb<EntryT> skiplist{};
     IndexStatus status{};
     metrics::ScopedGauge gauge_{};
+#ifdef MG_ENTERPRISE
+    // A branch's diff index: every entry key it receives is also hashed into this bloom (see KeyBloom). Null on main.
+    KeyBloom *key_bloom{nullptr};
+#endif
   };
 
   // An index of any supported composite arity, for a fixed sort direction. The
@@ -282,7 +294,10 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
   bool PublishIndex(LabelId label, PropertiesPaths const &properties, uint64_t commit_timestamp,
                     IndexOrder order = IndexOrder::ASC);
 
-  template <typename EntryT = Entry<>>
+  // `Filtered` is the branch scan's instance (enterprise only): the same iterator whose skip loop also drops a branched
+  // row its filter hides. Main's is `Iterable<EntryT>`, which has no filter member and compiles to the loop it always
+  // was.
+  template <typename EntryT = Entry<>, bool Filtered = false>
   class Iterable {
    public:
     Iterable(typename utils::SkipListDb<EntryT>::Accessor index_accessor,
@@ -290,6 +305,26 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
              PropertiesPaths const *properties, PropertiesPermutationHelper const *permutation_helper,
              std::span<PropertyValueRange const> ranges, View view, Storage *storage, Transaction *transaction,
              Gid max_gid);
+
+#ifdef MG_ENTERPRISE
+    /// `other` with `filter` set; both are fixed when the iterable is built.
+    Iterable(Iterable<EntryT, false> &&other, std::shared_ptr<VertexRowFilter const> filter)
+      requires Filtered
+        : pin_accessor_(std::move(other.pin_accessor_)),
+          index_accessor_(std::move(other.index_accessor_)),
+          label_(other.label_),
+          properties_(other.properties_),
+          permutation_helper_(other.permutation_helper_),
+          lower_bound_(std::move(other.lower_bound_)),
+          upper_bound_(std::move(other.upper_bound_)),
+          predicates_(std::move(other.predicates_)),
+          bounds_valid_(other.bounds_valid_),
+          view_(other.view_),
+          storage_(other.storage_),
+          transaction_(other.transaction_),
+          max_gid_(other.max_gid_),
+          filter_(std::move(filter)) {}
+#endif
 
     class Iterator {
      public:
@@ -319,6 +354,16 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
     Iterator end();
 
    private:
+    template <typename, bool>
+    friend class Iterable;
+
+    struct NoFilter {};
+#ifdef MG_ENTERPRISE
+    using FilterSlot = std::conditional_t<Filtered, std::shared_ptr<VertexRowFilter const>, NoFilter>;
+#else
+    using FilterSlot = NoFilter;
+#endif
+
     utils::SkipListDb<Vertex>::ConstAccessor pin_accessor_;
     typename utils::SkipListDb<EntryT>::Accessor index_accessor_;
 
@@ -337,6 +382,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
     Storage *storage_;
     Transaction *transaction_;
     Gid max_gid_;
+    [[no_unique_address]] FilterSlot filter_;
   };
 
   template <typename EntryT = Entry<>>
@@ -429,7 +475,8 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
 
     bool IndexReady(LabelId label, std::span<PropertyPath const> properties) const override;
 #ifdef MG_ENTERPRISE
-    bool IndexVisibleAt(LabelId label, std::span<PropertyPath const> properties, uint64_t timestamp) const override;
+    bool IndexVisibleAt(LabelId label, std::span<PropertyPath const> properties, IndexOrder order,
+                        uint64_t timestamp) const override;
 #endif
 
     auto RelevantLabelPropertiesIndicesInfo(std::span<LabelId const> labels,
@@ -566,6 +613,9 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
       -> std::shared_ptr<IndividualIndex<EntryT>>;
 
   metrics::GaugeHandle gauge_{};
+#ifdef MG_ENTERPRISE
+  KeyBloom *key_bloom_{nullptr};
+#endif
 
   utils::Synchronized<std::shared_ptr<IndexContainer const>, utils::WritePrioritizedRWLock> index_{
       std::make_shared<IndexContainer const>()};

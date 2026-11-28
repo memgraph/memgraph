@@ -268,6 +268,9 @@ struct Advance {
 // flips the UNDER/OVER early-termination semantics: in ASC iteration values increase so
 // UNDER means "skip, will reach range" and OVER means "stop"; in DESC iteration values
 // decrease so UNDER means "stop, past range" and OVER means "skip, will reach range".
+// `Filtered` only keeps the branch scan's call a separate instantiation, so each iterator type has exactly one caller
+// and the loop is inlined into it as before.
+template <bool Filtered = false>
 Advance AdvanceUntilValid_(auto &index_iterator, const auto &end, auto *&current_vertex, auto &current_vertex_accessor,
                            auto *storage, auto *transaction, auto view, auto label, const auto &lower_bound,
                            const auto &upper_bound, auto &permutation_helper, memgraph::storage::Gid max_gid,
@@ -572,7 +575,12 @@ auto MakeIndexVariant(std::size_t arity, PropertiesPermutationHelper helper)
 // Caller must hold the all_indices_ lock when passing all_indexes.
 template <IndexOrder Order, typename IndicesMap, typename AllIndicesVec, typename ReverseLookup>
 bool RegisterIntoIndicesMap(IndicesMap &indices_map, AllIndicesVec &all_indexes, ReverseLookup &reverse_lookup,
-                            LabelId label, PropertiesPaths const &properties, NameIdMapper *name_id_mapper) {
+                            LabelId label, PropertiesPaths const &properties, NameIdMapper *name_id_mapper
+#ifdef MG_ENTERPRISE
+                            ,
+                            KeyBloom *key_bloom
+#endif
+) {
   auto [it1, _] = indices_map.try_emplace(label);
   auto &properties_map = it1->second;
   if (properties_map.find(properties) != properties_map.end()) {
@@ -582,6 +590,9 @@ bool RegisterIntoIndicesMap(IndicesMap &indices_map, AllIndicesVec &all_indexes,
                     ? PropertiesPermutationHelper{properties, *name_id_mapper}
                     : PropertiesPermutationHelper{properties, PropertiesPermutationHelper::WithoutNames{}};
   auto [it3, _2] = properties_map.emplace(properties, MakeIndexVariant<Order>(properties.size(), std::move(helper)));
+#ifdef MG_ENTERPRISE
+  if (key_bloom != nullptr) std::visit([&](auto &index) { index->key_bloom = key_bloom; }, it3->second);
+#endif
   auto new_all_indexes = *all_indexes;
   new_all_indexes.emplace_back(it3->second, label, properties);
   using Vec = std::decay_t<decltype(*all_indexes)>;
@@ -608,7 +619,12 @@ bool InMemoryLabelPropertyIndex::RegisterIndex(LabelId label, PropertiesPaths co
                                              new_index->ReverseLookup<Order>(),
                                              label,
                                              properties,
-                                             name_id_mapper);
+                                             name_id_mapper
+#ifdef MG_ENTERPRISE
+                                             ,
+                                             key_bloom_
+#endif
+        );
       });
     });
     if (!registered) return false;
@@ -725,6 +741,10 @@ void InMemoryLabelPropertyIndex::ActiveIndices::UpdateOnAddLabel(LabelId added_l
         using EntryT = typename std::decay_t<decltype(index)>::EntryType;
         auto values = BuildEntryValues<EntryT>(index.permutations_helper, vertex_after_update->properties);
         if (!values) return;
+#ifdef MG_ENTERPRISE
+        if (index.key_bloom != nullptr) [[unlikely]]
+          index.key_bloom->Insert(KeyHash(added_label, props, *values));
+#endif
         auto acc = index.skiplist.access();
         acc.insert({std::move(*values), vertex_after_update, tx.start_timestamp});
       });
@@ -814,6 +834,10 @@ void InMemoryLabelPropertyIndex::ActiveIndices::UpdateOnSetProperty(PropertyId p
         }
 
         if (auto values = BuildEntryValues<EntryT>(helper, vertex->properties); values) {
+#ifdef MG_ENTERPRISE
+          if (index.key_bloom != nullptr) [[unlikely]]
+            index.key_bloom->Insert(KeyHash(lookup.first, *property_ids, *values));
+#endif
           with_acc().insert({std::move(*values), vertex, tx.start_timestamp});
         }
       });
@@ -979,7 +1003,7 @@ bool InMemoryLabelPropertyIndex::ActiveIndices::IndexReady(LabelId label,
 
 #ifdef MG_ENTERPRISE
 bool InMemoryLabelPropertyIndex::ActiveIndices::IndexVisibleAt(LabelId label, std::span<PropertyPath const> properties,
-                                                               uint64_t timestamp) const {
+                                                               IndexOrder order, uint64_t timestamp) const {
   auto check = [&](auto &indices_map) {
     auto it = indices_map.find(label);
     if (it != indices_map.end()) {
@@ -990,7 +1014,7 @@ bool InMemoryLabelPropertyIndex::ActiveIndices::IndexVisibleAt(LabelId label, st
     }
     return false;
   };
-  return check(index_container_->asc_indices_) || check(index_container_->desc_indices_);
+  return order == IndexOrder::ASC ? check(index_container_->asc_indices_) : check(index_container_->desc_indices_);
 }
 #endif
 
@@ -1157,8 +1181,8 @@ uint64_t InMemoryLabelPropertyIndex::RemoveObsoleteEntries(Storage *storage, uin
   return swept;
 }
 
-template <typename EntryT>
-InMemoryLabelPropertyIndex::Iterable<EntryT>::Iterator::Iterator(
+template <typename EntryT, bool Filtered>
+InMemoryLabelPropertyIndex::Iterable<EntryT, Filtered>::Iterator::Iterator(
     Iterable *self, typename utils::SkipListDb<EntryT>::Iterator index_iterator)
     : self_(self),
       index_iterator_(index_iterator),
@@ -1167,38 +1191,49 @@ InMemoryLabelPropertyIndex::Iterable<EntryT>::Iterator::Iterator(
   AdvanceUntilValid();
 }
 
-template <typename EntryT>
-typename InMemoryLabelPropertyIndex::Iterable<EntryT>::Iterator &
-InMemoryLabelPropertyIndex::Iterable<EntryT>::Iterator::operator++() {
+template <typename EntryT, bool Filtered>
+InMemoryLabelPropertyIndex::Iterable<EntryT, Filtered>::Iterator &
+InMemoryLabelPropertyIndex::Iterable<EntryT, Filtered>::Iterator::operator++() {
   ++index_iterator_;
   AdvanceUntilValid();
   return *this;
 }
 
-template <typename EntryT>
-void InMemoryLabelPropertyIndex::Iterable<EntryT>::Iterator::AdvanceUntilValid() {
+template <typename EntryT, bool Filtered>
+void InMemoryLabelPropertyIndex::Iterable<EntryT, Filtered>::Iterator::AdvanceUntilValid() {
   constexpr bool is_desc = EntryT::kOrder == IndexOrder::DESC;
   auto const &predicates = self_->predicates_;
 
   for (;;) {
-    auto const advance = AdvanceUntilValid_(index_iterator_,
-                                            self_->index_accessor_.end(),
-                                            current_vertex_,
-                                            current_vertex_accessor_,
-                                            self_->storage_,
-                                            self_->transaction_,
-                                            self_->view_,
-                                            self_->label_,
-                                            self_->lower_bound_,
-                                            self_->upper_bound_,
-                                            self_->permutation_helper_,
-                                            self_->max_gid_,
-                                            match_scratch_,
-                                            predicates,
-                                            /*use_cache=*/true,
-                                            /*reverse_iteration=*/is_desc);
+    auto const advance = AdvanceUntilValid_<Filtered>(index_iterator_,
+                                                      self_->index_accessor_.end(),
+                                                      current_vertex_,
+                                                      current_vertex_accessor_,
+                                                      self_->storage_,
+                                                      self_->transaction_,
+                                                      self_->view_,
+                                                      self_->label_,
+                                                      self_->lower_bound_,
+                                                      self_->upper_bound_,
+                                                      self_->permutation_helper_,
+                                                      self_->max_gid_,
+                                                      match_scratch_,
+                                                      predicates,
+                                                      /*use_cache=*/true,
+                                                      /*reverse_iteration=*/is_desc);
 
-    if (advance.outcome != AdvanceOutcome::Rejected) break;
+    if (advance.outcome != AdvanceOutcome::Rejected) {
+#ifdef MG_ENTERPRISE
+      if constexpr (Filtered) {
+        if (advance.outcome == AdvanceOutcome::Found && current_vertex_->branched() &&
+            self_->filter_->Hides(current_vertex_->gid, current_vertex_accessor_)) [[unlikely]] {
+          ++index_iterator_;
+          continue;
+        }
+      }
+#endif
+      break;
+    }
 
     // Every entry sharing values 0..rejected_at is rejected too, and those entries are adjacent.
     auto const shared = index_iterator_->values.as_view().prefix(advance.rejected_at + 1);
@@ -1212,13 +1247,11 @@ void InMemoryLabelPropertyIndex::Iterable<EntryT>::Iterator::AdvanceUntilValid()
   }
 }
 
-template <typename EntryT>
-InMemoryLabelPropertyIndex::Iterable<EntryT>::Iterable(typename utils::SkipListDb<EntryT>::Accessor index_accessor,
-                                                       utils::SkipListDb<Vertex>::ConstAccessor vertices_accessor,
-                                                       LabelId label, PropertiesPaths const *properties,
-                                                       PropertiesPermutationHelper const *permutation_helper,
-                                                       std::span<PropertyValueRange const> ranges, View view,
-                                                       Storage *storage, Transaction *transaction, Gid max_gid)
+template <typename EntryT, bool Filtered>
+InMemoryLabelPropertyIndex::Iterable<EntryT, Filtered>::Iterable(
+    utils::SkipListDb<EntryT>::Accessor index_accessor, utils::SkipListDb<Vertex>::ConstAccessor vertices_accessor,
+    LabelId label, PropertiesPaths const *properties, PropertiesPermutationHelper const *permutation_helper,
+    std::span<PropertyValueRange const> ranges, View view, Storage *storage, Transaction *transaction, Gid max_gid)
     : pin_accessor_(std::move(vertices_accessor)),
       index_accessor_(std::move(index_accessor)),
       label_(label),
@@ -1233,8 +1266,9 @@ InMemoryLabelPropertyIndex::Iterable<EntryT>::Iterable(typename utils::SkipListD
   for (auto const &range : ranges) predicates_.push_back(range.GetValuePredicate());
 }
 
-template <typename EntryT>
-typename InMemoryLabelPropertyIndex::Iterable<EntryT>::Iterator InMemoryLabelPropertyIndex::Iterable<EntryT>::begin() {
+template <typename EntryT, bool Filtered>
+InMemoryLabelPropertyIndex::Iterable<EntryT, Filtered>::Iterator
+InMemoryLabelPropertyIndex::Iterable<EntryT, Filtered>::begin() {
   if (!bounds_valid_) return {this, index_accessor_.end()};
   auto index_iterator = index_accessor_.begin();
   if constexpr (EntryT::kOrder == IndexOrder::DESC) {
@@ -1251,10 +1285,27 @@ typename InMemoryLabelPropertyIndex::Iterable<EntryT>::Iterator InMemoryLabelPro
   return {this, index_iterator};
 }
 
-template <typename EntryT>
-typename InMemoryLabelPropertyIndex::Iterable<EntryT>::Iterator InMemoryLabelPropertyIndex::Iterable<EntryT>::end() {
+template <typename EntryT, bool Filtered>
+InMemoryLabelPropertyIndex::Iterable<EntryT, Filtered>::Iterator
+InMemoryLabelPropertyIndex::Iterable<EntryT, Filtered>::end() {
   return {this, index_accessor_.end()};
 }
+
+#ifdef MG_ENTERPRISE
+void InMemoryLabelPropertyIndex::SetKeyBloom(KeyBloom *bloom) {
+  key_bloom_ = bloom;
+  index_.WithReadLock([&](std::shared_ptr<IndexContainer const> const &container) {
+    container->ForEachIndicesMap([&](auto const &indices_map) {
+      for (auto const &by_label : indices_map) {
+        for (auto const &by_properties : by_label.second) {
+          std::visit([&](auto const &index) { index->key_bloom = bloom; }, by_properties.second);
+        }
+      }
+    });
+  });
+}
+
+#endif
 
 uint64_t InMemoryLabelPropertyIndex::ActiveIndices::ApproximateVertexCount(
     LabelId label, std::span<PropertyPath const> properties) const {
@@ -1659,9 +1710,16 @@ static_assert(sizeof(DescEntry2) == ExpectedInlineEntrySize<2>());
 
 // The query surface instantiated for every concrete entry type.
 // NOLINTBEGIN(bugprone-macro-parentheses): EntryT is a template type argument, parenthesising it is not valid syntax.
+#ifdef MG_ENTERPRISE
+#define MG_FILTERED_ITERABLE_INSTANTIATION(EntryT) template class InMemoryLabelPropertyIndex::Iterable<EntryT, true>;
+#else
+#define MG_FILTERED_ITERABLE_INSTANTIATION(EntryT)
+#endif
+
 #define MG_INSTANTIATE_LABEL_PROPERTY_INDEX_QUERY(EntryT)                                                              \
   template struct InMemoryLabelPropertyIndex::IndividualIndex<EntryT>;                                                 \
   template class InMemoryLabelPropertyIndex::Iterable<EntryT>;                                                         \
+  MG_FILTERED_ITERABLE_INSTANTIATION(EntryT)                                                                           \
   template class InMemoryLabelPropertyIndex::ChunkedIterable<EntryT>;                                                  \
   template auto InMemoryLabelPropertyIndex::GetIndividualIndex<EntryT>(LabelId const &, PropertiesPaths const &) const \
       -> std::shared_ptr<IndividualIndex<EntryT>>;                                                                     \

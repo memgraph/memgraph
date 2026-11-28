@@ -24,6 +24,8 @@
 
 namespace memgraph::storage {
 
+class VertexAccessor;
+
 /// A read-only view of a lock-free register-blocked bloom filter of gids (k=2 bits in one 64-bit word, Fibonacci hash).
 /// The owner of the words (LazyGidFilter) inserts through `Locate`, so both sides share the layout.
 struct GidBloomProbe {
@@ -116,6 +118,30 @@ class LazyGidFilter {
   size_t num_words_;
   unsigned index_shift_;
   std::atomic<std::atomic<uint64_t> *> words_{nullptr};
+};
+
+/// A per-row veto an index scan applies inside its own skip loop, after the row passed MVCC visibility and the index
+/// predicate. A branch scan sets one on main@fork's index iterator. The loop tests the `branched()` hint first (main's,
+/// shared by every branch), then this filter's own probe of the gid, inline; only a row the probe passes reaches the
+/// virtual `HidesSlow`.
+class VertexRowFilter {
+ public:
+  explicit VertexRowFilter(GidBloomProbe may_hide) : may_hide_(may_hide) {}
+
+  VertexRowFilter(VertexRowFilter const &) = delete;
+  VertexRowFilter &operator=(VertexRowFilter const &) = delete;
+  virtual ~VertexRowFilter() = default;
+
+  /// True if the scan must not yield `row`, whose gid is `gid`.
+  [[nodiscard]] bool Hides(Gid gid, VertexAccessor const &row) const {
+    return may_hide_.MayContain(gid) && HidesSlow(row);
+  }
+
+ protected:
+  virtual bool HidesSlow(VertexAccessor const &row) const = 0;
+
+ private:
+  GidBloomProbe may_hide_;
 };
 
 }  // namespace memgraph::storage

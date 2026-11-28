@@ -57,8 +57,10 @@ const std::filesystem::path kKvDirectory{std::filesystem::temp_directory_path() 
 
 struct Options {
   bool properties_on_edges{true};
-  bool loop{false};     // main has a self-loop on v3
-  size_t hub_edges{0};  // main has this many edges v3 -[:H]-> v2
+  bool loop{false};       // main has a self-loop on v3
+  size_t hub_edges{0};    // main has this many edges v3 -[:H]-> v2
+  bool index{false};      // main has a label+property index on (L, p) when the branch forks
+  bool composite{false};  // main also has (L, p, q); v1 holds q=3, v2 has L and q=5 (and no p)
 };
 
 ms::Config MakeConfig(Options options = {}) {
@@ -221,6 +223,26 @@ class VersioningBranchWalTest : public ::testing::Test {
 struct Fixture {
   explicit Fixture(Options options = {}) : kv{kKvDirectory}, db{MakeConfig(options), &kv}, arena_scope{&db.Arena()} {
     base = CreateBase(db, options.properties_on_edges, options.loop, options.hub_edges);
+    if (options.index) {
+      auto acc = db.storage()->UniqueAccess();
+      EXPECT_TRUE(acc->CreateIndex(Label("L"), {Prop("p")}).has_value());
+      Commit(*acc);
+    }
+    if (options.composite) {
+      {
+        auto acc = db.Access(ms::WRITE);
+        auto v1 = acc->FindVertex(base.v1, ms::View::OLD);
+        auto v2 = acc->FindVertex(base.v2, ms::View::OLD);
+        EXPECT_TRUE(v1.has_value() && v2.has_value());
+        EXPECT_TRUE(v1->SetProperty(Prop("q"), ms::PropertyValue(3)).has_value());
+        EXPECT_TRUE(v2->AddLabel(Label("L")).has_value());
+        EXPECT_TRUE(v2->SetProperty(Prop("q"), ms::PropertyValue(5)).has_value());
+        Commit(*acc);
+      }
+      auto acc = db.storage()->UniqueAccess();
+      EXPECT_TRUE(acc->CreateIndex(Label("L"), {Prop("p"), Prop("q")}).has_value());
+      Commit(*acc);
+    }
     EXPECT_TRUE(db.version_store()->CreateBranch("b").has_value());
     auto const listing = db.version_store()->Get("b");
     EXPECT_TRUE(listing.has_value());
@@ -618,4 +640,49 @@ TEST_F(VersioningBranchWalTest, RolledBackTransactionWritesNothing) {
   auto const txns = ReadWalTxns(BranchWalDir(id));
   ASSERT_EQ(txns.size(), 1u) << "only the committed control transaction is in the WAL";
   EXPECT_THAT(txns[0].records, ElementsAre("set_prop:" + Gs(v1) + ":p=4"));
+}
+
+// The copies that keep an indexed key complete are base state, not user operations: the branch's WAL holds the same
+// records whether or not main has the index.
+TEST_F(VersioningBranchWalTest, KeyPartCopiesAreNeverLogged) {
+  auto const records_of = [](bool index) {
+    std::filesystem::remove_all(kStorageDirectory);
+    auto out = RunBranch(
+        [&](Fixture &f) {
+          auto &ctx = *f.ctx;
+          auto const holds = [&](ms::Gid gid, std::string_view property) {
+            auto *overlay = ctx.core()->overlay_index().Find(gid).overlay;
+            std::shared_lock guard{overlay->lock};
+            return overlay->properties.HasProperty(f.Prop(property));
+          };
+          BranchTxn(ctx, [&](mv::BranchContext &c) {  // removes L: the overlay holds no property yet
+            auto v1 = BaseVertex(c, f.base.v1);
+            ASSERT_TRUE(c.RemoveLabel(v1, f.Label("L")).has_value());
+          });
+          EXPECT_FALSE(holds(f.base.v1, "p"));
+          BranchTxn(ctx, [&](mv::BranchContext &c) {  // re-adds L: the keys' properties p and q are copied first
+            auto v1 = BaseVertex(c, f.base.v1);
+            ASSERT_TRUE(c.AddLabel(v1, f.Label("L")).has_value());
+          });
+          EXPECT_EQ(holds(f.base.v1, "p"), index);
+          EXPECT_EQ(holds(f.base.v1, "q"), index);
+          BranchTxn(ctx, [&](mv::BranchContext &c) {  // writes p: the partner q is copied first
+            auto v2 = BaseVertex(c, f.base.v2);
+            ASSERT_TRUE(c.SetProperty(v2, f.Prop("p"), ms::PropertyValue(9)).has_value());
+          });
+          EXPECT_EQ(holds(f.base.v2, "q"), index);
+          BranchTxn(ctx, [&](mv::BranchContext &c) {  // the base vertex has neither: nothing to copy
+            auto v3 = BaseVertex(c, f.base.v3);
+            ASSERT_TRUE(c.SetProperty(v3, f.Prop("p"), ms::PropertyValue(7)).has_value());
+            ASSERT_TRUE(c.AddLabel(v3, f.Label("L")).has_value());
+          });
+        },
+        Options{.index = index, .composite = index});
+    std::vector<std::string> all;
+    for (auto const &txn : out.wal.txns) all.insert(all.end(), txn.records.begin(), txn.records.end());
+    return all;
+  };
+  auto const without_index = records_of(false);
+  ASSERT_FALSE(without_index.empty());
+  EXPECT_EQ(records_of(true), without_index);
 }
