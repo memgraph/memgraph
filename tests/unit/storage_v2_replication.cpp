@@ -51,6 +51,10 @@
 #include "tests/unit/storage_test_utils.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/on_scope_exit.hpp"
+#ifdef MG_ENTERPRISE
+#include "query/exceptions.hpp"
+#include "versioning/version_store.hpp"
+#endif
 
 using testing::IsEmpty;
 using testing::UnorderedElementsAre;
@@ -202,7 +206,7 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
   MinMemgraph main(main_conf);
   MinMemgraph replica(repl_conf);
 
-  auto replica_store_handler = replica.repl_handler;
+  auto &replica_store_handler = replica.repl_handler;
   replica_store_handler.TrySetReplicationRoleReplica(
       ReplicationServerConfig{.repl_server = Endpoint(local_host, ports[0])});
 
@@ -690,7 +694,7 @@ TEST_F(ReplicationTest, MultipleSynchronousReplicationTest) {
   check_replica(replica1.db);
   check_replica(replica2.db);
 
-  auto handler = main.repl_handler;
+  auto &handler = main.repl_handler;
   handler.UnregisterReplica(replicas[1]);
   {
     const memgraph::memory::DbArenaScope arena_scope{&main.db.Arena()};
@@ -796,7 +800,7 @@ TEST_F(ReplicationTest, RecoveryProcess) {
   static constexpr const auto *vertex_label = "vertex_label";
   {
     MinMemgraph replica(repl_conf);
-    auto replica_store_handler = replica.repl_handler;
+    auto &replica_store_handler = replica.repl_handler;
 
     replica_store_handler.TrySetReplicationRoleReplica(ReplicationServerConfig{
         .repl_server = Endpoint(local_host, ports[0]),
@@ -892,7 +896,7 @@ TEST_F(ReplicationTest, BasicAsynchronousReplicationTest) {
   MinMemgraph main(main_conf);
   MinMemgraph replica_async(repl_conf);
 
-  auto replica_store_handler = replica_async.repl_handler;
+  auto &replica_store_handler = replica_async.repl_handler;
   replica_store_handler.TrySetReplicationRoleReplica(ReplicationServerConfig{
       .repl_server = Endpoint(local_host, ports[1]),
   });
@@ -1476,7 +1480,7 @@ TEST_F(ReplicationTest, RestoringReplicationAtStartup) {
     ASSERT_EQ(replicas_info.entries_[1].socket_address_, fmt::format("{}:{}", local_host, ports[1]));
   }
 
-  auto handler = main->repl_handler;
+  auto &handler = main->repl_handler;
   const auto unregister_res = handler.UnregisterReplica(replicas[0]);
   ASSERT_EQ(unregister_res, UnregisterReplicaResult::SUCCESS);
 
@@ -1929,7 +1933,7 @@ TEST_F(ReplicationTest, AnalyticalModeAndReplicationAreMutuallyExclusive) {
   MinMemgraph main(main_conf);
   MinMemgraph replica(repl_conf);
 
-  auto replica_store_handler = replica.repl_handler;
+  auto &replica_store_handler = replica.repl_handler;
   replica_store_handler.TrySetReplicationRoleReplica(
       ReplicationServerConfig{.repl_server = Endpoint(local_host, ports[0])});
 
@@ -2370,7 +2374,7 @@ TEST_F(ReplicationTest, ReplicationWithNonSequentialDeltas) {
   MinMemgraph main(main_conf);
   MinMemgraph replica(repl_conf);
 
-  auto replica_store_handler = replica.repl_handler;
+  auto &replica_store_handler = replica.repl_handler;
   replica_store_handler.TrySetReplicationRoleReplica(
       ReplicationServerConfig{.repl_server = Endpoint(local_host, ports[0])});
 
@@ -2541,7 +2545,7 @@ TEST_F(ReplicationTest, EdgeMetadataRecoveredOnReplicaSnapshotTransfer) {
   ASSERT_TRUE(static_cast<InMemoryStorage *>(main.db.storage())->CreateSnapshot(true).has_value());
 
   MinMemgraph replica(repl_conf);
-  auto replica_store_handler = replica.repl_handler;
+  auto &replica_store_handler = replica.repl_handler;
   replica_store_handler.TrySetReplicationRoleReplica(
       ReplicationServerConfig{.repl_server = Endpoint(local_host, ports[0])});
   ASSERT_TRUE(main.repl_handler
@@ -2805,3 +2809,210 @@ TEST_F(ReplicationTestLightEdge, RecoveryProcess) {
     ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 }
+
+#ifdef MG_ENTERPRISE
+// A database has a branch registry only with versioning on (or branches to keep), so the branch tests turn it on.
+Config WithVersioning(Config config) {
+  config.experimental_versioning = true;
+  return config;
+}
+
+TEST_F(ReplicationTest, DemoteToReplicaDropsBranches) {
+  MinMemgraph instance(WithVersioning(main_conf));
+
+  auto *store = instance.db.version_store();
+  ASSERT_NE(store, nullptr);
+  ASSERT_TRUE(store->CreateBranch("before").has_value());
+
+  ASSERT_TRUE(instance.repl_handler.SetReplicationRoleReplica(
+      ReplicationServerConfig{.repl_server = Endpoint(local_host, ports[0])}, std::nullopt));
+  EXPECT_TRUE(store->List().empty());
+}
+
+TEST_F(ReplicationTest, UserDemoteToReplicaIsRefusedWhileBranchesExist) {
+  MinMemgraph instance(WithVersioning(main_conf));
+
+  auto *store = instance.db.version_store();
+  ASSERT_NE(store, nullptr);
+  ASSERT_TRUE(store->CreateBranch("keep_a").has_value());
+  ASSERT_TRUE(store->CreateBranch("keep_b").has_value());
+
+  std::string message;
+  try {
+    (void)instance.repl_handler.TrySetReplicationRoleReplica(
+        ReplicationServerConfig{.repl_server = Endpoint(local_host, ports[0])});
+  } catch (memgraph::query::QueryRuntimeException const &e) {
+    message = e.what();
+  }
+  EXPECT_THAT(message, testing::HasSubstr("Cannot set the replication role to REPLICA while branches exist"));
+  EXPECT_THAT(message, testing::HasSubstr("branches are not supported with replication in v1"));
+  EXPECT_THAT(message, testing::HasSubstr("Drop the branches first with DROP BRANCH"));
+  EXPECT_THAT(message, testing::HasSubstr("(branches: keep_a, keep_b)"));
+
+  EXPECT_FALSE(instance.repl_handler.IsReplica());
+  EXPECT_EQ(store->List().size(), 2U);
+
+  ASSERT_EQ(store->DropBranch("keep_a"), memgraph::versioning::DropResult::kDropped);
+  ASSERT_EQ(store->DropBranch("keep_b"), memgraph::versioning::DropResult::kDropped);
+  ASSERT_TRUE(instance.repl_handler.TrySetReplicationRoleReplica(
+      ReplicationServerConfig{.repl_server = Endpoint(local_host, ports[0])}));
+  EXPECT_TRUE(instance.repl_handler.IsReplica());
+}
+
+TEST_F(ReplicationTest, DemoteFailingToDropBranchesStaysMain) {
+  MinMemgraph instance(WithVersioning(main_conf));
+
+  auto *store = instance.db.version_store();
+  ASSERT_NE(store, nullptr);
+  ASSERT_TRUE(store->CreateBranch("kept").has_value());
+
+  // A next_branch_id below 2 makes the ledger refuse every write, standing in for a failing KVStore.
+  store->Restore(1, {});
+
+  EXPECT_FALSE(instance.repl_handler.SetReplicationRoleReplica(
+      ReplicationServerConfig{.repl_server = Endpoint(local_host, ports[0])}, std::nullopt));
+
+  EXPECT_FALSE(instance.repl_handler.IsReplica());
+  EXPECT_EQ(store->List().size(), 1U);
+}
+
+TEST_F(ReplicationTest, DemoteFailingToLockTheRoleKeepsBranches) {
+  MinMemgraph instance(WithVersioning(main_conf));
+
+  auto *store = instance.db.version_store();
+  ASSERT_NE(store, nullptr);
+  ASSERT_TRUE(store->CreateBranch("kept").has_value());
+  {
+    auto const held = instance.repl_state.Lock();  // TryLock in the demotion fails
+    EXPECT_FALSE(instance.repl_handler.SetReplicationRoleReplica(
+        ReplicationServerConfig{.repl_server = Endpoint(local_host, ports[0])}, std::nullopt));
+  }
+  EXPECT_FALSE(instance.repl_handler.IsReplica());
+  EXPECT_TRUE(store->Exists("kept")) << "a demotion that did not happen dropped the branches of a MAIN";
+}
+
+TEST_F(ReplicationTest, ReplicaResyncDropsBranches) {
+  MinMemgraph main(WithVersioning(main_conf));
+  MinMemgraph replica(WithVersioning(repl_conf));
+
+  ASSERT_TRUE(replica.repl_handler.TrySetReplicationRoleReplica(
+      ReplicationServerConfig{.repl_server = Endpoint(local_host, ports[0])}));
+  ASSERT_TRUE(main.repl_handler
+                  .TryRegisterReplica(ReplicationClientConfig{
+                      .name = replicas[0],
+                      .mode = ReplicationMode::SYNC,
+                      .repl_server_endpoint = Endpoint(local_host, ports[0]),
+                  })
+                  .has_value());
+  ASSERT_TRUE(WaitUntil([&] { return main.db.storage()->GetReplicaState(replicas[0]) == ReplicaState::READY; }));
+
+  auto *mem_storage = static_cast<InMemoryStorage *>(main.db.storage());
+  auto *replica_store = replica.db.version_store();
+  ASSERT_NE(replica_store, nullptr);
+
+  // A branch created on the replica's store stands in for one held from the state the resync discards.
+  // Without a snapshot on main the resync ships the current WAL; with one, the snapshot.
+  for (bool const snapshot : {false, true}) {
+    {
+      const memgraph::memory::DbArenaScope arena_scope{&main.db.Arena()};
+      auto acc = main.db.Access(memgraph::storage::WRITE);
+      acc->CreateVertex();
+      ASSERT_TRUE(acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
+    }
+    if (snapshot) ASSERT_TRUE(mem_storage->CreateSnapshot(true).has_value());
+    ASSERT_TRUE(replica_store->CreateBranch("stale").has_value());
+
+    {
+      auto const locked_clients = mem_storage->repl_storage_state_.replication_storage_clients_.ReadLock();
+      auto const protector = memgraph::dbms::DatabaseProtector{main.db_acc};
+      for (auto const &client : *locked_clients) client->ForceRecoverReplica(mem_storage, protector);
+    }
+    ASSERT_TRUE(WaitUntil([&] { return main.db.storage()->GetReplicaState(replicas[0]) == ReplicaState::READY; }));
+
+    EXPECT_TRUE(replica_store->List().empty()) << "snapshot: " << snapshot;
+  }
+}
+
+TEST_F(ReplicationTest, ReplicaResyncIsRefusedWhenDroppingBranchesFails) {
+  MinMemgraph main(WithVersioning(main_conf));
+  MinMemgraph replica(WithVersioning(repl_conf));
+
+  ASSERT_TRUE(replica.repl_handler.TrySetReplicationRoleReplica(
+      ReplicationServerConfig{.repl_server = Endpoint(local_host, ports[0])}));
+  ASSERT_TRUE(main.repl_handler
+                  .TryRegisterReplica(ReplicationClientConfig{
+                      .name = replicas[0],
+                      .mode = ReplicationMode::SYNC,
+                      .repl_server_endpoint = Endpoint(local_host, ports[0]),
+                  })
+                  .has_value());
+  ASSERT_TRUE(WaitUntil([&] { return main.db.storage()->GetReplicaState(replicas[0]) == ReplicaState::READY; }));
+
+  auto *mem_storage = static_cast<InMemoryStorage *>(main.db.storage());
+  auto *replica_store = replica.db.version_store();
+  ASSERT_NE(replica_store, nullptr);
+  {
+    const memgraph::memory::DbArenaScope arena_scope{&main.db.Arena()};
+    auto acc = main.db.Access(memgraph::storage::WRITE);
+    acc->CreateVertex();
+    ASSERT_TRUE(acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
+  }
+  ASSERT_TRUE(mem_storage->CreateSnapshot(true).has_value());
+  ASSERT_TRUE(replica_store->CreateBranch("stale").has_value());
+
+  // A next_branch_id below 2 makes the ledger refuse every write, standing in for a failing KVStore.
+  replica_store->Restore(1, {});
+  auto const force_resync = [&] {
+    auto const locked_clients = mem_storage->repl_storage_state_.replication_storage_clients_.ReadLock();
+    auto const protector = memgraph::dbms::DatabaseProtector{main.db_acc};
+    for (auto const &client : *locked_clients) client->ForceRecoverReplica(mem_storage, protector);
+  };
+  auto const replica_vertices = [&] { return replica.db.Access(memgraph::storage::READ)->ApproximateVertexCount(); };
+  ASSERT_EQ(replica_vertices(), 1U);
+
+  // The heartbeat can mark an in-sync replica READY again right after a refused resync, so the recovery counters
+  // tell what the resync did.
+  auto const &metrics = memgraph::metrics::Metrics().global;
+  auto const success_before = metrics.replica_recovery_success->Value();
+  auto const fail_before = metrics.replica_recovery_fail->Value();
+  force_resync();
+  ASSERT_TRUE(WaitUntil([&] { return metrics.replica_recovery_fail->Value() > fail_before; }))
+      << "the resync was not refused";
+  EXPECT_EQ(metrics.replica_recovery_success->Value(), success_before)
+      << "the resync went ahead with a branch in place";
+  EXPECT_EQ(replica_store->List().size(), 1U) << "the branch was dropped although the drop failed";
+
+  replica_store->Restore(10, {});
+  force_resync();
+  ASSERT_TRUE(WaitUntil([&] { return metrics.replica_recovery_success->Value() > success_before; }));
+  EXPECT_TRUE(replica_store->List().empty());
+  EXPECT_EQ(replica_vertices(), 1U);
+}
+
+TEST_F(ReplicationTest, RestartAsReplicaDropsRecoveredBranches) {
+  auto conf = main_conf;
+  conf.experimental_versioning = true;
+  conf.durability.recover_on_startup = true;
+  conf.durability.restore_replication_state_on_startup = true;
+
+  {
+    MinMemgraph main(conf);
+    {
+      const memgraph::memory::DbArenaScope arena_scope{&main.db.Arena()};
+      auto acc = main.db.Access(memgraph::storage::WRITE);
+      acc->CreateVertex();
+      ASSERT_TRUE(acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
+    }
+    ASSERT_TRUE(main.db.version_store()->CreateBranch("recorded").has_value());
+    // Persist the REPLICA role without going through the demotion, which would drop the branch itself.
+    ASSERT_TRUE(main.repl_state.Lock()->SetReplicationRoleReplica(
+        ReplicationServerConfig{.repl_server = Endpoint(local_host, ports[0])}, std::nullopt));
+  }
+
+  MinMemgraph restarted(conf);
+  ASSERT_TRUE(restarted.repl_state.ReadLock()->IsReplica());
+  auto *store = restarted.db.version_store();
+  ASSERT_NE(store, nullptr);
+  EXPECT_TRUE(store->List().empty());
+}
+#endif  // MG_ENTERPRISE

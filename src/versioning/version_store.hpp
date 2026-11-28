@@ -235,4 +235,9 @@ class VersionStore {
   uint64_t next_branch_id_{2};
 };
 
+// Drops every branch of `store`, for an instance that is or becomes a REPLICA (a REPLICA has no branches): the one
+// automatic drop of branches. Forced, so attached sessions are not waited for. False (logged) if any drop failed; the
+// branches that could be dropped are gone.
+bool DropBranchesOnReplica(VersionStore &store, std::string_view database, std::string_view occasion);
+
 }  // namespace memgraph::versioning
