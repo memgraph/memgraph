@@ -277,13 +277,15 @@ inline std::map<std::string, std::string> Named(ms::Storage &st,
   return named;
 }
 
-// Base-delete counts, touched gates of the labels and properties the workloads name, and change filters of every base
-// object. Replay records only logged changes, so it must leave the same traces as the live run.
+// The branch's counts, base-delete counts, touched gates of the labels and properties the workloads name, and change
+// filters of every base object. Replay records only logged changes, so it must leave the same traces as the live run.
 inline std::string Bookkeeping(memgraph::dbms::Database &db, mv::BranchCore &core, const Base &base) {
   auto &st = *db.storage();
   std::ostringstream out;
   const auto deletes = core.BaseDeletes();
   out << "deletes v=" << deletes.vertices << " e=" << deletes.edges << "\n";
+  const auto counts = core.ApproximateCounts();
+  out << "counts v=" << counts.vertices << " e=" << counts.edges << "\n";
   for (const auto *name : {"L", "M", "X", "NewL", "N"}) {
     out << "label " << name << ":" << core.MayHaveLabelTouched(st.NameToLabel(name)) << "\n";
   }
